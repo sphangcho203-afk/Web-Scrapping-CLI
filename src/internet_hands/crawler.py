@@ -53,7 +53,7 @@ async def crawl(
                 parts = urlsplit(link)
                 if (parts.scheme, parts.hostname, parts.port) == origin and link not in seen:
                     queue.append(link)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- record per-page failures
             pages.append(CrawlPage(url=url, error=f"{type(exc).__name__}: {exc}"))
 
         if queue and delay_seconds > 0:
@@ -70,7 +70,7 @@ async def _robots_for(seed_url: str) -> RobotFileParser:
     try:
         result = await fetch_url(robots_url, max_bytes=512_000, include_body=True)
         parser.parse((result.body_text or "").splitlines())
-    except Exception:
+    except Exception:  # noqa: BLE001 -- robots retrieval failure is non-fatal
         # Fail open when robots cannot be retrieved; caller still remains bounded and same-origin.
         parser.parse([])
     return parser

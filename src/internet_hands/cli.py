@@ -3,11 +3,13 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from typing import Annotated
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
+from .browser import render_page
 from .crawler import crawl as crawl_site
 from .fetcher import (
     extract_links,
@@ -18,14 +20,26 @@ from .fetcher import (
     save_capture,
 )
 from .monitor import monitor_once
+from .pipeline import index_crawl, index_url, run_due_watches
+from .storage import DEFAULT_DB, Store
 
 app = typer.Typer(no_args_is_help=True, help="Internet Hands — raw internet intelligence.")
+watch_app = typer.Typer(no_args_is_help=True, help="Persistent web monitoring jobs.")
+app.add_typer(watch_app, name="watch")
 console = Console()
+DEFAULT_STATE = Path(".internet-hands/state.json")
+DbPath = Annotated[Path, typer.Option("--db")]
+StatePath = Annotated[Path, typer.Option("--state")]
 
 
 def _dump(value) -> None:
     if hasattr(value, "model_dump"):
         value = value.model_dump(mode="json")
+    if isinstance(value, list):
+        value = [
+            item.model_dump(mode="json") if hasattr(item, "model_dump") else item
+            for item in value
+        ]
     console.print_json(json.dumps(value, default=str))
 
 
@@ -82,12 +96,99 @@ def crawl(
 
 
 @app.command()
+def index(
+    url: str,
+    db: DbPath = DEFAULT_DB,
+):
+    """Fetch, extract, persist, and full-text index one public page."""
+    _dump(asyncio.run(index_url(url, db_path=db)))
+
+
+@app.command(name="index-crawl")
+def index_crawl_command(
+    url: str,
+    db: DbPath = DEFAULT_DB,
+    max_pages: int = typer.Option(25, min=1, max=500),
+    delay: float = typer.Option(0.35, min=0.0, max=60.0),
+    respect_robots: bool = typer.Option(True, "--respect-robots/--ignore-robots"),
+):
+    """Crawl a public origin and add extracted pages to the local search index."""
+    result = asyncio.run(
+        index_crawl(
+            url,
+            db_path=db,
+            max_pages=max_pages,
+            delay_seconds=delay,
+            respect_robots=respect_robots,
+        )
+    )
+    _dump(result)
+
+
+@app.command()
+def search(
+    query: str,
+    db: DbPath = DEFAULT_DB,
+    limit: int = typer.Option(20, min=1, max=200),
+):
+    """Search indexed page text with SQLite FTS5."""
+    _dump(Store(db).search(query, limit=limit))
+
+
+@app.command()
+def export(
+    output: Path,
+    db: DbPath = DEFAULT_DB,
+):
+    """Export indexed captures to newline-delimited JSON."""
+    count = Store(db).export_jsonl(output)
+    console.print(f"[green]exported[/green] {count} documents -> {output}")
+
+
+@app.command()
+def browser(
+    url: str,
+    body: bool = typer.Option(False, "--body", help="Print rendered HTML too."),
+):
+    """Render a public page with the optional Playwright browser worker."""
+    result = asyncio.run(render_page(url))
+    if not body:
+        result = result.model_copy(update={"html": ""})
+    _dump(result)
+
+
+@app.command()
 def monitor(
     url: str,
-    state: Path = typer.Option(Path(".internet-hands/state.json"), "--state"),
+    state: StatePath = DEFAULT_STATE,
 ):
     """Capture a hash snapshot and report whether the resource changed."""
     _dump(asyncio.run(monitor_once(url, state)))
+
+
+@watch_app.command("add")
+def watch_add(
+    url: str,
+    every: int = typer.Option(3600, "--every", min=60, help="Interval in seconds."),
+    db: DbPath = DEFAULT_DB,
+):
+    """Create or update a persistent monitoring job."""
+    _dump(Store(db).add_watch(url, every))
+
+
+@watch_app.command("list")
+def watch_list(db: DbPath = DEFAULT_DB):
+    """List persistent monitoring jobs."""
+    _dump(Store(db).list_watches())
+
+
+@watch_app.command("run")
+def watch_run(
+    db: DbPath = DEFAULT_DB,
+    limit: int = typer.Option(100, min=1, max=1000),
+):
+    """Run monitoring jobs that are currently due."""
+    _dump(asyncio.run(run_due_watches(db_path=db, limit=limit)))
 
 
 @app.command(name="download-info")

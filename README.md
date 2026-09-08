@@ -1,28 +1,26 @@
 # 🥷 Internet Hands — Web Scrapping CLI
 
-**Raw internet intelligence, end to end.**
+**Public-web intelligence, end to end.**
 
-**Internet Hands** is the engine inside **Web-Scrapping-CLI** — an open-source toolkit for collecting and inspecting public web data without hiding what happened between your command and the network. It is designed for researchers, developers, defenders, journalists, operators, and anyone who needs repeatable visibility into HTTP resources.
+**Internet Hands** is the engine inside **Web-Scrapping-CLI**: an open-source toolkit for fetching, rendering, extracting, indexing, monitoring, searching, and exporting public web data while preserving provenance back to the source capture.
 
-> Fetch the bytes. Keep the evidence. Understand the change.
+> Fetch the bytes. Keep the evidence. Build knowledge from it.
 
-## What it does
+## v0.2 capabilities
 
-- **Raw fetch** — status, headers, body, redirects, hashes, timing, and provenance.
-- **Link extraction** — discover and normalize links from HTML pages.
-- **API inspection** — call JSON/text APIs and preserve the exact response envelope.
-- **Crawler** — bounded, same-origin crawling with deduplication and optional robots.txt checks.
-- **Web monitor** — snapshot a URL and detect content changes by cryptographic hash.
-- **Health checks** — availability, latency, response status, content type, and TLS-visible endpoint behavior.
-- **Download preparation** — inspect a public file before retrieving it: filename, size, content type, disposition, and source URL.
-- **Artifact store** — every run can produce a machine-readable manifest plus captured body data.
-- **Local API** — expose the engine through FastAPI for your own tools and agents.
-
-## Why this exists
-
-Most scraping tools jump straight to parsed content. Internet Hands keeps the lower-level evidence too: request URL, final URL, response headers, content hash, capture timestamp, and exact response bytes. That makes results easier to verify, diff, reproduce, and audit.
-
-It is intentionally modular. Platform-specific adapters can sit on top of the same fetch/capture pipeline instead of becoming one-off scripts.
+- **Raw fetch** — status, headers, body, redirects, timing, SHA-256, and exact response bytes.
+- **Structured extraction** — title, description, headings, readable text, and normalized links.
+- **Persistent index** — SQLite metadata plus FTS5 full-text search.
+- **Content-addressed object store** — raw response bodies are deduplicated by SHA-256.
+- **Crawl-to-index pipeline** — bounded same-origin collection directly into search.
+- **Persistent web watches** — scheduled jobs, hash change detection, and event history.
+- **API inspection** — JSON/text APIs with the source response envelope preserved.
+- **Browser rendering** — optional isolated Playwright worker for JavaScript-rendered public pages.
+- **Health checks** — availability, latency, status, and content type.
+- **Download preparation** — inspect filename, size, type, disposition, and final URL.
+- **Exports** — newline-delimited JSON for downstream analysis and pipelines.
+- **Adapter SDK foundation** — common extension point for HTTP, JSON APIs, and future platform adapters.
+- **FastAPI control plane** — expose collection, indexing, search, watches, and rendering to apps/agents.
 
 ## Quick start
 
@@ -32,104 +30,138 @@ source .venv/bin/activate
 pip install -e .
 
 ih fetch https://example.com
-ih links https://example.com
-kh="https://api.github.com/repos/python/cpython"
-ih api "$kh"
-ih health https://example.com
+ih index https://example.com
+ih search "example domain"
 ```
 
-Capture a response to disk:
+Index an entire bounded origin:
 
 ```bash
-ih fetch https://example.com --save
+ih index-crawl https://example.com --max-pages 50 --respect-robots
 ```
 
-Crawl a public site, bounded to the same origin:
+Create a persistent watch and run jobs that are due:
 
 ```bash
-ih crawl https://example.com --max-pages 25 --respect-robots
+ih watch add https://example.com --every 3600
+ih watch list
+ih watch run
 ```
 
-Create or compare a monitoring snapshot:
+Export the local knowledge base:
 
 ```bash
-ih monitor https://example.com --state .internet-hands/example.json
+ih export data/export.jsonl
 ```
 
-Run the local API:
+### Optional browser worker
+
+```bash
+pip install -e '.[browser]'
+playwright install chromium
+ih browser https://example.com
+```
+
+The browser worker validates the top-level target and intercepts subresource requests so private, loopback, link-local, and other non-public addresses are blocked by the same policy layer.
+
+## Local API
 
 ```bash
 export INTERNET_HANDS_API_KEY='change-me'
+export INTERNET_HANDS_DB='.internet-hands/internet-hands.db'
 ih serve --host 127.0.0.1 --port 8787
 ```
 
-Then call:
+Examples:
 
 ```bash
 curl -H "X-API-Key: change-me" \
-  'http://127.0.0.1:8787/v1/fetch?url=https%3A%2F%2Fexample.com'
+  'http://127.0.0.1:8787/v1/search?q=example'
+
+curl -X POST -H "X-API-Key: change-me" \
+  'http://127.0.0.1:8787/v1/index?url=https%3A%2F%2Fexample.com'
 ```
 
 ## Architecture
 
 ```text
-CLI / Local API / future UI
+CLI / FastAPI / agents
           │
           ▼
-   Request policy layer
-   ├─ URL validation
-   ├─ private-network blocking
-   ├─ timeout/body limits
-   └─ robots policy for crawl
+   public-target policy
           │
+     ┌────┴─────┐
+     ▼          ▼
+ HTTP worker  Browser worker (optional)
+     │          │
+     └────┬─────┘
           ▼
-      Fetch engine
-   ├─ redirects
-   ├─ raw bytes
-   ├─ headers/status
-   ├─ timing
-   └─ SHA-256
+ raw capture + SHA-256 provenance
           │
-          ├────────► parsers / link graph
-          ├────────► monitor / diff state
-          └────────► artifact manifests
+     ┌────┼─────────────┐
+     ▼    ▼             ▼
+ extract index       monitor
+     │    │             │
+     └────┴──────┬──────┘
+                 ▼
+        SQLite + FTS5 + objects
+                 │
+          search / export / API
 ```
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the roadmap.
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for design details.
 
-## Safety model
+## Data layout
 
-Internet Hands is powerful because it works close to the network layer, but it is not designed to defeat access controls. The default policy:
+By default:
 
-- blocks localhost, link-local, and private-network targets to reduce SSRF risk;
-- only supports `http` and `https` URLs;
-- limits response sizes and timeouts;
-- keeps crawling bounded and same-origin;
-- can honor `robots.txt` for crawling;
-- does not include credential theft, CAPTCHA bypass, auth bypass, exploit delivery, or stealth/evasion logic.
+```text
+.internet-hands/
+├── internet-hands.db
+└── objects/
+    └── ab/
+        └── abcd...sha256
+```
 
-If a source needs authentication, use an official API or a session/token you are authorized to use in a dedicated adapter.
+The database stores metadata, extracted documents, FTS records, watch jobs, and watch events. Raw response bodies live in a content-addressed object store and are referenced from capture records.
+
+## Safety and deployment model
+
+Internet Hands is meant for public web data and sources you are authorized to access. It is deliberately close to the network layer, so the defaults matter:
+
+- localhost, private, link-local, multicast, reserved, and unspecified targets are blocked;
+- only `http` and `https` are supported;
+- redirect destinations are revalidated;
+- browser subrequests are filtered by the same target policy;
+- crawl scope is bounded and same-origin;
+- `robots.txt` can be honored for crawl/index operations;
+- response size and timeout limits are enforced;
+- it does not provide credential theft, authentication bypass, CAPTCHA defeat, exploit delivery, or stealth/evasion features.
+
+For an internet-facing deployment, add authenticated users, quotas, network-level egress controls, isolated browser containers, and observability. Do not expose an unrestricted arbitrary-URL fetch API anonymously.
 
 ## Roadmap
 
-- [x] Raw fetch + provenance
-- [x] Link extraction
+- [x] Raw fetch + exact-byte provenance
+- [x] Link extraction and document extraction
 - [x] API inspection
 - [x] Same-origin crawler
-- [x] Change monitoring
-- [x] Health checks
-- [x] Download metadata inspection
+- [x] Crawl-to-index pipeline
+- [x] SQLite + FTS5 knowledge index
+- [x] Persistent scheduled watches + event store
+- [x] Health and download inspection
+- [x] Optional Playwright browser worker
+- [x] Adapter SDK foundation
+- [x] JSONL export
 - [x] FastAPI service
-- [ ] Scheduled monitors + event stream
-- [ ] SQLite/Postgres artifact index
-- [ ] Browser-rendered pages through an isolated Playwright worker
-- [ ] Platform adapter SDK
-- [ ] Content extraction pipelines
-- [ ] Search/index layer
-- [ ] Web dashboard with capture graph and diffs
-- [ ] Distributed workers and queues
-- [ ] Export bundles: JSONL / WARC / Parquet
+- [ ] Diff engine: text, headers, DOM, and visual changes
+- [ ] WARC export and import
+- [ ] Parquet export
+- [ ] Postgres backend
+- [ ] Queue-backed distributed workers
+- [ ] Web dashboard with search, capture graph, and watch timeline
 - [ ] Signed provenance manifests
+- [ ] Production adapter packages for official/public platform APIs
 
 ## Repository
 

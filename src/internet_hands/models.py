@@ -75,3 +75,64 @@ class DownloadInfo(BaseModel):
 class ApiEnvelope(BaseModel):
     fetch: FetchResult
     parsed: Any | None = None
+
+
+class ExtractedDocument(BaseModel):
+    url: str
+    title: str | None = None
+    description: str | None = None
+    text: str
+    headings: list[str] = Field(default_factory=list)
+    links: list[str] = Field(default_factory=list)
+    captured_at: datetime
+    sha256: str
+
+
+class IndexResult(BaseModel):
+    capture_id: int
+    url: str
+    title: str | None = None
+    sha256: str
+    text_length: int
+    links_found: int
+
+
+class SearchHit(BaseModel):
+    document_id: int
+    url: str
+    title: str | None = None
+    description: str | None = None
+    snippet: str
+    score: float
+    captured_at: datetime
+    sha256: str
+
+
+class WatchJob(BaseModel):
+    id: int
+    url: str
+    interval_seconds: int
+    enabled: bool
+    last_checked_at: datetime | None = None
+    last_sha256: str | None = None
+    next_run_at: datetime
+
+
+class WatchRun(BaseModel):
+    watch_id: int
+    url: str
+    checked_at: datetime
+    changed: bool
+    status_code: int | None = None
+    sha256: str | None = None
+    error: str | None = None
+
+
+class BrowserResult(BaseModel):
+    request_url: str
+    final_url: str
+    status_code: int | None = None
+    title: str | None = None
+    html: str
+    sha256: str
+    captured_at: datetime
