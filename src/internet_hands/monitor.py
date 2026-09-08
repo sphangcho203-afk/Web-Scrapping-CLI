@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .fetcher import fetch_url
@@ -12,7 +12,7 @@ async def monitor_once(url: str, state_path: Path) -> MonitorResult:
     current = MonitorState(
         url=result.final_url,
         sha256=result.sha256,
-        checked_at=datetime.now(timezone.utc),
+        checked_at=datetime.now(UTC),
         status_code=result.status_code,
         content_length=result.content_length,
     )

@@ -4,7 +4,7 @@ import base64
 import hashlib
 import json
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote, urljoin, urlsplit
@@ -14,7 +14,7 @@ import httpx
 from .models import ApiEnvelope, DownloadInfo, FetchResult, HealthResult, LinkResult
 from .policy import validate_public_http_url
 
-DEFAULT_UA = "InternetHands/0.1 (+https://github.com/sphangcho203-afk/Web-Scrapping-CLI)"
+DEFAULT_UA = "InternetHands/0.2 (+https://github.com/sphangcho203-afk/Web-Scrapping-CLI)"
 REDIRECT_CODES = {301, 302, 303, 307, 308}
 
 
@@ -86,10 +86,9 @@ async def fetch_url(
     text: str | None = None
     encoded: str | None = None
     if include_body:
+        encoded = base64.b64encode(body).decode("ascii")
         if _looks_textual(content_type):
             text = body.decode(encoding or "utf-8", errors="replace")
-        else:
-            encoded = base64.b64encode(body).decode("ascii")
 
     return FetchResult(
         request_url=url,
@@ -100,7 +99,7 @@ async def fetch_url(
         content_length=len(body),
         sha256=hashlib.sha256(body).hexdigest(),
         elapsed_ms=round(elapsed_ms, 2),
-        captured_at=datetime.now(timezone.utc),
+        captured_at=datetime.now(UTC),
         body_text=text,
         body_base64=encoded,
     )
@@ -144,7 +143,7 @@ async def health_check(url: str, *, timeout: float = 10.0) -> HealthResult:
             elapsed_ms=result.elapsed_ms,
             content_type=result.content_type,
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- health boundary returns failures as data
         return HealthResult(url=url, ok=False, error=f"{type(exc).__name__}: {exc}")
 
 
@@ -196,10 +195,10 @@ def save_capture(result: FetchResult, root: Path = Path("data/runs")) -> Path:
     target.mkdir(parents=True, exist_ok=False)
     manifest = result.model_copy(update={"body_text": None, "body_base64": None})
     (target / "manifest.json").write_text(manifest.model_dump_json(indent=2), encoding="utf-8")
+    if result.body_base64 is not None:
+        (target / "body.bin").write_bytes(base64.b64decode(result.body_base64))
     if result.body_text is not None:
         (target / "body.txt").write_text(result.body_text, encoding="utf-8")
-    elif result.body_base64 is not None:
-        (target / "body.bin").write_bytes(base64.b64decode(result.body_base64))
     return target
 
 

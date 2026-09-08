@@ -1,3 +1,3 @@
-"""Internet Hands: raw internet intelligence primitives."""
+"""Internet Hands: public-web collection, indexing, monitoring, and analysis primitives."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
