@@ -350,7 +350,7 @@ class BrowserSandboxManager(SandboxManager):
         except json.JSONDecodeError as exc:
             raise ValueError("browser runtime returned invalid JSON") from exc
         if not isinstance(data, dict):
-            raise ValueError("browser runtime returned an invalid result object")
+            raise TypeError("browser runtime returned an invalid result object")
         return data
 
     async def _sandbox_root(self, session_id: str) -> str:
