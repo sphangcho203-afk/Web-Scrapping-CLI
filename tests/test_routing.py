@@ -9,13 +9,21 @@ def test_static_route_always_has_native_http():
 
 
 def test_dynamic_route_prefers_native_playwright_when_installed(monkeypatch):
-    monkeypatch.setattr(routing.util, "find_spec", lambda name: object() if name == "playwright" else None)
+    monkeypatch.setattr(
+        routing,
+        "module_available",
+        lambda name: name == "playwright",
+    )
     plan = route_backend(BackendIntent.DYNAMIC)
     assert plan["selected"] == "native-playwright"
     assert plan["candidates"][0]["runtime_ready"] is True
 
 
 def test_article_route_can_select_trafilatura(monkeypatch):
-    monkeypatch.setattr(routing.util, "find_spec", lambda name: object() if name == "trafilatura" else None)
+    monkeypatch.setattr(
+        routing,
+        "module_available",
+        lambda name: name == "trafilatura",
+    )
     plan = route_backend(BackendIntent.ARTICLE)
     assert plan["selected"] == "trafilatura"
