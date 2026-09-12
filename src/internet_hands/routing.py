@@ -2,11 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from importlib import util
 from pathlib import Path
 from typing import Any
 
-from .backends import DEFAULT_BACKEND_ROOT, backend_status
+from .backends import DEFAULT_BACKEND_ROOT, backend_status, module_available
 
 
 class BackendIntent(StrEnum):
@@ -95,12 +94,10 @@ def _candidate(name: str, reason: str, *, root: Path) -> RouteCandidate:
     if name == "native-http":
         return RouteCandidate(name, "native", reason)
     if name == "native-playwright":
-        ready = util.find_spec("playwright") is not None
+        ready = module_available("playwright")
         return RouteCandidate(name, "runtime-ready" if ready else "unavailable", reason)
-    if name == "trafilatura":
-        ready = util.find_spec("trafilatura") is not None
-        if ready:
-            return RouteCandidate(name, "runtime-ready", reason)
+    if name == "trafilatura" and module_available("trafilatura"):
+        return RouteCandidate(name, "runtime-ready", reason)
 
     status = backend_status(name, root=root)
     if status.get("command_ready") or status.get("import_ready"):
