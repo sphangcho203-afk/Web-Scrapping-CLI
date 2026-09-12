@@ -106,6 +106,7 @@ class VercelSandboxProvider:
             session.get("id")
             or sandbox.get("sessionId")
             or sandbox.get("session_id")
+            or sandbox.get("currentSessionId")
             or sandbox.get("id")
             or ""
         )
@@ -119,6 +120,35 @@ class VercelSandboxProvider:
             routes=[item for item in routes if isinstance(item, dict)],
             raw=data,
         )
+
+    @staticmethod
+    def _command_result(
+        session_id: str,
+        command_obj: dict[str, Any],
+        *,
+        stdout: str = "",
+        stderr: str = "",
+        events: list[dict[str, Any]] | None = None,
+    ) -> CommandResult:
+        exit_code = command_obj.get("exitCode")
+        try:
+            parsed_exit = int(exit_code) if exit_code is not None else None
+        except (TypeError, ValueError):
+            parsed_exit = None
+        return CommandResult(
+            session_id=session_id,
+            command_id=str(command_obj.get("id")) if command_obj.get("id") else None,
+            exit_code=parsed_exit,
+            stdout=stdout,
+            stderr=stderr,
+            events=events or [],
+            raw=command_obj,
+        )
+
+    @staticmethod
+    def _command_object(data: dict[str, Any]) -> dict[str, Any]:
+        command = data.get("command")
+        return command if isinstance(command, dict) else data
 
     async def create(self, spec: SandboxSpec) -> SandboxRef:
         payload: dict[str, Any] = {
@@ -149,28 +179,39 @@ class VercelSandboxProvider:
         )
         return self._ref(self._json(response), name)
 
-    async def exec(
+    async def _run_command(
         self,
         session_id: str,
         command: str,
-        args: list[str] | None = None,
+        args: list[str] | None,
         *,
-        cwd: str | None = None,
-        env: dict[str, str] | None = None,
-        sudo: bool = False,
-        timeout_ms: int = 30_000,
+        cwd: str | None,
+        env: dict[str, str] | None,
+        sudo: bool,
+        timeout_ms: int,
+        wait: bool,
+        logs: bool,
     ) -> CommandResult:
         payload: dict[str, Any] = {
             "command": command,
             "args": args or [],
             "env": env or {},
             "sudo": sudo,
-            "wait": True,
-            "logs": True,
+            "wait": wait,
+            "logs": logs,
             "timeout": timeout_ms,
         }
         if cwd:
             payload["cwd"] = cwd
+        path = f"/v2/sandboxes/sessions/{quote(session_id, safe='')}/cmd"
+
+        if not wait:
+            response = await self._request(
+                "POST", path, params=self._params(), json=payload
+            )
+            return self._command_result(
+                session_id, self._command_object(self._json(response))
+            )
 
         headers = {"Authorization": f"Bearer {self.token}"}
         owns_client = self._client is None
@@ -179,7 +220,6 @@ class VercelSandboxProvider:
         events: list[dict[str, Any]] = []
         raw_lines: list[str] = []
         try:
-            path = f"/v2/sandboxes/sessions/{quote(session_id, safe='')}/cmd"
             async with client.stream(
                 "POST",
                 f"{self.base_url}{path}",
@@ -224,21 +264,161 @@ class VercelSandboxProvider:
                     stdout_parts.append(text)
         if not stdout_parts and not stderr_parts and raw_lines:
             stdout_parts = raw_lines
-
-        exit_code = command_obj.get("exitCode")
-        try:
-            parsed_exit = int(exit_code) if exit_code is not None else None
-        except (TypeError, ValueError):
-            parsed_exit = None
-        return CommandResult(
-            session_id=session_id,
-            command_id=str(command_obj.get("id")) if command_obj.get("id") else None,
-            exit_code=parsed_exit,
+        return self._command_result(
+            session_id,
+            command_obj,
             stdout="\n".join(stdout_parts),
             stderr="\n".join(stderr_parts),
             events=events,
-            raw=command_obj,
         )
+
+    async def exec(
+        self,
+        session_id: str,
+        command: str,
+        args: list[str] | None = None,
+        *,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        sudo: bool = False,
+        timeout_ms: int = 30_000,
+    ) -> CommandResult:
+        return await self._run_command(
+            session_id,
+            command,
+            args,
+            cwd=cwd,
+            env=env,
+            sudo=sudo,
+            timeout_ms=timeout_ms,
+            wait=True,
+            logs=True,
+        )
+
+    async def start(
+        self,
+        session_id: str,
+        command: str,
+        args: list[str] | None = None,
+        *,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        sudo: bool = False,
+        timeout_ms: int = 120_000,
+    ) -> CommandResult:
+        return await self._run_command(
+            session_id,
+            command,
+            args,
+            cwd=cwd,
+            env=env,
+            sudo=sudo,
+            timeout_ms=timeout_ms,
+            wait=False,
+            logs=False,
+        )
+
+    async def command(
+        self,
+        session_id: str,
+        command_id: str,
+        *,
+        wait: bool = False,
+    ) -> dict[str, Any]:
+        response = await self._request(
+            "GET",
+            (
+                f"/v2/sandboxes/sessions/{quote(session_id, safe='')}/cmd/"
+                f"{quote(command_id, safe='')}"
+            ),
+            params=self._params({"wait": str(wait).lower()}),
+        )
+        return self._json(response)
+
+    async def list_commands(self, session_id: str) -> list[dict[str, Any]]:
+        response = await self._request(
+            "GET",
+            f"/v2/sandboxes/sessions/{quote(session_id, safe='')}/cmd",
+            params=self._params(),
+        )
+        data = self._json(response)
+        commands = data.get("commands")
+        if not isinstance(commands, list):
+            return []
+        return [item for item in commands if isinstance(item, dict)]
+
+    async def command_logs(
+        self,
+        session_id: str,
+        command_id: str,
+        *,
+        max_bytes: int = 1_000_000,
+    ) -> dict[str, Any]:
+        path = (
+            f"/v2/sandboxes/sessions/{quote(session_id, safe='')}/cmd/"
+            f"{quote(command_id, safe='')}/logs"
+        )
+        headers = {"Authorization": f"Bearer {self.token}"}
+        owns_client = self._client is None
+        client = self._client or httpx.AsyncClient(timeout=120)
+        events: list[dict[str, Any]] = []
+        lines: list[str] = []
+        used = 0
+        truncated = False
+        try:
+            async with client.stream(
+                "GET",
+                f"{self.base_url}{path}",
+                params=self._params(),
+                headers=headers,
+            ) as response:
+                if response.is_error:
+                    body = (await response.aread()).decode("utf-8", errors="replace")[:2000]
+                    raise VercelSandboxError(
+                        f"Vercel Sandbox logs failed with {response.status_code}: {body}"
+                    )
+                async for line in response.aiter_lines():
+                    encoded = (line + "\n").encode()
+                    if used + len(encoded) > max_bytes:
+                        truncated = True
+                        break
+                    used += len(encoded)
+                    lines.append(line)
+                    try:
+                        item = json.loads(line)
+                    except json.JSONDecodeError:
+                        item = {"data": line}
+                    if isinstance(item, dict):
+                        events.append(item)
+        finally:
+            if owns_client:
+                await client.aclose()
+        return {
+            "session_id": session_id,
+            "command_id": command_id,
+            "text": "\n".join(lines),
+            "events": events,
+            "bytes": used,
+            "truncated": truncated,
+        }
+
+    async def kill_command(
+        self,
+        session_id: str,
+        command_id: str,
+        *,
+        signal: int = 15,
+    ) -> dict[str, Any]:
+        response = await self._request(
+            "POST",
+            (
+                f"/v2/sandboxes/sessions/{quote(session_id, safe='')}/cmd/"
+                f"{quote(command_id, safe='')}/kill"
+            ),
+            params=self._params(),
+            json={"signal": signal},
+        )
+        return self._json(response)
 
     async def read_file(
         self, session_id: str, path: str, *, cwd: str | None = None
@@ -302,3 +482,60 @@ class VercelSandboxProvider:
             json={},
         )
         return self._json(response)
+
+    async def stop(self, session_id: str) -> dict[str, Any]:
+        response = await self._request(
+            "POST",
+            f"/v2/sandboxes/sessions/{quote(session_id, safe='')}/stop",
+            params=self._params(),
+        )
+        return self._json(response)
+
+    async def delete(self, name: str) -> dict[str, Any]:
+        response = await self._request(
+            "DELETE",
+            f"/v2/sandboxes/{quote(name, safe='')}",
+            params=self._params({"projectId": self.project_id}),
+        )
+        if not response.content:
+            return {"name": name, "deleted": True}
+        return self._json(response)
+
+    async def fork(
+        self,
+        source_name: str,
+        new_name: str,
+        *,
+        ports: list[int] | None = None,
+        timeout: str | None = None,
+        vcpus: int | None = None,
+        memory_mb: int | None = None,
+        image: str | None = None,
+        persistent: bool = True,
+    ) -> SandboxRef:
+        payload: dict[str, Any] = {
+            "name": new_name,
+            "persistent": persistent,
+            "networkPolicy": public_network_policy(),
+            "tags": {"internet-hands": "sandbox-fork"},
+        }
+        if ports is not None:
+            payload["ports"] = ports
+        if timeout is not None:
+            payload["timeout"] = timeout
+        if vcpus is not None or memory_mb is not None:
+            resources: dict[str, int] = {}
+            if vcpus is not None:
+                resources["vcpus"] = vcpus
+            if memory_mb is not None:
+                resources["memory"] = memory_mb
+            payload["resources"] = resources
+        if image is not None:
+            payload["image"] = image
+        response = await self._request(
+            "POST",
+            f"/v2/sandboxes/{quote(source_name, safe='')}/fork",
+            params=self._params({"projectId": self.project_id}),
+            json=payload,
+        )
+        return self._ref(self._json(response), new_name)
