@@ -1,6 +1,6 @@
 import pytest
 
-import internet_hands.public_data as public_data
+from internet_hands import public_data
 
 
 def test_language_validation_blocks_host_injection():
