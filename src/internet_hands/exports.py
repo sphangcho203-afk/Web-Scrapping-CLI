@@ -10,8 +10,6 @@ from http import HTTPStatus
 from pathlib import Path
 from typing import BinaryIO
 
-from .storage import DEFAULT_DB
-
 
 def export_warc(db_path: Path, target: Path) -> int:
     """Export stored captures as WARC/1.1 response records."""
