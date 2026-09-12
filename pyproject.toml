@@ -23,6 +23,23 @@ dependencies = [
 [project.optional-dependencies]
 browser = ["playwright>=1.50,<2"]
 extraction = ["trafilatura>=2.2,<3"]
+postgres = ["psycopg[binary]>=3.2,<4"]
+parquet = ["pyarrow>=15,<24"]
+crawlee = ["crawlee>=1,<2"]
+crawl4ai = ["crawl4ai>=0.9.3,<1"]
+scrapy = ["Scrapy>=2.12,<3"]
+fleet = [
+  "psycopg[binary]>=3.2,<4",
+]
+all-backends = [
+  "playwright>=1.50,<2",
+  "trafilatura>=2.2,<3",
+  "psycopg[binary]>=3.2,<4",
+  "pyarrow>=15,<24",
+  "crawlee>=1,<2",
+  "crawl4ai>=0.9.3,<1",
+  "Scrapy>=2.12,<3",
+]
 dev = [
   "pytest>=8.3.4,<9",
   "pytest-asyncio>=0.25.3,<1",
@@ -40,6 +57,8 @@ ih-media = "internet_hands.media_cli:app"
 ih-search = "internet_hands.search_cli:app"
 ih-backends = "internet_hands.backends_cli:app"
 ih-hunt = "internet_hands.hunt_cli:app"
+ih-fleet = "internet_hands.fleet_cli:app"
+ih-export = "internet_hands.export_cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/internet_hands"]
