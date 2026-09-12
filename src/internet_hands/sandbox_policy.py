@@ -26,6 +26,7 @@ PUBLIC_NETWORK_DENY_CIDRS = [
 @dataclass(frozen=True, slots=True)
 class SandboxLimits:
     max_command_timeout_ms: int = 120_000
+    max_background_timeout_ms: int = 3_600_000
     max_output_bytes: int = 1_000_000
     max_vcpus: int = 4
     max_memory_mb: int = 8192
@@ -62,6 +63,15 @@ def validate_timeout_ms(timeout_ms: int, limits: SandboxLimits) -> int:
     if not 100 <= timeout_ms <= limits.max_command_timeout_ms:
         raise ValueError(
             f"command timeout must be between 100 and {limits.max_command_timeout_ms} ms"
+        )
+    return timeout_ms
+
+
+def validate_background_timeout_ms(timeout_ms: int, limits: SandboxLimits) -> int:
+    if not 100 <= timeout_ms <= limits.max_background_timeout_ms:
+        raise ValueError(
+            "background timeout must be between 100 and "
+            f"{limits.max_background_timeout_ms} ms"
         )
     return timeout_ms
 
