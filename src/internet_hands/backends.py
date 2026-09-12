@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 import shutil
 import subprocess
 from dataclasses import asdict, dataclass
+from importlib import util
 from pathlib import Path
 from typing import Any
 
@@ -194,7 +194,7 @@ def backend_status(
 
     import_ready = None
     if spec.import_name:
-        import_ready = importlib.util.find_spec(spec.import_name) is not None
+        import_ready = util.find_spec(spec.import_name) is not None
 
     return {
         **asdict(spec),
