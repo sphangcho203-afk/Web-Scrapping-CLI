@@ -1,6 +1,6 @@
 import pytest
 
-import internet_hands.web_search as web_search
+from internet_hands import web_search
 from internet_hands.web_search import SearchKind
 
 
