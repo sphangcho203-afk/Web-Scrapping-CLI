@@ -38,6 +38,7 @@ ih-data = "internet_hands.data_cli:app"
 ih-media = "internet_hands.media_cli:app"
 ih-search = "internet_hands.search_cli:app"
 ih-backends = "internet_hands.backends_cli:app"
+ih-hunt = "internet_hands.hunt_cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/internet_hands"]
