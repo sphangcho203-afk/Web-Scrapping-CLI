@@ -8,7 +8,10 @@ from rich.console import Console
 
 from .openapi import discover_openapi
 
-app = typer.Typer(no_args_is_help=True, help="Discover read-only operations from public OpenAPI specs.")
+app = typer.Typer(
+    no_args_is_help=True,
+    help="Discover read-only operations from public OpenAPI specs.",
+)
 console = Console()
 
 
