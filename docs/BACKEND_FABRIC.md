@@ -24,6 +24,8 @@ native Playwright Crawlee Trafilatura
           |
    policy + provenance
           |
+ single hunt / durable fleet
+          |
  object store + SQLite/FTS5
           |
  search / watch / API / agent
@@ -33,12 +35,12 @@ native Playwright Crawlee Trafilatura
 
 | Backend | Role | License posture | Integration state |
 | --- | --- | --- | --- |
-| Internet Hands native HTTP | exact-byte fetch, bounded hunt, indexing | project MIT | active |
+| Internet Hands native HTTP | exact-byte fetch, bounded hunt, fleet worker, indexing | project MIT | active |
 | Native Playwright | guarded JS rendering | Playwright dependency | active optional extra |
 | Microsoft Playwright MCP | persistent agent/browser interaction | Apache-2.0 | MCP sidecar config ready |
-| Crawlee Python | queues, retries, sessions, scalable HTTP/browser crawl | Apache-2.0 | curated/staged worker backend |
-| Scrapy | high-throughput asynchronous HTTP crawling | BSD-3-Clause | curated/staged worker backend |
-| Crawl4AI | LLM-oriented browser extraction | Apache-2.0 plus upstream attribution requirement | curated/staged worker backend |
+| Crawlee Python | queue-oriented/scalable HTTP crawling | Apache-2.0 | optional execution adapter + curated source |
+| Scrapy | high-throughput asynchronous HTTP crawling | BSD-3-Clause | optional execution adapter + curated source |
+| Crawl4AI | rendered/LLM-oriented browser extraction | Apache-2.0 plus upstream attribution requirement | optional execution adapter + curated source |
 | Trafilatura | article/main-text + metadata extraction | Apache-2.0 | active optional extraction backend |
 | Firecrawl | optional self-hosted web-data service | AGPL-3.0 core | external-service only by default |
 
@@ -117,7 +119,7 @@ Internet Hands does not expose `browser_run_code_unsafe` through its own remote 
 
 ## Hunt pipeline
 
-`ih-hunt` is the built-in bounded frontier. It can start from explicit URLs, Brave Search results, or both.
+`ih-hunt` is the built-in bounded in-process frontier. It can start from explicit URLs, Brave Search results, or both.
 
 ```bash
 # Same-origin crawl/index.
@@ -138,6 +140,37 @@ ih-hunt run --seed https://example.com --browser-fallback
 ```
 
 The frontier performs URL canonicalization, tracker removal, URL/content deduplication, depth/page/domain caps, per-host pacing and `robots.txt` checks by default. It also expands published RSS/Atom/JSON feeds, sitemap `<loc>` entries and machine-readable interface links.
+
+## Durable fleet execution
+
+For work that must survive worker failure or run across processes/machines, use `ih-fleet`.
+
+```bash
+ih-fleet seed https://example.com --scope origin
+ih-fleet drain --worker-id worker-a --batch-size 16
+ih-fleet stats
+```
+
+The local fleet uses a persistent SQLite lease queue. With `INTERNET_HANDS_POSTGRES_DSN`, the same worker uses a Postgres frontier with `FOR UPDATE SKIP LOCKED` leasing, distributed circuit state and distributed per-host request slots.
+
+External engines are execution backends rather than alternate control planes:
+
+```bash
+pip install -e '.[crawlee]'
+ih-fleet drain --backend crawlee --allow-external-network
+
+pip install -e '.[crawl4ai]'
+ih-fleet drain --backend crawl4ai --allow-external-network
+
+pip install -e '.[scrapy]'
+ih-fleet drain --backend scrapy --allow-external-network
+```
+
+Each adapter normalizes its result back into Internet Hands `FetchResult`, then uses the existing extraction/index/provenance pipeline.
+
+External-engine networking is disabled by default. Crawlers and browsers can perform networking outside the native HTTP transport, so production external-backend workers should run behind public-only egress rules that block private, loopback, link-local and metadata-service destinations.
+
+See [`FLEET_ARCHITECTURE.md`](FLEET_ARCHITECTURE.md).
 
 ## Extraction backend
 
@@ -161,6 +194,10 @@ The router distinguishes:
 
 This prevents a common failure mode where an orchestration layer reports a backend as usable merely because a repository exists on disk.
 
-## Collection boundary
+## Network boundary
 
-The fabric is for public data and sources the operator is authorized to access. The backend layer does not add CAPTCHA solving, authentication bypass, credential theft, stealth/evasion, quota-evasion key rotation, or private-network crawling. Browser requests remain subject to public-network filtering, and production deployments should add network-level egress enforcement as a second boundary.
+The native HTTP path resolves and validates public addresses before connection, then validates the connected peer IP when the transport exposes it. Redirects are revalidated. Native Playwright filters subrequests.
+
+External engines add a different trust boundary because they own part of their networking stack. Their adapters therefore require explicit networking opt-in and should be isolated with public-only network egress in production.
+
+The fabric does not add CAPTCHA solving, authentication bypass, credential theft, stealth/evasion, quota-evasion key rotation, exploit delivery, or private-network crawling.
