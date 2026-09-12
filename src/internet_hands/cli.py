@@ -49,6 +49,9 @@ console = Console()
 DEFAULT_STATE = Path(".internet-hands/state.json")
 DbPath = Annotated[Path, typer.Option("--db")]
 StatePath = Annotated[Path, typer.Option("--state")]
+CapabilityOption = Annotated[Capability | None, typer.Option("--capability")]
+StartDateOption = Annotated[date, typer.Option("--start")]
+EndDateOption = Annotated[date, typer.Option("--end")]
 
 
 def _dump(value) -> None:
@@ -219,7 +222,7 @@ def download_info(url: str):
 @app.command("endpoints")
 def endpoints_command(
     provider: str | None = typer.Option(None, "--provider"),
-    capability: Capability | None = typer.Option(None, "--capability"),
+    capability: CapabilityOption = None,
     ready_only: bool = typer.Option(False, "--ready-only"),
 ):
     """List the built-in official/public endpoint capability catalog."""
@@ -261,8 +264,8 @@ def intel_youtube_channel(target: str):
 
 @intel_app.command("youtube-owner-analytics")
 def intel_youtube_owner_analytics(
-    start: date = typer.Option(..., "--start"),
-    end: date = typer.Option(..., "--end"),
+    start: StartDateOption,
+    end: EndDateOption,
     video: str | None = typer.Option(None, "--video"),
     currency: str = typer.Option("USD", "--currency"),
 ):
