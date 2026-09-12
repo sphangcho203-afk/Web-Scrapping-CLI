@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import time
 from collections import deque
 from dataclasses import asdict, dataclass
@@ -10,10 +11,12 @@ from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.robotparser import RobotFileParser
 
+from .browser import render_page
 from .crawler import _robots_for
 from .discovery import discover_frontier_urls
 from .extractor import extract_document
 from .fetcher import DEFAULT_UA, fetch_url
+from .models import ExtractedDocument, FetchResult
 from .policy import validate_public_http_url
 from .storage import DEFAULT_DB, Store
 from .web_search import SearchKind, brave_search
@@ -52,6 +55,8 @@ class HuntPage:
     title: str | None = None
     links_found: int = 0
     machine_links_found: int = 0
+    backend: str = "http"
+    browser_error: str | None = None
     indexed: bool = False
     duplicate_content: bool = False
     error: str | None = None
@@ -150,6 +155,50 @@ def _collect_search_urls(payload: Any, *, limit: int) -> list[str]:
     return output[:limit]
 
 
+def _should_render(
+    result: FetchResult,
+    document: ExtractedDocument,
+    *,
+    text_threshold: int,
+) -> bool:
+    content_type = (result.content_type or "").lower()
+    body = (result.body_text or "").lower()
+    if result.status_code >= 400 or ("html" not in content_type and "<html" not in body[:1000]):
+        return False
+    if len(document.text.strip()) >= text_threshold:
+        return False
+    dynamic_markers = (
+        "<script",
+        "__next_data__",
+        "data-reactroot",
+        "id=\"root\"",
+        "id='root'",
+        "id=\"app\"",
+        "id='app'",
+    )
+    return any(marker in body for marker in dynamic_markers)
+
+
+def _rendered_fetch(source: FetchResult, rendered) -> FetchResult:
+    payload = rendered.html.encode("utf-8")
+    return FetchResult(
+        request_url=source.request_url,
+        final_url=rendered.final_url,
+        status_code=rendered.status_code or source.status_code,
+        headers={
+            "x-internet-hands-renderer": "playwright",
+            "x-internet-hands-source-sha256": source.sha256,
+        },
+        content_type="text/html; rendered=playwright",
+        content_length=len(payload),
+        sha256=rendered.sha256,
+        elapsed_ms=source.elapsed_ms,
+        captured_at=rendered.captured_at,
+        body_text=rendered.html,
+        body_base64=base64.b64encode(payload).decode("ascii"),
+    )
+
+
 async def search_seeds(query: str, *, count: int = 10) -> list[str]:
     record = await brave_search(query, kind=SearchKind.WEB, count=count)
     response = (record.get("data") or {}).get("response") or {}
@@ -167,6 +216,8 @@ async def hunt(
     per_host_delay: float = 0.35,
     respect_robots: bool = True,
     index: bool = True,
+    browser_fallback: bool = False,
+    browser_text_threshold: int = 200,
     db_path: Path = DEFAULT_DB,
 ) -> dict[str, Any]:
     if not seeds:
@@ -179,6 +230,8 @@ async def hunt(
         raise ValueError("max_domains must be between 1 and 500")
     if not 1 <= concurrency <= 64:
         raise ValueError("concurrency must be between 1 and 64")
+    if not 1 <= browser_text_threshold <= 100_000:
+        raise ValueError("browser_text_threshold must be between 1 and 100000")
 
     normalized_seeds: list[str] = []
     for raw in seeds:
@@ -228,6 +281,22 @@ async def hunt(
 
             result = await limiter.run(task.url, do_fetch)
             document = extract_document(result)
+            if browser_fallback and _should_render(
+                result,
+                document,
+                text_threshold=browser_text_threshold,
+            ):
+                try:
+                    async def do_render():
+                        return await render_page(result.final_url)
+
+                    rendered = await limiter.run(result.final_url, do_render)
+                    result = _rendered_fetch(result, rendered)
+                    document = extract_document(result)
+                    page.backend = "playwright"
+                except RuntimeError as exc:
+                    page.browser_error = f"{type(exc).__name__}: {exc}"
+
             machine_links = discover_frontier_urls(
                 result.body_text or "",
                 result.final_url,
@@ -322,6 +391,8 @@ async def hunt(
             "concurrency": concurrency,
             "per_host_delay": per_host_delay,
             "respect_robots": respect_robots,
+            "browser_fallback": browser_fallback,
+            "browser_text_threshold": browser_text_threshold,
         },
         "summary": {
             "pages": len(pages),
@@ -331,6 +402,7 @@ async def hunt(
             "domains": len(domains),
             "indexed": sum(1 for page in pages if page.indexed),
             "machine_links": sum(page.machine_links_found for page in pages),
+            "playwright_pages": sum(1 for page in pages if page.backend == "playwright"),
         },
         "pages": [asdict(page) for page in pages],
     }
