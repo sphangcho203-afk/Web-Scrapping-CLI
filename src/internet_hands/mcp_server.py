@@ -11,7 +11,6 @@ from starlette.responses import JSONResponse
 from .sandbox_manager import SandboxManager
 from .vercel_sandbox import VercelSandboxProvider
 
-
 sandbox_mcp = MCPServer(
     "Internet Hands",
     instructions=(
