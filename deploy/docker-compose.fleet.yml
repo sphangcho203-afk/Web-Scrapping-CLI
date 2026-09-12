@@ -1,0 +1,88 @@
+name: internet-hands-fleet
+
+x-worker-env: &worker-env
+  INTERNET_HANDS_POSTGRES_DSN: postgresql://internet_hands:internet_hands@postgres:5432/internet_hands
+  INTERNET_HANDS_CONTENT_POSTGRES_DSN: postgresql://internet_hands:internet_hands@postgres:5432/internet_hands
+  INTERNET_HANDS_TELEMETRY_POSTGRES_DSN: postgresql://internet_hands:internet_hands@postgres:5432/internet_hands
+  INTERNET_HANDS_S3_BUCKET: internet-hands
+  INTERNET_HANDS_S3_PREFIX: internet-hands/objects
+  INTERNET_HANDS_S3_ENDPOINT_URL: http://minio:9000
+  AWS_ACCESS_KEY_ID: internet-hands
+  AWS_SECRET_ACCESS_KEY: change-this-minio-secret
+  AWS_REGION: us-east-1
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: internet_hands
+      POSTGRES_PASSWORD: internet_hands
+      POSTGRES_DB: internet_hands
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U internet_hands -d internet_hands"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: internet-hands
+      MINIO_ROOT_PASSWORD: change-this-minio-secret
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9001:9001"
+    restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        until mc alias set local http://minio:9000 internet-hands change-this-minio-secret; do
+          sleep 2
+        done
+        mc mb --ignore-existing local/internet-hands
+        mc anonymous set none local/internet-hands
+    restart: "no"
+
+  worker:
+    build:
+      context: ..
+      dockerfile: Dockerfile.fleet
+    environment:
+      <<: *worker-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    command: ["ih-worker", "--batch-size", "16", "--idle-seconds", "5"]
+    restart: unless-stopped
+
+  tools:
+    build:
+      context: ..
+      dockerfile: Dockerfile.fleet
+    environment:
+      <<: *worker-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    entrypoint: ["/bin/sh", "-lc"]
+    command: ["sleep infinity"]
+    profiles: ["tools"]
+
+volumes:
+  postgres-data:
+  minio-data:
