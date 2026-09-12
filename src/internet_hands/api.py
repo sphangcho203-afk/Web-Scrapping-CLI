@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from datetime import date
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 
@@ -168,8 +169,8 @@ async def api_intel_youtube_channel(target: str = Query(...)):
 
 @app.get("/v1/intel/youtube/owner-analytics", dependencies=[Depends(require_api_key)])
 async def api_intel_youtube_owner_analytics(
-    start: date = Query(...),
-    end: date = Query(...),
+    start: Annotated[date, Query()],
+    end: Annotated[date, Query()],
     video: str | None = None,
     currency: str = "USD",
 ):
