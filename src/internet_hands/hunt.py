@@ -11,6 +11,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.robotparser import RobotFileParser
 
 from .crawler import _robots_for
+from .discovery import discover_frontier_urls
 from .extractor import extract_document
 from .fetcher import DEFAULT_UA, fetch_url
 from .policy import validate_public_http_url
@@ -50,6 +51,7 @@ class HuntPage:
     sha256: str | None = None
     title: str | None = None
     links_found: int = 0
+    machine_links_found: int = 0
     indexed: bool = False
     duplicate_content: bool = False
     error: str | None = None
@@ -226,12 +228,20 @@ async def hunt(
 
             result = await limiter.run(task.url, do_fetch)
             document = extract_document(result)
+            machine_links = discover_frontier_urls(
+                result.body_text or "",
+                result.final_url,
+                content_type=result.content_type,
+                limit=min(max_pages * 4, 5000),
+            )
+            combined_links = list(dict.fromkeys([*document.links, *machine_links]))
             page.url = result.final_url
             page.status_code = result.status_code
             page.content_type = result.content_type
             page.sha256 = result.sha256
             page.title = document.title
-            page.links_found = len(document.links)
+            page.links_found = len(combined_links)
+            page.machine_links_found = len(machine_links)
 
             if result.sha256 in content_hashes:
                 page.duplicate_content = True
@@ -242,7 +252,7 @@ async def hunt(
                 store.save_fetch(result, document)
                 page.indexed = True
 
-            return page, document.links
+            return page, combined_links
         except Exception as exc:  # noqa: BLE001 -- individual page failures are data
             page.error = f"{type(exc).__name__}: {exc}"
             return page, []
@@ -320,6 +330,7 @@ async def hunt(
             "duplicates": sum(1 for page in pages if page.duplicate_content),
             "domains": len(domains),
             "indexed": sum(1 for page in pages if page.indexed),
+            "machine_links": sum(page.machine_links_found for page in pages),
         },
         "pages": [asdict(page) for page in pages],
     }
