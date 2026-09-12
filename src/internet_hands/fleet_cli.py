@@ -19,6 +19,16 @@ app = typer.Typer(no_args_is_help=True, help="Durable Internet Hands crawl fleet
 console = Console()
 FrontierPath = Annotated[Path, typer.Option("--frontier-db")]
 ContentPath = Annotated[Path, typer.Option("--content-db")]
+SeedUrls = Annotated[list[str] | None, typer.Argument()]
+QueryOption = Annotated[str | None, typer.Option("--query")]
+SearchCount = Annotated[int, typer.Option(min=1, max=20)]
+ScopeOption = Annotated[HuntScope, typer.Option("--scope")]
+PriorityOption = Annotated[int, typer.Option("--priority")]
+MaxAttempts = Annotated[int, typer.Option(min=1, max=50)]
+PostgresDsn = Annotated[
+    str | None,
+    typer.Option("--postgres-dsn", envvar="INTERNET_HANDS_POSTGRES_DSN"),
+]
 
 
 def _dump(value) -> None:
@@ -33,18 +43,14 @@ def _frontier(frontier_db: Path, postgres_dsn: str | None):
 
 @app.command("seed")
 def seed(
-    urls: list[str] = typer.Argument(None),
-    query: str | None = typer.Option(None, "--query"),
-    search_count: int = typer.Option(10, min=1, max=20),
-    scope: HuntScope = typer.Option(HuntScope.ORIGIN, "--scope"),
-    priority: int = typer.Option(0, "--priority"),
-    max_attempts: int = typer.Option(4, min=1, max=50),
+    urls: SeedUrls = None,
+    query: QueryOption = None,
+    search_count: SearchCount = 10,
+    scope: ScopeOption = HuntScope.ORIGIN,
+    priority: PriorityOption = 0,
+    max_attempts: MaxAttempts = 4,
     frontier_db: FrontierPath = DEFAULT_FRONTIER_DB,
-    postgres_dsn: str | None = typer.Option(
-        None,
-        "--postgres-dsn",
-        envvar="INTERNET_HANDS_POSTGRES_DSN",
-    ),
+    postgres_dsn: PostgresDsn = None,
 ):
     """Seed one or more URLs, optionally adding Brave search results."""
     targets = list(urls or [])
@@ -73,11 +79,7 @@ def seed(
 @app.command("stats")
 def stats(
     frontier_db: FrontierPath = DEFAULT_FRONTIER_DB,
-    postgres_dsn: str | None = typer.Option(
-        None,
-        "--postgres-dsn",
-        envvar="INTERNET_HANDS_POSTGRES_DSN",
-    ),
+    postgres_dsn: PostgresDsn = None,
 ):
     """Show durable frontier state counts."""
     _dump(_frontier(frontier_db, postgres_dsn).stats())
@@ -125,11 +127,7 @@ def run_once(
     per_host_delay: float = typer.Option(0.35, min=0.0, max=3600.0),
     frontier_db: FrontierPath = DEFAULT_FRONTIER_DB,
     content_db: ContentPath = DEFAULT_DB,
-    postgres_dsn: str | None = typer.Option(
-        None,
-        "--postgres-dsn",
-        envvar="INTERNET_HANDS_POSTGRES_DSN",
-    ),
+    postgres_dsn: PostgresDsn = None,
 ):
     """Lease and process one worker batch."""
     worker = _worker(
@@ -163,11 +161,7 @@ def drain(
     per_host_delay: float = typer.Option(0.35, min=0.0, max=3600.0),
     frontier_db: FrontierPath = DEFAULT_FRONTIER_DB,
     content_db: ContentPath = DEFAULT_DB,
-    postgres_dsn: str | None = typer.Option(
-        None,
-        "--postgres-dsn",
-        envvar="INTERNET_HANDS_POSTGRES_DSN",
-    ),
+    postgres_dsn: PostgresDsn = None,
 ):
     """Process batches until the currently available frontier is empty."""
     worker = _worker(
