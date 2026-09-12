@@ -15,10 +15,13 @@ from .extractor import extract_document
 from .fetcher import DEFAULT_UA, fetch_url
 from .frontier import DEFAULT_FRONTIER_DB, FrontierJob, FrontierStore, JobState
 from .hunt import HuntScope, _rendered_fetch, _same_scope, _should_render, canonicalize_url
+from .object_store import S3ObjectStore
 from .policy import validate_public_http_url
 from .postgres_frontier import PostgresFrontier
+from .postgres_store import PostgresCaptureStore
 from .rate_limit import DistributedHostLimiter
-from .storage import DEFAULT_DB, Store
+from .storage import DEFAULT_DB, DEFAULT_OBJECTS, Store
+from .telemetry import NullTelemetry, TelemetrySink
 
 EXTERNAL_BACKENDS = {"crawlee", "crawlee-http", "crawl4ai", "scrapy"}
 
@@ -52,6 +55,16 @@ class FrontierWorker:
         frontier_db: Path = DEFAULT_FRONTIER_DB,
         postgres_dsn: str | None = None,
         content_db: Path = DEFAULT_DB,
+        content_postgres_dsn: str | None = None,
+        objects_root: Path = DEFAULT_OBJECTS,
+        s3_bucket: str | None = None,
+        s3_prefix: str = "internet-hands/objects",
+        s3_endpoint_url: str | None = None,
+        s3_region: str | None = None,
+        s3_access_key_id: str | None = None,
+        s3_secret_access_key: str | None = None,
+        s3_session_token: str | None = None,
+        telemetry: TelemetrySink | None = None,
         backend: str = "native",
         allow_external_network: bool = False,
         max_depth: int = 5,
@@ -76,6 +89,7 @@ class FrontierWorker:
             raise ValueError("max_depth must be between 0 and 50")
         if not 0.0 <= per_host_delay <= 3600.0:
             raise ValueError("per_host_delay must be between 0 and 3600")
+
         self.backend = normalized_backend
         self.allow_external_network = allow_external_network
         self.max_depth = max_depth
@@ -86,6 +100,8 @@ class FrontierWorker:
         self.per_host_delay = per_host_delay
         self.circuit_threshold = circuit_threshold
         self.circuit_cooldown_seconds = circuit_cooldown_seconds
+        self.telemetry = telemetry or NullTelemetry()
+
         if postgres_dsn:
             postgres_frontier = PostgresFrontier(postgres_dsn)
             self.frontier = postgres_frontier
@@ -93,8 +109,25 @@ class FrontierWorker:
         else:
             self.frontier = FrontierStore(frontier_db)
             self.limiter = DistributedHostLimiter(frontier_db)
-        self.store = Store(content_db)
-        self._robots: dict[str, RobotFileParser | None] = {}
+
+        if content_postgres_dsn:
+            if not s3_bucket:
+                raise ValueError(
+                    "Distributed Postgres capture storage requires s3_bucket so raw objects are "
+                    "shared across worker nodes"
+                )
+            object_store = S3ObjectStore(
+                bucket=s3_bucket,
+                prefix=s3_prefix,
+                endpoint_url=s3_endpoint_url,
+                region_name=s3_region,
+                access_key_id=s3_access_key_id,
+                secret_access_key=s3_secret_access_key,
+                session_token=s3_session_token,
+            )
+            self.store = PostgresCaptureStore(content_postgres_dsn, object_store=object_store)
+        else:
+            self.store = Store(content_db, objects_root)
 
     async def run_once(self, *, batch_size: int = 8) -> WorkerBatchResult:
         jobs = self.frontier.lease(
@@ -103,7 +136,7 @@ class FrontierWorker:
             lease_seconds=self.lease_seconds,
         )
         if not jobs:
-            return WorkerBatchResult(
+            result = WorkerBatchResult(
                 worker_id=self.worker_id,
                 leased=0,
                 completed=0,
@@ -114,7 +147,10 @@ class FrontierWorker:
                 browser_pages=0,
                 errors=[],
             )
+            self._emit("worker_idle", payload={"batch_size": batch_size})
+            return result
 
+        self._emit("batch_started", payload={"leased": len(jobs), "batch_size": batch_size})
         results = await asyncio.gather(*(self._process(job) for job in jobs))
         completed = sum(item[0] == "completed" for item in results)
         retried = sum(item[0] == "retried" for item in results)
@@ -123,7 +159,7 @@ class FrontierWorker:
         discovered = sum(item[1] for item in results)
         browser_pages = sum(item[2] for item in results)
         errors = [item[3] for item in results if item[3] is not None]
-        return WorkerBatchResult(
+        result = WorkerBatchResult(
             worker_id=self.worker_id,
             leased=len(jobs),
             completed=completed,
@@ -134,6 +170,20 @@ class FrontierWorker:
             browser_pages=browser_pages,
             errors=errors,
         )
+        self._emit(
+            "batch_completed",
+            payload={
+                "leased": result.leased,
+                "completed": result.completed,
+                "retried": result.retried,
+                "dead": result.dead,
+                "deferred_circuit": result.deferred_circuit,
+                "discovered": result.discovered,
+                "browser_pages": result.browser_pages,
+                "errors": len(result.errors),
+            },
+        )
+        return result
 
     async def drain(
         self,
@@ -155,6 +205,8 @@ class FrontierWorker:
     async def _process(self, job: FrontierJob) -> tuple[str, int, int, str | None]:
         host = (urlsplit(job.url).hostname or "").lower()
         circuit_key = f"{self.backend}:{host}"
+        self._emit("job_started", job=job, payload={"attempt": job.attempts})
+
         if not self.frontier.circuit_allows(circuit_key):
             state = self.frontier.fail(
                 job.id,
@@ -164,12 +216,18 @@ class FrontierWorker:
                 max_backoff_seconds=float(self.circuit_cooldown_seconds),
             )
             status = "dead" if state == JobState.DEAD else "circuit"
+            self._emit(
+                "job_deferred_circuit",
+                job=job,
+                payload={"circuit_key": circuit_key, "state": status},
+            )
             return status, 0, 0, "backend/host circuit open"
 
         try:
             robots = await self._robots_for(job.url)
             if robots is not None and not robots.can_fetch(DEFAULT_UA, job.url):
                 self.frontier.ack(job.id, self.worker_id)
+                self._emit("job_skipped_robots", job=job)
                 return "completed", 0, 0, None
 
             await self._wait_for_host(host)
@@ -198,7 +256,18 @@ class FrontierWorker:
                 document = extract_document(result)
                 browser_pages = 1
 
-            self.store.save_fetch(result, document)
+            capture_id = self.store.save_fetch(result, document)
+            self._emit(
+                "capture_saved",
+                job=job,
+                url=result.final_url,
+                payload={
+                    "capture_id": capture_id,
+                    "status_code": result.status_code,
+                    "content_length": result.content_length,
+                    "sha256": result.sha256,
+                },
+            )
             machine_links = discover_frontier_urls(
                 result.body_text or "",
                 result.final_url,
@@ -209,6 +278,12 @@ class FrontierWorker:
             discovered = self._enqueue_children(job, links, parent=result.final_url)
             self.frontier.circuit_success(circuit_key)
             self.frontier.ack(job.id, self.worker_id)
+            self._emit(
+                "job_completed",
+                job=job,
+                url=result.final_url,
+                payload={"discovered": discovered, "browser_page": bool(browser_pages)},
+            )
             return "completed", discovered, browser_pages, None
         except Exception as exc:  # noqa: BLE001 -- worker persists failures as queue state
             error = f"{type(exc).__name__}: {exc}"
@@ -227,7 +302,13 @@ class FrontierWorker:
                 ),
                 max_backoff_seconds=300.0,
             )
-            return ("dead" if state == JobState.DEAD else "retried"), 0, 0, error
+            final_state = "dead" if state == JobState.DEAD else "retried"
+            self._emit(
+                "job_failed",
+                job=job,
+                payload={"error": error, "state": final_state, "circuit_opened": opened},
+            )
+            return final_state, 0, 0, error
 
     async def _wait_for_host(self, host: str) -> None:
         if not host:
@@ -276,3 +357,23 @@ class FrontierWorker:
                 )
             )
         return added
+
+    def _emit(
+        self,
+        event_type: str,
+        *,
+        job: FrontierJob | None = None,
+        url: str | None = None,
+        payload: dict[str, object] | None = None,
+    ) -> None:
+        try:
+            self.telemetry.emit(
+                event_type,
+                worker_id=self.worker_id,
+                backend=self.backend,
+                job_id=job.id if job else None,
+                url=url or (job.url if job else None),
+                payload=dict(payload or {}),
+            )
+        except Exception:  # noqa: BLE001 -- telemetry must never break crawl correctness
+            return
