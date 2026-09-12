@@ -7,7 +7,6 @@ import shutil
 import subprocess
 import typing
 
-
 DEFAULT_BACKEND_ROOT = pathlib.Path(".internet-hands/backends")
 
 
