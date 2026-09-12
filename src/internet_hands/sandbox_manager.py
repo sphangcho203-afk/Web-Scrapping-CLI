@@ -17,7 +17,6 @@ from .sandbox_policy import (
 )
 from .sandbox_provider import SandboxProvider
 
-
 _GIT_SHAISH = re.compile(r"^[A-Za-z0-9._/-]{1,200}$")
 
 
