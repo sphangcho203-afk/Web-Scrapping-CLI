@@ -24,17 +24,20 @@ dependencies = [
 browser = ["playwright>=1.50,<2"]
 extraction = ["trafilatura>=2.2,<3"]
 postgres = ["psycopg[binary]>=3.2,<4"]
+s3 = ["boto3>=1.35,<2"]
 parquet = ["pyarrow>=15,<24"]
 crawlee = ["crawlee>=1,<2"]
 crawl4ai = ["crawl4ai>=0.9.3,<1"]
 scrapy = ["Scrapy>=2.12,<3"]
 fleet = [
   "psycopg[binary]>=3.2,<4",
+  "boto3>=1.35,<2",
 ]
 all-backends = [
   "playwright>=1.50,<2",
   "trafilatura>=2.2,<3",
   "psycopg[binary]>=3.2,<4",
+  "boto3>=1.35,<2",
   "pyarrow>=15,<24",
   "crawlee>=1,<2",
   "crawl4ai>=0.9.3,<1",
