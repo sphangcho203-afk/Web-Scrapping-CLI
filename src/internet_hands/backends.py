@@ -1,21 +1,21 @@
 from __future__ import annotations
 
+import dataclasses
 import json
+import pathlib
 import shutil
 import subprocess
-from dataclasses import asdict, dataclass
-from pathlib import Path
-from typing import Any
+import typing
 
 
-DEFAULT_BACKEND_ROOT = Path(".internet-hands/backends")
+DEFAULT_BACKEND_ROOT = pathlib.Path(".internet-hands/backends")
 
 
 class BackendError(RuntimeError):
     pass
 
 
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class BackendSpec:
     name: str
     repository: str
@@ -109,9 +109,9 @@ def module_available(name: str) -> bool:
 def clone_backend(
     name: str,
     *,
-    root: Path = DEFAULT_BACKEND_ROOT,
+    root: pathlib.Path = DEFAULT_BACKEND_ROOT,
     update: bool = True,
-) -> dict[str, Any]:
+) -> dict[str, typing.Any]:
     """Clone or fast-forward one curated backend and record its exact commit."""
     spec = get_backend(name)
     git = shutil.which("git")
@@ -171,9 +171,9 @@ def clone_backend(
 
 def sync_default_backends(
     *,
-    root: Path = DEFAULT_BACKEND_ROOT,
+    root: pathlib.Path = DEFAULT_BACKEND_ROOT,
     update: bool = True,
-) -> list[dict[str, Any]]:
+) -> list[dict[str, typing.Any]]:
     return [
         clone_backend(spec.name, root=root, update=update)
         for spec in BACKENDS
@@ -184,8 +184,8 @@ def sync_default_backends(
 def backend_status(
     name: str,
     *,
-    root: Path = DEFAULT_BACKEND_ROOT,
-) -> dict[str, Any]:
+    root: pathlib.Path = DEFAULT_BACKEND_ROOT,
+) -> dict[str, typing.Any]:
     spec = get_backend(name)
     target = root / spec.name
     commit: str | None = None
@@ -204,7 +204,7 @@ def backend_status(
         import_ready = module_available(spec.import_name)
 
     return {
-        **asdict(spec),
+        **dataclasses.asdict(spec),
         "cloned": (target / ".git").exists(),
         "path": str(target),
         "commit": commit,
@@ -213,7 +213,7 @@ def backend_status(
     }
 
 
-def playwright_mcp_config() -> dict[str, Any]:
+def playwright_mcp_config() -> dict[str, typing.Any]:
     """Return a portable Microsoft Playwright MCP configuration."""
     return {
         "mcpServers": {
