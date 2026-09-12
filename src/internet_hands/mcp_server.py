@@ -127,8 +127,30 @@ async def sandbox_exec(
     sudo: bool = False,
     timeout_ms: int = 30_000,
 ) -> dict[str, Any]:
-    """Execute one program inside the isolated sandbox and return logs/status."""
+    """Execute one program inside the isolated sandbox and wait for completion."""
     return await get_sandbox_manager().exec(
+        session_id,
+        command,
+        args,
+        cwd=cwd,
+        env=env,
+        sudo=sudo,
+        timeout_ms=timeout_ms,
+    )
+
+
+@sandbox_mcp.tool()
+async def sandbox_start(
+    session_id: str,
+    command: str,
+    args: list[str] | None = None,
+    cwd: str | None = None,
+    env: dict[str, str] | None = None,
+    sudo: bool = False,
+    timeout_ms: int = 1_800_000,
+) -> dict[str, Any]:
+    """Start a detached process and return its command id immediately."""
+    return await get_sandbox_manager().start(
         session_id,
         command,
         args,
@@ -149,6 +171,46 @@ async def sandbox_shell(
     """Run a shell script inside the isolated sandbox."""
     return await get_sandbox_manager().shell(
         session_id, script, cwd=cwd, timeout_ms=timeout_ms
+    )
+
+
+@sandbox_mcp.tool()
+async def sandbox_command(
+    session_id: str,
+    command_id: str,
+    wait: bool = False,
+) -> dict[str, Any]:
+    """Inspect a detached or completed sandbox command, optionally waiting for completion."""
+    return await get_sandbox_manager().command(session_id, command_id, wait=wait)
+
+
+@sandbox_mcp.tool()
+async def sandbox_commands(session_id: str) -> list[dict[str, Any]]:
+    """List command history for a sandbox session."""
+    return await get_sandbox_manager().list_commands(session_id)
+
+
+@sandbox_mcp.tool()
+async def sandbox_command_logs(
+    session_id: str,
+    command_id: str,
+    max_bytes: int = 1_000_000,
+) -> dict[str, Any]:
+    """Read bounded NDJSON/log output for a sandbox command."""
+    return await get_sandbox_manager().command_logs(
+        session_id, command_id, max_bytes=max_bytes
+    )
+
+
+@sandbox_mcp.tool()
+async def sandbox_kill(
+    session_id: str,
+    command_id: str,
+    signal: int = 15,
+) -> dict[str, Any]:
+    """Stop a command with SIGINT, SIGTERM, or SIGKILL."""
+    return await get_sandbox_manager().kill_command(
+        session_id, command_id, signal=signal
     )
 
 
@@ -204,6 +266,19 @@ async def sandbox_read_file(
 
 
 @sandbox_mcp.tool()
+async def sandbox_artifact(
+    session_id: str,
+    path: str,
+    cwd: str | None = None,
+    max_bytes: int = 1_000_000,
+) -> dict[str, Any]:
+    """Retrieve a file as a base64 artifact with media type, byte count, and SHA-256."""
+    return await get_sandbox_manager().artifact(
+        session_id, path, cwd=cwd, max_bytes=max_bytes
+    )
+
+
+@sandbox_mcp.tool()
 async def sandbox_write_file(
     session_id: str,
     path: str,
@@ -223,6 +298,28 @@ async def sandbox_mkdir(
 ) -> dict[str, Any]:
     """Create a directory tree inside the sandbox."""
     return await get_sandbox_manager().mkdir(session_id, path, cwd=cwd)
+
+
+@sandbox_mcp.tool()
+async def sandbox_start_service(
+    name: str,
+    command: str,
+    port: int,
+    args: list[str] | None = None,
+    cwd: str | None = None,
+    env: dict[str, str] | None = None,
+    timeout_ms: int = 1_800_000,
+) -> dict[str, Any]:
+    """Start a detached web service on a port that was published at sandbox creation."""
+    return await get_sandbox_manager().start_service(
+        name,
+        command,
+        args,
+        port=port,
+        cwd=cwd,
+        env=env,
+        timeout_ms=timeout_ms,
+    )
 
 
 @sandbox_mcp.tool()
@@ -247,3 +344,39 @@ async def sandbox_browser_screenshot(
 async def sandbox_snapshot(session_id: str) -> dict[str, object]:
     """Snapshot the filesystem for later restoration; Vercel stops the session."""
     return await get_sandbox_manager().snapshot(session_id)
+
+
+@sandbox_mcp.tool()
+async def sandbox_fork(
+    source_name: str,
+    new_name: str,
+    ports: list[int] | None = None,
+    timeout: str | None = None,
+    vcpus: int | None = None,
+    memory_mb: int | None = None,
+    image: str | None = None,
+    persistent: bool = True,
+) -> dict[str, Any]:
+    """Fork a named sandbox into a new isolated computer with optional resource overrides."""
+    return await get_sandbox_manager().fork(
+        source_name,
+        new_name,
+        ports=ports,
+        timeout=timeout,
+        vcpus=vcpus,
+        memory_mb=memory_mb,
+        image=image,
+        persistent=persistent,
+    )
+
+
+@sandbox_mcp.tool()
+async def sandbox_stop(session_id: str) -> dict[str, Any]:
+    """Stop a running sandbox session and all of its active processes."""
+    return await get_sandbox_manager().stop(session_id)
+
+
+@sandbox_mcp.tool()
+async def sandbox_delete(name: str) -> dict[str, Any]:
+    """Permanently delete a named sandbox and its sessions; snapshots may remain separately."""
+    return await get_sandbox_manager().delete(name)
