@@ -1,11 +1,15 @@
+from datetime import UTC, datetime
+
 import pytest
 
 from internet_hands.hunt import (
     HuntScope,
     _collect_search_urls,
     _same_scope,
+    _should_render,
     canonicalize_url,
 )
+from internet_hands.models import ExtractedDocument, FetchResult
 
 
 def test_canonicalize_url_removes_tracking_and_fragment():
@@ -43,3 +47,32 @@ def test_collect_search_urls_is_nested_deduplicated_and_bounded():
         "https://example.com/a",
         "https://example.org/b",
     ]
+
+
+def test_browser_fallback_only_targets_thin_dynamic_html():
+    now = datetime.now(UTC)
+    result = FetchResult(
+        request_url="https://example.com",
+        final_url="https://example.com/",
+        status_code=200,
+        headers={},
+        content_type="text/html",
+        content_length=50,
+        sha256="a" * 64,
+        elapsed_ms=1,
+        captured_at=now,
+        body_text='<html><body><div id="root"></div><script src="app.js"></script></body></html>',
+    )
+    thin = ExtractedDocument(
+        url=result.final_url,
+        text="",
+        captured_at=now,
+        sha256=result.sha256,
+    )
+    assert _should_render(result, thin, text_threshold=200)
+
+    rich = thin.model_copy(update={"text": "x" * 500})
+    assert not _should_render(result, rich, text_threshold=200)
+
+    error_result = result.model_copy(update={"status_code": 404})
+    assert not _should_render(error_result, thin, text_threshold=200)
