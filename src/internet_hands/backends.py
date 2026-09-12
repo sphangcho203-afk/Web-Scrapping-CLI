@@ -4,7 +4,6 @@ import json
 import shutil
 import subprocess
 from dataclasses import asdict, dataclass
-from importlib import util
 from pathlib import Path
 from typing import Any
 
@@ -97,6 +96,14 @@ def get_backend(name: str) -> BackendSpec:
         if spec.name == name:
             return spec
     raise BackendError(f"Unknown backend: {name}")
+
+
+def module_available(name: str) -> bool:
+    try:
+        __import__(name)
+    except ImportError:
+        return False
+    return True
 
 
 def clone_backend(
@@ -194,7 +201,7 @@ def backend_status(
 
     import_ready = None
     if spec.import_name:
-        import_ready = util.find_spec(spec.import_name) is not None
+        import_ready = module_available(spec.import_name)
 
     return {
         **asdict(spec),
@@ -207,7 +214,7 @@ def backend_status(
 
 
 def playwright_mcp_config() -> dict[str, Any]:
-    """Return a portable MCP configuration for Microsoft's Playwright MCP server."""
+    """Return a portable Microsoft Playwright MCP configuration."""
     return {
         "mcpServers": {
             "playwright": {
