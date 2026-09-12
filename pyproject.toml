@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "internet-hands"
-version = "0.2.0"
-description = "Raw internet intelligence engine for fetching, crawling, monitoring, API inspection, link extraction, and reproducible web data capture."
+version = "0.3.0"
+description = "Public internet intelligence fabric for collection, discovery, indexing, monitoring, and provenance."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -17,6 +17,7 @@ dependencies = [
   "pydantic>=2.10.6,<3",
   "fastapi>=0.115.8,<1",
   "uvicorn>=0.34.0,<1",
+  "PyYAML>=6.0.2,<7",
 ]
 
 [project.optional-dependencies]
