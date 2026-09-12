@@ -16,6 +16,7 @@ from .fetcher import DEFAULT_UA, fetch_url
 from .frontier import DEFAULT_FRONTIER_DB, FrontierJob, FrontierStore, JobState
 from .hunt import HuntScope, _rendered_fetch, _same_scope, _should_render, canonicalize_url
 from .policy import validate_public_http_url
+from .postgres_frontier import PostgresFrontier
 from .rate_limit import DistributedHostLimiter
 from .storage import DEFAULT_DB, Store
 
@@ -35,12 +36,21 @@ class WorkerBatchResult:
     errors: list[str]
 
 
+class _PostgresHostLimiter:
+    def __init__(self, frontier: PostgresFrontier) -> None:
+        self.frontier = frontier
+
+    def reserve(self, host: str, *, min_delay_seconds: float) -> float:
+        return self.frontier.reserve_host_slot(host, min_delay_seconds=min_delay_seconds)
+
+
 class FrontierWorker:
     def __init__(
         self,
         worker_id: str | None = None,
         *,
         frontier_db: Path = DEFAULT_FRONTIER_DB,
+        postgres_dsn: str | None = None,
         content_db: Path = DEFAULT_DB,
         backend: str = "native",
         allow_external_network: bool = False,
@@ -76,8 +86,13 @@ class FrontierWorker:
         self.per_host_delay = per_host_delay
         self.circuit_threshold = circuit_threshold
         self.circuit_cooldown_seconds = circuit_cooldown_seconds
-        self.frontier = FrontierStore(frontier_db)
-        self.limiter = DistributedHostLimiter(frontier_db)
+        if postgres_dsn:
+            postgres_frontier = PostgresFrontier(postgres_dsn)
+            self.frontier = postgres_frontier
+            self.limiter = _PostgresHostLimiter(postgres_frontier)
+        else:
+            self.frontier = FrontierStore(frontier_db)
+            self.limiter = DistributedHostLimiter(frontier_db)
         self.store = Store(content_db)
         self._robots: dict[str, RobotFileParser | None] = {}
 
