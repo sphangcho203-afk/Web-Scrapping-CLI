@@ -31,7 +31,7 @@ class SandboxProvider(Protocol):
         cwd: str | None = None,
         env: dict[str, str] | None = None,
         sudo: bool = False,
-        timeout_ms: int = 120_000,
+        timeout_ms: int = 1_800_000,
     ) -> CommandResult: ...
 
     async def command(
