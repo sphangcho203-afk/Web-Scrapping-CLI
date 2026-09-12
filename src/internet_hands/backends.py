@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import shutil
 import subprocess
@@ -193,8 +194,6 @@ def backend_status(
 
     import_ready = None
     if spec.import_name:
-        import importlib.util
-
         import_ready = importlib.util.find_spec(spec.import_name) is not None
 
     return {
