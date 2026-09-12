@@ -9,6 +9,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 
 from .browser import render_page
 from .crawler import crawl
+from .discovery import discover_public_interfaces
 from .endpoints import Capability, endpoint_catalog
 from .fetcher import extract_links, fetch_url, health_check, inspect_api, inspect_download
 from .intel import (
@@ -20,8 +21,30 @@ from .intel import (
     youtube_video,
 )
 from .monitor import monitor_once
+from .openapi import discover_openapi
 from .pipeline import index_crawl, index_url, run_due_watches
+from .public_data import (
+    crates_package,
+    crossref_search,
+    gitlab_user,
+    npm_package,
+    openalex_search,
+    pypi_package,
+    wikidata_search,
+    wikipedia_page,
+    wikipedia_search,
+)
+from .social import (
+    bluesky_search_posts,
+    tiktok_authorized_videos,
+    twitch_streams,
+    twitch_videos,
+    youtube_channel_videos,
+    youtube_comments,
+    youtube_search,
+)
 from .storage import DEFAULT_DB, Store
+from .web_search import SearchKind, brave_search
 
 app = FastAPI(
     title="Internet Hands",
@@ -157,6 +180,35 @@ async def api_monitor(url: str = Query(...), state: str = Query(".internet-hands
     return await monitor_once(url, Path(state))
 
 
+@app.get("/v1/discover", dependencies=[Depends(require_api_key)])
+async def api_discover(url: str, probe_openapi: bool = False):
+    return await discover_public_interfaces(url, probe_openapi=probe_openapi)
+
+
+@app.get("/v1/openapi/discover", dependencies=[Depends(require_api_key)])
+async def api_openapi_discover(spec_url: str):
+    return await discover_openapi(spec_url)
+
+
+@app.get("/v1/web-search", dependencies=[Depends(require_api_key)])
+async def api_web_search(
+    q: str,
+    kind: SearchKind = SearchKind.WEB,
+    count: int = 10,
+    country: str | None = None,
+    language: str | None = None,
+    freshness: str | None = None,
+):
+    return await brave_search(
+        q,
+        kind=kind,
+        count=count,
+        country=country,
+        language=language,
+        freshness=freshness,
+    )
+
+
 @app.get("/v1/intel/youtube/video", dependencies=[Depends(require_api_key)])
 async def api_intel_youtube_video(target: str = Query(...)):
     return await youtube_video(target)
@@ -195,3 +247,80 @@ async def api_intel_bluesky_profile(actor: str = Query(...)):
 @app.get("/v1/intel/username", dependencies=[Depends(require_api_key)])
 async def api_intel_username(username: str = Query(...)):
     return await public_username_scan(username)
+
+
+@app.get("/v1/social/youtube/search", dependencies=[Depends(require_api_key)])
+async def api_social_youtube_search(q: str, limit: int = 25):
+    return await youtube_search(q, limit=limit)
+
+
+@app.get("/v1/social/youtube/comments", dependencies=[Depends(require_api_key)])
+async def api_social_youtube_comments(video: str, limit: int = 100):
+    return await youtube_comments(video, limit=limit)
+
+
+@app.get("/v1/social/youtube/channel-videos", dependencies=[Depends(require_api_key)])
+async def api_social_youtube_channel_videos(channel: str, limit: int = 50):
+    return await youtube_channel_videos(channel, limit=limit)
+
+
+@app.get("/v1/social/bluesky/search", dependencies=[Depends(require_api_key)])
+async def api_social_bluesky_search(q: str, limit: int = 50):
+    return await bluesky_search_posts(q, limit=limit)
+
+
+@app.get("/v1/social/twitch/videos", dependencies=[Depends(require_api_key)])
+async def api_social_twitch_videos(user_id: str, limit: int = 50):
+    return await twitch_videos(user_id, limit=limit)
+
+
+@app.get("/v1/social/twitch/streams", dependencies=[Depends(require_api_key)])
+async def api_social_twitch_streams(user_login: str | None = None, limit: int = 20):
+    return await twitch_streams(user_login=user_login, limit=limit)
+
+
+@app.get("/v1/social/tiktok/videos", dependencies=[Depends(require_api_key)])
+async def api_social_tiktok_videos(limit: int = 20):
+    return await tiktok_authorized_videos(limit=limit)
+
+
+@app.get("/v1/data/wikipedia/search", dependencies=[Depends(require_api_key)])
+async def api_data_wikipedia_search(q: str, language: str = "en", limit: int = 10):
+    return await wikipedia_search(q, language=language, limit=limit)
+
+
+@app.get("/v1/data/wikipedia/page", dependencies=[Depends(require_api_key)])
+async def api_data_wikipedia_page(title: str, language: str = "en"):
+    return await wikipedia_page(title, language=language)
+
+
+@app.get("/v1/data/wikidata/search", dependencies=[Depends(require_api_key)])
+async def api_data_wikidata_search(q: str, language: str = "en", limit: int = 10):
+    return await wikidata_search(q, language=language, limit=limit)
+
+
+@app.get("/v1/data/openalex/search", dependencies=[Depends(require_api_key)])
+async def api_data_openalex_search(q: str, limit: int = 25):
+    return await openalex_search(q, limit=limit)
+
+
+@app.get("/v1/data/crossref/search", dependencies=[Depends(require_api_key)])
+async def api_data_crossref_search(q: str, limit: int = 25):
+    return await crossref_search(q, limit=limit)
+
+
+@app.get("/v1/data/gitlab/user", dependencies=[Depends(require_api_key)])
+async def api_data_gitlab_user(username: str):
+    return await gitlab_user(username)
+
+
+@app.get("/v1/data/package", dependencies=[Depends(require_api_key)])
+async def api_data_package(ecosystem: str, name: str):
+    ecosystem = ecosystem.lower()
+    if ecosystem == "pypi":
+        return await pypi_package(name)
+    if ecosystem == "npm":
+        return await npm_package(name)
+    if ecosystem in {"crate", "crates", "crates.io"}:
+        return await crates_package(name)
+    raise HTTPException(status_code=400, detail="ecosystem must be pypi, npm, or crates")
