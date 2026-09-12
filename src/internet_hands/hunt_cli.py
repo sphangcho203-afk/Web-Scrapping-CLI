@@ -37,6 +37,8 @@ def run_hunt(
     search_count: int = typer.Option(10, min=1, max=20),
     index: bool = typer.Option(True, "--index/--no-index"),
     respect_robots: bool = typer.Option(True, "--respect-robots/--ignore-robots"),
+    browser_fallback: bool = typer.Option(False, "--browser-fallback/--no-browser-fallback"),
+    browser_text_threshold: int = typer.Option(200, min=1, max=100_000),
     db: DbPath = DEFAULT_DB,
 ):
     """Search and/or crawl bounded public-web sources into the Internet Hands index."""
@@ -57,6 +59,8 @@ def run_hunt(
             per_host_delay=per_host_delay,
             respect_robots=respect_robots,
             index=index,
+            browser_fallback=browser_fallback,
+            browser_text_threshold=browser_text_threshold,
             db_path=db,
         )
     )
