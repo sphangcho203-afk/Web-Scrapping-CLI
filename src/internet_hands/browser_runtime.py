@@ -36,6 +36,11 @@ const consolePath = path.join(sessionDir, "console.jsonl");
 const networkPath = path.join(sessionDir, "network.jsonl");
 await fsp.mkdir(profileDir, { recursive: true });
 
+function clip(value, max = 2000) {
+  const text = String(value ?? "");
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
 function appendJsonl(file, value) {
   try {
     fs.appendFileSync(file, `${JSON.stringify(value)}\n`, "utf8");
@@ -76,8 +81,8 @@ async function loadState() {
 
 async function saveState(page) {
   const state = {
-    url: page.url(),
-    title: await page.title().catch(() => ""),
+    url: clip(page.url(), 4000),
+    title: clip(await page.title().catch(() => ""), 1000),
     updated_at: new Date().toISOString(),
   };
   await fsp.writeFile(statePath, JSON.stringify(state, null, 2), "utf8");
@@ -94,7 +99,7 @@ async function readJsonlTail(file, maxEvents) {
     const text = await fsp.readFile(file, "utf8");
     const lines = text.split(/\r?\n/).filter(Boolean);
     return lines.slice(-maxEvents).map((line) => {
-      try { return JSON.parse(line); } catch { return { raw: line }; }
+      try { return JSON.parse(line); } catch { return { raw: clip(line, 4000) }; }
     });
   } catch {
     return [];
@@ -117,7 +122,7 @@ await context.route("**/*", async (route) => {
       at: new Date().toISOString(),
       type: "blocked",
       method: route.request().method(),
-      url,
+      url: clip(url, 4000),
     });
     await route.abort("blockedbyclient");
     return;
@@ -133,8 +138,8 @@ page.on("console", (msg) => {
     at: new Date().toISOString(),
     type: "console",
     level: msg.type(),
-    text: msg.text(),
-    url: page.url(),
+    text: clip(msg.text(), 4000),
+    url: clip(page.url(), 4000),
   });
 });
 page.on("pageerror", (error) => {
@@ -142,8 +147,8 @@ page.on("pageerror", (error) => {
     at: new Date().toISOString(),
     type: "pageerror",
     level: "error",
-    text: String(error),
-    url: page.url(),
+    text: clip(String(error), 4000),
+    url: clip(page.url(), 4000),
   });
 });
 page.on("request", (request) => {
@@ -152,7 +157,7 @@ page.on("request", (request) => {
     type: "request",
     method: request.method(),
     resource_type: request.resourceType(),
-    url: request.url(),
+    url: clip(request.url(), 4000),
   });
 });
 page.on("response", (response) => {
@@ -160,7 +165,7 @@ page.on("response", (response) => {
     at: new Date().toISOString(),
     type: "response",
     status: response.status(),
-    url: response.url(),
+    url: clip(response.url(), 4000),
   });
 });
 
@@ -208,14 +213,16 @@ try {
     const mode = String(req.mode || "text");
     const maxChars = Number(req.max_chars || 250000);
     if (mode === "links") {
-      const links = await page.locator(req.selector || "a").evaluateAll((nodes) =>
-        nodes.slice(0, 1000).map((node) => ({
-          text: (node.textContent || "").trim(),
-          href: node.href || node.getAttribute("href") || "",
-          title: node.getAttribute("title") || "",
+      const locator = page.locator(req.selector || "a");
+      const total = await locator.count();
+      const links = await locator.evaluateAll((nodes) =>
+        nodes.slice(0, 500).map((node) => ({
+          text: (node.textContent || "").trim().slice(0, 1000),
+          href: String(node.href || node.getAttribute("href") || "").slice(0, 4000),
+          title: String(node.getAttribute("title") || "").slice(0, 1000),
         }))
       );
-      result = { mode, links };
+      result = { mode, links, truncated: total > 500 };
     } else {
       const locator = page.locator(req.selector || "body").first();
       const value = mode === "html" ? await locator.innerHTML() : await locator.innerText();
@@ -249,7 +256,7 @@ try {
     const suggested = download.suggestedFilename().replace(/[^A-Za-z0-9._-]/g, "_");
     const target = path.join(outputDir, suggested || "download.bin");
     await download.saveAs(target);
-    result = { path: target, suggested_filename: download.suggestedFilename() };
+    result = { path: target, suggested_filename: clip(download.suggestedFilename(), 1000) };
   } else if (action === "trace") {
     const kind = String(req.kind || "console");
     const maxEvents = Math.min(Math.max(Number(req.max_events || 200), 1), 1000);
