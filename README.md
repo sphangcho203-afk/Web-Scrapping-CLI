@@ -3,48 +3,98 @@
 **Public internet intelligence, end to end.**
 
 Internet Hands is the engine inside `Web-Scrapping-CLI`: a capability-driven toolkit for
-fetching, rendering, extracting, indexing, monitoring, searching, discovering APIs, and
-collecting structured intelligence from public or explicitly authorized internet sources.
+searching, fetching, rendering, extracting, crawling, indexing, monitoring, discovering APIs,
+analyzing caller-supplied media, and collecting structured intelligence from public or explicitly
+authorized internet sources.
 
-> Fetch the evidence. Keep the provenance. Route to the best source.
+> Find the source. Fetch the evidence. Keep the provenance. Route to the right engine.
 
-## v0.3
+## v0.3 — internet intelligence fabric
 
-v0.3 turns the project from a web collection engine into an extensible **internet intelligence
-fabric**.
+v0.3 turns the project from a single web collector into a layered internet-access subsystem for
+apps and agents.
 
-### Core web engine
+### Core collection
 
-- raw HTTP fetch with exact response-byte preservation
-- redirect, status, header, timing, and SHA-256 provenance
-- structured page extraction
-- bounded same-origin crawling
-- SQLite + FTS5 full-text search
-- content-addressed raw object storage
+- exact-byte HTTP capture with status, redirects, headers, timing, SHA-256 and source URL
+- content-addressed raw object store
+- structured HTML/text extraction
+- optional Trafilatura 2.x main-text/metadata enhancement
+- SQLite + FTS5 full-text index
 - persistent watches and change events
-- optional Playwright browser worker
-- health and download inspection
+- optional guarded Playwright renderer
+- health checks and download inspection
 - JSONL export
-- FastAPI control plane
+- authenticated FastAPI control plane
 
-### Intelligence fabric
+### Search, hunt and discovery
 
-- capability catalog for official/public provider endpoints
-- YouTube video and channel intelligence
-- owner-authorized YouTube Analytics and revenue metrics
-- clearly labeled public revenue scenarios using caller-supplied RPM assumptions
-- GitHub public profile and repository collection
-- Bluesky public profile/feed collection
-- Hacker News item/user collection
-- Mastodon public profile lookup
-- Twitch user lookup with app credentials
-- TikTok profile collection for the user who explicitly authorized the token
-- exact-handle public username checks across selected providers
-- public OpenAPI JSON/YAML discovery for GET/HEAD operations
+- Brave Search-backed web/news/image/video discovery with strict SafeSearch
+- search-seeded and URL-seeded bounded hunt frontier
+- URL canonicalization and tracker removal
+- URL + content-hash deduplication
+- page/depth/domain/concurrency budgets
+- per-host pacing and `robots.txt` checks by default
+- optional Playwright fallback for thin JS-heavy pages
+- RSS, Atom, JSON Feed, sitemap and published machine-interface frontier expansion
+- HTML discovery for oEmbed, manifests, JSON-LD and OpenAPI/Swagger references
+- public OpenAPI/Swagger JSON/YAML inventory for GET/HEAD operations
 
-The built-in endpoint catalog currently covers endpoint families across YouTube, GitHub,
-Bluesky, Hacker News, Mastodon, Twitch, TikTok, Reddit, GitLab, Wikipedia, Wikidata,
-OpenAlex, Crossref, npm, PyPI, and crates.io.
+### Provider intelligence
+
+Built-in collectors and endpoint descriptions span:
+
+- YouTube — search, videos, channels, comments, upload history, public statistics, owner analytics
+- GitHub — public users and repositories
+- Bluesky — profiles, author feeds and post search
+- Hacker News — items and users
+- Mastodon — public profiles and statuses
+- Twitch — users, videos and live-stream metadata
+- TikTok — authorized profile and authorized video list
+- GitLab — public users
+- Wikipedia + Wikidata
+- OpenAlex + Crossref
+- npm + PyPI + crates.io
+- Reddit endpoint foundation
+- Brave Search web/news/images/videos
+
+YouTube creator revenue uses owner-authorized YouTube Analytics. Public-video revenue commands are
+explicitly labeled RPM scenarios rather than claims about a creator's real earnings.
+
+### Media evidence
+
+`ih-media` works with media the caller already possesses or is authorized to process:
+
+- file SHA-256 provenance
+- ffprobe media metadata
+- deterministic ffmpeg frame sampling
+- frame hashes
+- SRT/WebVTT/plain transcript cleanup
+- transcript timing and words-per-minute metrics
+- top terms, hashtags, mentions and URLs
+- reproducible media-bundle manifests
+
+This creates evidence suitable for downstream vision/speech/LLM analysis without requiring a
+platform-access bypass.
+
+### Backend fabric
+
+Internet Hands remains the policy/provenance/index control plane and can stage or route to
+specialized open-source engines:
+
+| Engine | Main role | State |
+| --- | --- | --- |
+| Native HTTP | exact-byte fetch + bounded hunt | active |
+| Native Playwright | guarded JavaScript rendering | active optional |
+| Microsoft Playwright MCP | persistent agent/browser interaction | MCP sidecar ready |
+| Crawlee Python | scalable request queues/retries/browser crawling | curated backend |
+| Scrapy | high-throughput HTTP crawling | curated backend |
+| Crawl4AI | LLM-oriented browser extraction | curated backend |
+| Trafilatura | main-text + metadata extraction | active optional |
+| Firecrawl | self-hosted web-data service | external-service only by default |
+
+See [`docs/BACKEND_FABRIC.md`](docs/BACKEND_FABRIC.md) for routing, licensing and the current
+Playwright MCP capability surface.
 
 ## Install
 
@@ -54,14 +104,20 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-Optional browser worker:
+Optional browser support:
 
 ```bash
 pip install -e '.[browser]'
 playwright install chromium
 ```
 
-## Raw web collection
+Optional current Trafilatura extraction backend:
+
+```bash
+pip install -e '.[extraction]'
+```
+
+## Raw collection and local search
 
 ```bash
 ih fetch https://example.com
@@ -70,7 +126,7 @@ ih index https://example.com
 ih search "example domain"
 ```
 
-Index a bounded origin:
+Same-origin crawl-to-index:
 
 ```bash
 ih index-crawl https://example.com --max-pages 50 --respect-robots
@@ -90,42 +146,144 @@ Export the local knowledge base:
 ih export data/export.jsonl
 ```
 
-## Endpoint catalog
+## Internet hunt
 
-List known provider capabilities:
+Start from an explicit URL:
+
+```bash
+ih-hunt run \
+  --seed https://example.com \
+  --scope origin \
+  --max-pages 200 \
+  --max-depth 4
+```
+
+Start from search results and allow a bounded multi-domain frontier:
+
+```bash
+export BRAVE_SEARCH_API_KEY='...'
+
+ih-hunt run \
+  --query "open source retrieval systems" \
+  --scope web \
+  --search-count 10 \
+  --max-domains 20 \
+  --max-pages 300 \
+  --max-depth 3
+```
+
+Add guarded browser rendering when raw HTTP produces a thin JS shell:
+
+```bash
+ih-hunt run \
+  --seed https://example.com \
+  --browser-fallback \
+  --browser-text-threshold 200
+```
+
+The browser fallback is heuristic and bounded. The HTTP capture remains the first path; Playwright
+is used only when enabled and the page looks dynamic with insufficient extracted text.
+
+## Broad search
+
+```bash
+export BRAVE_SEARCH_API_KEY='...'
+
+ih-search web "distributed crawlers"
+ih-search news "web standards"
+ih-search images "robotics laboratory"
+ih-search videos "database internals"
+```
+
+Search uses strict SafeSearch in the built-in Brave provider.
+
+## Published-interface discovery
+
+Inspect a normal public page for feeds, JSON-LD, oEmbed, manifests, sitemap declarations and
+published API descriptions:
+
+```bash
+ih-discover inspect https://example.com
+```
+
+Optionally check a small fixed set of conventional OpenAPI publication paths:
+
+```bash
+ih-discover inspect https://example.com --probe-openapi
+```
+
+This is bounded metadata discovery, not arbitrary hidden-path enumeration.
+
+## OpenAPI discovery
+
+```bash
+ih-openapi discover https://example.com/openapi.json
+```
+
+The result inventories read-only GET/HEAD operations with server information, paths, parameters,
+tags, operation IDs, inferred capabilities and source SHA-256 provenance. Provider authentication
+and rate limits still apply before any operation is used.
+
+## Backend manager
+
+```bash
+# See curated repositories, roles and license posture.
+ih-backends list
+
+# Shallow-clone/update the default curated source backends.
+# Exact upstream commits are recorded locally.
+ih-backends sync all
+
+# Distinguish cloned source from actually runnable dependencies.
+ih-backends status
+
+# Ask which backend should handle a workload.
+ih-backends plan static
+ih-backends plan dynamic
+ih-backends plan interactive
+ih-backends plan throughput
+ih-backends plan article
+ih-backends plan llm-extraction
+
+# Emit portable Microsoft Playwright MCP configuration.
+ih-backends playwright-mcp-config
+```
+
+The default sync allowlist contains Microsoft Playwright MCP, Crawlee Python, Scrapy, Crawl4AI and
+Trafilatura. Firecrawl remains external-service only by default because its core has different
+licensing obligations from this MIT project.
+
+## Provider-backed intelligence
+
+List the built-in endpoint catalog:
 
 ```bash
 ih endpoints
 ih endpoints --provider youtube
-ih endpoints --capability profile --ready-only
+ih endpoints --capability search --ready-only
 ```
 
-The catalog is declarative. Each entry records:
-
-- provider
-- operation name
-- capability
-- HTTP method
-- endpoint
-- authentication mode
-- required environment variables
-- public/authorized classification
-- local readiness
-
-## Provider-backed intelligence
-
-### YouTube
+Examples:
 
 ```bash
 export YOUTUBE_API_KEY='...'
-
 ih intel youtube-video 'https://www.youtube.com/watch?v=VIDEO_ID'
 ih intel youtube-channel '@HANDLE'
+
+ih-social youtube-search "database internals"
+ih-social youtube-comments VIDEO_ID --limit 100
+
+ih intel github-user octocat
+ih intel github-repos octocat
+
+ih-social bluesky-search "open source"
+
+ih-data wikipedia-search "Ada Lovelace"
+ih-data openalex-search "retrieval augmented generation"
+ih-data pypi-package httpx
 ```
 
-Public video results include official metadata/statistics plus derived engagement signals.
-
-For creator-owned analytics:
+Creator-owned YouTube analytics:
 
 ```bash
 export YOUTUBE_ANALYTICS_ACCESS_TOKEN='...'
@@ -135,97 +293,42 @@ ih intel youtube-owner-analytics \
   --end 2026-09-12
 ```
 
-Monetary metrics require the YouTube account owner's authorized Analytics token.
-
-For a public-video revenue scenario:
+Public-video scenario only:
 
 ```bash
 ih intel youtube-revenue-scenario 1000000 --rpm-low 1.5 --rpm-high 5.0
 ```
 
-That command does **not** claim to know the creator's real revenue. It calculates a range from
-the caller-supplied assumptions and labels the output accordingly.
-
-### GitHub
-
-```bash
-ih intel github-user octocat
-ih intel github-repos octocat
-```
-
-`GITHUB_TOKEN` is optional for public reads and can be configured for higher authenticated rate
-limits.
-
-### Bluesky
-
-```bash
-ih intel bluesky-profile example.bsky.social
-ih intel bluesky-feed example.bsky.social --limit 25
-```
-
-### Hacker News
-
-```bash
-ih intel hn-item 8863
-```
-
-### Mastodon
-
-```bash
-ih intel mastodon-profile mastodon.social username
-```
-
-### Twitch
-
-```bash
-export TWITCH_CLIENT_ID='...'
-export TWITCH_ACCESS_TOKEN='...'
-
-ih intel twitch-user example
-```
-
-### TikTok
-
-TikTok Display API data requires the user to authorize the application and required scopes.
-
-```bash
-export TIKTOK_ACCESS_TOKEN='...'
-ih intel tiktok-me
-```
-
-### Public username checks
+Exact public handle checks:
 
 ```bash
 ih intel username somehandle
 ```
 
-This checks the **exact public handle** on selected providers. Matching handles are not treated as
-proof that accounts belong to the same person.
+Matching usernames are evidence of matching strings, not proof that accounts belong to the same
+person.
 
-## OpenAPI discovery
-
-Internet Hands can inspect a public OpenAPI/Swagger document and inventory its read-only
-operations:
+## Media analysis
 
 ```bash
-ih-openapi discover https://example.com/openapi.json
+ih-media probe ./video.mp4
+ih-media frames ./video.mp4 --count 12 --output .internet-hands/media/frames
+ih-media transcript ./captions.vtt
+ih-media bundle ./video.mp4 --transcript ./captions.vtt
 ```
 
-The result includes server information, operation IDs, paths, parameters, tags, inferred
-capabilities, and source provenance. Discovery imports only GET/HEAD operations; authentication,
-provider rules, and rate limits still apply before execution.
-
-This is the mechanism for expanding beyond a fixed list of providers without creating hundreds
-of brittle hard-coded scrapers.
+Media commands operate on caller-supplied/authorized files. They do not fetch protected platform
+media or defeat access controls.
 
 ## Environment
 
-Copy `.env.example` or configure only the providers you use:
+Configure only providers you use:
 
 ```text
 INTERNET_HANDS_API_KEY
 INTERNET_HANDS_DB
 INTERNET_HANDS_ALLOW_UNAUTHENTICATED
+BRAVE_SEARCH_API_KEY
 YOUTUBE_API_KEY
 YOUTUBE_ANALYTICS_ACCESS_TOKEN
 GITHUB_TOKEN
@@ -240,7 +343,7 @@ records.
 
 ## Local API
 
-The FastAPI control plane now fails closed by default.
+The FastAPI control plane fails closed by default:
 
 ```bash
 export INTERNET_HANDS_API_KEY='change-me'
@@ -266,130 +369,106 @@ Do not expose an unrestricted arbitrary-URL fetch API anonymously to the public 
 ## Architecture
 
 ```text
-CLI / FastAPI / agents
-          │
-          ▼
- target resolver + capability catalog
-          │
-    ┌─────┼──────────────┐
-    ▼     ▼              ▼
-official  OpenAPI      raw web
- API      discovery    / browser
-    │       │              │
-    └───────┴──────┬───────┘
-                   ▼
-        normalized intelligence
-       + capture provenance/hash
-                   │
-          ┌────────┼────────┐
-          ▼        ▼        ▼
-        index    watches   analysis
-          │        │        │
-          └────────┴────┬───┘
-                       ▼
-                 apps / agents
-```
-
-Detailed design: [`docs/ENDPOINT_FABRIC.md`](docs/ENDPOINT_FABRIC.md)
-
-Base storage architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-
-## Video intelligence direction
-
-v0.3 handles public metadata/statistics and owner-authorized analytics. The next media layer is
-designed around evidence, not platform bypasses:
-
-```text
-metadata + authorized/caller-supplied transcript/media
+queries / URLs / agents
+        │
+        ├──── search ─────┐
+        ├──── OpenAPI ────┤
+        ├──── providers ──┤
+        └──── raw web ────┘
                          │
                          ▼
-                evidence + hashes
-                         │
-            ┌────────────┼────────────┐
-            ▼            ▼            ▼
-        transcript      frames       metrics
-        analysis        analysis      analysis
-            └────────────┼────────────┘
+                 capability/router
+              ┌──────────┼──────────┐
+              ▼          ▼          ▼
+             HTTP      browser    adapters
+              │          │          │
+              └──────────┼──────────┘
                          ▼
-                   VideoIntel record
+          capture + extraction + provenance
+                         │
+              ┌──────────┼──────────┐
+              ▼          ▼          ▼
+           objects    SQLite/FTS   watches
+              │          │          │
+              └──────────┼──────────┘
+                         ▼
+                    apps / agents
 ```
 
-Planned analyzers include transcript segmentation, topics/entities, scene segmentation,
-selected-frame OCR, visual-object signals, speech/language statistics, and engagement analysis.
+Detailed designs:
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- [`docs/ENDPOINT_FABRIC.md`](docs/ENDPOINT_FABRIC.md)
+- [`docs/BACKEND_FABRIC.md`](docs/BACKEND_FABRIC.md)
 
 ## Data layout
 
 ```text
 .internet-hands/
 ├── internet-hands.db
-└── objects/
-    └── ab/
-        └── abcd...sha256
+├── objects/
+├── backends/
+└── media/
 ```
 
-The database stores capture metadata, extracted documents, FTS records, watch jobs, and events.
-Raw response bodies are kept in a SHA-256 content-addressed object store.
+The database stores capture metadata, extracted documents, FTS records, watch jobs and events.
+Raw response bodies are kept in a SHA-256 content-addressed object store. Curated external source
+backends, when synced, live outside the package source under `.internet-hands/backends/` and record
+their exact upstream commits.
 
 ## Network and collection policy
 
 Internet Hands is for public web data and sources the operator is authorized to access.
 
-Defaults include:
+Defaults and invariants include:
 
-- only HTTP/HTTPS targets
+- HTTP/HTTPS public targets only
 - localhost/private/link-local/multicast/reserved/unspecified target blocking
 - redirect revalidation
 - browser subrequest filtering
-- bounded same-origin crawling
-- optional robots.txt compliance
+- bounded page/depth/domain/concurrency budgets
+- `robots.txt` compliance by default in hunt/crawl flows
+- per-host pacing
 - response-size and timeout limits
-- no credential theft, authentication bypass, CAPTCHA defeat, exploit delivery, or stealth/evasion
+- no credential theft or authentication bypass
+- no CAPTCHA defeat
+- no exploit delivery
+- no stealth/evasion or quota-evasion key rotation
 
 Production deployments should additionally enforce public-only egress at the network/container
-layer to close DNS rebinding gaps.
+layer to close DNS rebinding/TOCTOU gaps.
 
 ## Roadmap
 
-### v0.3 hardening
+### Completed in v0.3 branch
 
 - [x] provider capability catalog
-- [x] YouTube/GitHub/Bluesky/HN/Mastodon/Twitch/TikTok collector foundation
+- [x] broad web/news/image/video search provider
+- [x] YouTube/GitHub/Bluesky/HN/Mastodon/Twitch/TikTok collectors
+- [x] YouTube comments and upload-history collectors
 - [x] exact public username checks
+- [x] Wikipedia/Wikidata/OpenAlex/Crossref/GitLab/package collectors
 - [x] OpenAPI GET/HEAD discovery
+- [x] RSS/Atom/JSON Feed/sitemap/oEmbed/JSON-LD discovery
+- [x] search-seeded bounded multi-domain hunt frontier
+- [x] optional guarded Playwright hunt fallback
+- [x] caller-supplied media metadata/frame/transcript evidence pipeline
+- [x] curated backend clone/status manager
+- [x] backend intent router
+- [x] optional Trafilatura extraction backend
 - [x] fail-closed FastAPI auth
-- [ ] unified provider rate-limit state and circuit breakers
+
+### Next hardening
+
+- [ ] unified provider rate-limit state + circuit breakers
 - [ ] provider error taxonomy and retry budgets
-- [ ] network-level egress enforcement / DNS pinning
-- [ ] mocked integration tests for every provider
-
-### Intelligence expansion
-
-- [ ] YouTube comments/upload history analysis
-- [ ] Twitch video/stream collectors
-- [ ] TikTok authorized video-list/query collectors
-- [ ] Reddit OAuth adapters
-- [ ] GitLab profile/project adapters
-- [ ] Wikipedia/Wikidata research adapters
-- [ ] OpenAlex/Crossref research adapters
-- [ ] npm/PyPI/crates package intelligence
-- [ ] RSS/Atom, sitemap, oEmbed, and JSON-LD adapters
-
-### Media intelligence
-
-- [ ] normalized `VideoIntel` schema
-- [ ] transcript ingestion and segmentation
-- [ ] frame-sampling interface
-- [ ] pluggable vision/speech analyzers
-- [ ] per-segment evidence and citations
-
-### Agent scale
-
+- [ ] network-level public-only egress enforcement / connection pinning
 - [ ] Postgres backend
 - [ ] queue-backed distributed workers
-- [ ] capability router with health/cost/freshness scoring
-- [ ] distributed caching
+- [ ] Crawlee/Scrapy/Crawl4AI worker protocol implementations
+- [ ] WARC + Parquet import/export
+- [ ] signed provenance manifests
 - [ ] streaming result events
-- [ ] MCP/agent tool surface
 - [ ] operator dashboard
 
 ## License
