@@ -5,6 +5,7 @@ import dataclasses
 import json
 import os
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -22,7 +23,7 @@ app = FastAPI(
 )
 
 
-def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
+def require_api_key(x_api_key: Annotated[str | None, Header()] = None) -> None:
     expected = os.getenv("INTERNET_HANDS_API_KEY")
     allow_unauthenticated = os.getenv("INTERNET_HANDS_ALLOW_UNAUTHENTICATED") == "1"
     if not expected:
@@ -84,10 +85,10 @@ def frontier_stats():
 
 @app.post("/v1/frontier/seed", dependencies=[Depends(require_api_key)])
 def frontier_seed(
-    url: str = Query(...),
-    scope: HuntScope = HuntScope.ORIGIN,
-    priority: int = Query(0, ge=-1000, le=1000),
-    max_attempts: int = Query(4, ge=1, le=50),
+    url: Annotated[str, Query()],
+    scope: Annotated[HuntScope, Query()] = HuntScope.ORIGIN,
+    priority: Annotated[int, Query(ge=-1000, le=1000)] = 0,
+    max_attempts: Annotated[int, Query(ge=1, le=50)] = 4,
 ):
     added = _frontier().enqueue(
         url,
@@ -105,24 +106,30 @@ def content_stats():
 
 
 @app.get("/v1/content/recent", dependencies=[Depends(require_api_key)])
-def content_recent(limit: int = Query(50, ge=1, le=1000)):
+def content_recent(limit: Annotated[int, Query(ge=1, le=1000)] = 50):
     return _content_store().recent_captures(limit=limit)
 
 
 @app.get("/v1/search", dependencies=[Depends(require_api_key)])
-def search(q: str = Query(...), limit: int = Query(20, ge=1, le=200)):
+def search(
+    q: Annotated[str, Query()],
+    limit: Annotated[int, Query(ge=1, le=200)] = 20,
+):
     return _content_store().search(q, limit=limit)
 
 
 @app.get("/v1/events", dependencies=[Depends(require_api_key)])
-def events(after_id: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=1000)):
+def events(
+    after_id: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+):
     return [dataclasses.asdict(item) for item in _telemetry().list_events(after_id=after_id, limit=limit)]
 
 
 @app.get("/v1/events/stream", dependencies=[Depends(require_api_key)])
 def event_stream(
-    after_id: int = Query(0, ge=0),
-    poll_seconds: float = Query(1.0, ge=0.1, le=30.0),
+    after_id: Annotated[int, Query(ge=0)] = 0,
+    poll_seconds: Annotated[float, Query(ge=0.1, le=30.0)] = 1.0,
 ):
     telemetry = _telemetry()
 
