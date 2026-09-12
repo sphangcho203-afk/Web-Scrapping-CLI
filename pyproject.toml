@@ -35,6 +35,7 @@ ih-openapi = "internet_hands.openapi_cli:app"
 ih-discover = "internet_hands.discovery_cli:app"
 ih-social = "internet_hands.social_cli:app"
 ih-data = "internet_hands.data_cli:app"
+ih-media = "internet_hands.media_cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/internet_hands"]
