@@ -15,6 +15,7 @@ from .backends import (
     playwright_mcp_config,
     sync_default_backends,
 )
+from .routing import BackendIntent, route_backend
 
 app = typer.Typer(no_args_is_help=True, help="Curated Internet Hands backend manager.")
 console = Console()
@@ -67,6 +68,15 @@ def sync(
         _dump(sync_default_backends(root=root, update=update))
         return
     _dump(clone_backend(name, root=root, update=update))
+
+
+@app.command("plan")
+def plan(
+    intent: BackendIntent,
+    root: RootPath = DEFAULT_BACKEND_ROOT,
+):
+    """Plan the best currently available backend for a collection intent."""
+    _dump(route_backend(intent, root=root))
 
 
 @app.command("playwright-mcp-config")
