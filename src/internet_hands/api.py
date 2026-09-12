@@ -1,27 +1,48 @@
 from __future__ import annotations
 
 import os
+from datetime import date
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 
 from .browser import render_page
 from .crawler import crawl
+from .endpoints import Capability, endpoint_catalog
 from .fetcher import extract_links, fetch_url, health_check, inspect_api, inspect_download
+from .intel import (
+    bluesky_profile,
+    github_user,
+    public_username_scan,
+    youtube_channel,
+    youtube_owner_analytics,
+    youtube_video,
+)
 from .monitor import monitor_once
 from .pipeline import index_crawl, index_url, run_due_watches
 from .storage import DEFAULT_DB, Store
 
 app = FastAPI(
     title="Internet Hands",
-    version="0.2.0",
-    description="Internet intelligence API for authorized public-web collection and indexing.",
+    version="0.3.0",
+    description="Public internet intelligence and provenance API for apps and agents.",
 )
 
 
 def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
     expected = os.getenv("INTERNET_HANDS_API_KEY")
-    if expected and x_api_key != expected:
+    allow_unauthenticated = os.getenv("INTERNET_HANDS_ALLOW_UNAUTHENTICATED") == "1"
+    if not expected:
+        if allow_unauthenticated:
+            return
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "API key is not configured. Set INTERNET_HANDS_API_KEY or explicitly "
+                "set INTERNET_HANDS_ALLOW_UNAUTHENTICATED=1 for trusted local use."
+            ),
+        )
+    if x_api_key != expected:
         raise HTTPException(status_code=401, detail="invalid API key")
 
 
@@ -31,7 +52,34 @@ def db_path() -> Path:
 
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
-    return {"status": "ok", "version": "0.2.0"}
+    return {"status": "ok", "version": "0.3.0"}
+
+
+@app.get("/v1/endpoints", dependencies=[Depends(require_api_key)])
+def api_endpoints(
+    provider: str | None = None,
+    capability: Capability | None = None,
+    ready_only: bool = False,
+):
+    return [
+        {
+            "provider": item.provider,
+            "name": item.name,
+            "capability": item.capability.value,
+            "method": item.method,
+            "url": item.url,
+            "auth": item.auth.value,
+            "env": list(item.env),
+            "ready": item.ready,
+            "public_data": item.public_data,
+            "notes": item.notes,
+        }
+        for item in endpoint_catalog(
+            provider=provider,
+            capability=capability,
+            ready_only=ready_only,
+        )
+    ]
 
 
 @app.get("/v1/fetch", dependencies=[Depends(require_api_key)])
@@ -106,3 +154,43 @@ async def api_download_info(url: str = Query(...)):
 @app.get("/v1/monitor", dependencies=[Depends(require_api_key)])
 async def api_monitor(url: str = Query(...), state: str = Query(".internet-hands/state.json")):
     return await monitor_once(url, Path(state))
+
+
+@app.get("/v1/intel/youtube/video", dependencies=[Depends(require_api_key)])
+async def api_intel_youtube_video(target: str = Query(...)):
+    return await youtube_video(target)
+
+
+@app.get("/v1/intel/youtube/channel", dependencies=[Depends(require_api_key)])
+async def api_intel_youtube_channel(target: str = Query(...)):
+    return await youtube_channel(target)
+
+
+@app.get("/v1/intel/youtube/owner-analytics", dependencies=[Depends(require_api_key)])
+async def api_intel_youtube_owner_analytics(
+    start: date = Query(...),
+    end: date = Query(...),
+    video: str | None = None,
+    currency: str = "USD",
+):
+    return await youtube_owner_analytics(
+        start,
+        end,
+        video_id=video,
+        currency=currency,
+    )
+
+
+@app.get("/v1/intel/github/user", dependencies=[Depends(require_api_key)])
+async def api_intel_github_user(username: str = Query(...)):
+    return await github_user(username)
+
+
+@app.get("/v1/intel/bluesky/profile", dependencies=[Depends(require_api_key)])
+async def api_intel_bluesky_profile(actor: str = Query(...)):
+    return await bluesky_profile(actor)
+
+
+@app.get("/v1/intel/username", dependencies=[Depends(require_api_key)])
+async def api_intel_username(username: str = Query(...)):
+    return await public_username_scan(username)
