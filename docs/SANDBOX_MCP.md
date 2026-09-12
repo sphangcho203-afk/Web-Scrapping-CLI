@@ -106,6 +106,9 @@ policy remains the final defense against DNS rebinding or redirects to non-publi
 
 Internet Hands deliberately does **not** publish an unauthenticated Chrome DevTools/CDP endpoint.
 Browser control stays behind the authenticated MCP transport and executes inside the isolated VM.
+Browser link extraction is capped at 500 entries per call, text/HTML is bounded by `max_chars`, and
+console/network event fields are clipped before being persisted so noisy pages cannot create
+unbounded MCP payloads.
 
 ### Browser workflow
 
@@ -158,6 +161,7 @@ Default manager limits:
 - detached/background timeout: 1 hour maximum
 - tool output/file/artifact response: 1 MB maximum
 - browser extracted text/HTML: 500,000 characters maximum per call
+- browser extracted links: 500 maximum per call
 - browser trace events: 1,000 maximum per call
 - browser fill payload: 100,000 characters maximum
 - vCPUs: up to 4
@@ -192,4 +196,5 @@ sandbox_snapshot(session_id)
 
 Unit tests use fake providers and mocked HTTP transports. CI never creates Vercel sandboxes and
 therefore cannot consume sandbox runtime or require Vercel credentials. The test matrix validates
-supported Python versions 3.11, 3.12, and 3.13.
+supported Python versions 3.11, 3.12, and 3.13, and syntax-checks the embedded browser runtime with
+Node when it is available on the runner.
