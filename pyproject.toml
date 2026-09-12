@@ -31,6 +31,7 @@ dev = [
 [project.scripts]
 internet-hands = "internet_hands.cli:app"
 ih = "internet_hands.cli:app"
+ih-openapi = "internet_hands.openapi_cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/internet_hands"]
