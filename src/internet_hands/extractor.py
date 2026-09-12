@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-from importlib import import_module, util
 from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urljoin, urlsplit
@@ -102,15 +101,19 @@ def extract_document(result: FetchResult) -> ExtractedDocument:
     native_title = _clean(" ".join(parser.title_parts)) or None
     native_text = _clean(" ".join(parser.text_parts))
     enhanced = _trafilatura_extract(body)
+    title = native_title
+    description = parser.description
+    text = native_text
+    if enhanced:
+        title = _clean(str(enhanced.get("title") or "")) or native_title
+        description = _clean(str(enhanced.get("description") or "")) or parser.description
+        text = _clean(str(enhanced.get("text") or "")) or native_text
+
     return ExtractedDocument(
         url=result.final_url,
-        title=_clean(str(enhanced.get("title") or "")) or native_title if enhanced else native_title,
-        description=(
-            _clean(str(enhanced.get("description") or "")) or parser.description
-            if enhanced
-            else parser.description
-        ),
-        text=_clean(str(enhanced.get("text") or "")) or native_text if enhanced else native_text,
+        title=title,
+        description=description,
+        text=text,
         headings=parser.headings,
         links=sorted(parser.links),
         captured_at=result.captured_at,
@@ -118,18 +121,25 @@ def extract_document(result: FetchResult) -> ExtractedDocument:
     )
 
 
+def _load_trafilatura():
+    try:
+        return __import__("trafilatura")
+    except ImportError:
+        return None
+
+
 def _trafilatura_extract(html: str) -> dict[str, Any] | None:
     """Use Trafilatura 2.x when installed; extraction failure never breaks collection."""
-    if util.find_spec("trafilatura") is None:
+    module = _load_trafilatura()
+    if module is None:
         return None
     try:
-        module = import_module("trafilatura")
         raw = module.extract(html, output_format="json", with_metadata=True)
         if not raw:
             return None
         parsed = json.loads(raw)
         return parsed if isinstance(parsed, dict) else None
-    except (ImportError, AttributeError, TypeError, ValueError, json.JSONDecodeError):
+    except (AttributeError, TypeError, ValueError):
         return None
 
 
