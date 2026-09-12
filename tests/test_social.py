@@ -1,6 +1,6 @@
 import pytest
 
-import internet_hands.social as social
+from internet_hands import social
 
 
 @pytest.mark.asyncio
