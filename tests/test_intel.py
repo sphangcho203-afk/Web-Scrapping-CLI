@@ -37,7 +37,7 @@ def test_endpoint_catalog_filters():
 
 def test_provider_catalog_has_broad_coverage():
     names = providers()
-    for expected in {
+    for expected in (
         "youtube",
         "github",
         "bluesky",
@@ -46,5 +46,5 @@ def test_provider_catalog_has_broad_coverage():
         "tiktok",
         "wikipedia",
         "openalex",
-    }:
+    ):
         assert expected in names
