@@ -38,10 +38,10 @@ class TelemetrySink(Protocol):
 
 
 class NullTelemetry:
-    def emit(self, event_type: str, **kwargs) -> None:  # noqa: ARG002
+    def emit(self, event_type: str, **kwargs) -> None:
         return None
 
-    def list_events(self, *, after_id: int = 0, limit: int = 100) -> list[TelemetryEvent]:  # noqa: ARG002
+    def list_events(self, *, after_id: int = 0, limit: int = 100) -> list[TelemetryEvent]:
         return []
 
 
