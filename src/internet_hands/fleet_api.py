@@ -4,6 +4,8 @@ import asyncio
 import dataclasses
 import json
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
@@ -11,15 +13,28 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from .hunt import HuntScope
+from .mcp_server import sandbox_mcp, streamable_http_app
 from .postgres_frontier import PostgresFrontier
 from .postgres_store import PostgresCaptureStore
 from .telemetry import DEFAULT_TELEMETRY_DB, PostgresTelemetry, SqliteTelemetry
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    async with sandbox_mcp.session_manager.run():
+        yield
+
+
 app = FastAPI(
     title="Internet Hands Fleet",
-    version="0.3.0",
-    description="Distributed crawl frontier, shared content index, and telemetry control plane.",
+    version="0.4.0",
+    description=(
+        "Distributed crawl frontier, shared content index, telemetry, and isolated "
+        "cloud-computer MCP control plane."
+    ),
+    lifespan=lifespan,
 )
+app.mount("/mcp", streamable_http_app())
 
 
 def require_api_key(x_api_key: Annotated[str | None, Header()] = None) -> None:
@@ -64,7 +79,35 @@ def _telemetry():
 
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
-    return {"status": "ok", "version": "0.3.0", "plane": "fleet"}
+    return {"status": "ok", "version": "0.4.0", "plane": "fleet+mcp"}
+
+
+@app.get("/v1/sandbox/capabilities", dependencies=[Depends(require_api_key)])
+def sandbox_capabilities() -> dict[str, object]:
+    configured = bool(
+        os.getenv("VERCEL_OIDC_TOKEN")
+        or os.getenv("INTERNET_HANDS_VERCEL_TOKEN")
+        or os.getenv("VERCEL_TOKEN")
+    ) and bool(os.getenv("INTERNET_HANDS_SANDBOX_PROJECT_ID") or os.getenv("VERCEL_PROJECT_ID"))
+    return {
+        "provider": "vercel",
+        "mcp_endpoint": "/mcp/",
+        "configured": configured,
+        "network": "public-internet-only by default",
+        "tools": [
+            "sandbox_create",
+            "sandbox_get",
+            "sandbox_exec",
+            "sandbox_shell",
+            "sandbox_install",
+            "sandbox_git_clone",
+            "sandbox_read_file",
+            "sandbox_write_file",
+            "sandbox_mkdir",
+            "sandbox_browser_screenshot",
+            "sandbox_snapshot",
+        ],
+    }
 
 
 @app.get("/v1/frontier/stats", dependencies=[Depends(require_api_key)])
