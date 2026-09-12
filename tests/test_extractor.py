@@ -52,8 +52,7 @@ def test_trafilatura_can_enhance_text_without_replacing_native_links(monkeypatch
                 '"text":"Clean article text."}'
             )
 
-    monkeypatch.setattr(extractor.util, "find_spec", lambda name: object())
-    monkeypatch.setattr(extractor, "import_module", lambda name: FakeTrafilatura)
+    monkeypatch.setattr(extractor, "_load_trafilatura", lambda: FakeTrafilatura)
 
     document = extract_document(_fetch_result(html))
     assert document.title == "Enhanced title"
