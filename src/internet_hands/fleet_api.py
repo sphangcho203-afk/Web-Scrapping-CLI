@@ -12,6 +12,7 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
+from . import browser_mcp as _browser_mcp  # noqa: F401
 from .hunt import HuntScope
 from .mcp_server import sandbox_mcp, streamable_http_app
 from .postgres_frontier import PostgresFrontier
@@ -94,18 +95,39 @@ def sandbox_capabilities() -> dict[str, object]:
         "mcp_endpoint": "/mcp/",
         "configured": configured,
         "network": "public-internet-only by default",
+        "browser": "persistent named Playwright profiles inside the isolated sandbox",
         "tools": [
             "sandbox_create",
             "sandbox_get",
             "sandbox_exec",
+            "sandbox_start",
             "sandbox_shell",
+            "sandbox_command",
+            "sandbox_commands",
+            "sandbox_command_logs",
+            "sandbox_kill",
             "sandbox_install",
             "sandbox_git_clone",
             "sandbox_read_file",
+            "sandbox_artifact",
             "sandbox_write_file",
             "sandbox_mkdir",
+            "sandbox_start_service",
             "sandbox_browser_screenshot",
+            "sandbox_browser_prepare",
+            "sandbox_browser_state",
+            "sandbox_browser_open",
+            "sandbox_browser_click",
+            "sandbox_browser_fill",
+            "sandbox_browser_press",
+            "sandbox_browser_extract",
+            "sandbox_browser_capture",
+            "sandbox_browser_download",
+            "sandbox_browser_trace",
             "sandbox_snapshot",
+            "sandbox_fork",
+            "sandbox_stop",
+            "sandbox_delete",
         ],
     }
 
