@@ -62,6 +62,7 @@ ih-backends = "internet_hands.backends_cli:app"
 ih-hunt = "internet_hands.hunt_cli:app"
 ih-fleet = "internet_hands.fleet_cli:app"
 ih-worker = "internet_hands.worker_cli:app"
+ih-fleet-api = "internet_hands.fleet_api:run"
 ih-content = "internet_hands.content_cli:app"
 ih-export = "internet_hands.export_cli:app"
 
