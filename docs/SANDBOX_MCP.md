@@ -13,15 +13,18 @@ MCP client / agent
         v
 Internet Hands /mcp
         |
-        v
-SandboxManager
-        |
-        v
-SandboxProvider protocol
-        |
-        +---- VercelSandboxProvider (v0.4)
-        +---- future E2B provider
-        +---- future self-hosted Firecracker provider
+        +----------------------------+
+        |                            |
+        v                            v
+SandboxManager               BrowserSandboxManager
+        |                            |
+        +-------------+--------------+
+                      v
+              SandboxProvider protocol
+                      |
+                      +---- VercelSandboxProvider (v0.4)
+                      +---- future E2B provider
+                      +---- future self-hosted Firecracker provider
 ```
 
 The MCP transport is mounted at `/mcp/` and is protected by the same
@@ -64,18 +67,67 @@ may run for up to one hour, subject to the sandbox's own provider TTL.
 Artifact and ordinary file responses are capped by the manager policy so a tool call cannot dump an
 unbounded guest filesystem into MCP context.
 
-### Services and browser
+### Services
 
 - `sandbox_start_service` resumes a named sandbox, validates a pre-published port, starts the service as a detached process, and returns its provider route/public URL.
-- `sandbox_browser_screenshot` installs/uses Playwright Chromium inside the guest and saves a full-page screenshot.
 
 Vercel requires exposed ports to be declared when the sandbox is created. Internet Hands therefore
 does not invent a post-creation `publish-port` operation: create the sandbox with `ports=[3000]`, then
 start the service on port 3000. `sandbox_start_service` refuses undeclared ports.
 
-Browser execution remains inside the isolated computer. Internet Hands does **not** publish an
-unauthenticated Chrome DevTools/CDP endpoint by default. Screenshots and other browser outputs are
-returned through the normal artifact/file tools.
+## Stateful browser subsystem
+
+The browser is a structured computer subsystem inside the sandbox, not a public DevTools endpoint.
+Each `browser_session` name maps to a persistent Chromium profile stored on the sandbox filesystem.
+Cookies, local storage, and the last page URL therefore survive individual MCP calls and persistent
+sandbox snapshots/resumes.
+
+The runtime uses a pinned Playwright package and Chromium binary installed into
+`.internet-hands/browser`. Preparation is asynchronous so a serverless control-plane request does not
+need to stay open while Chromium downloads.
+
+Browser tools:
+
+- `sandbox_browser_prepare` writes the versioned browser runtime and starts Playwright/Chromium installation as a detached command.
+- `sandbox_browser_state` returns the current URL/title for a named browser session.
+- `sandbox_browser_open` navigates to a public HTTP(S) URL.
+- `sandbox_browser_click` clicks a Playwright locator, with optional navigation wait.
+- `sandbox_browser_fill` fills a located form field.
+- `sandbox_browser_press` sends a key to a located element.
+- `sandbox_browser_extract` extracts bounded text, HTML, or links from the current page.
+- `sandbox_browser_capture` saves the current page as a screenshot artifact.
+- `sandbox_browser_download` waits for a locator-triggered download and stores it in the sandbox.
+- `sandbox_browser_trace` reads persisted console/page-error or request/response events and may clear the selected trace.
+- `sandbox_browser_screenshot` remains as the simple one-shot compatibility screenshot tool.
+
+The browser manager validates the initial navigation target with the public-URL policy. The in-guest
+runtime also blocks obvious localhost/private/link-local targets, while the sandbox provider network
+policy remains the final defense against DNS rebinding or redirects to non-public addresses.
+
+Internet Hands deliberately does **not** publish an unauthenticated Chrome DevTools/CDP endpoint.
+Browser control stays behind the authenticated MCP transport and executes inside the isolated VM.
+
+### Browser workflow
+
+```text
+sandbox_browser_prepare(session_id)
+        -> detached command_id
+sandbox_command(session_id, command_id, wait=true)
+        -> install completed
+sandbox_browser_state(session_id, browser_session="research")
+        -> confirms browser runtime is ready
+sandbox_browser_open(session_id, "https://example.com", browser_session="research")
+sandbox_browser_click(session_id, "text=Docs", browser_session="research")
+sandbox_browser_fill(session_id, "input[name=q]", "query", browser_session="research")
+sandbox_browser_press(session_id, "input[name=q]", "Enter", browser_session="research")
+sandbox_browser_extract(session_id, selector="main", mode="text", browser_session="research")
+sandbox_browser_trace(session_id, kind="network", browser_session="research")
+sandbox_browser_capture(session_id, output_path="artifacts/research.png", browser_session="research")
+sandbox_artifact(session_id, "artifacts/research.png")
+```
+
+For downloads, call `sandbox_browser_download` with the locator that triggers the download, then use
+`sandbox_artifact` or `sandbox_read_file` on the returned path.
 
 ## Authentication
 
@@ -105,6 +157,9 @@ Default manager limits:
 - foreground command timeout: 120 seconds maximum
 - detached/background timeout: 1 hour maximum
 - tool output/file/artifact response: 1 MB maximum
+- browser extracted text/HTML: 500,000 characters maximum per call
+- browser trace events: 1,000 maximum per call
+- browser fill payload: 100,000 characters maximum
 - vCPUs: up to 4
 - memory: up to 8 GB
 - published ports: up to 8
@@ -125,13 +180,16 @@ sandbox_exec(session_id, "npm", ["run", "build"], cwd="project")
 sandbox_start_service(name="app", command="npm", args=["run", "dev"], port=3000, cwd="project")
         -> command_id + public URL
 sandbox_command_logs(session_id, command_id)
-sandbox_browser_screenshot(session_id, public_url)
-sandbox_artifact(session_id, "artifacts/page.png")
+sandbox_browser_prepare(session_id)
+sandbox_browser_open(session_id, public_url, browser_session="qa", cwd="project")
+sandbox_browser_extract(session_id, selector="body", browser_session="qa", cwd="project")
+sandbox_browser_capture(session_id, output_path="artifacts/page.png", browser_session="qa", cwd="project")
+sandbox_artifact(session_id, "artifacts/page.png", cwd="project")
 sandbox_snapshot(session_id)
 ```
 
 ## CI
 
-Unit tests use a fake provider. CI never creates Vercel sandboxes and therefore cannot consume
-sandbox runtime or require Vercel credentials. The test matrix validates supported Python versions
-3.11, 3.12, and 3.13.
+Unit tests use fake providers and mocked HTTP transports. CI never creates Vercel sandboxes and
+therefore cannot consume sandbox runtime or require Vercel credentials. The test matrix validates
+supported Python versions 3.11, 3.12, and 3.13.
