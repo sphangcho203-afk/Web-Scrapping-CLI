@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -79,12 +79,15 @@ def canonicalize_url(url: str) -> str:
     parts = urlsplit(url)
     if parts.scheme.lower() not in {"http", "https"} or not parts.hostname:
         raise ValueError("Only absolute HTTP(S) URLs can enter the hunt frontier")
+    if parts.username or parts.password:
+        raise ValueError("Credentials embedded in URLs are not accepted")
 
     scheme = parts.scheme.lower()
     host = parts.hostname.lower().rstrip(".")
     port = parts.port
     default_port = 443 if scheme == "https" else 80
-    netloc = host if port in {None, default_port} else f"{host}:{port}"
+    rendered_host = f"[{host}]" if ":" in host else host
+    netloc = rendered_host if port in {None, default_port} else f"{rendered_host}:{port}"
 
     path = parts.path or "/"
     pairs = []
@@ -182,13 +185,17 @@ async def hunt(
         if normalized not in normalized_seeds:
             normalized_seeds.append(normalized)
 
+    initial_domains = {
+        (urlsplit(seed).hostname or "").lower() for seed in normalized_seeds
+    }
+    if len(initial_domains) > max_domains:
+        raise ValueError("initial seed domains exceed max_domains")
+
     frontier: deque[HuntTask] = deque(HuntTask(url=seed, depth=0) for seed in normalized_seeds)
     queued: set[str] = set(normalized_seeds)
     visited: set[str] = set()
     content_hashes: set[str] = set()
-    domains: set[str] = {
-        (urlsplit(seed).hostname or "").lower() for seed in normalized_seeds
-    }
+    domains: set[str] = set(initial_domains)
     robots_cache: dict[str, RobotFileParser | None] = {}
     limiter = HostLimiter(per_host_delay)
     store = Store(db_path) if index else None
@@ -259,10 +266,13 @@ async def hunt(
 
         frontier.extendleft(reversed(deferred))
         if not batch:
+            if not frontier:
+                break
             task = frontier.popleft()
-            if task.url not in visited:
-                visited.add(task.url)
-                batch.append(task)
+            if task.url in visited:
+                continue
+            visited.add(task.url)
+            batch.append(task)
 
         results = await asyncio.gather(*(process(task) for task in batch))
         for task, (page, links) in zip(batch, results, strict=True):
@@ -270,10 +280,7 @@ async def hunt(
             if len(pages) >= max_pages or task.depth >= max_depth or page.error:
                 continue
 
-            anchor_seed = normalized_seeds[0]
-            if scope != HuntScope.WEB:
-                anchor_seed = task.url
-
+            anchor_seed = normalized_seeds[0] if scope == HuntScope.WEB else task.url
             for raw_link in links:
                 if len(queued) >= max_pages * 20:
                     break
@@ -314,5 +321,5 @@ async def hunt(
             "domains": len(domains),
             "indexed": sum(1 for page in pages if page.indexed),
         },
-        "pages": [page.__dict__ for page in pages],
+        "pages": [asdict(page) for page in pages],
     }
