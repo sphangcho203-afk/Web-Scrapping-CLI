@@ -13,6 +13,7 @@ from .storage import DEFAULT_DB
 app = typer.Typer(no_args_is_help=True, help="Export Internet Hands capture datasets.")
 console = Console()
 DbPath = Annotated[Path, typer.Option("--db")]
+TargetPath = Annotated[Path, typer.Argument()]
 
 
 def _done(kind: str, target: Path, count: int) -> None:
@@ -29,7 +30,7 @@ def _done(kind: str, target: Path, count: int) -> None:
 
 @app.command("warc")
 def warc(
-    target: Path = typer.Argument(...),
+    target: TargetPath,
     db: DbPath = DEFAULT_DB,
 ):
     """Export captures to WARC/1.1; use a .gz suffix for gzip compression."""
@@ -38,7 +39,7 @@ def warc(
 
 @app.command("parquet")
 def parquet(
-    target: Path = typer.Argument(...),
+    target: TargetPath,
     db: DbPath = DEFAULT_DB,
 ):
     """Export normalized documents to compressed Parquet."""
