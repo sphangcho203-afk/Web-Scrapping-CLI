@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
 _PACKAGE_RE = re.compile(r"^[A-Za-z0-9_.+@/:=-]{1,160}$")
 
