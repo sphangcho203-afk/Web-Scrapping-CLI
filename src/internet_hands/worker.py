@@ -15,6 +15,7 @@ from .fetcher import DEFAULT_UA, fetch_url
 from .frontier import DEFAULT_FRONTIER_DB, FrontierJob, FrontierStore, JobState
 from .hunt import HuntScope, _rendered_fetch, _same_scope, _should_render, canonicalize_url
 from .policy import validate_public_http_url
+from .rate_limit import DistributedHostLimiter
 from .storage import DEFAULT_DB, Store
 
 
@@ -43,20 +44,25 @@ class FrontierWorker:
         respect_robots: bool = True,
         browser_fallback: bool = False,
         browser_text_threshold: int = 200,
+        per_host_delay: float = 0.35,
         circuit_threshold: int = 5,
         circuit_cooldown_seconds: int = 60,
     ) -> None:
         self.worker_id = worker_id or f"{socket.gethostname()}-{id(self):x}"
         if not 0 <= max_depth <= 50:
             raise ValueError("max_depth must be between 0 and 50")
+        if not 0.0 <= per_host_delay <= 3600.0:
+            raise ValueError("per_host_delay must be between 0 and 3600")
         self.max_depth = max_depth
         self.lease_seconds = lease_seconds
         self.respect_robots = respect_robots
         self.browser_fallback = browser_fallback
         self.browser_text_threshold = browser_text_threshold
+        self.per_host_delay = per_host_delay
         self.circuit_threshold = circuit_threshold
         self.circuit_cooldown_seconds = circuit_cooldown_seconds
         self.frontier = FrontierStore(frontier_db)
+        self.limiter = DistributedHostLimiter(frontier_db)
         self.store = Store(content_db)
         self._robots: dict[str, RobotFileParser | None] = {}
 
@@ -136,6 +142,7 @@ class FrontierWorker:
                 self.frontier.ack(job.id, self.worker_id)
                 return "completed", 0, 0, None
 
+            await self._wait_for_host(host)
             result = await fetch_url(job.url, include_body=True)
             document = extract_document(result)
             browser_pages = 0
@@ -144,6 +151,7 @@ class FrontierWorker:
                 document,
                 text_threshold=self.browser_text_threshold,
             ):
+                await self._wait_for_host((urlsplit(result.final_url).hostname or "").lower())
                 rendered = await render_page(result.final_url)
                 result = _rendered_fetch(result, rendered)
                 document = extract_document(result)
@@ -179,6 +187,13 @@ class FrontierWorker:
                 max_backoff_seconds=300.0,
             )
             return ("dead" if state == JobState.DEAD else "retried"), 0, 0, error
+
+    async def _wait_for_host(self, host: str) -> None:
+        if not host:
+            return
+        wait = self.limiter.reserve(host, min_delay_seconds=self.per_host_delay)
+        if wait > 0:
+            await asyncio.sleep(wait)
 
     async def _robots_for(self, url: str) -> RobotFileParser | None:
         if not self.respect_robots:
