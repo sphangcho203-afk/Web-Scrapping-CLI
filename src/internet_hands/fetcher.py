@@ -12,7 +12,7 @@ from urllib.parse import unquote, urljoin, urlsplit
 import httpx
 
 from .models import ApiEnvelope, DownloadInfo, FetchResult, HealthResult, LinkResult
-from .policy import validate_public_http_url
+from .policy import resolve_public_http_url, validate_public_http_url, validate_public_ip
 
 DEFAULT_UA = "InternetHands/0.2 (+https://github.com/sphangcho203-afk/Web-Scrapping-CLI)"
 REDIRECT_CODES = {301, 302, 303, 307, 308}
@@ -58,8 +58,11 @@ async def fetch_url(
         headers={"User-Agent": user_agent, "Accept": "*/*"},
     ) as client:
         for _ in range(max_redirects + 1):
-            validate_public_http_url(current)
+            snapshot = resolve_public_http_url(current)
             async with client.stream("GET", current) as response:
+                peer_ip = _peer_ip(response)
+                if peer_ip is not None:
+                    peer_ip = validate_public_ip(peer_ip)
                 if response.status_code in REDIRECT_CODES and response.headers.get("location"):
                     current = urljoin(str(response.url), response.headers["location"])
                     validate_public_http_url(current)
@@ -76,6 +79,9 @@ async def fetch_url(
                 final_url = str(response.url)
                 status_code = response.status_code
                 headers = {k.lower(): v for k, v in response.headers.items()}
+                headers["x-internet-hands-resolved-addresses"] = ",".join(snapshot.addresses)
+                if peer_ip is not None:
+                    headers["x-internet-hands-peer-ip"] = peer_ip
                 encoding = response.encoding
                 break
         else:
@@ -152,20 +158,29 @@ async def inspect_download(
 ) -> DownloadInfo:
     validate_public_http_url(url)
     current = url
+    peer_ip: str | None = None
+    resolved_addresses: tuple[str, ...] = ()
     async with httpx.AsyncClient(
         follow_redirects=False,
         timeout=timeout,
         headers={"User-Agent": DEFAULT_UA, "Accept": "*/*"},
     ) as client:
         for _ in range(max_redirects + 1):
-            validate_public_http_url(current)
+            snapshot = resolve_public_http_url(current)
+            resolved_addresses = snapshot.addresses
             response = await client.head(current)
+            peer_ip = _peer_ip(response)
+            if peer_ip is not None:
+                peer_ip = validate_public_ip(peer_ip)
             if response.status_code in REDIRECT_CODES and response.headers.get("location"):
                 current = urljoin(str(response.url), response.headers["location"])
                 validate_public_http_url(current)
                 continue
             if response.status_code in {405, 501}:
                 response = await client.get(current, headers={"Range": "bytes=0-0"})
+                peer_ip = _peer_ip(response)
+                if peer_ip is not None:
+                    peer_ip = validate_public_ip(peer_ip)
             break
         else:
             raise TooManyRedirects(f"Exceeded max_redirects={max_redirects}")
@@ -177,6 +192,10 @@ async def inspect_download(
         or None
     )
     length = response.headers.get("content-length")
+    headers = {k.lower(): v for k, v in response.headers.items()}
+    headers["x-internet-hands-resolved-addresses"] = ",".join(resolved_addresses)
+    if peer_ip is not None:
+        headers["x-internet-hands-peer-ip"] = peer_ip
     return DownloadInfo(
         request_url=url,
         final_url=str(response.url),
@@ -185,7 +204,7 @@ async def inspect_download(
         content_length=int(length) if length and length.isdigit() else None,
         filename=filename,
         disposition=disposition,
-        headers={k.lower(): v for k, v in response.headers.items()},
+        headers=headers,
     )
 
 
@@ -200,6 +219,21 @@ def save_capture(result: FetchResult, root: Path = Path("data/runs")) -> Path:
     if result.body_text is not None:
         (target / "body.txt").write_text(result.body_text, encoding="utf-8")
     return target
+
+
+def _peer_ip(response: httpx.Response) -> str | None:
+    stream = response.extensions.get("network_stream")
+    if stream is None or not hasattr(stream, "get_extra_info"):
+        return None
+    try:
+        server = stream.get_extra_info("server_addr")
+    except (AttributeError, OSError, TypeError):
+        return None
+    if isinstance(server, tuple) and server:
+        return str(server[0])
+    if isinstance(server, str):
+        return server
+    return None
 
 
 def _looks_textual(content_type: str | None) -> bool:
