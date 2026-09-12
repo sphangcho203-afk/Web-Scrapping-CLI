@@ -11,6 +11,15 @@ import httpx
 from .policy import validate_public_http_url
 
 REDIRECT_CODES = {301, 302, 303, 307, 308}
+SECRET_ENV_NAMES = (
+    "YOUTUBE_API_KEY",
+    "YOUTUBE_ANALYTICS_ACCESS_TOKEN",
+    "GITHUB_TOKEN",
+    "TWITCH_CLIENT_ID",
+    "TWITCH_ACCESS_TOKEN",
+    "TIKTOK_ACCESS_TOKEN",
+    "REDDIT_ACCESS_TOKEN",
+)
 
 
 class IntelError(RuntimeError):
@@ -41,6 +50,20 @@ def _record(
             "public_data": public_data,
         },
     }
+
+
+def _safe_url(value: str) -> str:
+    parts = urlsplit(value)
+    return parts._replace(query="", fragment="").geturl()
+
+
+def _redact_known_secrets(value: str) -> str:
+    redacted = value
+    for name in SECRET_ENV_NAMES:
+        secret = os.getenv(name)
+        if secret and len(secret) >= 6:
+            redacted = redacted.replace(secret, "[redacted]")
+    return redacted
 
 
 async def _request_json(
@@ -77,17 +100,18 @@ async def _request_json(
                 params = None
                 validate_public_http_url(current)
                 continue
+            safe_response_url = _safe_url(str(response.url))
             try:
                 response.raise_for_status()
             except httpx.HTTPStatusError as exc:
-                body = response.text[:800]
+                body = _redact_known_secrets(response.text[:800])
                 raise IntelError(
-                    f"{response.status_code} from {response.url}: {body}"
+                    f"{response.status_code} from {safe_response_url}: {body}"
                 ) from exc
             try:
                 return response.json()
             except ValueError as exc:
-                raise IntelError(f"Expected JSON from {response.url}") from exc
+                raise IntelError(f"Expected JSON from {safe_response_url}") from exc
 
     raise IntelError(f"Exceeded max_redirects={max_redirects}")
 
@@ -284,6 +308,8 @@ async def bluesky_feed(actor: str, limit: int = 50) -> dict[str, Any]:
 async def hackernews_item(item_id: int) -> dict[str, Any]:
     endpoint = f"https://hacker-news.firebaseio.com/v0/item/{item_id}.json"
     data = await _request_json("GET", endpoint)
+    if data is None:
+        raise IntelError(f"Hacker News item not found: {item_id}")
     return _record("hackernews", "item", str(item_id), endpoint, data)
 
 
@@ -291,12 +317,16 @@ async def hackernews_user(username: str) -> dict[str, Any]:
     username = username.strip()
     endpoint = f"https://hacker-news.firebaseio.com/v0/user/{username}.json"
     data = await _request_json("GET", endpoint)
+    if data is None:
+        raise IntelError(f"Hacker News user not found: {username}")
     return _record("hackernews", "profile", username, endpoint, data)
 
 
 async def mastodon_profile(instance: str, account: str) -> dict[str, Any]:
-    instance = instance.strip().lower()
+    instance = instance.strip().lower().rstrip("/")
     account = account.strip().lstrip("@")
+    if "://" in instance or "/" in instance or "?" in instance or "#" in instance:
+        raise IntelError("Mastodon instance must be a hostname, optionally with a port")
     endpoint = f"https://{instance}/api/v1/accounts/lookup"
     validate_public_http_url(endpoint)
     data = await _request_json("GET", endpoint, params={"acct": account})
