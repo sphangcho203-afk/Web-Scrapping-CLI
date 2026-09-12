@@ -7,6 +7,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.robotparser import RobotFileParser
 
+from .adapters import capture_with_backend
 from .browser import render_page
 from .crawler import _robots_for
 from .discovery import discover_frontier_urls
@@ -17,6 +18,8 @@ from .hunt import HuntScope, _rendered_fetch, _same_scope, _should_render, canon
 from .policy import validate_public_http_url
 from .rate_limit import DistributedHostLimiter
 from .storage import DEFAULT_DB, Store
+
+EXTERNAL_BACKENDS = {"crawlee", "crawlee-http", "crawl4ai", "scrapy"}
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -39,6 +42,8 @@ class FrontierWorker:
         *,
         frontier_db: Path = DEFAULT_FRONTIER_DB,
         content_db: Path = DEFAULT_DB,
+        backend: str = "native",
+        allow_external_network: bool = False,
         max_depth: int = 5,
         lease_seconds: int = 120,
         respect_robots: bool = True,
@@ -49,10 +54,20 @@ class FrontierWorker:
         circuit_cooldown_seconds: int = 60,
     ) -> None:
         self.worker_id = worker_id or f"{socket.gethostname()}-{id(self):x}"
+        normalized_backend = backend.strip().lower()
+        if normalized_backend not in {"native", *EXTERNAL_BACKENDS}:
+            raise ValueError(f"Unsupported worker backend: {backend}")
+        if normalized_backend in EXTERNAL_BACKENDS and not allow_external_network:
+            raise ValueError(
+                "External worker backends require allow_external_network=True and should run "
+                "inside a public-egress-restricted environment"
+            )
         if not 0 <= max_depth <= 50:
             raise ValueError("max_depth must be between 0 and 50")
         if not 0.0 <= per_host_delay <= 3600.0:
             raise ValueError("per_host_delay must be between 0 and 3600")
+        self.backend = normalized_backend
+        self.allow_external_network = allow_external_network
         self.max_depth = max_depth
         self.lease_seconds = lease_seconds
         self.respect_robots = respect_robots
@@ -124,17 +139,17 @@ class FrontierWorker:
 
     async def _process(self, job: FrontierJob) -> tuple[str, int, int, str | None]:
         host = (urlsplit(job.url).hostname or "").lower()
-        circuit_key = f"http:{host}"
+        circuit_key = f"{self.backend}:{host}"
         if not self.frontier.circuit_allows(circuit_key):
             state = self.frontier.fail(
                 job.id,
                 self.worker_id,
-                "host circuit open",
+                "backend/host circuit open",
                 base_backoff_seconds=float(self.circuit_cooldown_seconds),
                 max_backoff_seconds=float(self.circuit_cooldown_seconds),
             )
             status = "dead" if state == JobState.DEAD else "circuit"
-            return status, 0, 0, "host circuit open"
+            return status, 0, 0, "backend/host circuit open"
 
         try:
             robots = await self._robots_for(job.url)
@@ -143,13 +158,24 @@ class FrontierWorker:
                 return "completed", 0, 0, None
 
             await self._wait_for_host(host)
-            result = await fetch_url(job.url, include_body=True)
+            if self.backend == "native":
+                result = await fetch_url(job.url, include_body=True)
+            else:
+                result = await capture_with_backend(
+                    self.backend,
+                    job.url,
+                    allow_external_network=self.allow_external_network,
+                )
             document = extract_document(result)
-            browser_pages = 0
-            if self.browser_fallback and _should_render(
-                result,
-                document,
-                text_threshold=self.browser_text_threshold,
+            browser_pages = int(self.backend == "crawl4ai")
+            if (
+                self.backend == "native"
+                and self.browser_fallback
+                and _should_render(
+                    result,
+                    document,
+                    text_threshold=self.browser_text_threshold,
+                )
             ):
                 await self._wait_for_host((urlsplit(result.final_url).hostname or "").lower())
                 rendered = await render_page(result.final_url)
