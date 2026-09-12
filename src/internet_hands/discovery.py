@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
+from html import unescape
 from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urljoin, urlsplit
@@ -24,6 +26,9 @@ MACHINE_TYPES = {
     "application/json+oembed": "oembed",
     "text/xml": "xml_feed",
 }
+_LOC_RE = re.compile(r"<loc\b[^>]*>(.*?)</loc>", re.IGNORECASE | re.DOTALL)
+_XML_LINK_RE = re.compile(r"<link\b[^>]*>(.*?)</link>", re.IGNORECASE | re.DOTALL)
+_XML_HREF_RE = re.compile(r"<link\b[^>]*\bhref=[\"']([^\"']+)[\"']", re.IGNORECASE)
 
 
 class _MachineLinkParser(HTMLParser):
@@ -113,6 +118,83 @@ def discover_from_html(html: str, base_url: str) -> dict[str, Any]:
         "candidates": candidates,
         "json_ld": parser.json_ld,
     }
+
+
+def discover_frontier_urls(
+    body: str,
+    base_url: str,
+    *,
+    content_type: str | None = None,
+    limit: int = 5000,
+) -> list[str]:
+    """Extract published crawl/frontier URLs from HTML, feeds, sitemaps, and JSON Feed."""
+    if limit < 1:
+        return []
+    output: list[str] = []
+    seen: set[str] = set()
+
+    def add(raw: str) -> None:
+        if len(output) >= limit:
+            return
+        absolute = urljoin(base_url, unescape(raw).strip())
+        parts = urlsplit(absolute)
+        if parts.scheme not in {"http", "https"} or not parts.hostname:
+            return
+        clean = parts._replace(fragment="").geturl()
+        if clean not in seen:
+            seen.add(clean)
+            output.append(clean)
+
+    lowered_type = (content_type or "").lower()
+    lowered_body = body[:2000].lower()
+    looks_html = "html" in lowered_type or "<html" in lowered_body
+    if looks_html:
+        result = discover_from_html(body, base_url)
+        for candidate in result["candidates"]:
+            add(candidate["url"])
+
+    looks_xml = (
+        "xml" in lowered_type
+        or "rss" in lowered_type
+        or "atom" in lowered_type
+        or lowered_body.lstrip().startswith("<?xml")
+        or "<urlset" in lowered_body
+        or "<sitemapindex" in lowered_body
+        or "<rss" in lowered_body
+        or "<feed" in lowered_body
+    )
+    if looks_xml:
+        for match in _LOC_RE.finditer(body):
+            add(match.group(1))
+        for match in _XML_HREF_RE.finditer(body):
+            add(match.group(1))
+        for match in _XML_LINK_RE.finditer(body):
+            raw = re.sub(r"<[^>]+>", "", match.group(1)).strip()
+            if raw.startswith(("http://", "https://", "/")):
+                add(raw)
+
+    looks_json = "json" in lowered_type or body.lstrip().startswith(("{", "["))
+    if looks_json:
+        try:
+            parsed = json.loads(body)
+        except (json.JSONDecodeError, TypeError):
+            parsed = None
+        if isinstance(parsed, dict):
+            for key in ("home_page_url", "feed_url"):
+                value = parsed.get(key)
+                if isinstance(value, str):
+                    add(value)
+            items = parsed.get("items")
+            if isinstance(items, list):
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    for key in ("url", "external_url"):
+                        value = item.get(key)
+                        if isinstance(value, str):
+                            add(value)
+
+    return output[:limit]
 
 
 def _robots_sitemaps(text: str, base_url: str) -> list[str]:
