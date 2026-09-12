@@ -182,7 +182,7 @@ async def _probe_common_openapi(origin: str) -> list[dict[str, Any]]:
         target = urljoin(origin, path)
         try:
             result = await fetch_url(target, include_body=True, max_bytes=5_000_000)
-        except Exception:
+        except Exception:  # noqa: BLE001 -- one failed bounded probe is non-fatal
             return None
         body = (result.body_text or "").lstrip().lower()
         content_type = (result.content_type or "").lower()
