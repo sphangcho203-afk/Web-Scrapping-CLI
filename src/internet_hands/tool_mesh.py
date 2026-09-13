@@ -9,7 +9,6 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 
-
 _RESTRICTED_MARKETPLACE_TERMS = (
     "ammunition",
     "casino",
@@ -149,10 +148,12 @@ class ToolMesh:
     def _allowed(self, ref: str) -> bool:
         if not self._safe_text(ref):
             return False
-        if self.deny_patterns and any(fnmatch.fnmatch(ref, item) for item in self.deny_patterns):
+        if self.deny_patterns and any(
+            fnmatch.fnmatch(ref, pattern) for pattern in self.deny_patterns
+        ):
             return False
         if self.allow_patterns:
-            return any(fnmatch.fnmatch(ref, item) for item in self.allow_patterns)
+            return any(fnmatch.fnmatch(ref, pattern) for pattern in self.allow_patterns)
         return True
 
     def _descriptor_allowed(self, descriptor: ToolDescriptor) -> bool:
@@ -185,21 +186,20 @@ class ToolMesh:
         raw = json.dumps(value, default=str, separators=(",", ":")).encode()
         if len(raw) <= self.max_response_bytes:
             return value
-        preview = raw[: self.max_response_bytes].decode("utf-8", errors="replace")
         return {
             "truncated": True,
             "bytes": len(raw),
             "max_bytes": self.max_response_bytes,
-            "preview": preview,
+            "preview": raw[: self.max_response_bytes].decode("utf-8", errors="replace"),
         }
 
     async def provider_status(self) -> dict[str, Any]:
         async def one(name: str, provider: ToolProvider) -> tuple[str, dict[str, Any]]:
             try:
-                status = await provider.status()
-            except Exception as exc:
-                status = {"configured": False, "error": str(exc)}
-            return name, status
+                value = await provider.status()
+            except Exception as exc:  # noqa: BLE001 - isolate external provider failures
+                value = {"configured": False, "error": str(exc)}
+            return name, value
 
         rows = await asyncio.gather(
             *(one(name, provider) for name, provider in self.providers.items())
@@ -225,9 +225,8 @@ class ToolMesh:
         async def one(name: str) -> tuple[str, list[ToolDescriptor], str | None]:
             try:
                 rows = await self.providers[name].search(query, limit=limit)
-                rows = [row for row in rows if self._descriptor_allowed(row)]
-                return name, rows, None
-            except Exception as exc:
+                return name, [row for row in rows if self._descriptor_allowed(row)], None
+            except Exception as exc:  # noqa: BLE001 - isolate external catalog failures
                 return name, [], str(exc)
 
         groups = await asyncio.gather(*(one(name) for name in names))
@@ -257,8 +256,7 @@ class ToolMesh:
             raise PermissionError(f"tool blocked by mesh policy: {ref}")
         provider_name, tool_id = self._split_ref(ref)
         descriptor = await self._provider(provider_name).describe(tool_id)
-        if descriptor.ref != ref:
-            descriptor.ref = ref
+        descriptor.ref = ref
         if not self._descriptor_allowed(descriptor):
             raise PermissionError(f"tool blocked by marketplace safety policy: {ref}")
         return descriptor.to_dict()
@@ -279,10 +277,10 @@ class ToolMesh:
         provider_name, tool_id = self._split_ref(ref)
         provider = self._provider(provider_name)
         descriptor = await provider.describe(tool_id)
-        if descriptor.ref != ref:
-            descriptor.ref = ref
+        descriptor.ref = ref
         if not self._descriptor_allowed(descriptor):
             raise PermissionError(f"tool blocked by marketplace safety policy: {ref}")
+
         execution = ToolExecution(
             execution_id=uuid.uuid4().hex,
             provider=provider_name,
@@ -310,14 +308,12 @@ class ToolMesh:
                 timeout_seconds=max(1, min(timeout_seconds, 600)),
                 options=options,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - normalize provider execution failures
             return execution.finish(status="failed", error=str(exc)).to_dict()
 
-        status = str(result.get("status") or "completed")
-        data = self._bounded(result.get("data"))
         return execution.finish(
-            status=status,
-            data=data,
+            status=str(result.get("status") or "completed"),
+            data=self._bounded(result.get("data")),
             error=result.get("error"),
             job_id=result.get("job_id"),
             result_id=result.get("result_id"),
@@ -348,14 +344,15 @@ class ToolMesh:
                         options=dict(call.get("options") or {}),
                         dry_run=bool(call.get("dry_run", False)),
                     )
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 - isolate batch item failures
+                    now = time.time()
                     result = {
                         "execution_id": uuid.uuid4().hex,
                         "provider": "",
                         "ref": str(call.get("ref") or ""),
                         "status": "failed",
-                        "started_at": time.time(),
-                        "finished_at": time.time(),
+                        "started_at": now,
+                        "finished_at": now,
                         "duration_ms": 0,
                         "error": str(exc),
                     }
