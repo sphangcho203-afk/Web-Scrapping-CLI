@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from functools import lru_cache
 from typing import Any
 
@@ -34,6 +35,27 @@ async def mesh_providers() -> dict[str, Any]:
 
 
 @sandbox_mcp.tool()
+async def mesh_route(
+    intent: str,
+    providers: list[str] | None = None,
+    limit: int = 10,
+) -> dict[str, Any]:
+    """Route an agent intent to semantic capabilities and raw catalog tools without executing."""
+    intent = intent.strip()
+    if not intent:
+        raise ValueError("intent is required")
+    raw = await get_tool_mesh().search(intent, providers=providers, limit=limit)
+    semantic = get_capability_registry().list(query=intent, limit=min(limit, 20))
+    return {
+        "intent": intent,
+        "capabilities": semantic["capabilities"],
+        "tools": raw["tools"],
+        "errors": raw["errors"],
+        "next": "resolve a capability or describe shortlisted tool refs before execution",
+    }
+
+
+@sandbox_mcp.tool()
 async def mesh_search(
     query: str,
     providers: list[str] | None = None,
@@ -47,6 +69,27 @@ async def mesh_search(
 async def mesh_describe(ref: str) -> dict[str, Any]:
     """Fetch the normalized input/output schema and metadata for one external tool."""
     return await get_tool_mesh().describe(ref)
+
+
+@sandbox_mcp.tool()
+async def mesh_describe_many(refs: list[str]) -> dict[str, Any]:
+    """Fetch schemas for up to 20 shortlisted tools in parallel."""
+    if not refs:
+        return {"tools": [], "errors": {}}
+    if len(refs) > 20:
+        raise ValueError("mesh_describe_many accepts at most 20 refs")
+
+    async def one(ref: str) -> tuple[str, dict[str, Any] | None, str | None]:
+        try:
+            return ref, await get_tool_mesh().describe(ref), None
+        except Exception as exc:  # noqa: BLE001 - isolate external descriptor failures
+            return ref, None, str(exc)
+
+    rows = await asyncio.gather(*(one(ref) for ref in refs))
+    return {
+        "tools": [tool for _, tool, _ in rows if tool is not None],
+        "errors": {ref: error for ref, _, error in rows if error},
+    }
 
 
 @sandbox_mcp.tool()
@@ -112,7 +155,7 @@ def mesh_capabilities(
     pack: str | None = None,
     limit: int = 50,
 ) -> dict[str, Any]:
-    """List semantic capability packs such as MLBB without exposing provider-specific details."""
+    """List semantic capability packs without exposing provider-specific details."""
     return get_capability_registry().list(query=query, pack=pack, limit=limit)
 
 
