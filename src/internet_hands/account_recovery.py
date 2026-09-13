@@ -89,7 +89,7 @@ async def reset_password(request: Request):
     token_hash = sha256_text(token)
     store.ensure_schema()
     user_id: str | None = None
-    with store._connect() as conn, conn.cursor() as cur:  # noqa: SLF001
+    with store._connect() as conn, conn.cursor() as cur:
         cur.execute(
             """
             SELECT user_id FROM ih_password_resets
@@ -102,7 +102,7 @@ async def reset_password(request: Request):
             user_id = str(row["user_id"])
     if not user_id or not store.consume_password_reset(token_hash, encoded):
         raise HTTPException(status_code=400, detail="reset link is invalid or expired")
-    with store._connect() as conn, conn.cursor() as cur:  # noqa: SLF001
+    with store._connect() as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM ih_sessions WHERE user_id=%s", (user_id,))
         cur.execute("UPDATE ih_oauth_tokens SET revoked_at=now() WHERE user_id=%s", (user_id,))
         conn.commit()
