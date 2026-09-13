@@ -7,10 +7,37 @@ from fastapi import APIRouter, HTTPException, Request
 from .auth import sha256_text
 from .control_api import _origin, _require_user, store
 from .control_store import random_token
-from .security_api import _deliver, _send_verification, security
+from .security_api import (
+    _deliver,
+    _send_verification,
+    security,
+    two_factor_confirm,
+    two_factor_setup,
+)
 
 
 router = APIRouter()
+
+
+@router.post("/api/auth/2fa/setup")
+def two_factor_setup_protected(request: Request):
+    user = _require_user(request)
+    status = security.account_security(user["id"])
+    if status["totp_enabled"]:
+        raise HTTPException(
+            status_code=409,
+            detail="disable the existing two-factor method before starting a new setup",
+        )
+    return two_factor_setup(request)
+
+
+@router.post("/api/auth/2fa/confirm")
+async def two_factor_confirm_protected(request: Request):
+    user = _require_user(request)
+    record = security.totp_record(user["id"])
+    if record and record.get("totp_enabled"):
+        raise HTTPException(status_code=409, detail="two-factor authentication is already enabled")
+    return await two_factor_confirm(request)
 
 
 @router.post("/api/auth/email-verification/send")
