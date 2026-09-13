@@ -5,7 +5,6 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 
-
 router = APIRouter()
 WEB_ROOT = Path(__file__).resolve().parents[2] / "web"
 
