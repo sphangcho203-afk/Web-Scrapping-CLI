@@ -13,7 +13,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from . import browser_mcp as _browser_mcp  # noqa: F401
-from . import tool_mcp as _tool_mcp  # noqa: F401
+from . import tool_mcp as _tool_mcp
 from .hunt import HuntScope
 from .mcp_server import sandbox_mcp, streamable_http_app
 from .postgres_frontier import PostgresFrontier
@@ -140,6 +140,7 @@ async def tool_mesh_capabilities() -> dict[str, object]:
         "mcp_endpoint": "/mcp/",
         "reference_format": "provider:tool_id",
         "providers": await _tool_mcp.get_tool_mesh().provider_status(),
+        "semantic_packs": _tool_mcp.get_capability_registry().list(limit=100),
         "tools": [
             "mesh_providers",
             "mesh_search",
@@ -148,6 +149,9 @@ async def tool_mesh_capabilities() -> dict[str, object]:
             "mesh_batch_execute",
             "mesh_job_status",
             "mesh_results",
+            "mesh_capabilities",
+            "mesh_capability_resolve",
+            "mesh_capability_execute",
         ],
         "policy": {
             "allow_env": "INTERNET_HANDS_TOOL_ALLOW",
@@ -222,7 +226,9 @@ def event_stream(
                 idle_ticks = 0
                 for item in batch:
                     cursor = item.id
-                    payload = json.dumps(dataclasses.asdict(item), default=str, separators=(",", ":"))
+                    payload = json.dumps(
+                        dataclasses.asdict(item), default=str, separators=(",", ":")
+                    )
                     yield f"id: {item.id}\nevent: {item.event_type}\ndata: {payload}\n\n"
             else:
                 idle_ticks += 1
