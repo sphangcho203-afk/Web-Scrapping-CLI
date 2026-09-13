@@ -149,6 +149,7 @@ async def tool_mesh_capabilities() -> dict[str, object]:
         "gaming": {
             "public_read_only": True,
             "capabilities": _tool_mcp.gaming_capabilities(limit=100),
+            "profile_presets": True,
         },
         "tools": [
             "mesh_providers",
@@ -165,6 +166,8 @@ async def tool_mesh_capabilities() -> dict[str, object]:
             "mesh_capability_execute",
             "gaming_capabilities",
             "gaming_intel",
+            "gaming_profile_plan",
+            "gaming_profile",
         ],
         "policy": {
             "allow_env": "INTERNET_HANDS_TOOL_ALLOW",
