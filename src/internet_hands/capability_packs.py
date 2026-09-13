@@ -107,7 +107,7 @@ class CapabilityRegistry:
                         "tool": descriptor,
                     }
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - third-party provider boundary
                 resolved.append(
                     {
                         "candidate": candidate.to_dict(),
@@ -168,7 +168,7 @@ class CapabilityRegistry:
                     }
                 if not capability.read_only or descriptor.get("side_effecting"):
                     break
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - read-only provider fallback boundary
                 attempts.append(
                     {
                         "provider": candidate.provider,
