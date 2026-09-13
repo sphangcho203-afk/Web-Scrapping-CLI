@@ -19,6 +19,20 @@ class RemoteMcpSource:
     url: str
 
 
+def _side_effecting(tool: Any) -> bool:
+    """MCP annotations are hints; absent readOnlyHint means we assume mutation is possible."""
+    raw: dict[str, Any] = {}
+    if hasattr(tool, "model_dump"):
+        value = tool.model_dump(mode="json")
+        if isinstance(value, dict):
+            raw = value
+    annotations = raw.get("annotations") if isinstance(raw.get("annotations"), dict) else {}
+    read_only = annotations.get("readOnlyHint")
+    if read_only is None:
+        read_only = annotations.get("read_only_hint")
+    return read_only is not True
+
+
 class RemoteMcpToolProvider:
     """Expose tools from configured public remote MCP servers through the Tool Mesh."""
 
@@ -99,7 +113,7 @@ class RemoteMcpToolProvider:
                             output_schema=output_schema if isinstance(output_schema, dict) else {},
                             tags=["mcp", source.name],
                             requires_auth=False,
-                            side_effecting=False,
+                            side_effecting=_side_effecting(tool),
                             metadata={
                                 "source": source.name,
                                 "endpoint": source.url,
