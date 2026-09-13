@@ -145,15 +145,30 @@ async def _send_resend(*, to: str, subject: str, text: str, html: str) -> MailRe
 
 
 async def send_mail(*, to: str, subject: str, text: str, html: str) -> MailResult:
-    """Send transactional mail. SMTP is preferred; Resend remains a fallback."""
+    """Send transactional mail. SMTP is preferred; Resend is the configured fallback."""
+    smtp_error: MailError | None = None
     if smtp_configured():
-        return await asyncio.to_thread(
-            _send_smtp_sync,
-            to=to,
-            subject=subject,
-            text=text,
-            html=html,
-        )
+        try:
+            return await asyncio.to_thread(
+                _send_smtp_sync,
+                to=to,
+                subject=subject,
+                text=text,
+                html=html,
+            )
+        except MailError as exc:
+            smtp_error = exc
+            if not resend_configured():
+                raise
+
     if resend_configured():
-        return await _send_resend(to=to, subject=subject, text=text, html=html)
+        try:
+            return await _send_resend(to=to, subject=subject, text=text, html=html)
+        except MailError as exc:
+            if smtp_error is not None:
+                raise MailError("transactional email failed through SMTP and Resend fallback") from exc
+            raise
+
+    if smtp_error is not None:
+        raise smtp_error
     raise MailError("transactional email is not configured")
