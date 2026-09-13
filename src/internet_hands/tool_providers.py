@@ -10,7 +10,6 @@ import httpx
 
 from .tool_mesh import ToolDescriptor
 
-
 _TERMINAL_APIFY = {"SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"}
 _MUTATING_HINTS = (
     "CREATE",
@@ -108,7 +107,7 @@ class ApifyToolProvider(_HttpProvider):
             description=str(item.get("description") or ""),
             input_schema=input_schema if isinstance(input_schema, dict) else {},
             output_schema={},
-            tags=[str(value) for value in (item.get("categories") or [])],
+            tags=[str(value) for value in item.get("categories") or []],
             requires_auth=True,
             side_effecting=False,
             metadata=metadata,
@@ -149,7 +148,7 @@ class ApifyToolProvider(_HttpProvider):
         )
         payload = _unwrap(response.json())
         if not isinstance(payload, dict):
-            raise RuntimeError("Apify returned an invalid Actor descriptor")
+            raise TypeError("Apify returned an invalid Actor descriptor")
         descriptor = self._descriptor(payload)
         descriptor.tool_id = tool_id
         descriptor.ref = f"apify:{tool_id}"
@@ -186,7 +185,7 @@ class ApifyToolProvider(_HttpProvider):
         )
         run = _unwrap(response.json())
         if not isinstance(run, dict):
-            raise RuntimeError("Apify returned an invalid run payload")
+            raise TypeError("Apify returned an invalid run payload")
         run_id = str(run.get("id") or "")
         if not run_id:
             raise RuntimeError("Apify run did not return an id")
@@ -195,13 +194,12 @@ class ApifyToolProvider(_HttpProvider):
             run = await self._wait_run(run_id, wait_seconds=wait_seconds)
         status = str(run.get("status") or "RUNNING").upper()
         dataset_id = run.get("defaultDatasetId")
-        normalized = (
-            "completed"
-            if status == "SUCCEEDED"
-            else "failed"
-            if status in {"FAILED", "ABORTED", "TIMED-OUT"}
-            else "running"
-        )
+        if status == "SUCCEEDED":
+            normalized = "completed"
+        elif status in {"FAILED", "ABORTED", "TIMED-OUT"}:
+            normalized = "failed"
+        else:
+            normalized = "running"
         data: Any = run
         if normalized == "completed" and dataset_id:
             data = await self.result_page(str(dataset_id), offset=0, limit=100)
@@ -210,18 +208,16 @@ class ApifyToolProvider(_HttpProvider):
             "job_id": run_id,
             "result_id": str(dataset_id) if dataset_id else None,
             "data": data,
-            "error": None
-            if normalized != "failed"
-            else str(run.get("statusMessage") or status),
-            "metadata": {
-                "actor": tool_id,
-                "provider_status": status,
-            },
+            "error": (
+                None
+                if normalized != "failed"
+                else str(run.get("statusMessage") or status)
+            ),
+            "metadata": {"actor": tool_id, "provider_status": status},
         }
 
     async def _wait_run(self, run_id: str, *, wait_seconds: int) -> dict[str, Any]:
         deadline = time.monotonic() + wait_seconds
-        latest: dict[str, Any] = {}
         while True:
             latest = await self.job_status(run_id, wait_seconds=0)
             status = str(latest.get("status") or "").upper()
@@ -239,30 +235,27 @@ class ApifyToolProvider(_HttpProvider):
         )
         payload = _unwrap(response.json())
         if not isinstance(payload, dict):
-            raise RuntimeError("Apify returned an invalid run status")
+            raise TypeError("Apify returned an invalid run status")
         return payload
 
     async def result_page(
         self, result_id: str, *, offset: int = 0, limit: int = 100
     ) -> dict[str, Any]:
+        page_limit = max(1, min(limit, 1000))
         response = await self._request(
             "GET",
             f"{self.base_url}/datasets/{quote(result_id, safe='')}/items",
-            params={
-                "clean": "true",
-                "offset": max(0, offset),
-                "limit": max(1, min(limit, 1000)),
-            },
+            params={"clean": "true", "offset": max(0, offset), "limit": page_limit},
             headers=self._headers(require_auth=True),
         )
         payload = response.json()
         items = payload if isinstance(payload, list) else _unwrap(payload)
         if not isinstance(items, list):
-            raise RuntimeError("Apify returned invalid dataset items")
+            raise TypeError("Apify returned invalid dataset items")
         return {
             "result_id": result_id,
             "offset": max(0, offset),
-            "limit": max(1, min(limit, 1000)),
+            "limit": page_limit,
             "items": items,
         }
 
@@ -292,17 +285,19 @@ class ComposioToolProvider(_HttpProvider):
     def _descriptor(item: dict[str, Any]) -> ToolDescriptor:
         slug = str(item.get("slug") or item.get("tool_slug") or "").strip()
         toolkit = item.get("toolkit") if isinstance(item.get("toolkit"), dict) else {}
-        tags = [str(value) for value in (item.get("tags") or [])]
+        tags = [str(value) for value in item.get("tags") or []]
         if toolkit.get("slug"):
             tags.append(str(toolkit["slug"]))
+        input_schema = item.get("input_parameters") or item.get("input_schema") or {}
+        output_schema = item.get("output_parameters") or item.get("output_schema") or {}
         return ToolDescriptor(
             ref=f"composio:{slug}",
             provider="composio",
             tool_id=slug,
             name=str(item.get("name") or item.get("human_description") or slug),
             description=str(item.get("description") or item.get("human_description") or ""),
-            input_schema=item.get("input_parameters") or item.get("input_schema") or {},
-            output_schema=item.get("output_parameters") or item.get("output_schema") or {},
+            input_schema=input_schema if isinstance(input_schema, dict) else {},
+            output_schema=output_schema if isinstance(output_schema, dict) else {},
             tags=tags,
             requires_auth=not bool(item.get("no_auth", False)),
             side_effecting=_side_effecting(slug),
@@ -342,7 +337,7 @@ class ComposioToolProvider(_HttpProvider):
         )
         payload = _unwrap(response.json())
         if not isinstance(payload, dict):
-            raise RuntimeError("Composio returned an invalid tool descriptor")
+            raise TypeError("Composio returned an invalid tool descriptor")
         return self._descriptor(payload)
 
     async def execute(
@@ -372,16 +367,16 @@ class ComposioToolProvider(_HttpProvider):
         )
         payload = response.json()
         if not isinstance(payload, dict):
-            raise RuntimeError("Composio returned an invalid execution payload")
+            raise TypeError("Composio returned an invalid execution payload")
         successful = bool(payload.get("successful", payload.get("error") in (None, "")))
         return {
             "status": "completed" if successful else "failed",
             "job_id": None,
             "result_id": None,
             "data": payload.get("data", payload),
-            "error": None
-            if successful
-            else str(payload.get("error") or "tool execution failed"),
+            "error": (
+                None if successful else str(payload.get("error") or "tool execution failed")
+            ),
             "metadata": {
                 "tool": tool_id,
                 "log_id": payload.get("log_id"),
