@@ -7,6 +7,8 @@ from typing import Any
 from .capability_packs import CapabilityRegistry, build_default_capabilities
 from .catalog_providers import build_catalog_providers
 from .gaming_capabilities import build_gaming_capabilities
+from .gaming_extra_capabilities import build_extra_gaming_capabilities
+from .gaming_extra_providers import build_extra_gaming_providers
 from .gaming_profiles import build_gaming_profile_plan
 from .gaming_providers import build_gaming_providers
 from .mcp_server import sandbox_mcp
@@ -22,6 +24,7 @@ def get_tool_mesh() -> ToolMesh:
             *build_default_providers(),
             *build_catalog_providers(),
             *build_gaming_providers(),
+            *build_extra_gaming_providers(),
             build_remote_mcp_provider(),
         ]
     )
@@ -31,7 +34,11 @@ def get_tool_mesh() -> ToolMesh:
 def get_capability_registry() -> CapabilityRegistry:
     return CapabilityRegistry(
         get_tool_mesh(),
-        [*build_default_capabilities(), *build_gaming_capabilities()],
+        [
+            *build_default_capabilities(),
+            *build_gaming_capabilities(),
+            *build_extra_gaming_capabilities(),
+        ],
     )
 
 
