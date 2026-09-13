@@ -68,6 +68,11 @@ def forgot_password_page():
     return _index()
 
 
+@router.get("/reset-password")
+def reset_password_page():
+    return _index()
+
+
 @router.get("/docs")
 def docs_page():
     return _index()
