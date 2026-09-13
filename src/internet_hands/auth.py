@@ -10,7 +10,6 @@ from typing import Any
 
 from .control_store import AuthIdentity, ControlStore
 
-
 PBKDF2_ITERATIONS = 310_000
 current_auth: contextvars.ContextVar[AuthIdentity | None] = contextvars.ContextVar(
     "internet_hands_auth", default=None
@@ -28,11 +27,9 @@ def hash_password(password: str) -> str:
     digest = hashlib.pbkdf2_hmac(
         "sha256", password.encode("utf-8"), salt, PBKDF2_ITERATIONS, dklen=32
     )
-    return "pbkdf2_sha256$%d$%s$%s" % (
-        PBKDF2_ITERATIONS,
-        base64.urlsafe_b64encode(salt).decode().rstrip("="),
-        base64.urlsafe_b64encode(digest).decode().rstrip("="),
-    )
+    salt_b64 = base64.urlsafe_b64encode(salt).decode().rstrip("=")
+    digest_b64 = base64.urlsafe_b64encode(digest).decode().rstrip("=")
+    return f"pbkdf2_sha256${PBKDF2_ITERATIONS}${salt_b64}${digest_b64}"
 
 
 def _b64decode(value: str) -> bytes:
