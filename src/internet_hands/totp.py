@@ -17,9 +17,7 @@ TOTP_DIGITS = 6
 
 
 def _encryption_material() -> str:
-    value = os.getenv("INTERNET_HANDS_ENCRYPTION_KEY") or os.getenv(
-        "INTERNET_HANDS_OAUTH_SIGNING_SECRET"
-    )
+    value = os.getenv("INTERNET_HANDS_ENCRYPTION_KEY")
     if not value:
         raise RuntimeError(
             "INTERNET_HANDS_ENCRYPTION_KEY is required for TOTP secret storage"
@@ -30,9 +28,7 @@ def _encryption_material() -> str:
 
 
 def encryption_configured() -> bool:
-    value = os.getenv("INTERNET_HANDS_ENCRYPTION_KEY") or os.getenv(
-        "INTERNET_HANDS_OAUTH_SIGNING_SECRET"
-    )
+    value = os.getenv("INTERNET_HANDS_ENCRYPTION_KEY")
     return bool(value and len(value) >= 24)
 
 
