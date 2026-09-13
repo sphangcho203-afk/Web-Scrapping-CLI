@@ -6,6 +6,8 @@ from typing import Any
 
 from .capability_packs import CapabilityRegistry, build_default_capabilities
 from .catalog_providers import build_catalog_providers
+from .firecrawl_capabilities import build_firecrawl_capabilities
+from .firecrawl_provider import FirecrawlToolProvider
 from .gaming_capabilities import build_gaming_capabilities
 from .gaming_extra_capabilities import build_extra_gaming_capabilities
 from .gaming_extra_providers import build_extra_gaming_providers
@@ -22,6 +24,7 @@ def get_tool_mesh() -> ToolMesh:
     return ToolMesh(
         [
             *build_default_providers(),
+            FirecrawlToolProvider(),
             *build_catalog_providers(),
             *build_gaming_providers(),
             *build_extra_gaming_providers(),
@@ -36,6 +39,7 @@ def get_capability_registry() -> CapabilityRegistry:
         get_tool_mesh(),
         [
             *build_default_capabilities(),
+            *build_firecrawl_capabilities(),
             *build_gaming_capabilities(),
             *build_extra_gaming_capabilities(),
         ],
@@ -143,7 +147,7 @@ async def mesh_job_status(
     job_id: str,
     wait_seconds: int = 0,
 ) -> dict[str, Any]:
-    """Inspect or briefly wait for a provider job such as a long-running Apify Actor run."""
+    """Inspect or briefly wait for a provider job such as a long-running Apify or Firecrawl run."""
     return await get_tool_mesh().job_status(provider, job_id, wait_seconds=wait_seconds)
 
 
@@ -154,7 +158,7 @@ async def mesh_results(
     offset: int = 0,
     limit: int = 100,
 ) -> dict[str, Any]:
-    """Read one bounded page from a provider result store such as an Apify dataset."""
+    """Read one bounded page from a provider result store or async crawl/batch result."""
     return await get_tool_mesh().result_page(
         provider,
         result_id,
