@@ -17,7 +17,10 @@ def test_security_auth_routes_override_legacy_handlers() -> None:
     assert _first_endpoint_module("/api/auth/login", "POST").endswith("security_api")
     assert _first_endpoint_module("/api/auth/github/callback", "GET").endswith("security_api")
     assert _first_endpoint_module("/api/auth/password-reset/request", "POST").endswith(
-        "security_api"
+        "security_hardening"
+    )
+    assert _first_endpoint_module("/api/auth/email-verification/send", "POST").endswith(
+        "security_hardening"
     )
 
 
