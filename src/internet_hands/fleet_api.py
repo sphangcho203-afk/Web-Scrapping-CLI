@@ -13,6 +13,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from . import browser_mcp as _browser_mcp  # noqa: F401
+from . import tool_mcp as _tool_mcp
 from .hunt import HuntScope
 from .mcp_server import sandbox_mcp, streamable_http_app
 from .postgres_frontier import PostgresFrontier
@@ -28,10 +29,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(
     title="Internet Hands Fleet",
-    version="0.4.0",
+    version="0.5.0",
     description=(
-        "Distributed crawl frontier, shared content index, telemetry, and isolated "
-        "cloud-computer MCP control plane."
+        "Distributed crawl frontier, shared content index, telemetry, isolated cloud-computer "
+        "execution, external tool mesh, and read-only gaming intelligence."
     ),
     lifespan=lifespan,
 )
@@ -80,7 +81,11 @@ def _telemetry():
 
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
-    return {"status": "ok", "version": "0.4.0", "plane": "fleet+mcp"}
+    return {
+        "status": "ok",
+        "version": "0.5.0",
+        "plane": "fleet+mcp+tool-mesh+gaming-intelligence",
+    }
 
 
 @app.get("/v1/sandbox/capabilities", dependencies=[Depends(require_api_key)])
@@ -130,6 +135,47 @@ def sandbox_capabilities() -> dict[str, object]:
             "sandbox_stop",
             "sandbox_delete",
         ],
+    }
+
+
+@app.get("/v1/tool-mesh/capabilities", dependencies=[Depends(require_api_key)])
+async def tool_mesh_capabilities() -> dict[str, object]:
+    registry = _tool_mcp.get_capability_registry()
+    return {
+        "mcp_endpoint": "/mcp/",
+        "reference_format": "provider:tool_id",
+        "providers": await _tool_mcp.get_tool_mesh().provider_status(),
+        "semantic_packs": registry.list(limit=100),
+        "gaming": {
+            "public_read_only": True,
+            "capabilities": _tool_mcp.gaming_capabilities(limit=100),
+            "profile_presets": True,
+        },
+        "tools": [
+            "mesh_providers",
+            "mesh_route",
+            "mesh_search",
+            "mesh_describe",
+            "mesh_describe_many",
+            "mesh_execute",
+            "mesh_batch_execute",
+            "mesh_job_status",
+            "mesh_results",
+            "mesh_capabilities",
+            "mesh_capability_resolve",
+            "mesh_capability_execute",
+            "gaming_capabilities",
+            "gaming_intel",
+            "gaming_profile_plan",
+            "gaming_profile",
+        ],
+        "policy": {
+            "allow_env": "INTERNET_HANDS_TOOL_ALLOW",
+            "deny_env": "INTERNET_HANDS_TOOL_DENY",
+            "max_batch_env": "INTERNET_HANDS_TOOL_MAX_BATCH",
+            "max_response_bytes_env": "INTERNET_HANDS_TOOL_MAX_RESPONSE_BYTES",
+            "gaming": "public/read-only game intelligence; no account credential or session-token workflows",
+        },
     }
 
 
@@ -197,7 +243,9 @@ def event_stream(
                 idle_ticks = 0
                 for item in batch:
                     cursor = item.id
-                    payload = json.dumps(dataclasses.asdict(item), default=str, separators=(",", ":"))
+                    payload = json.dumps(
+                        dataclasses.asdict(item), default=str, separators=(",", ":")
+                    )
                     yield f"id: {item.id}\nevent: {item.event_type}\ndata: {payload}\n\n"
             else:
                 idle_ticks += 1
