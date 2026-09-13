@@ -22,4 +22,7 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: pip install -e '.[dev]'
       - run: ruff check src tests
+      - run: python -m compileall -q src
+      - run: node --check web/app.js
+      - run: node --check web/recovery.js
       - run: pytest -q

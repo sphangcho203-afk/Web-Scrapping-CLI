@@ -1,0 +1,5 @@
+Internet Hands v0.6 preview redeploy marker
+Requested: 2026-09-14T02:30+05:30
+Reason: retry preview deployment after environment scopes were corrected and the Vercel Hobby rate window may have cleared.
+Target branch: feat/v0.6-saas-control-plane
+No application logic or production configuration changed.
