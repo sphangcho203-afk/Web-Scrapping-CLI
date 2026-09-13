@@ -11,7 +11,6 @@ from psycopg.errors import UniqueViolation
 
 from .control_store import ControlError, ControlStore
 
-
 SECURITY_SCHEMA_SQL = r"""
 CREATE TABLE IF NOT EXISTS ih_user_security (
     user_id text PRIMARY KEY REFERENCES ih_users(id) ON DELETE CASCADE,
@@ -92,14 +91,14 @@ class SecurityStore:
             if self._schema_ready:
                 return
             self.control.ensure_schema()
-            with self.control._connect() as conn, conn.cursor() as cur:  # noqa: SLF001
+            with self.control._connect() as conn, conn.cursor() as cur:
                 cur.execute(SECURITY_SCHEMA_SQL)
                 conn.commit()
             self._schema_ready = True
 
     def account_security(self, user_id: str) -> dict[str, Any]:
         self.ensure_schema()
-        with self.control._connect() as conn, conn.cursor() as cur:  # noqa: SLF001
+        with self.control._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT u.id,u.email,u.email_verified,
@@ -118,7 +117,7 @@ class SecurityStore:
 
     def set_email_verified(self, user_id: str, verified: bool) -> None:
         self.ensure_schema()
-        with self.control._connect() as conn, conn.cursor() as cur:  # noqa: SLF001
+        with self.control._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 "UPDATE ih_users SET email_verified=%s,updated_at=now() WHERE id=%s",
                 (verified, user_id),
@@ -135,7 +134,7 @@ class SecurityStore:
         ttl_minutes: int = 15,
     ) -> None:
         self.ensure_schema()
-        with self.control._connect() as conn, conn.cursor() as cur:  # noqa: SLF001
+        with self.control._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE ih_email_verifications SET used_at=now()
@@ -162,7 +161,7 @@ class SecurityStore:
 
     def consume_email_token(self, token_hash: str) -> dict[str, Any] | None:
         self.ensure_schema()
-        with self.control._connect() as conn:  # noqa: SLF001
+        with self.control._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -194,7 +193,7 @@ class SecurityStore:
 
     def consume_email_code(self, user_id: str, code_hash: str) -> dict[str, Any] | None:
         self.ensure_schema()
-        with self.control._connect() as conn:  # noqa: SLF001
+        with self.control._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -235,7 +234,7 @@ class SecurityStore:
 
     def put_pending_totp(self, user_id: str, encrypted_secret: str) -> None:
         self.ensure_schema()
-        with self.control._connect() as conn, conn.cursor() as cur:  # noqa: SLF001
+        with self.control._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO ih_user_security(user_id,totp_secret_enc,totp_enabled,updated_at)
@@ -262,14 +261,14 @@ class SecurityStore:
 
     def totp_record(self, user_id: str) -> dict[str, Any] | None:
         self.ensure_schema()
-        with self.control._connect() as conn, conn.cursor() as cur:  # noqa: SLF001
+        with self.control._connect() as conn, conn.cursor() as cur:
             cur.execute("SELECT * FROM ih_user_security WHERE user_id=%s", (user_id,))
             row = cur.fetchone()
             return dict(row) if row else None
 
     def enable_totp(self, user_id: str, counter: int, recovery_hashes: list[str]) -> None:
         self.ensure_schema()
-        with self.control._connect() as conn:  # noqa: SLF001
+        with self.control._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -294,7 +293,7 @@ class SecurityStore:
 
     def replace_recovery_codes(self, user_id: str, recovery_hashes: list[str]) -> None:
         self.ensure_schema()
-        with self.control._connect() as conn:  # noqa: SLF001
+        with self.control._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM ih_2fa_recovery_codes WHERE user_id=%s", (user_id,))
                 for code_hash in recovery_hashes:
@@ -306,7 +305,7 @@ class SecurityStore:
 
     def accept_totp_counter(self, user_id: str, counter: int) -> bool:
         self.ensure_schema()
-        with self.control._connect() as conn, conn.cursor() as cur:  # noqa: SLF001
+        with self.control._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE ih_user_security
@@ -322,7 +321,7 @@ class SecurityStore:
 
     def consume_recovery_code(self, user_id: str, code_hash: str) -> bool:
         self.ensure_schema()
-        with self.control._connect() as conn, conn.cursor() as cur:  # noqa: SLF001
+        with self.control._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE ih_2fa_recovery_codes SET used_at=now()
@@ -336,7 +335,7 @@ class SecurityStore:
 
     def disable_totp(self, user_id: str) -> None:
         self.ensure_schema()
-        with self.control._connect() as conn:  # noqa: SLF001
+        with self.control._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -354,7 +353,7 @@ class SecurityStore:
         self, *, user_id: str, token_hash: str, ttl_minutes: int = 10
     ) -> None:
         self.ensure_schema()
-        with self.control._connect() as conn, conn.cursor() as cur:  # noqa: SLF001
+        with self.control._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO ih_login_challenges(id,user_id,token_hash,expires_at)
@@ -371,7 +370,7 @@ class SecurityStore:
 
     def login_challenge(self, token_hash: str) -> dict[str, Any] | None:
         self.ensure_schema()
-        with self.control._connect() as conn, conn.cursor() as cur:  # noqa: SLF001
+        with self.control._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT * FROM ih_login_challenges
@@ -384,7 +383,7 @@ class SecurityStore:
 
     def finish_login_challenge(self, challenge_id: str) -> bool:
         self.ensure_schema()
-        with self.control._connect() as conn, conn.cursor() as cur:  # noqa: SLF001
+        with self.control._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE ih_login_challenges SET used_at=now()
@@ -405,7 +404,7 @@ class SecurityStore:
     ) -> bool:
         self.ensure_schema()
         interval = max(1, min(int(min_interval_seconds), 3600))
-        with self.control._connect() as conn, conn.cursor() as cur:  # noqa: SLF001
+        with self.control._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT NOT EXISTS (
@@ -431,7 +430,7 @@ class SecurityStore:
         self.ensure_schema()
         event_id = self._new_id("mail")
         encoded_metadata = json.dumps(metadata or {})
-        with self.control._connect() as conn, conn.cursor() as cur:  # noqa: SLF001
+        with self.control._connect() as conn, conn.cursor() as cur:
             try:
                 cur.execute(
                     """
@@ -478,7 +477,7 @@ class SecurityStore:
         error: str | None = None,
     ) -> None:
         self.ensure_schema()
-        with self.control._connect() as conn, conn.cursor() as cur:  # noqa: SLF001
+        with self.control._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE ih_email_events SET

@@ -8,10 +8,21 @@ from internet_hands.mailer import MailError, MailResult, mail_provider, smtp_con
 from internet_hands.saas_app import app
 
 
+def _iter_routes(routes, prefix: str = ""):
+    for route in routes:
+        original_router = getattr(route, "original_router", None)
+        if original_router is not None:
+            include_context = getattr(route, "include_context", None)
+            nested_prefix = f"{prefix}{getattr(include_context, 'prefix', '')}"
+            yield from _iter_routes(original_router.routes, nested_prefix)
+            continue
+        yield route, f"{prefix}{getattr(route, 'path', '')}"
+
+
 def _first_endpoint_module(path: str, method: str) -> str:
-    for route in app.routes:
+    for route, effective_path in _iter_routes(app.routes):
         methods = getattr(route, "methods", set()) or set()
-        if getattr(route, "path", None) == path and method in methods:
+        if effective_path == path and method in methods:
             return route.endpoint.__module__
     raise AssertionError(f"route {method} {path} not found")
 
@@ -43,8 +54,8 @@ def test_two_factor_and_verification_routes_exist() -> None:
         ("/api/security/status", "GET"),
     }
     actual = {
-        (getattr(route, "path", ""), method)
-        for route in app.routes
+        (effective_path, method)
+        for route, effective_path in _iter_routes(app.routes)
         for method in (getattr(route, "methods", set()) or set())
     }
     assert expected <= actual

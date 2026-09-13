@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import html
 import hmac
+import html
 import os
 import secrets
 from datetime import UTC, datetime
@@ -42,7 +42,6 @@ from .totp import (
     verify_totp,
 )
 
-
 router = APIRouter()
 security = SecurityStore(store)
 TWO_FACTOR_COOKIE = "ih_2fa_challenge"
@@ -79,7 +78,7 @@ async def _deliver(
             dedupe_key=dedupe_key,
             metadata=metadata,
         )
-    except Exception:
+    except Exception:  # noqa: BLE001
         event_id = None
     if dedupe_key and event_id is None:
         return True
@@ -217,9 +216,12 @@ def _verify_second_factor(user_id: str, value: str) -> bool:
     if not record or not record.get("totp_enabled") or not record.get("totp_secret_enc"):
         return False
     normalized_recovery = normalize_recovery_code(value)
-    if len(normalized_recovery) == 12 and not value.replace("-", "").isdigit():
-        if security.consume_recovery_code(user_id, sha256_text(normalized_recovery)):
-            return True
+    if (
+        len(normalized_recovery) == 12
+        and not value.replace("-", "").isdigit()
+        and security.consume_recovery_code(user_id, sha256_text(normalized_recovery))
+    ):
+        return True
     try:
         secret = decrypt_secret(str(record["totp_secret_enc"]))
     except RuntimeError:

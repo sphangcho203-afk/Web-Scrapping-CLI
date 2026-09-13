@@ -15,7 +15,6 @@ from .security_api import (
     two_factor_setup,
 )
 
-
 router = APIRouter()
 
 

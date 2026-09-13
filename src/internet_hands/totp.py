@@ -11,7 +11,6 @@ from urllib.parse import quote, urlencode
 
 from cryptography.fernet import Fernet, InvalidToken
 
-
 TOTP_PERIOD = 30
 TOTP_DIGITS = 6
 
@@ -71,7 +70,7 @@ def hotp(secret: str, counter: int, digits: int = TOTP_DIGITS) -> str:
     return str(binary % (10**digits)).zfill(digits)
 
 
-def totp_code(secret: str, *, at: int | float | None = None) -> str:
+def totp_code(secret: str, *, at: float | None = None) -> str:
     now = int(time.time() if at is None else at)
     return hotp(secret, now // TOTP_PERIOD)
 
@@ -80,7 +79,7 @@ def verify_totp(
     secret: str,
     code: str,
     *,
-    at: int | float | None = None,
+    at: float | None = None,
     window: int = 1,
 ) -> int | None:
     candidate = "".join(ch for ch in str(code) if ch.isdigit())

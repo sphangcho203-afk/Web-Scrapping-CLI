@@ -74,7 +74,7 @@ async def _send_payment_confirmation(payment: dict[str, Any]) -> None:
             dedupe_key=dedupe,
             metadata={"order_id": order_id, "payment_id": payment_id},
         )
-    except Exception:
+    except Exception:  # noqa: BLE001
         event_id = None
     if event_id is None:
         return
