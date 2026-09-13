@@ -95,7 +95,7 @@ def sandbox_capabilities() -> dict[str, object]:
         "mcp_endpoint": "/mcp/",
         "configured": configured,
         "network": "public-internet-only by default",
-        "browser": "persistent named Playwright profiles inside the isolated sandbox",
+        "browser": "live named Chromium sessions over sandbox-private Unix sockets",
         "tools": [
             "sandbox_create",
             "sandbox_get",
@@ -124,6 +124,7 @@ def sandbox_capabilities() -> dict[str, object]:
             "sandbox_browser_capture",
             "sandbox_browser_download",
             "sandbox_browser_trace",
+            "sandbox_browser_close",
             "sandbox_snapshot",
             "sandbox_fork",
             "sandbox_stop",
