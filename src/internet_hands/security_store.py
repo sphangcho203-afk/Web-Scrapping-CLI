@@ -7,6 +7,8 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from psycopg.errors import UniqueViolation
+
 from .control_store import ControlError, ControlStore
 
 
@@ -380,6 +382,29 @@ class SecurityStore:
             conn.commit()
             return accepted
 
+    def email_send_allowed(
+        self,
+        user_id: str,
+        event_type: str,
+        *,
+        min_interval_seconds: int = 60,
+    ) -> bool:
+        self.ensure_schema()
+        interval = max(1, min(int(min_interval_seconds), 3600))
+        with self.control._connect() as conn, conn.cursor() as cur:  # noqa: SLF001
+            cur.execute(
+                """
+                SELECT NOT EXISTS (
+                    SELECT 1 FROM ih_email_events
+                    WHERE user_id=%s AND event_type=%s
+                      AND created_at > now() - (%s * interval '1 second')
+                ) AS allowed
+                """,
+                (user_id, event_type, interval),
+            )
+            row = cur.fetchone()
+            return bool(row and row["allowed"])
+
     def claim_email_event(
         self,
         *,
@@ -410,9 +435,9 @@ class SecurityStore:
                 )
                 conn.commit()
                 return event_id
-            except Exception as exc:
+            except UniqueViolation:
                 conn.rollback()
-                if dedupe_key and "unique" in str(exc).lower():
+                if dedupe_key:
                     return None
                 raise
 
