@@ -1,0 +1,4 @@
+Internet Hands v0.6 preview redeploy marker
+Requested: 2026-09-14T01:05+05:30
+Reason: retry preview deployment after Vercel Hobby deployment-rate window cleared.
+No application logic or production configuration changed.

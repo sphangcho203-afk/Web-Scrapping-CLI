@@ -1,0 +1,22 @@
+# Internet Hands production rollout checklist
+
+- [ ] v0.6 CI green on Python 3.11, 3.12, and 3.13
+- [ ] Vercel preview deploys from `feat/v0.6-saas-control-plane`
+- [ ] `/` renders the website
+- [ ] `/api/status` reports control DB, GitHub OAuth, and Razorpay configuration
+- [ ] `/.well-known/oauth-protected-resource` returns MCP metadata
+- [ ] `/.well-known/oauth-authorization-server` returns authorization/token endpoints
+- [ ] unauthenticated `/mcp` returns 401 with `WWW-Authenticate`
+- [ ] email signup/login works
+- [ ] GitHub OAuth callback works at `/api/auth/github/callback`
+- [ ] API key creation shows the secret exactly once
+- [ ] MCP authorization-code + PKCE flow exchanges an API key for short-lived bearer credentials
+- [ ] customer MCP calls are metered and visible in `/dashboard/usage`
+- [ ] Free plan wallet starts with 2,500 monthly credits
+- [ ] Razorpay order creation uses server-side prices only
+- [ ] Razorpay payment verification grants value only after `captured`
+- [ ] Razorpay webhook signature rejection works with a deliberately invalid signature
+- [ ] No live payment is created during rollout verification unless explicitly approved
+- [ ] password reset returns a generic response for both existing and unknown email addresses
+- [ ] monitors CRUD respects plan limits
+- [ ] production branch is not switched until all applicable checks above pass
