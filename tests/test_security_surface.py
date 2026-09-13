@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from internet_hands.mailer import mail_provider, smtp_configured
+import pytest
+
+from internet_hands import mailer
+from internet_hands.mailer import MailError, MailResult, mail_provider, smtp_configured
 from internet_hands.saas_app import app
 
 
@@ -50,6 +53,31 @@ def test_smtp_provider_is_preferred(monkeypatch) -> None:
     monkeypatch.setenv("RESEND_API_KEY", "resend-test")
     assert smtp_configured() is True
     assert mail_provider() == "smtp"
+
+
+@pytest.mark.asyncio
+async def test_smtp_failure_falls_back_to_resend(monkeypatch) -> None:
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_FROM_EMAIL", "noreply@example.com")
+    monkeypatch.setenv("RESEND_API_KEY", "resend-test")
+
+    def fail_smtp(**_kwargs):
+        raise MailError("smtp unavailable")
+
+    async def fake_resend(**_kwargs):
+        return MailResult(provider="resend", message_id="email_test")
+
+    monkeypatch.setattr(mailer, "_send_smtp_sync", fail_smtp)
+    monkeypatch.setattr(mailer, "_send_resend", fake_resend)
+
+    result = await mailer.send_mail(
+        to="user@example.com",
+        subject="test",
+        text="test",
+        html="<p>test</p>",
+    )
+    assert result.provider == "resend"
+    assert result.message_id == "email_test"
 
 
 def test_mail_provider_none_without_credentials(monkeypatch) -> None:
