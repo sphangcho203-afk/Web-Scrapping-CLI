@@ -3,9 +3,6 @@
   if (path !== '/forgot-password' && path !== '/reset-password') return;
 
   const root = document.getElementById('app');
-  const escapeHtml = value => String(value ?? '').replace(/[&<>\"']/g, char => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', "'": '&#39;'
-  }[char]));
 
   const request = async (url, body) => {
     const response = await fetch(url, {
@@ -58,7 +55,7 @@
     }
     result.textContent = 'Updating…';
     try {
-      await request('/api/auth/password-reset/confirm', { token: escapeHtml(token), password });
+      await request('/api/auth/password-reset/confirm', { token, password });
       result.innerHTML = 'Password updated. <a href="/login">Sign in again</a>.';
       event.currentTarget.querySelector('button').disabled = true;
     } catch (error) {
