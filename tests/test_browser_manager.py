@@ -13,6 +13,7 @@ from internet_hands.sandbox_models import CommandResult, SandboxRef, SandboxSpec
 class FakeBrowserProvider:
     def __init__(self) -> None:
         self.ready = False
+        self.daemon_alive = False
         self.files: dict[tuple[str, str, str | None], bytes] = {}
         self.commands: list[tuple[str, str, list[str], dict[str, Any]]] = []
         self.started: list[tuple[str, str, list[str], dict[str, Any]]] = []
@@ -46,10 +47,20 @@ class FakeBrowserProvider:
             return CommandResult(session_id, "cmd_pwd", 0, "/vercel/sandbox\n", "")
         if command == "test":
             return CommandResult(session_id, "cmd_test", 0 if self.ready else 1, "", "")
-        if command == "node":
-            request_path = args[-1]
+        if command == "node" and len(args) >= 3 and args[1] == "ping":
+            return CommandResult(
+                session_id,
+                "cmd_ping",
+                0 if self.daemon_alive else 1,
+                '{"ok":true}\n' if self.daemon_alive else "",
+                "" if self.daemon_alive else "ECONNREFUSED",
+            )
+        if command == "node" and len(args) >= 4 and args[1] == "client":
+            request_path = args[3]
             request_rel = request_path.removeprefix("/vercel/sandbox/")
             payload = json.loads(self.files[(session_id, request_rel, "/vercel/sandbox")])
+            if payload["action"] == "close":
+                self.daemon_alive = False
             response = {
                 "ok": True,
                 "browser_session": payload["browser_session"],
@@ -84,6 +95,9 @@ class FakeBrowserProvider:
             "timeout_ms": timeout_ms,
         }
         self.started.append((session_id, command, args, options))
+        if command == "node" and len(args) >= 3 and args[1] == "daemon":
+            self.daemon_alive = True
+            return CommandResult(session_id, "cmd_daemon", None, "", "")
         return CommandResult(session_id, "cmd_prepare", None, "", "")
 
     async def write_file(
@@ -144,7 +158,7 @@ class FakeBrowserProvider:
 
 
 @pytest.mark.asyncio
-async def test_browser_prepare_is_idempotent_and_backgrounded() -> None:
+async def test_browser_prepare_is_versioned_and_backgrounded() -> None:
     provider = FakeBrowserProvider()
     manager = BrowserSandboxManager(provider)
 
@@ -163,22 +177,56 @@ async def test_browser_prepare_is_idempotent_and_backgrounded() -> None:
 
 
 @pytest.mark.asyncio
-async def test_browser_state_uses_versioned_runtime_and_cleans_request() -> None:
+async def test_browser_state_starts_live_daemon_and_cleans_request() -> None:
     provider = FakeBrowserProvider()
     provider.ready = True
     manager = BrowserSandboxManager(provider)
 
     result = await manager.browser_state(
-        "sbx_test", browser_session="research", cwd="/vercel/sandbox/work"
+        "sbx_test", browser_session="research", cwd="work"
     )
     assert result["ok"] is True
     assert result["browser_session"] == "research"
     assert result["action"] == "state"
+    assert result["daemon"]["command_id"] == "cmd_daemon"
+    assert provider.daemon_alive is True
 
-    node = next(item for item in provider.commands if item[1] == "node")
-    assert node[2][0].endswith("/.internet-hands/browser/runtime.mjs")
-    assert node[3]["cwd"] == "/vercel/sandbox/work"
+    daemon = next(item for item in provider.started if item[1] == "node")
+    assert daemon[2][1:] == ["daemon", "research"]
+    client = next(
+        item for item in provider.commands if item[1] == "node" and len(item[2]) >= 2 and item[2][1] == "client"
+    )
+    assert client[3]["cwd"] == "/vercel/sandbox"
+    request_files = [
+        value
+        for (sid, path, cwd), value in provider.files.items()
+        if sid == "sbx_test" and "/requests/" in path and cwd == "/vercel/sandbox"
+    ]
+    assert request_files
+    assert json.loads(request_files[-1])["cwd"] == "work"
     assert any(item[1] == "rm" for item in provider.commands)
+
+
+@pytest.mark.asyncio
+async def test_browser_calls_reuse_same_live_daemon_and_close_it() -> None:
+    provider = FakeBrowserProvider()
+    provider.ready = True
+    manager = BrowserSandboxManager(provider)
+
+    await manager.browser_fill("sbx_test", "input[name=q]", "hello", browser_session="qa")
+    await manager.browser_press("sbx_test", "input[name=q]", "Enter", browser_session="qa")
+    daemons = [
+        item
+        for item in provider.started
+        if item[1] == "node" and len(item[2]) >= 2 and item[2][1] == "daemon"
+    ]
+    assert len(daemons) == 1
+    assert provider.daemon_alive is True
+
+    closed = await manager.browser_close("sbx_test", browser_session="qa")
+    assert closed["ok"] is True
+    assert closed["action"] == "close"
+    assert provider.daemon_alive is False
 
 
 @pytest.mark.asyncio
@@ -197,3 +245,5 @@ async def test_browser_actions_validate_inputs_before_guest_execution() -> None:
         await manager.browser_capture("sbx_test", output_path="../escape.png")
     with pytest.raises(ValueError):
         await manager.browser_trace("sbx_test", kind="other")
+    with pytest.raises(ValueError):
+        await manager.browser_trace("sbx_test", max_events=201)
