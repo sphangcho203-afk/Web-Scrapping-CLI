@@ -82,29 +82,26 @@ Each named `browser_session` runs one live headless Chromium context as a detach
 The control plane talks to it through a Unix-domain socket stored inside the sandbox with restrictive
 permissions. No Chrome DevTools/CDP port is exposed publicly.
 
-This matters for agent workflows: separate calls such as `fill`, `click`, `press`, `extract`, and
-`screenshot` operate on the **same live page**. Form values, open menus, client-side state, SPA state,
-active cookies, local storage, and the current DOM are not thrown away between MCP calls while the
-browser daemon is alive. Requests to a named browser are serialized so concurrent calls do not race
-the same page.
+Separate calls such as `fill`, `click`, `press`, `extract`, and `screenshot` operate on the **same
+live page**. Form values, open menus, client-side state, SPA state, active cookies, local storage, and
+the current DOM are preserved between MCP calls while the browser daemon is alive. Requests to a
+named browser are serialized so concurrent calls do not race the same page.
 
 The persistent Chromium profile and last URL live on the sandbox filesystem. Cookies, local storage,
-and profile data therefore survive a browser-daemon restart and persistent sandbox snapshot/resume.
-Transient DOM state naturally ends when the browser process itself ends; after restart the daemon
-restores the last URL using the persisted profile.
+and profile data survive a browser-daemon restart and persistent sandbox snapshot/resume. Transient
+DOM state naturally ends when the browser process itself ends; after restart the daemon restores the
+last URL using the persisted profile.
 
-The browser control protocol is versioned independently inside the v0.4 package; the live-daemon
-protocol is currently version 2. The runtime uses pinned Playwright 1.55.0 and a Chromium binary
-under `.internet-hands/browser`. Preparation is asynchronous so a serverless control-plane request
-does not need to stay open while Chromium downloads. Browser actions automatically start the named
-daemon when it is not running and wait briefly for its private socket to become responsive. The
-daemon is a bounded background command and therefore remains subject to the one-hour command ceiling
-and the sandbox session's own TTL; a later action transparently starts a fresh daemon from the
-persisted profile when needed.
+The browser control protocol is versioned independently inside v0.4; the live-daemon protocol is
+version 2. The runtime uses pinned Playwright 1.55.0 and Chromium under `.internet-hands/browser`.
+Preparation is asynchronous. Browser actions automatically start the named daemon when it is not
+running and wait for its private socket to become responsive. The daemon remains subject to the
+one-hour background-command ceiling and the sandbox session's own TTL; later actions transparently
+start a fresh daemon from the persisted profile when needed.
 
 Browser tools:
 
-- `sandbox_browser_prepare` writes/installs the versioned Playwright + Chromium runtime asynchronously.
+- `sandbox_browser_prepare` installs the versioned Playwright + Chromium runtime asynchronously.
 - `sandbox_browser_state` gets live URL/title state and starts the named browser when needed.
 - `sandbox_browser_open` navigates the live page to a public HTTP(S) URL.
 - `sandbox_browser_click` clicks a Playwright locator with optional navigation waiting.
@@ -123,8 +120,7 @@ policy remains the final defense against DNS rebinding or redirects to non-publi
 
 Browser output is bounded: text/HTML extraction is limited by `max_chars`, link extraction returns at
 most 200 entries, a trace call returns at most 200 events, individual event fields are clipped, and
-the persisted JSONL trace files are rotated. This prevents long/noisy pages from expanding MCP
-context or guest disk usage indefinitely.
+the persisted JSONL trace files are rotated.
 
 ### Browser workflow
 
