@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import pytest
+from fastapi import HTTPException
 
-from internet_hands import mailer
+from internet_hands import mailer, security_hardening
 from internet_hands.mailer import MailError, MailResult, mail_provider, smtp_configured
 from internet_hands.saas_app import app
 
@@ -19,6 +20,8 @@ def test_security_auth_routes_override_legacy_handlers() -> None:
     assert _first_endpoint_module("/api/auth/signup", "POST").endswith("security_api")
     assert _first_endpoint_module("/api/auth/login", "POST").endswith("security_api")
     assert _first_endpoint_module("/api/auth/github/callback", "GET").endswith("security_api")
+    assert _first_endpoint_module("/api/auth/2fa/setup", "POST").endswith("security_hardening")
+    assert _first_endpoint_module("/api/auth/2fa/confirm", "POST").endswith("security_hardening")
     assert _first_endpoint_module("/api/auth/password-reset/request", "POST").endswith(
         "security_hardening"
     )
@@ -45,6 +48,18 @@ def test_two_factor_and_verification_routes_exist() -> None:
         for method in (getattr(route, "methods", set()) or set())
     }
     assert expected <= actual
+
+
+def test_enabled_two_factor_cannot_be_replaced_by_setup(monkeypatch) -> None:
+    monkeypatch.setattr(security_hardening, "_require_user", lambda _request: {"id": "usr_test"})
+    monkeypatch.setattr(
+        security_hardening.security,
+        "account_security",
+        lambda _user_id: {"totp_enabled": True},
+    )
+    with pytest.raises(HTTPException) as exc:
+        security_hardening.two_factor_setup_protected(object())
+    assert exc.value.status_code == 409
 
 
 def test_smtp_provider_is_preferred(monkeypatch) -> None:
