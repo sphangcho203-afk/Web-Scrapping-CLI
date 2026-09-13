@@ -10,7 +10,7 @@ from .object_store import ObjectStore
 class PostgresCaptureStore:
     """Shared capture/document metadata store backed by PostgreSQL."""
 
-    def __init__(self, dsn: str, *, object_store: ObjectStore) -> None:
+    def __init__(self, dsn: str, *, object_store: ObjectStore | None = None) -> None:
         if not dsn.strip():
             raise ValueError("Postgres DSN cannot be empty")
         try:
@@ -75,6 +75,10 @@ class PostgresCaptureStore:
             conn.commit()
 
     def save_fetch(self, result: FetchResult, document: ExtractedDocument | None = None) -> int:
+        if self.object_store is None:
+            raise RuntimeError(
+                "Distributed capture writes require an object store; configure S3/MinIO for workers"
+            )
         content_location = self.object_store.put_capture(result)
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
