@@ -7,6 +7,7 @@ from typing import Any
 from .capability_packs import CapabilityRegistry, build_default_capabilities
 from .catalog_providers import build_catalog_providers
 from .gaming_capabilities import build_gaming_capabilities
+from .gaming_profiles import build_gaming_profile_plan
 from .gaming_providers import build_gaming_providers
 from .mcp_server import sandbox_mcp
 from .remote_mcp_provider import build_remote_mcp_provider
@@ -226,7 +227,12 @@ async def gaming_intel(
         capability_id = str(request.get("capability") or "").strip()
         capability = registry.capabilities.get(capability_id)
         if capability is None:
-            return {"index": index, "capability": capability_id, "status": "failed", "error": "unknown capability"}
+            return {
+                "index": index,
+                "capability": capability_id,
+                "status": "failed",
+                "error": "unknown capability",
+            }
         if "gaming" not in capability.tags and capability.pack != "mlbb":
             return {
                 "index": index,
@@ -247,7 +253,8 @@ async def gaming_intel(
         return {
             "index": index,
             "capability": capability_id,
-            "status": execution.get("status") or ("failed" if result.get("error") else "completed"),
+            "status": execution.get("status")
+            or ("failed" if result.get("error") else "completed"),
             "selected": result.get("selected"),
             "attempts": result.get("attempts", []),
             "data": execution.get("data"),
@@ -255,6 +262,48 @@ async def gaming_intel(
             "duration_ms": result.get("duration_ms"),
         }
 
-    results = await asyncio.gather(*(one(index, request) for index, request in enumerate(requests)))
+    results = await asyncio.gather(
+        *(one(index, request) for index, request in enumerate(requests))
+    )
     results.sort(key=lambda item: item["index"])
     return {"results": results}
+
+
+@sandbox_mcp.tool()
+def gaming_profile_plan(
+    game: str,
+    identity: dict[str, Any],
+    include_recent: bool = True,
+    include_history: bool = True,
+) -> dict[str, Any]:
+    """Plan the evidence bundle needed for one public player profile without executing it."""
+    return build_gaming_profile_plan(
+        game,
+        identity,
+        include_recent=include_recent,
+        include_history=include_history,
+    ).to_dict()
+
+
+@sandbox_mcp.tool()
+async def gaming_profile(
+    game: str,
+    identity: dict[str, Any],
+    include_recent: bool = True,
+    include_history: bool = True,
+    max_concurrency: int = 5,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Fetch the default public evidence bundle for a game/player identity in one call."""
+    plan = build_gaming_profile_plan(
+        game,
+        identity,
+        include_recent=include_recent,
+        include_history=include_history,
+    )
+    evidence = await gaming_intel(
+        plan.requests,
+        max_concurrency=max_concurrency,
+        dry_run=dry_run,
+    )
+    return {"plan": plan.to_dict(), "evidence": evidence["results"]}
