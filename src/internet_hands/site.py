@@ -26,6 +26,11 @@ def site_js():
     return _file("app.js", "application/javascript")
 
 
+@router.get("/assets/recovery.js")
+def recovery_js():
+    return _file("recovery.js", "application/javascript")
+
+
 @router.get("/assets/mark.svg")
 def site_mark():
     return _file("mark.svg", "image/svg+xml")
