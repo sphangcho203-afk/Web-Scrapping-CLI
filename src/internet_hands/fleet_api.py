@@ -32,7 +32,7 @@ app = FastAPI(
     version="0.5.0",
     description=(
         "Distributed crawl frontier, shared content index, telemetry, isolated cloud-computer "
-        "execution, and an external agent tool mesh."
+        "execution, external tool mesh, and read-only gaming intelligence."
     ),
     lifespan=lifespan,
 )
@@ -81,7 +81,11 @@ def _telemetry():
 
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
-    return {"status": "ok", "version": "0.5.0", "plane": "fleet+mcp+tool-mesh"}
+    return {
+        "status": "ok",
+        "version": "0.5.0",
+        "plane": "fleet+mcp+tool-mesh+gaming-intelligence",
+    }
 
 
 @app.get("/v1/sandbox/capabilities", dependencies=[Depends(require_api_key)])
@@ -136,11 +140,16 @@ def sandbox_capabilities() -> dict[str, object]:
 
 @app.get("/v1/tool-mesh/capabilities", dependencies=[Depends(require_api_key)])
 async def tool_mesh_capabilities() -> dict[str, object]:
+    registry = _tool_mcp.get_capability_registry()
     return {
         "mcp_endpoint": "/mcp/",
         "reference_format": "provider:tool_id",
         "providers": await _tool_mcp.get_tool_mesh().provider_status(),
-        "semantic_packs": _tool_mcp.get_capability_registry().list(limit=100),
+        "semantic_packs": registry.list(limit=100),
+        "gaming": {
+            "public_read_only": True,
+            "capabilities": _tool_mcp.gaming_capabilities(limit=100),
+        },
         "tools": [
             "mesh_providers",
             "mesh_route",
@@ -154,12 +163,15 @@ async def tool_mesh_capabilities() -> dict[str, object]:
             "mesh_capabilities",
             "mesh_capability_resolve",
             "mesh_capability_execute",
+            "gaming_capabilities",
+            "gaming_intel",
         ],
         "policy": {
             "allow_env": "INTERNET_HANDS_TOOL_ALLOW",
             "deny_env": "INTERNET_HANDS_TOOL_DENY",
             "max_batch_env": "INTERNET_HANDS_TOOL_MAX_BATCH",
             "max_response_bytes_env": "INTERNET_HANDS_TOOL_MAX_RESPONSE_BYTES",
+            "gaming": "public/read-only game intelligence; no account credential or session-token workflows",
         },
     }
 
