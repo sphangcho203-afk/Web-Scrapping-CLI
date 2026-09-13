@@ -10,6 +10,29 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 
 
+_RESTRICTED_MARKETPLACE_TERMS = (
+    "ammunition",
+    "casino",
+    "cannabis",
+    "cigarette",
+    "firearm",
+    "gambling",
+    "liquor",
+    "marijuana",
+    "nicotine",
+    "pornography",
+    "sportsbook",
+    "taser",
+    "tobacco",
+    "vape",
+    "weapon",
+    "betting",
+    "prediction market",
+    "pepper spray",
+    "adult sexual",
+)
+
+
 @dataclass(slots=True)
 class ToolDescriptor:
     ref: str
@@ -118,12 +141,32 @@ class ToolMesh:
     def _patterns(name: str) -> list[str]:
         return [item.strip() for item in os.getenv(name, "").split(",") if item.strip()]
 
+    @staticmethod
+    def _safe_text(value: str) -> bool:
+        normalized = value.casefold().replace("_", "-")
+        return not any(term in normalized for term in _RESTRICTED_MARKETPLACE_TERMS)
+
     def _allowed(self, ref: str) -> bool:
+        if not self._safe_text(ref):
+            return False
         if self.deny_patterns and any(fnmatch.fnmatch(ref, item) for item in self.deny_patterns):
             return False
         if self.allow_patterns:
             return any(fnmatch.fnmatch(ref, item) for item in self.allow_patterns)
         return True
+
+    def _descriptor_allowed(self, descriptor: ToolDescriptor) -> bool:
+        if not self._allowed(descriptor.ref):
+            return False
+        searchable = " ".join(
+            [
+                descriptor.name,
+                descriptor.description,
+                *descriptor.tags,
+                json.dumps(descriptor.metadata, default=str),
+            ]
+        )
+        return self._safe_text(searchable)
 
     @staticmethod
     def _split_ref(ref: str) -> tuple[str, str]:
@@ -182,7 +225,7 @@ class ToolMesh:
         async def one(name: str) -> tuple[str, list[ToolDescriptor], str | None]:
             try:
                 rows = await self.providers[name].search(query, limit=limit)
-                rows = [row for row in rows if self._allowed(row.ref)]
+                rows = [row for row in rows if self._descriptor_allowed(row)]
                 return name, rows, None
             except Exception as exc:
                 return name, [], str(exc)
@@ -216,6 +259,8 @@ class ToolMesh:
         descriptor = await self._provider(provider_name).describe(tool_id)
         if descriptor.ref != ref:
             descriptor.ref = ref
+        if not self._descriptor_allowed(descriptor):
+            raise PermissionError(f"tool blocked by marketplace safety policy: {ref}")
         return descriptor.to_dict()
 
     async def execute(
@@ -233,6 +278,11 @@ class ToolMesh:
             raise PermissionError(f"tool blocked by mesh policy: {ref}")
         provider_name, tool_id = self._split_ref(ref)
         provider = self._provider(provider_name)
+        descriptor = await provider.describe(tool_id)
+        if descriptor.ref != ref:
+            descriptor.ref = ref
+        if not self._descriptor_allowed(descriptor):
+            raise PermissionError(f"tool blocked by marketplace safety policy: {ref}")
         execution = ToolExecution(
             execution_id=uuid.uuid4().hex,
             provider=provider_name,
@@ -241,7 +291,6 @@ class ToolMesh:
             started_at=time.time(),
         )
         if dry_run:
-            descriptor = await provider.describe(tool_id)
             return execution.finish(
                 status="dry_run",
                 data={
