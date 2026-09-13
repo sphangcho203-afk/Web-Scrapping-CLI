@@ -1,8 +1,6 @@
 # Internet Hands Sandbox MCP
 
-Internet Hands v0.4 adds an isolated cloud-computer plane beside the crawler/data plane. The first
-provider is Vercel Sandbox, while orchestration depends on a provider protocol so E2B or self-hosted
-Firecracker-style providers can be added without changing the MCP tool contract.
+Internet Hands v0.4 adds an isolated cloud-computer plane beside the crawler/data plane. The first provider is Vercel Sandbox, while orchestration depends on a provider protocol so E2B or self-hosted Firecracker-style providers can be added without changing the MCP tool contract.
 
 ## Architecture
 
@@ -27,9 +25,7 @@ SandboxManager               BrowserSandboxManager
                       +---- future self-hosted Firecracker provider
 ```
 
-The MCP transport is mounted at `/mcp/` and is protected by the same
-`INTERNET_HANDS_API_KEY` used by the REST control plane. Clients may send either `X-API-Key` or
-`Authorization: Bearer <key>`.
+The MCP transport is mounted at `/mcp/` and is protected by the same `INTERNET_HANDS_API_KEY` used by the REST control plane. Clients may send either `X-API-Key` or `Authorization: Bearer <key>`.
 
 ## Cloud-computer tools
 
@@ -53,8 +49,7 @@ The MCP transport is mounted at `/mcp/` and is protected by the same
 - `sandbox_kill` sends SIGINT, SIGTERM, or SIGKILL to a command.
 - `sandbox_install` installs packages with apt, pip, or npm using structured arguments.
 
-Foreground commands have a 120-second policy ceiling. Detached commands default to 30 minutes and
-may run for up to one hour, subject to the sandbox's own provider TTL.
+Foreground commands have a 120-second policy ceiling. Detached commands default to 30 minutes and may run for up to one hour, subject to the sandbox's own provider TTL.
 
 ### Repositories, files, and artifacts
 
@@ -64,40 +59,23 @@ may run for up to one hour, subject to the sandbox's own provider TTL.
 - `sandbox_mkdir` creates a directory tree.
 - `sandbox_artifact` retrieves a file as bounded base64 together with MIME type, byte count, and SHA-256.
 
-Artifact and ordinary file responses are capped by the manager policy so a tool call cannot dump an
-unbounded guest filesystem into MCP context.
+Artifact and ordinary file responses are capped by the manager policy so a tool call cannot dump an unbounded guest filesystem into MCP context.
 
 ### Services
 
 - `sandbox_start_service` resumes a named sandbox, validates a pre-published port, starts the service as a detached process, and returns its provider route/public URL.
 
-Vercel requires exposed ports to be declared when the sandbox is created. Internet Hands therefore
-does not invent a post-creation `publish-port` operation: create the sandbox with `ports=[3000]`, then
-start the service on port 3000. `sandbox_start_service` refuses undeclared ports.
+Vercel requires exposed ports to be declared when the sandbox is created. Internet Hands therefore does not invent a post-creation `publish-port` operation: create the sandbox with `ports=[3000]`, then start the service on port 3000. `sandbox_start_service` refuses undeclared ports.
 
 ## Live browser subsystem
 
-The browser is a structured computer subsystem inside the sandbox, not a public DevTools endpoint.
-Each named `browser_session` runs one live headless Chromium context as a detached sandbox process.
-The control plane talks to it through a Unix-domain socket stored inside the sandbox with restrictive
-permissions. No Chrome DevTools/CDP port is exposed publicly.
+The browser is a structured computer subsystem inside the sandbox, not a public DevTools endpoint. Each named `browser_session` runs one live headless Chromium context as a detached sandbox process. The control plane talks to it through a Unix-domain socket stored inside the sandbox with restrictive permissions. No Chrome DevTools/CDP port is exposed publicly.
 
-Separate calls such as `fill`, `click`, `press`, `extract`, and `screenshot` operate on the **same
-live page**. Form values, open menus, client-side state, SPA state, active cookies, local storage, and
-the current DOM are preserved between MCP calls while the browser daemon is alive. Requests to a
-named browser are serialized so concurrent calls do not race the same page.
+Separate calls such as `fill`, `click`, `press`, `extract`, and `screenshot` operate on the **same live page**. Form values, open menus, client-side state, SPA state, active cookies, local storage, and the current DOM are preserved between MCP calls while the browser daemon is alive. Requests to a named browser are serialized so concurrent calls do not race the same page.
 
-The persistent Chromium profile and last URL live on the sandbox filesystem. Cookies, local storage,
-and profile data survive a browser-daemon restart and persistent sandbox snapshot/resume. Transient
-DOM state naturally ends when the browser process itself ends; after restart the daemon restores the
-last URL using the persisted profile.
+The persistent Chromium profile and last URL live on the sandbox filesystem. Cookies, local storage, and profile data survive a browser-daemon restart and persistent sandbox snapshot/resume. Transient DOM state naturally ends when the browser process itself ends; after restart the daemon restores the last URL using the persisted profile.
 
-The browser control protocol is versioned independently inside v0.4; the live-daemon protocol is
-version 2. The runtime uses pinned Playwright 1.55.0 and Chromium under `.internet-hands/browser`.
-Preparation is asynchronous. Browser actions automatically start the named daemon when it is not
-running and wait for its private socket to become responsive. The daemon remains subject to the
-one-hour background-command ceiling and the sandbox session's own TTL; later actions transparently
-start a fresh daemon from the persisted profile when needed.
+The browser control protocol is versioned independently inside v0.4; the live-daemon protocol is version 2. The runtime uses pinned Playwright 1.55.0 and Chromium under `.internet-hands/browser`. Preparation is asynchronous. Browser actions automatically start the named daemon when it is not running and wait for its private socket to become responsive. The daemon remains subject to the one-hour background-command ceiling and the sandbox session's own TTL; later actions transparently start a fresh daemon from the persisted profile when needed.
 
 Browser tools:
 
@@ -114,13 +92,9 @@ Browser tools:
 - `sandbox_browser_close` gracefully closes one named Chromium daemon and removes its private control socket.
 - `sandbox_browser_screenshot` remains as a simple one-shot compatibility screenshot tool.
 
-The manager validates explicit navigation targets with the public-URL policy. The in-guest browser
-runtime also blocks obvious localhost/private/link-local targets, while the sandbox provider network
-policy remains the final defense against DNS rebinding or redirects to non-public addresses.
+The manager validates explicit navigation targets with the public-URL policy. The in-guest browser runtime also blocks obvious localhost/private/link-local targets, while the sandbox provider network policy remains the final defense against DNS rebinding or redirects to non-public addresses.
 
-Browser output is bounded: text/HTML extraction is limited by `max_chars`, link extraction returns at
-most 200 entries, a trace call returns at most 200 events, individual event fields are clipped, and
-the persisted JSONL trace files are rotated.
+Browser output is bounded: text/HTML extraction is limited by `max_chars`, link extraction returns at most 200 entries, a trace call returns at most 200 events, individual event fields are clipped, and the persisted JSONL trace files are rotated.
 
 ### Browser workflow
 
@@ -142,13 +116,11 @@ sandbox_artifact(session_id, "artifacts/research.png")
 sandbox_browser_close(session_id, browser_session="research")
 ```
 
-For downloads, call `sandbox_browser_download` with the locator that triggers the download, then use
-`sandbox_artifact` or `sandbox_read_file` on the returned path.
+For downloads, call `sandbox_browser_download` with the locator that triggers the download, then use `sandbox_artifact` or `sandbox_read_file` on the returned path.
 
 ## Authentication
 
-On Vercel, `VercelSandboxProvider` prefers the short-lived `VERCEL_OIDC_TOKEN` supplied by the
-platform. Local development can use `INTERNET_HANDS_VERCEL_TOKEN` or `VERCEL_TOKEN`.
+On Vercel, `VercelSandboxProvider` prefers the short-lived `VERCEL_OIDC_TOKEN` supplied by the platform. Local development can use `INTERNET_HANDS_VERCEL_TOKEN` or `VERCEL_TOKEN`.
 
 The provider also needs the target project id. Resolution order:
 
@@ -159,12 +131,9 @@ Team id is optional and resolves from `INTERNET_HANDS_SANDBOX_TEAM_ID` then `VER
 
 ## Network boundary
 
-Sandboxes are created with public internet available but private/internal destinations denied at the
-provider network layer. The default deny list includes loopback, RFC1918, carrier-grade NAT,
-link-local/cloud metadata, multicast/reserved IPv4, IPv6 loopback, ULA, and IPv6 link-local ranges.
+Sandboxes are created with public internet available but private/internal destinations denied at the provider network layer. The default deny list includes loopback, RFC1918, carrier-grade NAT, link-local/cloud metadata, multicast/reserved IPv4, IPv6 loopback, ULA, and IPv6 link-local ranges.
 
-This allows public package registries, public Git hosts, and public websites while preventing the
-sandbox from becoming a route into the control plane, local machine, VPC, or cloud metadata service.
+This allows public package registries, public Git hosts, and public websites while preventing the sandbox from becoming a route into the control plane, local machine, VPC, or cloud metadata service.
 
 ## Resource policy
 
@@ -184,8 +153,7 @@ Default manager limits:
 - package install: up to 50 packages per call
 - process signals exposed through MCP: SIGINT, SIGTERM, SIGKILL only
 
-The provider remains the final isolation boundary. Internet Hands does not mount host filesystems or
-expose Docker-in-Docker/host sockets.
+The provider remains the final isolation boundary. Internet Hands does not mount host filesystems or expose Docker-in-Docker/host sockets.
 
 ## Typical agent workflow
 
@@ -209,7 +177,4 @@ sandbox_snapshot(session_id)
 
 ## CI
 
-Unit tests use fake providers and mocked HTTP transports. CI never creates Vercel sandboxes and
-therefore cannot consume sandbox runtime or require Vercel credentials. The test matrix validates
-supported Python versions 3.11, 3.12, and 3.13, and syntax-checks the embedded browser runtime with
-Node when it is available on the runner.
+Unit tests use fake providers and mocked HTTP transports. CI never creates Vercel sandboxes and therefore cannot consume sandbox runtime or require Vercel credentials. The test matrix validates supported Python versions 3.11, 3.12, and 3.13, and syntax-checks the embedded browser runtime with Node when it is available on the runner.
