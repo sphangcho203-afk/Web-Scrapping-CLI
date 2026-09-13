@@ -57,7 +57,7 @@ class CapabilityRegistry:
         pack: str | None = None,
         limit: int = 50,
     ) -> dict[str, Any]:
-        words = [word for word in (query or "").lower().split() if word]
+        words = [word for word in (query or "").casefold().split() if word]
         rows: list[tuple[int, Capability]] = []
         for capability in self.capabilities.values():
             if pack and capability.pack != pack:
@@ -70,8 +70,12 @@ class CapabilityRegistry:
                     capability.pack,
                     *capability.tags,
                 ]
-            ).lower()
-            score = sum(5 if word in capability.name.lower() else 1 for word in words if word in haystack)
+            ).casefold()
+            score = sum(
+                5 if word in capability.name.casefold() else 1
+                for word in words
+                if word in haystack
+            )
             if score or not words:
                 rows.append((score, capability))
         rows.sort(key=lambda row: (-row[0], row[1].id))
@@ -158,7 +162,7 @@ class CapabilityRegistry:
                         "error": execution.get("error"),
                     }
                 )
-                if execution.get("status") not in {"failed"}:
+                if execution.get("status") != "failed":
                     return {
                         "capability": capability_id,
                         "selected": ref,
@@ -208,8 +212,7 @@ class CapabilityRegistry:
         tools = result.get("tools") or []
         if not tools:
             errors = result.get("errors") or {}
-            detail = errors.get(candidate.provider) or "no matching tool"
-            raise LookupError(detail)
+            raise LookupError(errors.get(candidate.provider) or "no matching tool")
         for tool in tools:
             if not tool.get("side_effecting"):
                 return str(tool["ref"])
@@ -232,7 +235,126 @@ class CapabilityRegistry:
         return mapped
 
 
-def build_default_capabilities() -> list[Capability]:
+def _apify_capabilities() -> list[Capability]:
+    return [
+        Capability(
+            id="web.search.google",
+            name="Google SERP search",
+            description="Search Google and return structured organic/paid/search metadata.",
+            pack="web",
+            tags=("web", "search", "google", "serp"),
+            candidates=(
+                CapabilityCandidate(
+                    provider="apify",
+                    ref="apify:apify/google-search-scraper",
+                    priority=10,
+                ),
+            ),
+        ),
+        Capability(
+            id="web.fetch.page",
+            name="Resilient page fetch",
+            description=(
+                "Fetch a public web page with JavaScript rendering and anti-bot-capable extraction."
+            ),
+            pack="web",
+            tags=("web", "fetch", "markdown", "browser"),
+            candidates=(
+                CapabilityCandidate(
+                    provider="apify",
+                    ref="apify:apify/web-fetch",
+                    priority=10,
+                ),
+            ),
+        ),
+        Capability(
+            id="web.research.rag",
+            name="RAG web research",
+            description="Search the web, fetch top pages, and return clean content for an agent.",
+            pack="web",
+            tags=("web", "research", "rag", "search"),
+            candidates=(
+                CapabilityCandidate(
+                    provider="apify",
+                    ref="apify:apify/rag-web-browser",
+                    priority=10,
+                ),
+            ),
+        ),
+        Capability(
+            id="social.instagram.scrape",
+            name="Instagram public data scrape",
+            description="Extract public Instagram posts, reels, profiles, hashtags, and comments.",
+            pack="social",
+            tags=("social", "instagram", "posts", "profiles", "reels"),
+            candidates=(
+                CapabilityCandidate(
+                    provider="apify",
+                    ref="apify:apify/instagram-scraper",
+                    priority=10,
+                ),
+            ),
+        ),
+        Capability(
+            id="social.tiktok.scrape",
+            name="TikTok public data scrape",
+            description="Extract public TikTok videos, profiles, hashtags, and search results.",
+            pack="social",
+            tags=("social", "tiktok", "videos", "profiles", "hashtags"),
+            candidates=(
+                CapabilityCandidate(
+                    provider="apify",
+                    ref="apify:clockworks/tiktok-scraper",
+                    priority=10,
+                ),
+            ),
+        ),
+        Capability(
+            id="social.x.scrape",
+            name="X public data scrape",
+            description="Search and extract public X/Twitter posts, profiles, lists, and threads.",
+            pack="social",
+            tags=("social", "x", "twitter", "posts", "profiles"),
+            candidates=(
+                CapabilityCandidate(
+                    provider="apify",
+                    ref="apify:apidojo/tweet-scraper",
+                    priority=10,
+                ),
+            ),
+        ),
+        Capability(
+            id="jobs.linkedin.search",
+            name="LinkedIn public jobs search",
+            description="Search public LinkedIn job listings and retrieve structured job details.",
+            pack="jobs",
+            tags=("jobs", "linkedin", "companies", "career"),
+            candidates=(
+                CapabilityCandidate(
+                    provider="apify",
+                    ref="apify:curious_coder/linkedin-jobs-scraper",
+                    priority=10,
+                ),
+            ),
+        ),
+        Capability(
+            id="ads.meta.library",
+            name="Meta Ads Library research",
+            description="Collect public Facebook/Meta Ads Library records for research.",
+            pack="ads",
+            tags=("ads", "facebook", "meta", "marketing"),
+            candidates=(
+                CapabilityCandidate(
+                    provider="apify",
+                    ref="apify:curious_coder/facebook-ads-library-scraper",
+                    priority=10,
+                ),
+            ),
+        ),
+    ]
+
+
+def _mlbb_capabilities() -> list[Capability]:
     return [
         Capability(
             id="mlbb.player.lookup",
@@ -255,7 +377,7 @@ def build_default_capabilities() -> list[Capability]:
                     ref="publicapi:mlbb-nickname-lookup",
                     priority=50,
                     argument_map={"id": "id", "zone": "server"},
-                    note="Nickname-only fallback; requires id and zone.",
+                    note="Nickname-only fallback; requires player id and zone.",
                 ),
             ),
         ),
@@ -287,9 +409,7 @@ def build_default_capabilities() -> list[Capability]:
             tags=("mlbb", "heroes", "game-data"),
             candidates=(
                 CapabilityCandidate(
-                    provider="openapi",
-                    search="rone-mlbb heroes list",
-                    priority=10,
+                    provider="openapi", search="rone-mlbb heroes list", priority=10
                 ),
             ),
         ),
@@ -301,9 +421,7 @@ def build_default_capabilities() -> list[Capability]:
             tags=("mlbb", "hero", "detail", "game-data"),
             candidates=(
                 CapabilityCandidate(
-                    provider="openapi",
-                    search="rone-mlbb hero detail",
-                    priority=10,
+                    provider="openapi", search="rone-mlbb hero detail", priority=10
                 ),
             ),
         ),
@@ -329,9 +447,7 @@ def build_default_capabilities() -> list[Capability]:
             tags=("mlbb", "academy", "items", "builds"),
             candidates=(
                 CapabilityCandidate(
-                    provider="openapi",
-                    search="rone-mlbb academy items",
-                    priority=10,
+                    provider="openapi", search="rone-mlbb academy items", priority=10
                 ),
             ),
         ),
@@ -343,9 +459,7 @@ def build_default_capabilities() -> list[Capability]:
             tags=("mlbb", "academy", "spells"),
             candidates=(
                 CapabilityCandidate(
-                    provider="openapi",
-                    search="rone-mlbb academy spells",
-                    priority=10,
+                    provider="openapi", search="rone-mlbb academy spells", priority=10
                 ),
             ),
         ),
@@ -357,9 +471,7 @@ def build_default_capabilities() -> list[Capability]:
             tags=("mlbb", "academy", "emblems"),
             candidates=(
                 CapabilityCandidate(
-                    provider="openapi",
-                    search="rone-mlbb academy emblems",
-                    priority=10,
+                    provider="openapi", search="rone-mlbb academy emblems", priority=10
                 ),
             ),
         ),
@@ -371,10 +483,12 @@ def build_default_capabilities() -> list[Capability]:
             tags=("mlbb", "rank", "academy", "reference"),
             candidates=(
                 CapabilityCandidate(
-                    provider="openapi",
-                    search="rone-mlbb ranks academy",
-                    priority=10,
+                    provider="openapi", search="rone-mlbb ranks academy", priority=10
                 ),
             ),
         ),
     ]
+
+
+def build_default_capabilities() -> list[Capability]:
+    return [*_apify_capabilities(), *_mlbb_capabilities()]
