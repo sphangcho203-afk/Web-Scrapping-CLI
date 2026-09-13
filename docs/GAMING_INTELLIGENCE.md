@@ -1,23 +1,46 @@
 # Gaming Intelligence
 
-Internet Hands v0.5 includes a read-only gaming intelligence plane on the same MCP endpoint as the Tool Mesh.
+Internet Hands v0.5 includes a public/read-only gaming intelligence plane on the same MCP endpoint as the Tool Mesh.
 
-The goal is to let an agent resolve a player identity, fetch public profile/rank data, inspect mains or most-used characters, recent matches, leaderboards, titles/badges/achievements, and game-specific progression without exposing provider credentials or stuffing every provider schema into model context.
+The goal is to let an agent resolve a player identity, fetch public profile/rank data, inspect mains or most-used characters, recent matches, leaderboards, titles/badges/achievements, game libraries/playtime, and game-specific progression without exposing provider credentials or stuffing every provider schema into model context.
 
 ## MCP surface
 
-Use `gaming_capabilities(game=...)` to inspect semantic abilities for one game/pack.
+### `gaming_profile`
 
-Use `gaming_intel(requests=[...])` to execute up to 20 independent gaming capabilities concurrently. Each request contains:
+The normal high-level path. Give Internet Hands a game plus that game's public identity fields and it builds the appropriate evidence bundle automatically.
 
 ```json
 {
-  "capability": "dota2.hero.most_used",
-  "arguments": {"account_id": "123456"}
+  "game": "dota2",
+  "identity": {"account_id": "123456"}
 }
 ```
 
-`gaming_intel` only accepts capabilities tagged as gaming (plus the legacy MLBB pack), and every bundled capability is read-only.
+The Dota preset requests profile, most-used heroes, win/loss totals, recent matches, and rating history. Other games use different evidence presets.
+
+### `gaming_profile_plan`
+
+Returns the planned evidence bundle without contacting providers. Use this when an agent wants to inspect the plan first or when one identity lookup must happen before enrichment.
+
+### `gaming_capabilities`
+
+Lists semantic gaming abilities, optionally scoped to one game/pack.
+
+### `gaming_intel`
+
+Executes up to 20 independent gaming capabilities concurrently. Example:
+
+```json
+{
+  "requests": [
+    {"capability": "dota2.hero.most_used", "arguments": {"account_id": "123456"}},
+    {"capability": "dota2.mmr.history", "arguments": {"account_id": "123456"}}
+  ]
+}
+```
+
+`gaming_intel` only accepts gaming capabilities and every bundled capability is read-only.
 
 The lower-level Tool Mesh remains available when an agent needs provider-specific control:
 
@@ -30,7 +53,7 @@ mesh_search -> mesh_describe -> mesh_execute
 
 ### Mobile Legends: Bang Bang
 
-Existing MLBB player lookup is reused as a rich intelligence source. Added semantic views include:
+Existing MLBB player lookup is reused as a rich intelligence source. Semantic views include:
 
 - `mlbb.rank.current`
 - `mlbb.rank.highest`
@@ -38,7 +61,7 @@ Existing MLBB player lookup is reused as a rich intelligence source. Added seman
 - `mlbb.collector.profile`
 - `mlbb.squad.profile`
 
-The configured RapidAPI/community lookup can expose nickname, current/highest rank, collector/skin fields, squad data and hero history. Existing MLBB hero/reference OpenAPI capabilities remain available as well.
+The configured RapidAPI/community lookup can expose nickname, current/highest rank, collector/skin fields, squad data and hero history. The one-call MLBB profile preset intentionally fetches the rich player payload once instead of duplicating identical provider calls. Existing MLBB hero/reference OpenAPI capabilities remain available as well.
 
 ### VALORANT
 
@@ -53,7 +76,51 @@ Capabilities:
 - `valorant.matches.recent`
 - `valorant.leaderboard`
 
-The implementation intentionally does **not** expose credential-based store checking, authenticated Riot client sessions, hidden-name bypasses, or other private-account functionality. HenrikDev's own project asks applications to obtain player consent for player-data usage.
+The implementation intentionally does not expose credential-based store checking, authenticated Riot client sessions, hidden-name bypasses, or other private-account functionality. The community provider's consent expectations remain part of the provider metadata.
+
+### League of Legends + Riot identity
+
+Provider: official Riot Games API, with server-side `RIOT_API_KEY` injected as `X-Riot-Token`.
+
+Capabilities:
+
+- `riot.account.lookup` - Riot ID to PUUID
+- `riot.account.reverse` - PUUID to current Riot ID
+- `league.player.profile`
+- `league.rank.current`
+- `league.champion.mastery`
+- `league.matches.recent`
+- `league.match.detail`
+
+The profile flow follows Riot's current Riot-ID/PUUID model rather than deprecated summoner-name lookup. Riot platform and regional routing values are allowlisted by Internet Hands; agent input cannot turn the route into an arbitrary host.
+
+Champion mastery is the official mains/mastery signal. Recent match discovery returns Match-V5 IDs first, after which selected matches can be expanded with `league.match.detail`.
+
+### Teamfight Tactics
+
+Provider: official Riot Games API through the same server-side Riot key.
+
+Capabilities:
+
+- `riot.account.lookup`
+- `riot.account.reverse`
+- `tft.matches.recent`
+- `tft.match.detail`
+
+The profile preset is dependency-aware: Riot ID is resolved to PUUID first, then public match intelligence can be requested. Consumers remain responsible for Riot's game-specific API policies.
+
+### Steam
+
+Provider: official Steamworks Web API, with `STEAM_WEB_API_KEY` injected server-side as the API query key.
+
+Capabilities:
+
+- `steam.player.resolve` - vanity profile name to SteamID64
+- `steam.player.profile` - public persona/profile summary
+- `steam.games.recent` - recently played games and playtime
+- `steam.games.owned` - visible owned-game/playtime data
+
+The Steam key never appears in the agent schema, capability descriptor, or normal result metadata. Owned/recent game data naturally depends on the player's Steam privacy settings.
 
 ### Dota 2
 
@@ -161,6 +228,10 @@ Set `CLASH_ROYALE_AUTHORIZATION` to `Bearer <developer-token>`.
 Gaming providers join the same normalized `provider:tool_id` mesh:
 
 ```text
+riot:account-by-riot-id
+riot:lol-champion-mastery
+steam:resolve-vanity
+steam:recent-games
 opendota:player-heroes
 valorant:mmr
 mojang:username-to-uuid
@@ -177,18 +248,19 @@ Provider keys never appear in descriptors, semantic capabilities, or normal exec
 
 ## Intelligence pattern
 
-For a Dota 2 account, an agent can request a bundle like:
+A player intelligence card is evidence-first:
 
-```json
-[
-  {"capability":"dota2.player.profile","arguments":{"account_id":"123456"}},
-  {"capability":"dota2.hero.most_used","arguments":{"account_id":"123456"}},
-  {"capability":"dota2.mmr.history","arguments":{"account_id":"123456"}},
-  {"capability":"dota2.matches.recent","arguments":{"account_id":"123456"}}
-]
+```text
+identity resolution
+    -> public profile
+    -> rank / rating / MMR
+    -> mains / mastery / most-used characters
+    -> recent form / matches
+    -> titles / badges / achievements / progression
+    -> game-specific extras
 ```
 
-The result is an evidence bundle grouped by capability. The model can then synthesize a player card: identity, rank/MMR, top heroes, recent form, and supporting provider evidence without relying on a single fragile endpoint.
+Not every game exposes every field. Internet Hands therefore returns the evidence bundle and selected provider refs instead of inventing missing statistics. Community and unofficial APIs are treated as fallible sources; official APIs are preferred where they expose the requested data.
 
 ## Safety and data boundary
 
@@ -202,4 +274,4 @@ Gaming Intelligence is deliberately public/read-only:
 - no account-sale checker workflows
 - no write actions against game accounts
 
-Community and unofficial APIs are treated as fallible providers rather than authoritative identity systems. Official APIs are preferred where they expose the requested data; community sources are used for public fields official APIs do not expose.
+Public/community endpoints and reverse-engineered **public** interfaces may be added as provider fallbacks, but endpoints that depend on private account credentials, local client secrets, bypass techniques, or unsupported private-session access do not enter this plane.
