@@ -14,7 +14,11 @@ from .vercel_sandbox import VercelSandboxProvider
 sandbox_mcp = MCPServer(
     "Internet Hands",
     instructions=(
-        "Isolated public-internet cloud computer tools. Create a sandbox before using a session. "
+        "Internet Hands combines isolated public-internet cloud computers with an external "
+        "tool mesh. Create a sandbox before using sandbox session tools. Use mesh_search to "
+        "discover external capabilities, mesh_describe before constructing calls when the "
+        "schema is unknown, and mesh_execute or mesh_batch_execute to act. Long-running "
+        "providers may return job/result handles for mesh_job_status and mesh_results. "
         "Sandboxes deny private, loopback, link-local, and metadata networks by default."
     ),
 )
