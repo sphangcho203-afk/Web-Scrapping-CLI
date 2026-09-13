@@ -3,6 +3,8 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Any
 
+from .capability_packs import CapabilityRegistry, build_default_capabilities
+from .catalog_providers import build_catalog_providers
 from .mcp_server import sandbox_mcp
 from .tool_mesh import ToolMesh
 from .tool_providers import build_default_providers
@@ -10,7 +12,12 @@ from .tool_providers import build_default_providers
 
 @lru_cache(maxsize=1)
 def get_tool_mesh() -> ToolMesh:
-    return ToolMesh(build_default_providers())
+    return ToolMesh([*build_default_providers(), *build_catalog_providers()])
+
+
+@lru_cache(maxsize=1)
+def get_capability_registry() -> CapabilityRegistry:
+    return CapabilityRegistry(get_tool_mesh(), build_default_capabilities())
 
 
 @sandbox_mcp.tool()
@@ -89,4 +96,40 @@ async def mesh_results(
         result_id,
         offset=offset,
         limit=limit,
+    )
+
+
+@sandbox_mcp.tool()
+def mesh_capabilities(
+    query: str | None = None,
+    pack: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    """List semantic capability packs such as MLBB without exposing provider-specific details."""
+    return get_capability_registry().list(query=query, pack=pack, limit=limit)
+
+
+@sandbox_mcp.tool()
+async def mesh_capability_resolve(capability: str) -> dict[str, Any]:
+    """Show ranked provider candidates and schemas for one semantic capability."""
+    return await get_capability_registry().resolve(capability)
+
+
+@sandbox_mcp.tool()
+async def mesh_capability_execute(
+    capability: str,
+    arguments: dict[str, Any],
+    provider_preference: str | None = None,
+    dry_run: bool = False,
+    wait_seconds: int = 30,
+    timeout_seconds: int = 60,
+) -> dict[str, Any]:
+    """Execute a semantic capability using the best available read-only provider fallback."""
+    return await get_capability_registry().execute(
+        capability,
+        arguments,
+        provider_preference=provider_preference,
+        dry_run=dry_run,
+        wait_seconds=wait_seconds,
+        timeout_seconds=timeout_seconds,
     )
