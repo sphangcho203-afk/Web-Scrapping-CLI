@@ -7,6 +7,7 @@ from fastapi import FastAPI
 
 from . import account_mcp as _account_mcp  # noqa: F401
 from .control_api import router as control_router
+from .control_hardening import router as hardening_router
 from .fleet_api import app as fleet_app
 from .mcp_customer import customer_streamable_http_app
 from .mcp_server import sandbox_mcp
@@ -31,7 +32,8 @@ app = FastAPI(
     redoc_url=None,
 )
 
-# Product/control routes take precedence over the legacy fleet app.
+# Hardened overrides are registered first so they take precedence over the initial control routes.
+app.include_router(hardening_router)
 app.include_router(control_router)
 app.include_router(site_router)
 app.mount("/mcp", customer_streamable_http_app())
