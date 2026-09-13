@@ -1,8 +1,8 @@
 # Internet Hands Tool Mesh
 
-Internet Hands v0.5 adds a provider-neutral external tool plane on top of the existing data, sandbox, and live-browser layers.
+Internet Hands v0.5 adds a provider-neutral capability plane on top of the existing data, sandbox, and live-browser layers.
 
-The goal is not to mirror a specific vendor. The mesh borrows the strongest ideas from Actor marketplaces and connected-app tool routers while keeping one Internet Hands execution contract.
+The goal is not to mirror one vendor. The mesh combines Actor marketplaces, connected-app routers, API catalogs, OpenAPI discovery, remote MCP servers, and curated capability packs behind one Internet Hands execution contract.
 
 ## Mental model
 
@@ -16,12 +16,16 @@ Internet Hands MCP
   +-- crawl/frontier/content tools
   +-- Tool Mesh
         |
+        +-- semantic capability packs
         +-- Apify Actor catalog + runs + datasets
         +-- Composio connected-app tools
-        +-- future ToolProvider adapters
+        +-- RapidAPI manifest tools
+        +-- public HTTP manifest tools
+        +-- read-only OpenAPI catalogs
+        +-- configured public remote MCP servers
 ```
 
-Every external capability is represented as a normalized reference:
+Every raw external capability is represented as a normalized reference:
 
 ```text
 provider:tool_id
@@ -32,7 +36,13 @@ Examples:
 ```text
 apify:apify/web-scraper
 composio:GITHUB_CREATE_ISSUE
+rapidapi:mlbb-player-lookup
+publicapi:mlbb-nickname-lookup
+openapi:rone-mlbb::operationId
+mcp:source-name::tool-name
 ```
+
+Agents do not need to know those refs for common tasks. Semantic packs expose names such as `mlbb.player.lookup` and resolve the best available provider automatically.
 
 ## MCP tools
 
@@ -50,6 +60,12 @@ composio:GITHUB_CREATE_ISSUE
 
 `mesh_results` pages through provider result stores without forcing a large dataset into one MCP response.
 
+`mesh_capabilities` searches semantic capability packs.
+
+`mesh_capability_resolve` shows the ranked concrete providers behind a semantic capability.
+
+`mesh_capability_execute` runs a semantic read-only capability and may fall back to another provider when the preferred source is unavailable.
+
 ## Apify provider
 
 The Apify adapter treats public Store Actors as discoverable tools. Store search works without credentials. Executing an Actor requires `APIFY_TOKEN`.
@@ -60,11 +76,90 @@ Supported run options are deliberately allowlisted: `build`, `memory`, `timeout`
 
 ## Composio provider
 
-The Composio adapter uses the current v3.1 tool catalog and direct tool execution API. Configure `COMPOSIO_API_KEY`, then `mesh_search` can discover tools across connected-app toolkits.
+The Composio adapter uses the v3.1 tool catalog and direct tool execution API. Configure `COMPOSIO_API_KEY`, then `mesh_search` can discover tools across connected-app toolkits.
 
 The optional `account` argument maps to a Composio connected-account id. This lets callers choose the exact connected account instead of relying on ambiguous account selection. Provider-specific `user_id`, `custom_auth_params`, `custom_connection_data`, and `version` values can be passed through `options` when required.
 
 Composio direct tool results are returned inline, so generic job/result paging is not used for that provider.
+
+## RapidAPI + manifest HTTP providers
+
+`rapidapi` and `publicapi` are small schema-first HTTP catalogs. They only execute curated read-only `GET`/`HEAD` operations.
+
+`RAPIDAPI_KEY` stays server-side. Internet Hands injects it into the RapidAPI request and never places the key in tool descriptors or execution receipts.
+
+Additional tools can be registered without changing Python by setting `INTERNET_HANDS_RAPIDAPI_TOOLS` or `INTERNET_HANDS_PUBLIC_API_TOOLS` to a JSON array. A manifest entry uses this shape:
+
+```json
+{
+  "tool_id": "example-search",
+  "name": "Example search",
+  "description": "Search public example data",
+  "method": "GET",
+  "base_url": "https://example.p.rapidapi.com",
+  "path": "/search",
+  "parameters": {
+    "q": {"in": "query", "required": true, "schema": {"type": "string"}}
+  },
+  "tags": ["search"],
+  "requires_auth": true,
+  "host_header": "example.p.rapidapi.com",
+  "auth_env": "RAPIDAPI_KEY",
+  "auth_header": "X-RapidAPI-Key"
+}
+```
+
+Non-read methods are rejected by the manifest loader.
+
+## OpenAPI provider
+
+The `openapi` provider turns configured public OpenAPI documents into searchable mesh tools dynamically. It imports only `GET` and `HEAD` operations. Private/loopback/link-local targets are rejected by Internet Hands network policy.
+
+Rone Arena's public MLBB OpenAPI document is included as the first built-in catalog. Additional public documents can be configured with `INTERNET_HANDS_OPENAPI_SOURCES`:
+
+```json
+[
+  {"name": "example", "url": "https://api.example.com/openapi.json"}
+]
+```
+
+The provider caches schemas briefly, converts operation parameters into JSON Schema, and executes against the server declared by the OpenAPI document.
+
+## Remote MCP provider
+
+`INTERNET_HANDS_REMOTE_MCP_SOURCES` joins configured public Streamable-HTTP MCP servers to the same Tool Mesh:
+
+```json
+[
+  {"name": "example", "url": "https://mcp.example.com/mcp"}
+]
+```
+
+Internet Hands validates the endpoint as public before connecting. In v0.5 this bridge intentionally targets public MCP endpoints only. Connected/authenticated app actions should go through the Composio plane instead.
+
+Remote tools are considered potentially side-effecting unless the upstream MCP descriptor explicitly marks them read-only. Remote descriptions/results are also tagged as untrusted external data.
+
+## Capability packs
+
+Capability packs prevent the agent from needing to memorize which marketplace currently has the best implementation.
+
+The first built-in pack is `mlbb` and currently defines semantic operations for:
+
+- player lookup
+- nickname lookup
+- hero list
+- hero detail
+- hero analytics/statistics
+- academy items
+- academy spells
+- academy emblems
+- rank/reference data
+
+`mlbb.player.lookup` prefers the configured RapidAPI player-information source. If that read-only source is unavailable, the pack can fall back to a nickname-only public community endpoint when the required player and zone identifiers are available.
+
+Hero/academy/reference capabilities are resolved dynamically against the Rone Arena OpenAPI catalog, so Internet Hands does not freeze endpoint paths into the agent prompt.
+
+Capability fallback is only automatic for read-only operations. A side-effecting tool is never silently substituted for another tool.
 
 ## Policy and bounds
 
@@ -78,9 +173,11 @@ The mesh is intentionally bounded even when a provider can return much more data
 Examples:
 
 ```text
-INTERNET_HANDS_TOOL_ALLOW=apify:apify/*,composio:GITHUB_*
+INTERNET_HANDS_TOOL_ALLOW=apify:apify/*,composio:GITHUB_*,openapi:rone-mlbb::*
 INTERNET_HANDS_TOOL_DENY=composio:*DELETE*,composio:*TRANSFER*
 ```
+
+A default marketplace safety filter also removes restricted categories from discovery and execution before provider-specific allow/deny rules are considered.
 
 The mesh never returns provider API keys in descriptors, status payloads, or execution receipts.
 
@@ -100,8 +197,8 @@ class ToolProvider(Protocol):
     async def result_page(...): ...
 ```
 
-That contract is deliberately small. A provider can represent an Actor marketplace, an authenticated SaaS tool router, an MCP bridge, an OpenAPI catalog, or an internal enterprise tool registry without changing the agent-facing MCP surface.
+That contract is deliberately small. A provider can represent an Actor marketplace, an authenticated SaaS tool router, a remote MCP bridge, an OpenAPI catalog, an API marketplace, or an internal enterprise tool registry without changing the agent-facing MCP surface.
 
 ## Design boundary
 
-Internet Hands keeps its existing public-network and sandbox isolation rules. The Tool Mesh is an orchestration plane, not a way to weaken those boundaries. Provider credentials stay server-side, provider errors are normalized into execution receipts, and large outputs are paged or bounded before they enter model context.
+Internet Hands keeps its existing public-network and sandbox isolation rules. The Tool Mesh is an orchestration plane, not a way to weaken those boundaries. Provider credentials stay server-side, provider errors are normalized into execution receipts, external content is treated as untrusted, and large outputs are paged or bounded before they enter model context.
