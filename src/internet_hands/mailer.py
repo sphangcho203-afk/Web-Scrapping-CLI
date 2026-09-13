@@ -66,14 +66,14 @@ def _send_smtp_sync(*, to: str, subject: str, text: str, html: str) -> MailResul
         raise MailError("SMTP_HOST is not configured")
     try:
         port = int(os.getenv("SMTP_PORT") or ("465" if _bool_env("SMTP_USE_SSL", False) else "587"))
+        timeout = float(os.getenv("SMTP_TIMEOUT_SECONDS") or "20")
     except ValueError as exc:
-        raise MailError("SMTP_PORT must be an integer") from exc
+        raise MailError("SMTP_PORT and SMTP_TIMEOUT_SECONDS must be numeric") from exc
 
     use_ssl = _bool_env("SMTP_USE_SSL", port == 465)
     starttls = _bool_env("SMTP_STARTTLS", not use_ssl)
     username = os.getenv("SMTP_USERNAME")
     password = os.getenv("SMTP_PASSWORD")
-    timeout = float(os.getenv("SMTP_TIMEOUT_SECONDS") or "20")
 
     sender_email = _from_email()
     if not sender_email:
@@ -88,11 +88,12 @@ def _send_smtp_sync(*, to: str, subject: str, text: str, html: str) -> MailResul
     message.add_alternative(html, subtype="html")
 
     context = ssl.create_default_context()
-    if use_ssl:
-        server: smtplib.SMTP = smtplib.SMTP_SSL(host, port, timeout=timeout, context=context)
-    else:
-        server = smtplib.SMTP(host, port, timeout=timeout)
+    server: smtplib.SMTP | None = None
     try:
+        if use_ssl:
+            server = smtplib.SMTP_SSL(host, port, timeout=timeout, context=context)
+        else:
+            server = smtplib.SMTP(host, port, timeout=timeout)
         server.ehlo()
         if starttls and not use_ssl:
             server.starttls(context=context)
@@ -104,13 +105,16 @@ def _send_smtp_sync(*, to: str, subject: str, text: str, html: str) -> MailResul
         refused = server.send_message(message)
         if refused:
             raise MailError(f"SMTP server refused recipients: {', '.join(refused)}")
+    except MailError:
+        raise
     except (smtplib.SMTPException, OSError) as exc:
         raise MailError(f"SMTP delivery failed: {exc}") from exc
     finally:
-        try:
-            server.quit()
-        except (smtplib.SMTPException, OSError):
-            pass
+        if server is not None:
+            try:
+                server.quit()
+            except (smtplib.SMTPException, OSError):
+                pass
     return MailResult(provider="smtp", message_id=str(message["Message-ID"]))
 
 
@@ -125,12 +129,15 @@ async def _send_resend(*, to: str, subject: str, text: str, html: str) -> MailRe
         "text": text,
         "html": html,
     }
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        response = await client.post(
-            "https://api.resend.com/emails",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json=payload,
-        )
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json=payload,
+            )
+    except httpx.HTTPError as exc:
+        raise MailError(f"Resend delivery failed: {exc}") from exc
     if not response.is_success:
         raise MailError(f"Resend delivery failed with HTTP {response.status_code}")
     body = response.json()
