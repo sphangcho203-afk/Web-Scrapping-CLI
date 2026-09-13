@@ -143,8 +143,10 @@ async def tool_mesh_capabilities() -> dict[str, object]:
         "semantic_packs": _tool_mcp.get_capability_registry().list(limit=100),
         "tools": [
             "mesh_providers",
+            "mesh_route",
             "mesh_search",
             "mesh_describe",
+            "mesh_describe_many",
             "mesh_execute",
             "mesh_batch_execute",
             "mesh_job_status",
