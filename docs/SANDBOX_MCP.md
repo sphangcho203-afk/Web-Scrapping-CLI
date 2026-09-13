@@ -75,58 +75,71 @@ Vercel requires exposed ports to be declared when the sandbox is created. Intern
 does not invent a post-creation `publish-port` operation: create the sandbox with `ports=[3000]`, then
 start the service on port 3000. `sandbox_start_service` refuses undeclared ports.
 
-## Stateful browser subsystem
+## Live browser subsystem
 
 The browser is a structured computer subsystem inside the sandbox, not a public DevTools endpoint.
-Each `browser_session` name maps to a persistent Chromium profile stored on the sandbox filesystem.
-Cookies, local storage, and the last page URL therefore survive individual MCP calls and persistent
-sandbox snapshots/resumes.
+Each named `browser_session` runs one live headless Chromium context as a detached sandbox process.
+The control plane talks to it through a Unix-domain socket stored inside the sandbox with restrictive
+permissions. No Chrome DevTools/CDP port is exposed publicly.
 
-The runtime uses a pinned Playwright package and Chromium binary installed into
-`.internet-hands/browser`. Preparation is asynchronous so a serverless control-plane request does not
-need to stay open while Chromium downloads.
+This matters for agent workflows: separate calls such as `fill`, `click`, `press`, `extract`, and
+`screenshot` operate on the **same live page**. Form values, open menus, client-side state, SPA state,
+active cookies, local storage, and the current DOM are not thrown away between MCP calls while the
+browser daemon is alive. Requests to a named browser are serialized so concurrent calls do not race
+the same page.
+
+The persistent Chromium profile and last URL live on the sandbox filesystem. Cookies, local storage,
+and profile data therefore survive a browser-daemon restart and persistent sandbox snapshot/resume.
+Transient DOM state naturally ends when the browser process itself ends; after restart the daemon
+restores the last URL using the persisted profile.
+
+The runtime uses a pinned Playwright package and Chromium binary under `.internet-hands/browser`.
+Preparation is asynchronous so a serverless control-plane request does not need to stay open while
+Chromium downloads. Browser actions automatically start the named daemon when it is not running and
+wait briefly for its private socket to become responsive.
 
 Browser tools:
 
-- `sandbox_browser_prepare` writes the versioned browser runtime and starts Playwright/Chromium installation as a detached command.
-- `sandbox_browser_state` returns the current URL/title for a named browser session.
-- `sandbox_browser_open` navigates to a public HTTP(S) URL.
-- `sandbox_browser_click` clicks a Playwright locator, with optional navigation wait.
-- `sandbox_browser_fill` fills a located form field.
-- `sandbox_browser_press` sends a key to a located element.
-- `sandbox_browser_extract` extracts bounded text, HTML, or links from the current page.
-- `sandbox_browser_capture` saves the current page as a screenshot artifact.
-- `sandbox_browser_download` waits for a locator-triggered download and stores it in the sandbox.
-- `sandbox_browser_trace` reads persisted console/page-error or request/response events and may clear the selected trace.
-- `sandbox_browser_screenshot` remains as the simple one-shot compatibility screenshot tool.
+- `sandbox_browser_prepare` writes/installs the versioned Playwright + Chromium runtime asynchronously.
+- `sandbox_browser_state` gets live URL/title state and starts the named browser when needed.
+- `sandbox_browser_open` navigates the live page to a public HTTP(S) URL.
+- `sandbox_browser_click` clicks a Playwright locator with optional navigation waiting.
+- `sandbox_browser_fill` fills a field while preserving the resulting live DOM state.
+- `sandbox_browser_press` sends a key to a located element on that same live page.
+- `sandbox_browser_extract` extracts bounded text, HTML, or links from the current DOM.
+- `sandbox_browser_capture` writes a screenshot of the current page to a sandbox artifact path.
+- `sandbox_browser_download` waits for a locator-triggered download and saves it in the sandbox.
+- `sandbox_browser_trace` reads bounded persistent console/page-error or request/response events and may clear them.
+- `sandbox_browser_close` gracefully closes one named Chromium daemon and removes its private control socket.
+- `sandbox_browser_screenshot` remains as a simple one-shot compatibility screenshot tool.
 
-The browser manager validates the initial navigation target with the public-URL policy. The in-guest
+The manager validates explicit navigation targets with the public-URL policy. The in-guest browser
 runtime also blocks obvious localhost/private/link-local targets, while the sandbox provider network
 policy remains the final defense against DNS rebinding or redirects to non-public addresses.
 
-Internet Hands deliberately does **not** publish an unauthenticated Chrome DevTools/CDP endpoint.
-Browser control stays behind the authenticated MCP transport and executes inside the isolated VM.
-Browser link extraction is capped at 500 entries per call, text/HTML is bounded by `max_chars`, and
-console/network event fields are clipped before being persisted so noisy pages cannot create
-unbounded MCP payloads.
+Browser output is bounded: text/HTML extraction is limited by `max_chars`, link extraction returns at
+most 200 entries, a trace call returns at most 200 events, individual event fields are clipped, and
+the persisted JSONL trace files are rotated. This prevents long/noisy pages from expanding MCP
+context or guest disk usage indefinitely.
 
 ### Browser workflow
 
 ```text
 sandbox_browser_prepare(session_id)
-        -> detached command_id
+        -> detached install command_id
 sandbox_command(session_id, command_id, wait=true)
-        -> install completed
-sandbox_browser_state(session_id, browser_session="research")
-        -> confirms browser runtime is ready
+        -> runtime ready
+
 sandbox_browser_open(session_id, "https://example.com", browser_session="research")
-sandbox_browser_click(session_id, "text=Docs", browser_session="research")
+        -> named Chromium daemon auto-starts
 sandbox_browser_fill(session_id, "input[name=q]", "query", browser_session="research")
 sandbox_browser_press(session_id, "input[name=q]", "Enter", browser_session="research")
+sandbox_browser_click(session_id, "text=Docs", browser_session="research")
 sandbox_browser_extract(session_id, selector="main", mode="text", browser_session="research")
 sandbox_browser_trace(session_id, kind="network", browser_session="research")
 sandbox_browser_capture(session_id, output_path="artifacts/research.png", browser_session="research")
 sandbox_artifact(session_id, "artifacts/research.png")
+sandbox_browser_close(session_id, browser_session="research")
 ```
 
 For downloads, call `sandbox_browser_download` with the locator that triggers the download, then use
@@ -161,9 +174,10 @@ Default manager limits:
 - detached/background timeout: 1 hour maximum
 - tool output/file/artifact response: 1 MB maximum
 - browser extracted text/HTML: 500,000 characters maximum per call
-- browser extracted links: 500 maximum per call
-- browser trace events: 1,000 maximum per call
+- browser extracted links: 200 maximum per call
+- browser trace events: 200 maximum per call
 - browser fill payload: 100,000 characters maximum
+- browser trace files: rotated at approximately 4 MB each
 - vCPUs: up to 4
 - memory: up to 8 GB
 - published ports: up to 8
@@ -186,9 +200,10 @@ sandbox_start_service(name="app", command="npm", args=["run", "dev"], port=3000,
 sandbox_command_logs(session_id, command_id)
 sandbox_browser_prepare(session_id)
 sandbox_browser_open(session_id, public_url, browser_session="qa", cwd="project")
-sandbox_browser_extract(session_id, selector="body", browser_session="qa", cwd="project")
+sandbox_browser_fill(session_id, "input", "hello", browser_session="qa", cwd="project")
 sandbox_browser_capture(session_id, output_path="artifacts/page.png", browser_session="qa", cwd="project")
 sandbox_artifact(session_id, "artifacts/page.png", cwd="project")
+sandbox_browser_close(session_id, browser_session="qa")
 sandbox_snapshot(session_id)
 ```
 
