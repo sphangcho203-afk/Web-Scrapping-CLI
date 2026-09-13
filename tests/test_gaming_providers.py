@@ -57,7 +57,8 @@ async def test_valorant_provider_uses_server_side_key(monkeypatch: pytest.Monkey
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
         assert request.headers["authorization"] == "server-secret"
-        assert request.url.path == "/valorant/v2/mmr/ap/Test%20Name/TAG"
+        assert request.url.path == "/valorant/v2/mmr/ap/Test Name/TAG"
+        assert b"Test%20Name" in request.url.raw_path
         return httpx.Response(200, json={"status": 200, "data": {"currenttierpatched": "Gold 3"}})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
