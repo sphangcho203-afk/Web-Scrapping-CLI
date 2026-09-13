@@ -13,6 +13,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from . import browser_mcp as _browser_mcp  # noqa: F401
+from . import tool_mcp as _tool_mcp  # noqa: F401
 from .hunt import HuntScope
 from .mcp_server import sandbox_mcp, streamable_http_app
 from .postgres_frontier import PostgresFrontier
@@ -28,10 +29,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(
     title="Internet Hands Fleet",
-    version="0.4.0",
+    version="0.5.0",
     description=(
-        "Distributed crawl frontier, shared content index, telemetry, and isolated "
-        "cloud-computer MCP control plane."
+        "Distributed crawl frontier, shared content index, telemetry, isolated cloud-computer "
+        "execution, and an external agent tool mesh."
     ),
     lifespan=lifespan,
 )
@@ -80,7 +81,7 @@ def _telemetry():
 
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
-    return {"status": "ok", "version": "0.4.0", "plane": "fleet+mcp"}
+    return {"status": "ok", "version": "0.5.0", "plane": "fleet+mcp+tool-mesh"}
 
 
 @app.get("/v1/sandbox/capabilities", dependencies=[Depends(require_api_key)])
@@ -130,6 +131,30 @@ def sandbox_capabilities() -> dict[str, object]:
             "sandbox_stop",
             "sandbox_delete",
         ],
+    }
+
+
+@app.get("/v1/tool-mesh/capabilities", dependencies=[Depends(require_api_key)])
+async def tool_mesh_capabilities() -> dict[str, object]:
+    return {
+        "mcp_endpoint": "/mcp/",
+        "reference_format": "provider:tool_id",
+        "providers": await _tool_mcp.get_tool_mesh().provider_status(),
+        "tools": [
+            "mesh_providers",
+            "mesh_search",
+            "mesh_describe",
+            "mesh_execute",
+            "mesh_batch_execute",
+            "mesh_job_status",
+            "mesh_results",
+        ],
+        "policy": {
+            "allow_env": "INTERNET_HANDS_TOOL_ALLOW",
+            "deny_env": "INTERNET_HANDS_TOOL_DENY",
+            "max_batch_env": "INTERNET_HANDS_TOOL_MAX_BATCH",
+            "max_response_bytes_env": "INTERNET_HANDS_TOOL_MAX_RESPONSE_BYTES",
+        },
     }
 
 
