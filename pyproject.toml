@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "internet-hands"
-version = "0.4.0"
-description = "Public internet intelligence fabric for collection, discovery, indexing, monitoring, provenance, and isolated cloud-computer execution."
+version = "0.5.0"
+description = "Public internet intelligence fabric for collection, discovery, indexing, monitoring, isolated cloud-computer execution, and external tool orchestration."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
