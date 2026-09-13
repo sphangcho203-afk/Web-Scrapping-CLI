@@ -93,12 +93,14 @@ and profile data therefore survive a browser-daemon restart and persistent sandb
 Transient DOM state naturally ends when the browser process itself ends; after restart the daemon
 restores the last URL using the persisted profile.
 
-The runtime uses a pinned Playwright package and Chromium binary under `.internet-hands/browser`.
-Preparation is asynchronous so a serverless control-plane request does not need to stay open while
-Chromium downloads. Browser actions automatically start the named daemon when it is not running and
-wait briefly for its private socket to become responsive. The daemon is a bounded background command
-and therefore remains subject to the one-hour command ceiling and the sandbox session's own TTL; a
-later action transparently starts a fresh daemon from the persisted profile when needed.
+The browser control protocol is versioned independently inside the v0.4 package; the live-daemon
+protocol is currently version 2. The runtime uses pinned Playwright 1.55.0 and a Chromium binary
+under `.internet-hands/browser`. Preparation is asynchronous so a serverless control-plane request
+does not need to stay open while Chromium downloads. Browser actions automatically start the named
+daemon when it is not running and wait briefly for its private socket to become responsive. The
+daemon is a bounded background command and therefore remains subject to the one-hour command ceiling
+and the sandbox session's own TTL; a later action transparently starts a fresh daemon from the
+persisted profile when needed.
 
 Browser tools:
 
