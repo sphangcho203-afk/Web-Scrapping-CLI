@@ -6,14 +6,13 @@ import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import quote, urlencode, urljoin, urlsplit
+from urllib.parse import quote, urljoin, urlsplit
 
 import httpx
 
 from .openapi import _load_document, _servers
 from .policy import validate_public_http_url
 from .tool_mesh import ToolDescriptor
-
 
 _SAFE_METHODS = {"GET", "HEAD"}
 _BLOCKED_HEADER_ARGS = {"authorization", "cookie", "proxy-authorization", "x-api-key"}
@@ -40,11 +39,9 @@ class HttpToolSpec:
         properties: dict[str, Any] = {}
         required: list[str] = []
         for name, spec in self.parameters.items():
-            schema = dict(spec.get("schema") or {})
-            if not schema:
-                schema = {"type": "string"}
+            schema = dict(spec.get("schema") or {"type": "string"})
             if spec.get("description"):
-                schema["description"] = spec["description"]
+                schema["description"] = str(spec["description"])
             properties[name] = schema
             if spec.get("required"):
                 required.append(name)
@@ -55,7 +52,7 @@ class HttpToolSpec:
 
 
 class ManifestHttpProvider:
-    """Read-only HTTP tools defined by curated manifests; credentials remain server-side."""
+    """Curated, read-only HTTP tools with server-side credential injection."""
 
     def __init__(
         self,
@@ -73,17 +70,18 @@ class ManifestHttpProvider:
         self.validate_urls = validate_urls
 
     async def status(self) -> dict[str, Any]:
-        configured = 0
-        for tool in self.tools.values():
-            if not tool.auth_env or os.getenv(tool.auth_env, "").strip():
-                configured += 1
+        executable = sum(
+            1
+            for tool in self.tools.values()
+            if not tool.auth_env or bool(os.getenv(tool.auth_env, "").strip())
+        )
         return {
-            "configured": configured > 0,
+            "configured": executable > 0,
             "searchable": True,
-            "executable": configured > 0,
+            "executable": executable > 0,
             "kind": "manifest-http-catalog",
             "tool_count": len(self.tools),
-            "configured_tools": configured,
+            "configured_tools": executable,
         }
 
     def _descriptor(self, tool: HttpToolSpec) -> ToolDescriptor:
@@ -107,13 +105,17 @@ class ManifestHttpProvider:
         )
 
     async def search(self, query: str, *, limit: int = 10) -> list[ToolDescriptor]:
-        words = [word for word in re.split(r"\W+", query.lower()) if word]
+        words = [word for word in re.split(r"\W+", query.casefold()) if word]
         ranked: list[tuple[int, HttpToolSpec]] = []
         for tool in self.tools.values():
             haystack = " ".join(
                 [tool.tool_id, tool.name, tool.description, *tool.tags]
-            ).lower()
-            score = sum(4 if word in tool.name.lower() else 1 for word in words if word in haystack)
+            ).casefold()
+            score = sum(
+                4 if word in tool.name.casefold() else 1
+                for word in words
+                if word in haystack
+            )
             if score or not words:
                 ranked.append((score, tool))
         ranked.sort(key=lambda row: (-row[0], row[1].tool_id))
@@ -121,9 +123,10 @@ class ManifestHttpProvider:
 
     async def describe(self, tool_id: str) -> ToolDescriptor:
         try:
-            return self._descriptor(self.tools[tool_id])
+            tool = self.tools[tool_id]
         except KeyError as exc:
             raise ValueError(f"unknown {self.name} tool: {tool_id}") from exc
+        return self._descriptor(tool)
 
     async def execute(
         self,
@@ -164,7 +167,7 @@ class ManifestHttpProvider:
                 path = path.replace("{" + name + "}", quote(str(value), safe=""))
             elif location == "query":
                 query[name] = value
-            elif location == "header" and name.lower() not in _BLOCKED_HEADER_ARGS:
+            elif location == "header" and name.casefold() not in _BLOCKED_HEADER_ARGS:
                 headers[name] = str(value)
 
         if tool.auth_env:
@@ -175,8 +178,7 @@ class ManifestHttpProvider:
         if tool.host_header:
             headers["X-RapidAPI-Host"] = tool.host_header
 
-        base = tool.base_url.rstrip("/") + "/"
-        url = urljoin(base, path.lstrip("/"))
+        url = urljoin(tool.base_url.rstrip("/") + "/", path.lstrip("/"))
         if self.validate_urls:
             validate_public_http_url(url)
         response = await self._request(
@@ -241,7 +243,8 @@ def _load_extra_manifest(env_name: str) -> list[HttpToolSpec]:
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"{env_name} must be valid JSON") from exc
     if not isinstance(payload, list):
-        raise RuntimeError(f"{env_name} must contain a JSON array")
+        raise TypeError(f"{env_name} must contain a JSON array")
+
     tools: list[HttpToolSpec] = []
     for item in payload:
         if not isinstance(item, dict):
@@ -275,8 +278,8 @@ def build_rapidapi_provider() -> ManifestHttpProvider:
             tool_id="mlbb-player-lookup",
             name="MLBB player lookup",
             description=(
-                "Look up public/community Mobile Legends player profile information by player id "
-                "and optional zone id through a RapidAPI provider."
+                "Look up public/community Mobile Legends player information by player id and "
+                "optional zone id through a RapidAPI provider."
             ),
             method="GET",
             base_url="https://mobile-legends-user-info-lookup.p.rapidapi.com",
@@ -347,7 +350,7 @@ class _OpenApiSource:
 
 
 class OpenApiToolProvider:
-    """Dynamically turns configured public OpenAPI GET/HEAD operations into mesh tools."""
+    """Turn configured public OpenAPI GET/HEAD operations into searchable mesh tools."""
 
     name = "openapi"
 
@@ -359,7 +362,7 @@ class OpenApiToolProvider:
         cache_seconds: int = 600,
         validate_urls: bool = True,
     ) -> None:
-        self.sources = sources or self._default_sources()
+        self.sources = sources if sources is not None else self._default_sources()
         self.client = client
         self.cache_seconds = max(30, cache_seconds)
         self.validate_urls = validate_urls
@@ -367,26 +370,25 @@ class OpenApiToolProvider:
 
     @staticmethod
     def _default_sources() -> list[_OpenApiSource]:
-        sources = [
-            _OpenApiSource("rone-mlbb", "https://arena.rone.dev/api/openapi.json"),
-        ]
+        sources = [_OpenApiSource("rone-mlbb", "https://arena.rone.dev/api/openapi.json")]
         raw = os.getenv("INTERNET_HANDS_OPENAPI_SOURCES", "").strip()
-        if raw:
-            try:
-                payload = json.loads(raw)
-            except json.JSONDecodeError as exc:
-                raise RuntimeError("INTERNET_HANDS_OPENAPI_SOURCES must be valid JSON") from exc
-            if not isinstance(payload, list):
-                raise RuntimeError("INTERNET_HANDS_OPENAPI_SOURCES must be a JSON array")
-            for item in payload:
-                if isinstance(item, dict) and item.get("name") and item.get("url"):
-                    sources.append(
-                        _OpenApiSource(
-                            str(item["name"]),
-                            str(item["url"]),
-                            str(item["headers_env"]) if item.get("headers_env") else None,
-                        )
+        if not raw:
+            return sources
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("INTERNET_HANDS_OPENAPI_SOURCES must be valid JSON") from exc
+        if not isinstance(payload, list):
+            raise TypeError("INTERNET_HANDS_OPENAPI_SOURCES must be a JSON array")
+        for item in payload:
+            if isinstance(item, dict) and item.get("name") and item.get("url"):
+                sources.append(
+                    _OpenApiSource(
+                        str(item["name"]),
+                        str(item["url"]),
+                        str(item["headers_env"]) if item.get("headers_env") else None,
                     )
+                )
         return sources
 
     async def status(self) -> dict[str, Any]:
@@ -412,7 +414,7 @@ class OpenApiToolProvider:
             if raw:
                 parsed = json.loads(raw)
                 if isinstance(parsed, dict):
-                    headers.update({str(k): str(v) for k, v in parsed.items()})
+                    headers.update({str(key): str(value) for key, value in parsed.items()})
         response = await self._request("GET", source.spec_url, headers=headers, timeout=30.0)
         spec = _load_document(response.text)
         final_url = str(response.url)
@@ -452,14 +454,12 @@ class OpenApiToolProvider:
             location = parameter.get("in")
             if not isinstance(name, str) or location not in {"path", "query", "header"}:
                 continue
-            if location == "header" and name.lower() in _BLOCKED_HEADER_ARGS:
+            if location == "header" and name.casefold() in _BLOCKED_HEADER_ARGS:
                 continue
-            schema = parameter.get("schema") if isinstance(parameter.get("schema"), dict) else {}
-            item = dict(schema)
-            if not item:
-                item["type"] = "string"
+            schema = parameter.get("schema")
+            item = dict(schema) if isinstance(schema, dict) else {"type": "string"}
             if parameter.get("description"):
-                item["description"] = parameter["description"]
+                item["description"] = str(parameter["description"])
             item["x-in"] = location
             properties[name] = item
             if parameter.get("required"):
@@ -475,7 +475,7 @@ class OpenApiToolProvider:
         if not isinstance(paths, dict):
             return []
         servers = _servers(spec, final_url)
-        server = servers[0] if servers else urljoin(final_url, "/")
+        server = urljoin(final_url, servers[0]) if servers else urljoin(final_url, "/")
         descriptors: list[ToolDescriptor] = []
         for path, path_item in paths.items():
             if not isinstance(path, str) or not isinstance(path_item, dict):
@@ -512,13 +512,13 @@ class OpenApiToolProvider:
         return descriptors
 
     async def search(self, query: str, *, limit: int = 10) -> list[ToolDescriptor]:
-        words = [word for word in re.split(r"\W+", query.lower()) if word]
+        words = [word for word in re.split(r"\W+", query.casefold()) if word]
         rows: list[tuple[int, ToolDescriptor]] = []
         for source in self.sources:
             try:
                 descriptors = await self._operations(source)
-            except Exception:
-                continue
+            except Exception:  # noqa: BLE001 - one bad external catalog must not hide others
+                descriptors = []
             for descriptor in descriptors:
                 haystack = " ".join(
                     [
@@ -528,8 +528,12 @@ class OpenApiToolProvider:
                         *descriptor.tags,
                         str(descriptor.metadata.get("path") or ""),
                     ]
-                ).lower()
-                score = sum(5 if word in descriptor.name.lower() else 1 for word in words if word in haystack)
+                ).casefold()
+                score = sum(
+                    5 if word in descriptor.name.casefold() else 1
+                    for word in words
+                    if word in haystack
+                )
                 if score or not words:
                     rows.append((score, descriptor))
         rows.sort(key=lambda row: (-row[0], row[1].ref))
@@ -567,6 +571,7 @@ class OpenApiToolProvider:
         missing = [name for name in required if name not in arguments]
         if missing:
             raise ValueError(f"missing required arguments: {', '.join(sorted(missing))}")
+
         query: dict[str, Any] = {}
         headers = {"Accept": "application/json"}
         for name, value in arguments.items():
@@ -577,8 +582,9 @@ class OpenApiToolProvider:
                 path = path.replace("{" + name + "}", quote(str(value), safe=""))
             elif location == "query":
                 query[name] = value
-            elif location == "header" and name.lower() not in _BLOCKED_HEADER_ARGS:
+            elif location == "header" and name.casefold() not in _BLOCKED_HEADER_ARGS:
                 headers[name] = str(value)
+
         url = urljoin(server.rstrip("/") + "/", path.lstrip("/"))
         if self.validate_urls:
             validate_public_http_url(url)
