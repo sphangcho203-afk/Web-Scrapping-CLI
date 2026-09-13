@@ -116,10 +116,12 @@ def provisioning_uri(secret: str, email: str, issuer: str = "Internet Hands") ->
 
 
 def generate_recovery_codes(count: int = 8) -> list[str]:
-    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    letters = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+    alphabet = letters + "23456789"
     codes: list[str] = []
     for _ in range(max(4, min(count, 12))):
-        raw = "".join(secrets.choice(alphabet) for _ in range(12))
+        # Guarantee at least one letter so recovery input can never be mistaken for TOTP.
+        raw = secrets.choice(letters) + "".join(secrets.choice(alphabet) for _ in range(11))
         codes.append(f"{raw[:4]}-{raw[4:8]}-{raw[8:]}")
     return codes
 
