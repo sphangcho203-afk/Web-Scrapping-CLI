@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "internet-hands"
-version = "0.6.0"
-description = "Public internet intelligence fabric, authenticated MCP gateway, SaaS control plane, monitoring, billing, isolated cloud-computer execution, and external tool orchestration."
+version = "0.7.0"
+description = "Public internet intelligence fabric, authenticated MCP gateway, SaaS control plane, transactional email, email verification, TOTP 2FA, monitoring, billing, isolated cloud-computer execution, and external tool orchestration."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -20,6 +20,7 @@ dependencies = [
   "PyYAML>=6.0.2,<7",
   "psycopg[binary]>=3.2,<4",
   "mcp>=2.2,<3",
+  "cryptography>=43,<47",
 ]
 
 [project.optional-dependencies]
