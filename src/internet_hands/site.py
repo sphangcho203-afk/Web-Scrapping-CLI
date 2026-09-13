@@ -31,6 +31,11 @@ def recovery_js():
     return _file("recovery.js", "application/javascript")
 
 
+@router.get("/assets/auth-nav.js")
+def auth_nav_js():
+    return _file("auth-nav.js", "application/javascript")
+
+
 @router.get("/assets/mark.svg")
 def site_mark():
     return _file("mark.svg", "image/svg+xml")
