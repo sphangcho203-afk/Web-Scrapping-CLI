@@ -18,7 +18,7 @@ async def sandbox_browser_prepare(
     session_id: str,
     timeout_ms: int = 600_000,
 ) -> dict[str, Any]:
-    """Install the versioned Playwright runtime in a sandbox; idempotent and asynchronous."""
+    """Install the versioned Playwright runtime in a sandbox asynchronously."""
     return await get_browser_manager().browser_prepare(session_id, timeout_ms=timeout_ms)
 
 
@@ -29,7 +29,7 @@ async def sandbox_browser_state(
     cwd: str | None = None,
     timeout_ms: int = 30_000,
 ) -> dict[str, Any]:
-    """Return the current URL/title for a persistent named browser session."""
+    """Return live URL/title state for a named browser session, starting it if needed."""
     return await get_browser_manager().browser_state(
         session_id,
         browser_session=browser_session,
@@ -47,7 +47,7 @@ async def sandbox_browser_open(
     cwd: str | None = None,
     timeout_ms: int = 30_000,
 ) -> dict[str, Any]:
-    """Navigate a persistent browser session to a public HTTP(S) URL."""
+    """Navigate a live named browser session to a public HTTP(S) URL."""
     return await get_browser_manager().browser_open(
         session_id,
         url,
@@ -68,7 +68,7 @@ async def sandbox_browser_click(
     cwd: str | None = None,
     timeout_ms: int = 30_000,
 ) -> dict[str, Any]:
-    """Click a Playwright locator in a persistent browser session."""
+    """Click a Playwright locator while preserving the live page between calls."""
     return await get_browser_manager().browser_click(
         session_id,
         selector,
@@ -90,7 +90,7 @@ async def sandbox_browser_fill(
     cwd: str | None = None,
     timeout_ms: int = 30_000,
 ) -> dict[str, Any]:
-    """Fill a form field in a persistent browser session."""
+    """Fill a form field while preserving its transient DOM state for later calls."""
     return await get_browser_manager().browser_fill(
         session_id,
         selector,
@@ -112,7 +112,7 @@ async def sandbox_browser_press(
     cwd: str | None = None,
     timeout_ms: int = 30_000,
 ) -> dict[str, Any]:
-    """Press a key on a located element in a persistent browser session."""
+    """Press a key on a located element in the same live browser page."""
     return await get_browser_manager().browser_press(
         session_id,
         selector,
@@ -134,7 +134,7 @@ async def sandbox_browser_extract(
     cwd: str | None = None,
     timeout_ms: int = 30_000,
 ) -> dict[str, Any]:
-    """Extract text, HTML, or links from the current page using a Playwright locator."""
+    """Extract bounded text, HTML, or links from the live page."""
     return await get_browser_manager().browser_extract(
         session_id,
         selector=selector,
@@ -155,7 +155,7 @@ async def sandbox_browser_capture(
     cwd: str | None = None,
     timeout_ms: int = 30_000,
 ) -> dict[str, Any]:
-    """Capture the current persistent browser page to a sandbox artifact path."""
+    """Capture the current live browser page to a sandbox artifact path."""
     return await get_browser_manager().browser_capture(
         session_id,
         output_path=output_path,
@@ -176,7 +176,7 @@ async def sandbox_browser_download(
     cwd: str | None = None,
     timeout_ms: int = 30_000,
 ) -> dict[str, Any]:
-    """Click a locator that triggers a download and save it inside the sandbox."""
+    """Trigger a download from the live page and save it inside the sandbox."""
     return await get_browser_manager().browser_download(
         session_id,
         selector,
@@ -193,12 +193,12 @@ async def sandbox_browser_trace(
     session_id: str,
     kind: str = "console",
     browser_session: str = "default",
-    max_events: int = 200,
+    max_events: int = 100,
     clear: bool = False,
     cwd: str | None = None,
     timeout_ms: int = 30_000,
 ) -> dict[str, Any]:
-    """Read persisted console/page-error or network events from a named browser session."""
+    """Read bounded console/page-error or network events from a named live browser."""
     return await get_browser_manager().browser_trace(
         session_id,
         kind=kind,
@@ -206,5 +206,19 @@ async def sandbox_browser_trace(
         max_events=max_events,
         clear=clear,
         cwd=cwd,
+        timeout_ms=timeout_ms,
+    )
+
+
+@sandbox_mcp.tool()
+async def sandbox_browser_close(
+    session_id: str,
+    browser_session: str = "default",
+    timeout_ms: int = 10_000,
+) -> dict[str, Any]:
+    """Gracefully close one named live Chromium session and its private Unix socket."""
+    return await get_browser_manager().browser_close(
+        session_id,
+        browser_session=browser_session,
         timeout_ms=timeout_ms,
     )
