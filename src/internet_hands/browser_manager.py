@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import posixpath
 import secrets
@@ -24,7 +25,7 @@ _ALLOWED_TRACE_KINDS = {"console", "network"}
 
 
 class BrowserSandboxManager(SandboxManager):
-    """Structured browser actions backed by a persistent Playwright profile in the sandbox."""
+    """Structured browser actions backed by live named Chromium sessions in the sandbox."""
 
     async def browser_prepare(
         self,
@@ -276,15 +277,15 @@ class BrowserSandboxManager(SandboxManager):
         *,
         kind: str = "console",
         browser_session: str = "default",
-        max_events: int = 200,
+        max_events: int = 100,
         clear: bool = False,
         cwd: str | None = None,
         timeout_ms: int = 30_000,
     ) -> dict[str, Any]:
         if kind not in _ALLOWED_TRACE_KINDS:
             raise ValueError("browser trace kind must be console or network")
-        if not 1 <= max_events <= 1000:
-            raise ValueError("max_events must be between 1 and 1000")
+        if not 1 <= max_events <= 200:
+            raise ValueError("max_events must be between 1 and 200")
         return await self._browser_invoke(
             session_id,
             {
@@ -295,6 +296,27 @@ class BrowserSandboxManager(SandboxManager):
                 "clear": bool(clear),
             },
             cwd=cwd,
+            timeout_ms=timeout_ms,
+        )
+
+    async def browser_close(
+        self,
+        session_id: str,
+        *,
+        browser_session: str = "default",
+        timeout_ms: int = 10_000,
+    ) -> dict[str, Any]:
+        browser_session = validate_name(browser_session)
+        timeout_ms = validate_timeout_ms(timeout_ms, self.limits)
+        root = await self._sandbox_root(session_id)
+        if not await self._browser_ready(session_id, root):
+            return {"ok": True, "browser_session": browser_session, "closed": True, "running": False}
+        if not await self._browser_daemon_alive(session_id, root, browser_session):
+            return {"ok": True, "browser_session": browser_session, "closed": True, "running": False}
+        return await self._browser_invoke(
+            session_id,
+            {"action": "close", "browser_session": browser_session},
+            cwd=None,
             timeout_ms=timeout_ms,
         )
 
@@ -313,23 +335,27 @@ class BrowserSandboxManager(SandboxManager):
                 "browser runtime is not prepared; call sandbox_browser_prepare and wait for "
                 "its process to finish successfully"
             )
+        browser_session = validate_name(str(payload.get("browser_session") or "default"))
+        daemon = await self._ensure_browser_daemon(session_id, root, browser_session)
         token = secrets.token_hex(12)
         request_rel = f"{BROWSER_ROOT}/requests/{token}.json"
         request_abs = posixpath.join(root, request_rel)
         runtime_abs = posixpath.join(root, BROWSER_RUNTIME_PATH)
-        payload = {**payload, "timeout_ms": timeout_ms}
+        request_payload = {**payload, "browser_session": browser_session, "timeout_ms": timeout_ms}
+        if cwd is not None:
+            request_payload["cwd"] = self._validate_workdir(cwd)
         await self.provider.write_file(
             session_id,
             request_rel,
-            json.dumps(payload, ensure_ascii=False).encode(),
+            json.dumps(request_payload, ensure_ascii=False).encode(),
             cwd=root,
         )
         try:
             result = await self.exec(
                 session_id,
                 "node",
-                [runtime_abs, request_abs],
-                cwd=cwd,
+                [runtime_abs, "client", browser_session, request_abs],
+                cwd=root,
                 timeout_ms=timeout_ms,
             )
         finally:
@@ -337,6 +363,7 @@ class BrowserSandboxManager(SandboxManager):
                 session_id,
                 "rm",
                 ["-f", "--", request_abs],
+                cwd=root,
                 timeout_ms=5_000,
             )
         if result.get("exit_code") not in (0, None):
@@ -351,7 +378,59 @@ class BrowserSandboxManager(SandboxManager):
             raise ValueError("browser runtime returned invalid JSON") from exc
         if not isinstance(data, dict):
             raise TypeError("browser runtime returned an invalid result object")
+        if not data.get("ok"):
+            raise ValueError(f"browser action failed: {str(data.get('error') or 'unknown error')[:4000]}")
+        if daemon is not None:
+            data["daemon"] = daemon
         return data
+
+    async def _ensure_browser_daemon(
+        self,
+        session_id: str,
+        root: str,
+        browser_session: str,
+    ) -> dict[str, Any] | None:
+        if await self._browser_daemon_alive(session_id, root, browser_session):
+            return None
+        socket_path = self._browser_socket_path(root, browser_session)
+        await self.provider.exec(
+            session_id,
+            "rm",
+            ["-f", "--", socket_path],
+            cwd=root,
+            timeout_ms=5_000,
+        )
+        runtime_abs = posixpath.join(root, BROWSER_RUNTIME_PATH)
+        daemon = await self.start(
+            session_id,
+            "node",
+            [runtime_abs, "daemon", browser_session],
+            cwd=root,
+            timeout_ms=self.limits.max_background_timeout_ms,
+        )
+        for _ in range(30):
+            await asyncio.sleep(0.1)
+            if await self._browser_daemon_alive(session_id, root, browser_session):
+                return daemon
+        raise ValueError(
+            "browser daemon failed to become ready; inspect the returned sandbox command history/logs"
+        )
+
+    async def _browser_daemon_alive(
+        self,
+        session_id: str,
+        root: str,
+        browser_session: str,
+    ) -> bool:
+        runtime_abs = posixpath.join(root, BROWSER_RUNTIME_PATH)
+        result = await self.provider.exec(
+            session_id,
+            "node",
+            [runtime_abs, "ping", browser_session],
+            cwd=root,
+            timeout_ms=5_000,
+        )
+        return result.exit_code == 0
 
     async def _sandbox_root(self, session_id: str) -> str:
         result = await self.provider.exec(
@@ -372,9 +451,14 @@ class BrowserSandboxManager(SandboxManager):
             session_id,
             "test",
             ["-f", posixpath.join(root, BROWSER_READY_PATH)],
+            cwd=root,
             timeout_ms=5_000,
         )
         return result.exit_code == 0
+
+    @staticmethod
+    def _browser_socket_path(root: str, browser_session: str) -> str:
+        return posixpath.join(root, BROWSER_ROOT, "sessions", browser_session, "control.sock")
 
     @staticmethod
     def _validate_selector(selector: str) -> str:
@@ -401,4 +485,12 @@ class BrowserSandboxManager(SandboxManager):
             raise ValueError(f"{field} must be a relative sandbox path without ..")
         if len(value) > 1_000:
             raise ValueError(f"{field} is too long")
+        return value
+
+    @staticmethod
+    def _validate_workdir(value: str) -> str:
+        if not value or ".." in value.split("/"):
+            raise ValueError("browser cwd may not contain ..")
+        if len(value) > 1_000:
+            raise ValueError("browser cwd is too long")
         return value
