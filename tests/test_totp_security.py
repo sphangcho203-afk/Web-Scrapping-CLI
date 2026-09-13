@@ -5,6 +5,7 @@ import pytest
 from internet_hands.totp import (
     decrypt_secret,
     encrypt_secret,
+    encryption_configured,
     generate_recovery_codes,
     normalize_recovery_code,
     provisioning_uri,
@@ -50,6 +51,17 @@ def test_encrypted_totp_secret_rejects_wrong_key(monkeypatch) -> None:
     )
     with pytest.raises(RuntimeError, match="cannot be decrypted"):
         decrypt_secret(token)
+
+
+def test_oauth_signing_secret_does_not_enable_totp_encryption(monkeypatch) -> None:
+    monkeypatch.delenv("INTERNET_HANDS_ENCRYPTION_KEY", raising=False)
+    monkeypatch.setenv(
+        "INTERNET_HANDS_OAUTH_SIGNING_SECRET",
+        "oauth-only-secret-that-must-not-encrypt-totp-material",
+    )
+    assert encryption_configured() is False
+    with pytest.raises(RuntimeError, match="INTERNET_HANDS_ENCRYPTION_KEY"):
+        encrypt_secret("JBSWY3DPEHPK3PXP")
 
 
 def test_recovery_codes_are_unique_and_normalizable() -> None:
