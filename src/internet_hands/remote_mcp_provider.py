@@ -20,7 +20,7 @@ class RemoteMcpSource:
 
 
 def _side_effecting(tool: Any) -> bool:
-    """MCP annotations are hints; absent readOnlyHint means we assume mutation is possible."""
+    """Absent MCP readOnlyHint means mutation remains possible."""
     raw: dict[str, Any] = {}
     if hasattr(tool, "model_dump"):
         value = tool.model_dump(mode="json")
@@ -34,7 +34,7 @@ def _side_effecting(tool: Any) -> bool:
 
 
 class RemoteMcpToolProvider:
-    """Expose tools from configured public remote MCP servers through the Tool Mesh."""
+    """Expose configured public remote MCP servers through the Tool Mesh."""
 
     name = "mcp"
 
@@ -60,7 +60,8 @@ class RemoteMcpToolProvider:
         except json.JSONDecodeError as exc:
             raise RuntimeError("INTERNET_HANDS_REMOTE_MCP_SOURCES must be valid JSON") from exc
         if not isinstance(payload, list):
-            raise RuntimeError("INTERNET_HANDS_REMOTE_MCP_SOURCES must be a JSON array")
+            raise TypeError("INTERNET_HANDS_REMOTE_MCP_SOURCES must be a JSON array")
+
         sources: list[RemoteMcpSource] = []
         names: set[str] = set()
         for item in payload:
@@ -68,9 +69,9 @@ class RemoteMcpToolProvider:
                 continue
             name = str(item["name"]).strip().lower()
             if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,62}", name):
-                raise RuntimeError(f"invalid remote MCP source name: {name}")
+                raise ValueError(f"invalid remote MCP source name: {name}")
             if name in names:
-                raise RuntimeError(f"duplicate remote MCP source name: {name}")
+                raise ValueError(f"duplicate remote MCP source name: {name}")
             names.add(name)
             sources.append(RemoteMcpSource(name=name, url=str(item["url"])))
         return sources
@@ -92,6 +93,7 @@ class RemoteMcpToolProvider:
             return cached[1]
         if self.validate_urls:
             validate_public_http_url(source.url)
+
         descriptors: list[ToolDescriptor] = []
         async with Client(source.url) as client:
             cursor: str | None = None
@@ -99,7 +101,6 @@ class RemoteMcpToolProvider:
                 result = await client.list_tools(cursor=cursor)
                 for tool in result.tools:
                     tool_name = str(tool.name)
-                    title = getattr(tool, "title", None)
                     input_schema = getattr(tool, "input_schema", None) or {}
                     output_schema = getattr(tool, "output_schema", None) or {}
                     descriptors.append(
@@ -107,7 +108,7 @@ class RemoteMcpToolProvider:
                             ref=f"mcp:{source.name}::{tool_name}",
                             provider="mcp",
                             tool_id=f"{source.name}::{tool_name}",
-                            name=str(title or tool_name),
+                            name=str(getattr(tool, "title", None) or tool_name),
                             description=str(getattr(tool, "description", None) or ""),
                             input_schema=input_schema if isinstance(input_schema, dict) else {},
                             output_schema=output_schema if isinstance(output_schema, dict) else {},
@@ -128,16 +129,22 @@ class RemoteMcpToolProvider:
         return descriptors
 
     async def search(self, query: str, *, limit: int = 10) -> list[ToolDescriptor]:
-        words = [word for word in re.split(r"\W+", query.lower()) if word]
+        words = [word for word in re.split(r"\W+", query.casefold()) if word]
         ranked: list[tuple[int, ToolDescriptor]] = []
         for source in self.sources:
             try:
                 tools = await self._tools(source)
-            except Exception:
-                continue
+            except Exception:  # noqa: BLE001 - one remote MCP must not hide other sources
+                tools = []
             for tool in tools:
-                haystack = " ".join([tool.tool_id, tool.name, tool.description, *tool.tags]).lower()
-                score = sum(5 if word in tool.name.lower() else 1 for word in words if word in haystack)
+                haystack = " ".join(
+                    [tool.tool_id, tool.name, tool.description, *tool.tags]
+                ).casefold()
+                score = sum(
+                    5 if word in tool.name.casefold() else 1
+                    for word in words
+                    if word in haystack
+                )
                 if score or not words:
                     ranked.append((score, tool))
         ranked.sort(key=lambda row: (-row[0], row[1].ref))
@@ -174,6 +181,7 @@ class RemoteMcpToolProvider:
             raise ValueError(f"unknown remote MCP source: {source_name}")
         if self.validate_urls:
             validate_public_http_url(source.url)
+
         async with Client(source.url) as client:
             result = await client.call_tool(remote_tool, arguments)
         structured = getattr(result, "structured_content", None)
