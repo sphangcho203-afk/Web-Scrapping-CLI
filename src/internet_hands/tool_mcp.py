@@ -6,6 +6,8 @@ from typing import Any
 
 from .capability_packs import CapabilityRegistry, build_default_capabilities
 from .catalog_providers import build_catalog_providers
+from .gaming_capabilities import build_gaming_capabilities
+from .gaming_providers import build_gaming_providers
 from .mcp_server import sandbox_mcp
 from .remote_mcp_provider import build_remote_mcp_provider
 from .tool_mesh import ToolMesh
@@ -18,6 +20,7 @@ def get_tool_mesh() -> ToolMesh:
         [
             *build_default_providers(),
             *build_catalog_providers(),
+            *build_gaming_providers(),
             build_remote_mcp_provider(),
         ]
     )
@@ -25,7 +28,10 @@ def get_tool_mesh() -> ToolMesh:
 
 @lru_cache(maxsize=1)
 def get_capability_registry() -> CapabilityRegistry:
-    return CapabilityRegistry(get_tool_mesh(), build_default_capabilities())
+    return CapabilityRegistry(
+        get_tool_mesh(),
+        [*build_default_capabilities(), *build_gaming_capabilities()],
+    )
 
 
 @sandbox_mcp.tool()
@@ -183,3 +189,72 @@ async def mesh_capability_execute(
         wait_seconds=wait_seconds,
         timeout_seconds=timeout_seconds,
     )
+
+
+@sandbox_mcp.tool()
+def gaming_capabilities(
+    game: str | None = None,
+    query: str | None = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    """List gaming intelligence capabilities, optionally scoped to one game/pack."""
+    result = get_capability_registry().list(query=query, pack=game, limit=limit)
+    gaming = [
+        item
+        for item in result["capabilities"]
+        if "gaming" in item.get("tags", []) or item.get("pack") == "mlbb"
+    ]
+    return {"game": game, "capabilities": gaming}
+
+
+@sandbox_mcp.tool()
+async def gaming_intel(
+    requests: list[dict[str, Any]],
+    max_concurrency: int = 5,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Run up to 20 independent read-only gaming intelligence capabilities in parallel."""
+    if not requests:
+        return {"results": []}
+    if len(requests) > 20:
+        raise ValueError("gaming_intel accepts at most 20 requests")
+
+    registry = get_capability_registry()
+    semaphore = asyncio.Semaphore(max(1, min(max_concurrency, 10)))
+
+    async def one(index: int, request: dict[str, Any]) -> dict[str, Any]:
+        capability_id = str(request.get("capability") or "").strip()
+        capability = registry.capabilities.get(capability_id)
+        if capability is None:
+            return {"index": index, "capability": capability_id, "status": "failed", "error": "unknown capability"}
+        if "gaming" not in capability.tags and capability.pack != "mlbb":
+            return {
+                "index": index,
+                "capability": capability_id,
+                "status": "failed",
+                "error": "capability is not part of the gaming intelligence plane",
+            }
+        async with semaphore:
+            result = await registry.execute(
+                capability_id,
+                dict(request.get("arguments") or {}),
+                provider_preference=request.get("provider_preference"),
+                dry_run=dry_run,
+                wait_seconds=int(request.get("wait_seconds", 30)),
+                timeout_seconds=int(request.get("timeout_seconds", 60)),
+            )
+        execution = result.get("execution") or {}
+        return {
+            "index": index,
+            "capability": capability_id,
+            "status": execution.get("status") or ("failed" if result.get("error") else "completed"),
+            "selected": result.get("selected"),
+            "attempts": result.get("attempts", []),
+            "data": execution.get("data"),
+            "error": execution.get("error") or result.get("error"),
+            "duration_ms": result.get("duration_ms"),
+        }
+
+    results = await asyncio.gather(*(one(index, request) for index, request in enumerate(requests)))
+    results.sort(key=lambda item: item["index"])
+    return {"results": results}
