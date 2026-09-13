@@ -6,13 +6,20 @@ from typing import Any
 from .capability_packs import CapabilityRegistry, build_default_capabilities
 from .catalog_providers import build_catalog_providers
 from .mcp_server import sandbox_mcp
+from .remote_mcp_provider import build_remote_mcp_provider
 from .tool_mesh import ToolMesh
 from .tool_providers import build_default_providers
 
 
 @lru_cache(maxsize=1)
 def get_tool_mesh() -> ToolMesh:
-    return ToolMesh([*build_default_providers(), *build_catalog_providers()])
+    return ToolMesh(
+        [
+            *build_default_providers(),
+            *build_catalog_providers(),
+            build_remote_mcp_provider(),
+        ]
+    )
 
 
 @lru_cache(maxsize=1)
