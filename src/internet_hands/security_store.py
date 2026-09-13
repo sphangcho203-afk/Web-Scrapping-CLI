@@ -176,15 +176,18 @@ class SecurityStore:
                 if not row:
                     return None
                 cur.execute(
-                    "UPDATE ih_email_verifications SET used_at=now() WHERE id=%s",
-                    (row["id"],),
-                )
-                cur.execute(
                     """
                     UPDATE ih_users SET email_verified=true,updated_at=now()
                     WHERE id=%s AND lower(email)=lower(%s)
                     """,
                     (row["user_id"], row["email"]),
+                )
+                if cur.rowcount != 1:
+                    conn.rollback()
+                    return None
+                cur.execute(
+                    "UPDATE ih_email_verifications SET used_at=now() WHERE id=%s",
+                    (row["id"],),
                 )
             conn.commit()
             return dict(row)
@@ -214,15 +217,18 @@ class SecurityStore:
                     conn.commit()
                     return None
                 cur.execute(
-                    "UPDATE ih_email_verifications SET used_at=now() WHERE id=%s",
-                    (row["id"],),
-                )
-                cur.execute(
                     """
                     UPDATE ih_users SET email_verified=true,updated_at=now()
                     WHERE id=%s AND lower(email)=lower(%s)
                     """,
                     (row["user_id"], row["email"]),
+                )
+                if cur.rowcount != 1:
+                    conn.rollback()
+                    return None
+                cur.execute(
+                    "UPDATE ih_email_verifications SET used_at=now() WHERE id=%s",
+                    (row["id"],),
                 )
             conn.commit()
             return dict(row)
@@ -240,9 +246,17 @@ class SecurityStore:
                     totp_confirmed_at=NULL,
                     last_totp_counter=NULL,
                     updated_at=now()
+                WHERE ih_user_security.totp_enabled=false
                 """,
                 (user_id, encrypted_secret),
             )
+            if cur.rowcount != 1:
+                conn.rollback()
+                raise ControlError(
+                    "totp_already_enabled",
+                    "disable the existing two-factor method before starting a new setup",
+                    409,
+                )
             cur.execute("DELETE FROM ih_2fa_recovery_codes WHERE user_id=%s", (user_id,))
             conn.commit()
 
@@ -261,7 +275,7 @@ class SecurityStore:
                     """
                     UPDATE ih_user_security SET
                         totp_enabled=true,totp_confirmed_at=now(),last_totp_counter=%s,updated_at=now()
-                    WHERE user_id=%s AND totp_secret_enc IS NOT NULL
+                    WHERE user_id=%s AND totp_secret_enc IS NOT NULL AND totp_enabled=false
                     """,
                     (counter, user_id),
                 )
@@ -416,6 +430,7 @@ class SecurityStore:
     ) -> str | None:
         self.ensure_schema()
         event_id = self._new_id("mail")
+        encoded_metadata = json.dumps(metadata or {})
         with self.control._connect() as conn, conn.cursor() as cur:  # noqa: SLF001
             try:
                 cur.execute(
@@ -430,16 +445,28 @@ class SecurityStore:
                         email,
                         event_type,
                         dedupe_key,
-                        json.dumps(metadata or {}),
+                        encoded_metadata,
                     ),
                 )
                 conn.commit()
                 return event_id
             except UniqueViolation:
                 conn.rollback()
-                if dedupe_key:
-                    return None
-                raise
+                if not dedupe_key:
+                    raise
+                cur.execute(
+                    """
+                    UPDATE ih_email_events SET
+                        user_id=%s,email=%s,event_type=%s,status='queued',provider=NULL,
+                        message_id=NULL,error=NULL,metadata=%s::jsonb,updated_at=now()
+                    WHERE dedupe_key=%s AND status='failed'
+                    RETURNING id
+                    """,
+                    (user_id, email, event_type, encoded_metadata, dedupe_key),
+                )
+                row = cur.fetchone()
+                conn.commit()
+                return str(row["id"]) if row else None
 
     def finish_email_event(
         self,
