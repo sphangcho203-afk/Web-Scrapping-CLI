@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import html
 import json
 import os
 from typing import Any
@@ -12,8 +13,11 @@ from fastapi import APIRouter, HTTPException, Request
 from .auth import hash_password, sha256_text
 from .control_api import _json_error, _origin, _razorpay_config, _require_user, store
 from .control_store import ControlError, random_token
+from .mailer import MailError, send_mail
+from .security_store import SecurityStore
 
 router = APIRouter()
+security_store = SecurityStore(store)
 
 
 async def _fetch_razorpay_payment(
@@ -55,6 +59,62 @@ def _validate_payment_against_order(payment: dict[str, Any], order: dict[str, An
         raise HTTPException(status_code=409, detail="payment currency does not match the order")
 
 
+async def _send_payment_confirmation(payment: dict[str, Any]) -> None:
+    user = store.get_user(str(payment.get("user_id") or ""))
+    if not user:
+        return
+    order_id = str(payment.get("order_id") or "")
+    payment_id = str(payment.get("payment_id") or "")
+    dedupe = f"payment-confirmation:{payment_id or order_id}"
+    try:
+        event_id = security_store.claim_email_event(
+            user_id=user["id"],
+            email=user["email"],
+            event_type="payment_confirmation",
+            dedupe_key=dedupe,
+            metadata={"order_id": order_id, "payment_id": payment_id},
+        )
+    except Exception:  # noqa: BLE001
+        event_id = None
+    if event_id is None:
+        return
+    amount = int(payment.get("amount_paise") or 0) / 100
+    purpose = str(payment.get("purpose") or "purchase")
+    if purpose == "subscription":
+        item = f"Internet Hands {payment.get('plan_slug') or ''} plan"
+    else:
+        item = f"Internet Hands {payment.get('credit_pack_slug') or 'credit pack'}"
+    subject = "Internet Hands payment confirmed"
+    text = (
+        f"Payment confirmed for {item}. Amount: INR {amount:.2f}. "
+        f"Order: {order_id}. Payment: {payment_id}."
+    )
+    html_body = (
+        "<!doctype html><html><body style='font-family:Arial,sans-serif;background:#080b0f;color:#eef5f9;padding:28px'>"
+        "<div style='max-width:620px;margin:auto;background:#0d1218;border:1px solid #26343b;border-radius:18px;padding:28px'>"
+        "<div style='color:#73e5ef;font-weight:800;letter-spacing:.12em'>INTERNET HANDS</div>"
+        "<h2>Payment confirmed</h2>"
+        f"<p>Your purchase of <strong>{html.escape(item)}</strong> has been confirmed.</p>"
+        f"<p><strong>Amount:</strong> ₹{amount:.2f}<br><strong>Order:</strong> {html.escape(order_id)}<br>"
+        f"<strong>Payment:</strong> {html.escape(payment_id)}</p>"
+        "<p style='color:#8aa0aa'>Your credits or plan entitlement are already active in the dashboard.</p>"
+        "</div></body></html>"
+    )
+    try:
+        result = await send_mail(
+            to=user["email"], subject=subject, text=text, html=html_body
+        )
+    except MailError as exc:
+        security_store.finish_email_event(event_id, status="failed", error=str(exc))
+        return
+    security_store.finish_email_event(
+        event_id,
+        status="sent",
+        provider=result.provider,
+        message_id=result.message_id,
+    )
+
+
 @router.post("/api/billing/verify")
 async def billing_verify_captured_only(request: Request):
     user = _require_user(request)
@@ -89,6 +149,7 @@ async def billing_verify_captured_only(request: Request):
 
     _validate_payment_against_order(payment, order)
     result = store.finalize_payment(order_id=order_id, payment_id=payment_id, status="captured")
+    await _send_payment_confirmation(result)
     return {
         "ok": True,
         "payment": result,
@@ -154,35 +215,29 @@ async def razorpay_webhook_captured_only(request: Request):
         return {"ok": True, "fulfilled": False, "reason": "no captured payment found"}
 
     _validate_payment_against_order(payment, order)
-    store.finalize_payment(
+    result = store.finalize_payment(
         order_id=order_id,
         payment_id=str(payment["id"]),
         status="captured",
     )
+    await _send_payment_confirmation(result)
     return {"ok": True, "fulfilled": True}
 
 
 async def _send_reset_email(*, email: str, reset_url: str) -> None:
-    api_key = os.getenv("RESEND_API_KEY")
-    from_email = os.getenv("INTERNET_HANDS_FROM_EMAIL") or os.getenv("RESEND_FROM_EMAIL")
-    if not api_key or not from_email:
-        return
-    payload = {
-        "from": from_email,
-        "to": [email],
-        "subject": "Reset your Internet Hands password",
-        "html": (
-            "<p>You requested a password reset for Internet Hands.</p>"
-            f"<p><a href=\"{reset_url}\">Reset password</a></p>"
-            "<p>This link expires in 30 minutes. If you did not request it, ignore this email.</p>"
-        ),
-    }
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        await client.post(
-            "https://api.resend.com/emails",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json=payload,
+    try:
+        await send_mail(
+            to=email,
+            subject="Reset your Internet Hands password",
+            text=f"Reset your Internet Hands password: {reset_url}\nThis link expires in 30 minutes.",
+            html=(
+                "<p>You requested a password reset for Internet Hands.</p>"
+                f"<p><a href=\"{html.escape(reset_url, quote=True)}\">Reset password</a></p>"
+                "<p>This link expires in 30 minutes. If you did not request it, ignore this email.</p>"
+            ),
         )
+    except MailError:
+        return
 
 
 @router.post("/api/auth/password-reset/request")
