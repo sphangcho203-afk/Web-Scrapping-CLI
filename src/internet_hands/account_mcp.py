@@ -6,7 +6,6 @@ from .auth import current_auth
 from .control_store import ControlError, ControlStore
 from .mcp_server import sandbox_mcp
 
-
 store = ControlStore()
 
 
