@@ -11,6 +11,7 @@ from .control_hardening import router as hardening_router
 from .fleet_api import app as fleet_app
 from .mcp_customer import customer_streamable_http_app
 from .mcp_server import sandbox_mcp
+from .oauth_compat import router as oauth_compat_router
 from .site import router as site_router
 
 
@@ -32,7 +33,8 @@ app = FastAPI(
     redoc_url=None,
 )
 
-# Hardened overrides are registered first so they take precedence over the initial control routes.
+# Hardened/compatibility overrides are registered first so they take precedence.
+app.include_router(oauth_compat_router)
 app.include_router(hardening_router)
 app.include_router(control_router)
 app.include_router(site_router)
