@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 import uuid
@@ -10,6 +11,8 @@ from starlette.responses import JSONResponse
 
 from .auth import authenticate_secret, current_auth
 from .control_store import AuthIdentity, ControlError, ControlStore
+
+logger = logging.getLogger(__name__)
 
 
 class MCPGatewayASGI:
@@ -43,7 +46,11 @@ class MCPGatewayASGI:
         headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
         host = headers.get("host", "")
         scheme = headers.get("x-forwarded-proto") or scope.get("scheme", "https")
-        metadata_url = f"{scheme}://{host}/.well-known/oauth-protected-resource" if host else "/.well-known/oauth-protected-resource"
+        metadata_url = (
+            f"{scheme}://{host}/.well-known/oauth-protected-resource"
+            if host
+            else "/.well-known/oauth-protected-resource"
+        )
 
         supplied = headers.get("x-api-key")
         authorization = headers.get("authorization", "")
@@ -80,7 +87,9 @@ class MCPGatewayASGI:
             if scope.get("method", "GET").upper() in {"POST", "PUT", "PATCH"}:
                 body = await self._read_body(receive)
         except ControlError as exc:
-            response = JSONResponse({"error": exc.code, "detail": exc.detail}, status_code=exc.status_code)
+            response = JSONResponse(
+                {"error": exc.code, "detail": exc.detail}, status_code=exc.status_code
+            )
             await response(scope, receive, send)
             return
 
@@ -156,9 +165,13 @@ class MCPGatewayASGI:
                         latency_ms=elapsed,
                         output_bytes=output_bytes,
                     )
-                except Exception:
-                    # Metering must never corrupt the MCP protocol response.
-                    pass
+                except Exception as exc:  # noqa: BLE001
+                    # Metering must never corrupt the already-produced MCP protocol response.
+                    logger.warning(
+                        "usage metering finalization failed for request %s: %s",
+                        request_id,
+                        exc,
+                    )
             if token is not None:
                 current_auth.reset(token)
 
