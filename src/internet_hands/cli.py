@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import date
 from pathlib import Path
 from typing import Annotated
 
@@ -11,6 +12,7 @@ from rich.table import Table
 
 from .browser import render_page
 from .crawler import crawl as crawl_site
+from .endpoints import Capability, endpoint_catalog
 from .fetcher import (
     extract_links,
     fetch_url,
@@ -19,17 +21,37 @@ from .fetcher import (
     inspect_download,
     save_capture,
 )
+from .intel import (
+    bluesky_feed,
+    bluesky_profile,
+    github_repositories,
+    github_user,
+    hackernews_item,
+    mastodon_profile,
+    public_username_scan,
+    tiktok_authorized_profile,
+    twitch_user,
+    youtube_channel,
+    youtube_owner_analytics,
+    youtube_revenue_scenario,
+    youtube_video,
+)
 from .monitor import monitor_once
 from .pipeline import index_crawl, index_url, run_due_watches
 from .storage import DEFAULT_DB, Store
 
-app = typer.Typer(no_args_is_help=True, help="Internet Hands — raw internet intelligence.")
+app = typer.Typer(no_args_is_help=True, help="Internet Hands — public internet intelligence.")
 watch_app = typer.Typer(no_args_is_help=True, help="Persistent web monitoring jobs.")
+intel_app = typer.Typer(no_args_is_help=True, help="Provider-backed public intelligence.")
 app.add_typer(watch_app, name="watch")
+app.add_typer(intel_app, name="intel")
 console = Console()
 DEFAULT_STATE = Path(".internet-hands/state.json")
 DbPath = Annotated[Path, typer.Option("--db")]
 StatePath = Annotated[Path, typer.Option("--state")]
+CapabilityOption = Annotated[Capability | None, typer.Option("--capability")]
+StartDateOption = Annotated[date, typer.Option("--start")]
+EndDateOption = Annotated[date, typer.Option("--end")]
 
 
 def _dump(value) -> None:
@@ -195,6 +217,147 @@ def watch_run(
 def download_info(url: str):
     """Inspect a public download target without downloading the full file."""
     _dump(asyncio.run(inspect_download(url)))
+
+
+@app.command("endpoints")
+def endpoints_command(
+    provider: str | None = typer.Option(None, "--provider"),
+    capability: CapabilityOption = None,
+    ready_only: bool = typer.Option(False, "--ready-only"),
+):
+    """List the built-in official/public endpoint capability catalog."""
+    items = endpoint_catalog(
+        provider=provider,
+        capability=capability,
+        ready_only=ready_only,
+    )
+    _dump(
+        [
+            {
+                "provider": item.provider,
+                "name": item.name,
+                "capability": item.capability.value,
+                "method": item.method,
+                "url": item.url,
+                "auth": item.auth.value,
+                "env": list(item.env),
+                "ready": item.ready,
+                "public_data": item.public_data,
+                "notes": item.notes,
+            }
+            for item in items
+        ]
+    )
+
+
+@intel_app.command("youtube-video")
+def intel_youtube_video(target: str):
+    """Collect a YouTube video's public metadata, statistics, and derived engagement."""
+    _dump(asyncio.run(youtube_video(target)))
+
+
+@intel_app.command("youtube-channel")
+def intel_youtube_channel(target: str):
+    """Collect a YouTube channel by channel ID or @handle."""
+    _dump(asyncio.run(youtube_channel(target)))
+
+
+@intel_app.command("youtube-owner-analytics")
+def intel_youtube_owner_analytics(
+    start: StartDateOption,
+    end: EndDateOption,
+    video: str | None = typer.Option(None, "--video"),
+    currency: str = typer.Option("USD", "--currency"),
+):
+    """Read owner-authorized YouTube Analytics, including revenue metrics."""
+    _dump(
+        asyncio.run(
+            youtube_owner_analytics(
+                start,
+                end,
+                video_id=video,
+                currency=currency,
+            )
+        )
+    )
+
+
+@intel_app.command("youtube-revenue-scenario")
+def intel_youtube_revenue_scenario(
+    views: int = typer.Argument(..., min=0),
+    rpm_low: float = typer.Option(..., "--rpm-low", min=0),
+    rpm_high: float = typer.Option(..., "--rpm-high", min=0),
+    currency: str = typer.Option("USD", "--currency"),
+):
+    """Estimate a range from caller-supplied RPM assumptions."""
+    _dump(
+        youtube_revenue_scenario(
+            views,
+            rpm_low=rpm_low,
+            rpm_high=rpm_high,
+            currency=currency,
+        )
+    )
+
+
+@intel_app.command("github-user")
+def intel_github_user(username: str):
+    """Collect a public GitHub profile."""
+    _dump(asyncio.run(github_user(username)))
+
+
+@intel_app.command("github-repos")
+def intel_github_repositories(
+    username: str,
+    limit: int = typer.Option(100, min=1, max=100),
+):
+    """Collect a user's public GitHub repositories."""
+    _dump(asyncio.run(github_repositories(username, limit=limit)))
+
+
+@intel_app.command("bluesky-profile")
+def intel_bluesky_profile(actor: str):
+    """Collect a public Bluesky profile."""
+    _dump(asyncio.run(bluesky_profile(actor)))
+
+
+@intel_app.command("bluesky-feed")
+def intel_bluesky_feed(
+    actor: str,
+    limit: int = typer.Option(50, min=1, max=100),
+):
+    """Collect a public Bluesky author feed."""
+    _dump(asyncio.run(bluesky_feed(actor, limit=limit)))
+
+
+@intel_app.command("hn-item")
+def intel_hackernews_item(item_id: int):
+    """Collect one public Hacker News item."""
+    _dump(asyncio.run(hackernews_item(item_id)))
+
+
+@intel_app.command("mastodon-profile")
+def intel_mastodon_profile(instance: str, account: str):
+    """Collect a public Mastodon profile from an explicit instance."""
+    _dump(asyncio.run(mastodon_profile(instance, account)))
+
+
+@intel_app.command("twitch-user")
+def intel_twitch_user(login: str):
+    """Collect Twitch user metadata using configured app credentials."""
+    _dump(asyncio.run(twitch_user(login)))
+
+
+@intel_app.command("tiktok-me")
+def intel_tiktok_me():
+    """Collect the profile of the TikTok user who explicitly authorized the token."""
+    _dump(asyncio.run(tiktok_authorized_profile()))
+
+
+@intel_app.command("username")
+def intel_username(username: str):
+    """Check an exact public handle across selected public providers."""
+    _dump(asyncio.run(public_username_scan(username)))
 
 
 @app.command()

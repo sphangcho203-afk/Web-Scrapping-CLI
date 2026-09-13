@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import re
 from html.parser import HTMLParser
+from typing import Any
 from urllib.parse import urljoin, urlsplit
 
 from .models import ExtractedDocument, FetchResult
@@ -96,18 +98,49 @@ def extract_document(result: FetchResult) -> ExtractedDocument:
 
     parser = _DocumentParser(result.final_url)
     parser.feed(body)
-    title = _clean(" ".join(parser.title_parts)) or None
-    text = _clean(" ".join(parser.text_parts))
+    native_title = _clean(" ".join(parser.title_parts)) or None
+    native_text = _clean(" ".join(parser.text_parts))
+    enhanced = _trafilatura_extract(body)
+    title = native_title
+    description = parser.description
+    text = native_text
+    if enhanced:
+        title = _clean(str(enhanced.get("title") or "")) or native_title
+        description = _clean(str(enhanced.get("description") or "")) or parser.description
+        text = _clean(str(enhanced.get("text") or "")) or native_text
+
     return ExtractedDocument(
         url=result.final_url,
         title=title,
-        description=parser.description,
+        description=description,
         text=text,
         headings=parser.headings,
         links=sorted(parser.links),
         captured_at=result.captured_at,
         sha256=result.sha256,
     )
+
+
+def _load_trafilatura():
+    try:
+        return __import__("trafilatura")
+    except ImportError:
+        return None
+
+
+def _trafilatura_extract(html: str) -> dict[str, Any] | None:
+    """Use Trafilatura 2.x when installed; extraction failure never breaks collection."""
+    module = _load_trafilatura()
+    if module is None:
+        return None
+    try:
+        raw = module.extract(html, output_format="json", with_metadata=True)
+        if not raw:
+            return None
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else None
+    except (AttributeError, TypeError, ValueError):
+        return None
 
 
 def _clean(value: str) -> str:

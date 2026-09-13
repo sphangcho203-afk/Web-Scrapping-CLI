@@ -1,0 +1,110 @@
+name: internet-hands-fleet
+
+x-worker-env: &worker-env
+  INTERNET_HANDS_POSTGRES_DSN: postgresql://internet_hands:${IH_POSTGRES_PASSWORD:-internet_hands}@postgres:5432/internet_hands
+  INTERNET_HANDS_CONTENT_POSTGRES_DSN: postgresql://internet_hands:${IH_POSTGRES_PASSWORD:-internet_hands}@postgres:5432/internet_hands
+  INTERNET_HANDS_TELEMETRY_POSTGRES_DSN: postgresql://internet_hands:${IH_POSTGRES_PASSWORD:-internet_hands}@postgres:5432/internet_hands
+  INTERNET_HANDS_S3_BUCKET: internet-hands
+  INTERNET_HANDS_S3_PREFIX: internet-hands/objects
+  INTERNET_HANDS_S3_ENDPOINT_URL: http://minio:9000
+  AWS_ACCESS_KEY_ID: internet-hands
+  AWS_SECRET_ACCESS_KEY: ${IH_MINIO_SECRET:-change-this-minio-secret}
+  AWS_REGION: us-east-1
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: internet_hands
+      POSTGRES_PASSWORD: ${IH_POSTGRES_PASSWORD:-internet_hands}
+      POSTGRES_DB: internet_hands
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U internet_hands -d internet_hands"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: internet-hands
+      MINIO_ROOT_PASSWORD: ${IH_MINIO_SECRET:-change-this-minio-secret}
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9001:9001"
+    restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    environment:
+      IH_MINIO_SECRET: ${IH_MINIO_SECRET:-change-this-minio-secret}
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        until mc alias set local http://minio:9000 internet-hands "$IH_MINIO_SECRET"; do
+          sleep 2
+        done
+        mc mb --ignore-existing local/internet-hands
+        mc anonymous set none local/internet-hands
+    restart: "no"
+
+  fleet-api:
+    build:
+      context: ..
+      dockerfile: Dockerfile.fleet
+    environment:
+      <<: *worker-env
+      INTERNET_HANDS_API_KEY: ${INTERNET_HANDS_API_KEY:-change-this-api-key}
+      INTERNET_HANDS_FLEET_API_HOST: 0.0.0.0
+      INTERNET_HANDS_FLEET_API_PORT: "8788"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    command: ["ih-fleet-api"]
+    ports:
+      - "8788:8788"
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ..
+      dockerfile: Dockerfile.fleet
+    environment:
+      <<: *worker-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    command: ["ih-worker", "--batch-size", "16", "--idle-seconds", "5"]
+    restart: unless-stopped
+
+  tools:
+    build:
+      context: ..
+      dockerfile: Dockerfile.fleet
+    environment:
+      <<: *worker-env
+      INTERNET_HANDS_API_KEY: ${INTERNET_HANDS_API_KEY:-change-this-api-key}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    entrypoint: ["/bin/sh", "-lc"]
+    command: ["sleep infinity"]
+    profiles: ["tools"]
+
+volumes:
+  postgres-data:
+  minio-data:
