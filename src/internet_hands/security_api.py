@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import base64
 import hmac
 import html
 import os
 import secrets
 from datetime import UTC, datetime
+from io import BytesIO
 from typing import Any
 from urllib.parse import urlencode
 
 import httpx
+import qrcode
+import qrcode.image.svg
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
@@ -26,6 +30,7 @@ from .control_api import (
     _json_error,
     _origin,
     _require_user,
+    _require_verified,
     store,
 )
 from .control_store import ControlError, random_token
@@ -49,6 +54,15 @@ TWO_FACTOR_COOKIE = "ih_2fa_challenge"
 
 def _verification_code() -> str:
     return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def _qr_data_uri(value: str) -> str:
+    """Return an offline-scannable SVG QR without sending the TOTP secret elsewhere."""
+    image = qrcode.make(value, image_factory=qrcode.image.svg.SvgPathImage)
+    output = BytesIO()
+    image.save(output)
+    encoded = base64.b64encode(output.getvalue()).decode("ascii")
+    return f"data:image/svg+xml;base64,{encoded}"
 
 
 def _mail_shell(title: str, body: str) -> str:
@@ -253,7 +267,15 @@ async def signup_secure(request: Request):
             raise _json_error(exc) from exc
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     sent = await _send_verification(request, user)
-    response = JSONResponse({"user": user, "verification_sent": sent})
+    response = JSONResponse(
+        {
+            "user": user,
+            "verification_required": True,
+            "verification_sent": sent,
+            "next": "/verify-email",
+        },
+        status_code=202,
+    )
     response.set_cookie(
         SESSION_COOKIE,
         raw,
@@ -283,7 +305,15 @@ async def login_secure(request: Request):
     current = store.get_user(user["id"])
     if not current:
         raise HTTPException(status_code=404, detail="account not found")
-    response = _session_response(request, user["id"], {"user": current})
+    payload: dict[str, Any] = {"user": current, "next": "/dashboard"}
+    if not current["email_verified"]:
+        payload.update(
+            {
+                "verification_required": True,
+                "next": "/verify-email",
+            }
+        )
+    response = _session_response(request, user["id"], payload)
     await _send_login_notice(request, current, "password")
     return response
 
@@ -303,7 +333,17 @@ async def complete_2fa_login(request: Request):
     user = store.get_user(challenge["user_id"])
     if not user:
         raise HTTPException(status_code=404, detail="account not found")
-    response = _session_response(request, user["id"], {"user": user, "two_factor": True})
+    next_path = "/dashboard" if user["email_verified"] else "/verify-email"
+    response = _session_response(
+        request,
+        user["id"],
+        {
+            "user": user,
+            "two_factor": True,
+            "verification_required": not bool(user["email_verified"]),
+            "next": next_path,
+        },
+    )
     response.delete_cookie(TWO_FACTOR_COOKIE, path="/")
     await _send_login_notice(request, user, "password + TOTP")
     return response
@@ -353,7 +393,7 @@ async def verify_email_link(token: str = ""):
     current = store.get_user(row["user_id"])
     if current:
         await _send_verified(current)
-    return RedirectResponse("/dashboard/settings?verified=1", status_code=302)
+    return RedirectResponse("/verify-email?verified=1", status_code=302)
 
 
 @router.get("/api/auth/2fa/status")
@@ -370,7 +410,7 @@ def two_factor_status(request: Request):
 
 @router.post("/api/auth/2fa/setup")
 def two_factor_setup(request: Request):
-    user = _require_user(request)
+    user = _require_verified(_require_user(request))
     status = security.account_security(user["id"])
     if not status["email_verified"]:
         raise HTTPException(status_code=403, detail="verify your email before enabling 2FA")
@@ -378,9 +418,11 @@ def two_factor_setup(request: Request):
         raise HTTPException(status_code=503, detail="2FA encryption key is not configured")
     secret = generate_totp_secret()
     security.put_pending_totp(user["id"], encrypt_secret(secret))
+    uri = provisioning_uri(secret, user["email"])
     return {
         "secret": secret,
-        "otpauth_uri": provisioning_uri(secret, user["email"]),
+        "otpauth_uri": uri,
+        "qr_data_uri": _qr_data_uri(uri),
         "issuer": "Internet Hands",
         "account": user["email"],
         "message": "Add this account to your authenticator, then confirm with a 6-digit code.",
@@ -389,7 +431,7 @@ def two_factor_setup(request: Request):
 
 @router.post("/api/auth/2fa/confirm")
 async def two_factor_confirm(request: Request):
-    user = _require_user(request)
+    user = _require_verified(_require_user(request))
     body = await request.json()
     code = str(body.get("code") or "")
     record = security.totp_record(user["id"])
@@ -420,7 +462,7 @@ async def two_factor_confirm(request: Request):
 
 @router.post("/api/auth/2fa/disable")
 async def two_factor_disable(request: Request):
-    user = _require_user(request)
+    user = _require_verified(_require_user(request))
     body = await request.json()
     value = str(body.get("code") or body.get("recovery_code") or "").strip()
     if not value or not _verify_second_factor(user["id"], value):
@@ -438,8 +480,8 @@ async def two_factor_disable(request: Request):
 
 
 @router.post("/api/auth/2fa/recovery/regenerate")
-def regenerate_recovery_codes(request: Request, body: dict[str, Any]):
-    user = _require_user(request)
+async def regenerate_recovery_codes(request: Request, body: dict[str, Any]):
+    user = _require_verified(_require_user(request))
     code = str(body.get("code") or "").strip()
     if not code or not _verify_second_factor(user["id"], code):
         raise HTTPException(status_code=401, detail="valid authenticator code required")
@@ -448,7 +490,88 @@ def regenerate_recovery_codes(request: Request, body: dict[str, Any]):
         user["id"],
         [sha256_text(normalize_recovery_code(value)) for value in recovery_codes],
     )
+    current = store.get_user(user["id"])
+    if current:
+        await _send_security_notice(
+            current,
+            "Recovery codes regenerated",
+            "Your two-factor recovery codes were regenerated. All previous recovery codes are now invalid.",
+            "two_factor_recovery_regenerated",
+        )
     return {"ok": True, "recovery_codes": recovery_codes}
+
+
+@router.patch("/api/account/profile")
+async def update_profile(request: Request):
+    user = _require_verified(_require_user(request))
+    body = await request.json()
+    display_name = " ".join(str(body.get("display_name") or "").split())
+    if not display_name or len(display_name) > 80:
+        raise HTTPException(status_code=400, detail="display name must be 1 to 80 characters")
+    try:
+        return {"ok": True, "user": store.update_display_name(user["id"], display_name)}
+    except ControlError as exc:
+        raise _json_error(exc) from exc
+
+
+@router.get("/api/account/sessions")
+def account_sessions(request: Request):
+    user = _require_verified(_require_user(request))
+    raw = request.cookies.get(SESSION_COOKIE, "")
+    return {
+        "sessions": store.list_sessions(user["id"], sha256_text(raw)),
+    }
+
+
+@router.post("/api/account/sessions/{session_id}/revoke")
+def revoke_account_session(session_id: str, request: Request):
+    user = _require_verified(_require_user(request))
+    sessions = store.list_sessions(
+        user["id"], sha256_text(request.cookies.get(SESSION_COOKIE, ""))
+    )
+    selected = next((item for item in sessions if item["id"] == session_id), None)
+    if not selected or not store.revoke_session(user["id"], session_id):
+        raise HTTPException(status_code=404, detail="session not found")
+    response = JSONResponse({"ok": True, "signed_out": bool(selected.get("current"))})
+    if selected.get("current"):
+        response.delete_cookie(SESSION_COOKIE, path="/")
+    return response
+
+
+@router.post("/api/account/sessions/revoke-all")
+def revoke_all_account_sessions(request: Request):
+    user = _require_verified(_require_user(request))
+    store.revoke_all_sessions(user["id"])
+    response = JSONResponse({"ok": True, "signed_out": True})
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return response
+
+
+@router.post("/api/account/password")
+async def change_account_password(request: Request):
+    user = _require_verified(_require_user(request))
+    body = await request.json()
+    current_password = str(body.get("current_password") or "")
+    new_password = str(body.get("new_password") or "")
+    private = store.get_user_by_email(user["email"])
+    if not private or not verify_password(current_password, private.get("password_hash")):
+        raise HTTPException(status_code=401, detail="current password is incorrect")
+    try:
+        encoded = hash_password(new_password)
+        store.update_password_and_revoke_sessions(user["id"], encoded)
+    except (ValueError, ControlError) as exc:
+        if isinstance(exc, ControlError):
+            raise _json_error(exc) from exc
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await _send_security_notice(
+        user,
+        "Your Internet Hands password changed",
+        "Your password was changed and all web sessions were signed out. If this was not you, reset your password immediately.",
+        "password_changed",
+    )
+    response = JSONResponse({"ok": True, "signed_out": True})
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return response
 
 
 @router.get("/api/auth/github/start")
@@ -551,7 +674,7 @@ async def github_callback_secure(request: Request, code: str = "", state: str = 
 
     raw = random_token("ih_sess_")
     store.create_session(user_id=user["id"], token_hash=sha256_text(raw))
-    destination = "/dashboard/settings" if not current["email_verified"] else "/dashboard"
+    destination = "/verify-email" if not current["email_verified"] else "/dashboard"
     response = RedirectResponse(destination, status_code=302)
     response.set_cookie(
         SESSION_COOKIE,
@@ -655,6 +778,5 @@ def security_status(request: Request):
         "email_verified": bool(status["email_verified"]),
         "two_factor_enabled": bool(status["totp_enabled"]),
         "two_factor_available": encryption_configured(),
-        "mail_provider": mail_provider(),
         "transactional_mail_configured": bool(mail_provider()),
     }

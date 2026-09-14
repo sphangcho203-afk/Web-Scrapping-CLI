@@ -62,7 +62,11 @@ def test_two_factor_and_verification_routes_exist() -> None:
 
 
 def test_enabled_two_factor_cannot_be_replaced_by_setup(monkeypatch) -> None:
-    monkeypatch.setattr(security_hardening, "_require_user", lambda _request: {"id": "usr_test"})
+    monkeypatch.setattr(
+        security_hardening,
+        "_require_user",
+        lambda _request: {"id": "usr_test", "email_verified": True},
+    )
     monkeypatch.setattr(
         security_hardening.security,
         "account_security",

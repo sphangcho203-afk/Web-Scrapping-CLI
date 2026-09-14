@@ -422,7 +422,11 @@ class ControlStore:
         self.ensure_schema()
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
-                "SELECT id,email,display_name,avatar_url,email_verified,created_at FROM ih_users WHERE id=%s",
+                """
+                SELECT id,email,display_name,avatar_url,email_verified,created_at,
+                       (github_id IS NOT NULL) AS github_connected
+                FROM ih_users WHERE id=%s
+                """,
                 (user_id,),
             )
             row = cur.fetchone()
@@ -501,7 +505,8 @@ class ControlStore:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT u.id,u.email,u.display_name,u.avatar_url,u.email_verified,u.created_at
+                SELECT u.id,u.email,u.display_name,u.avatar_url,u.email_verified,u.created_at,
+                       (u.github_id IS NOT NULL) AS github_connected
                 FROM ih_sessions s JOIN ih_users u ON u.id=s.user_id
                 WHERE s.token_hash=%s AND s.expires_at>now()
                 """,
@@ -514,6 +519,65 @@ class ControlStore:
         self.ensure_schema()
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute("DELETE FROM ih_sessions WHERE token_hash=%s", (token_hash,))
+            conn.commit()
+
+    def list_sessions(self, user_id: str, current_token_hash: str) -> list[dict[str, Any]]:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id,created_at,expires_at,(token_hash=%s) AS current
+                FROM ih_sessions
+                WHERE user_id=%s AND expires_at>now()
+                ORDER BY created_at DESC
+                """,
+                (current_token_hash, user_id),
+            )
+            return [dict(row) for row in cur.fetchall()]
+
+    def revoke_session(self, user_id: str, session_id: str) -> bool:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM ih_sessions WHERE id=%s AND user_id=%s", (session_id, user_id))
+            changed = cur.rowcount == 1
+            conn.commit()
+            return changed
+
+    def revoke_all_sessions(self, user_id: str) -> None:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM ih_sessions WHERE user_id=%s", (user_id,))
+            conn.commit()
+
+    def update_display_name(self, user_id: str, display_name: str) -> dict[str, Any]:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE ih_users SET display_name=%s,updated_at=now()
+                WHERE id=%s
+                RETURNING id,email,display_name,avatar_url,email_verified,created_at,
+                          (github_id IS NOT NULL) AS github_connected
+                """,
+                (display_name, user_id),
+            )
+            row = cur.fetchone()
+            conn.commit()
+            if not row:
+                raise ControlError("account_not_found", "account not found", 404)
+            return dict(row)
+
+    def update_password_and_revoke_sessions(self, user_id: str, password_hash: str) -> None:
+        self.ensure_schema()
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE ih_users SET password_hash=%s,updated_at=now() WHERE id=%s",
+                    (password_hash, user_id),
+                )
+                if cur.rowcount != 1:
+                    raise ControlError("account_not_found", "account not found", 404)
+                cur.execute("DELETE FROM ih_sessions WHERE user_id=%s", (user_id,))
             conn.commit()
 
     def list_plans(self) -> list[dict[str, Any]]:
@@ -1179,6 +1243,7 @@ class ControlStore:
                     return False
                 cur.execute("UPDATE ih_users SET password_hash=%s,updated_at=now() WHERE id=%s", (password_hash, row["user_id"]))
                 cur.execute("UPDATE ih_password_resets SET used_at=now() WHERE id=%s", (row["id"],))
+                cur.execute("DELETE FROM ih_sessions WHERE user_id=%s", (row["user_id"],))
             conn.commit()
             return True
 

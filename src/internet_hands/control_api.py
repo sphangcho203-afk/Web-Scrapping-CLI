@@ -58,6 +58,19 @@ def _require_user(request: Request) -> dict[str, Any]:
     return user
 
 
+def _require_verified(user: dict[str, Any]) -> dict[str, Any]:
+    """Fail closed before an account can perform privileged control-plane actions."""
+    if not bool(user.get("email_verified")):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "email_verification_required",
+                "message": "verify your email to continue",
+            },
+        )
+    return user
+
+
 def _origin(request: Request) -> str:
     proto = request.headers.get("x-forwarded-proto") or request.url.scheme
     host = request.headers.get("host") or request.url.netloc
@@ -166,6 +179,10 @@ async def oauth_authorize_submit(request: Request):
         raise _json_error(exc) from exc
     if not identity or not identity.api_key_id:
         raise HTTPException(status_code=401, detail="invalid API key")
+    owner = store.get_user(identity.user_id)
+    if not owner:
+        raise HTTPException(status_code=401, detail="API key owner is unavailable")
+    _require_verified(owner)
     requested = _scope_list(form.get("scope"))
     granted = set(identity.scopes or ["*"])
     if "*" not in granted and not set(requested).issubset(granted):
@@ -451,7 +468,7 @@ def monitor(request: Request, monitor_id: str):
 
 @router.post("/api/monitors")
 async def create_monitor(request: Request):
-    user = _require_user(request)
+    user = _require_verified(_require_user(request))
     body = await request.json()
     monitor_type = str(body.get("type") or "web")
     if monitor_type not in {"web", "api", "mcp", "gaming"}:
@@ -472,7 +489,7 @@ async def create_monitor(request: Request):
 
 @router.post("/api/monitors/{monitor_id}/toggle")
 async def toggle_monitor(request: Request, monitor_id: str):
-    user = _require_user(request)
+    user = _require_verified(_require_user(request))
     body = await request.json()
     enabled = bool(body.get("enabled"))
     if not store.toggle_monitor(user["id"], monitor_id, enabled):
@@ -508,7 +525,7 @@ def billing_payments(request: Request):
 
 @router.post("/api/billing/create-order")
 async def billing_create_order(request: Request):
-    user = _require_user(request)
+    user = _require_verified(_require_user(request))
     body = await request.json()
     purpose = str(body.get("purpose") or "credits")
     slug = str(body.get("slug") or "")

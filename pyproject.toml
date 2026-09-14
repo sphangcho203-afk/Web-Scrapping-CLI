@@ -21,6 +21,7 @@ dependencies = [
   "psycopg[binary]>=3.2,<4",
   "mcp>=2.2,<3",
   "cryptography>=43,<47",
+  "qrcode>=8.2,<9",
 ]
 
 [project.optional-dependencies]
