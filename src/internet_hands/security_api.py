@@ -348,14 +348,18 @@ async def login_secure(request: Request):
         raise HTTPException(status_code=404, detail="account not found")
     payload: dict[str, Any] = {"user": current, "next": "/dashboard"}
     if not current["email_verified"]:
+        sent = await _send_verification(request, current)
         payload.update(
             {
                 "verification_required": True,
+                "verification_sent": sent,
+                "verification_context": "signin",
                 "next": "/verify-email",
             }
         )
     response = _session_response(request, user["id"], payload)
-    await _send_login_notice(request, current, "password")
+    if current["email_verified"]:
+        await _send_login_notice(request, current, "password")
     return response
 
 
@@ -374,19 +378,23 @@ async def complete_2fa_login(request: Request):
     user = store.get_user(challenge["user_id"])
     if not user:
         raise HTTPException(status_code=404, detail="account not found")
-    next_path = "/dashboard" if user["email_verified"] else "/verify-email"
+    pending_verification = not bool(user["email_verified"])
+    sent = await _send_verification(request, user) if pending_verification else None
     response = _session_response(
         request,
         user["id"],
         {
             "user": user,
             "two_factor": True,
-            "verification_required": not bool(user["email_verified"]),
-            "next": next_path,
+            "verification_required": pending_verification,
+            "verification_sent": sent,
+            "verification_context": "signin" if pending_verification else None,
+            "next": "/verify-email" if pending_verification else "/dashboard",
         },
     )
     response.delete_cookie(TWO_FACTOR_COOKIE, path="/")
-    await _send_login_notice(request, user, "password + TOTP")
+    if not pending_verification:
+        await _send_login_notice(request, user, "password + TOTP")
     return response
 
 
@@ -693,8 +701,9 @@ async def github_callback_secure(request: Request, code: str = "", state: str = 
     current = store.get_user(user["id"])
     if not current:
         return RedirectResponse("/login?github=account_failed", status_code=302)
+    verification_sent = None
     if not current["email_verified"]:
-        await _send_verification(request, current)
+        verification_sent = await _send_verification(request, current)
 
     sec = security.account_security(user["id"])
     if sec["totp_enabled"]:
@@ -715,7 +724,12 @@ async def github_callback_secure(request: Request, code: str = "", state: str = 
 
     raw = random_token("ih_sess_")
     store.create_session(user_id=user["id"], token_hash=sha256_text(raw))
-    destination = "/verify-email" if not current["email_verified"] else "/dashboard"
+    if current["email_verified"]:
+        destination = "/dashboard"
+    else:
+        destination = "/verify-email?context=signin"
+        if verification_sent is False:
+            destination += "&delivery=failed"
     response = RedirectResponse(destination, status_code=302)
     response.set_cookie(
         SESSION_COOKIE,
@@ -727,7 +741,8 @@ async def github_callback_secure(request: Request, code: str = "", state: str = 
         path="/",
     )
     response.delete_cookie(GITHUB_STATE_COOKIE)
-    await _send_login_notice(request, current, "GitHub")
+    if current["email_verified"]:
+        await _send_login_notice(request, current, "GitHub")
     return response
 
 

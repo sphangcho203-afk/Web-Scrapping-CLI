@@ -172,9 +172,13 @@ async def test_unverified_password_login_returns_verification_next_step(monkeypa
         lambda _user_id: {"totp_enabled": False, "email_verified": False},
     )
 
+    async def send_verification(_request, _user):
+        return True
+
     async def notice(*_args):
         return None
 
+    monkeypatch.setattr(security_api, "_send_verification", send_verification)
     monkeypatch.setattr(security_api, "_send_login_notice", notice)
     response = await security_api.login_secure(
         _Request({"email": private["email"], "password": "long-enough-password"})
@@ -182,7 +186,45 @@ async def test_unverified_password_login_returns_verification_next_step(monkeypa
     payload = json.loads(response.body)
 
     assert payload["verification_required"] is True
+    assert payload["verification_sent"] is True
+    assert payload["verification_context"] == "signin"
     assert payload["next"] == "/verify-email"
+
+
+@pytest.mark.asyncio
+async def test_unverified_password_login_reports_delivery_failure(monkeypatch) -> None:
+    password = "long-enough-password"
+    private = {
+        "id": "usr_pending",
+        "email": "pending@example.test",
+        "password_hash": security_api.hash_password(password),
+    }
+    public = {
+        "id": "usr_pending",
+        "email": "pending@example.test",
+        "email_verified": False,
+    }
+    monkeypatch.setattr(security_api.store, "get_user_by_email", lambda _email: private)
+    monkeypatch.setattr(security_api.store, "get_user", lambda _user_id: public)
+    monkeypatch.setattr(security_api.store, "create_session", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        security_api.security,
+        "account_security",
+        lambda _user_id: {"totp_enabled": False, "email_verified": False},
+    )
+
+    async def fail_delivery(_request, _user):
+        return False
+
+    monkeypatch.setattr(security_api, "_send_verification", fail_delivery)
+    response = await security_api.login_secure(
+        _Request({"email": private["email"], "password": password})
+    )
+    payload = json.loads(response.body)
+
+    assert payload["verification_required"] is True
+    assert payload["verification_sent"] is False
+    assert payload["verification_context"] == "signin"
 
 
 def test_unverified_accounts_fail_closed_at_privileged_guard() -> None:
