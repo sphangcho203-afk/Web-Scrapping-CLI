@@ -487,12 +487,11 @@ class ControlStore:
                 cur.execute(
                     """
                     INSERT INTO ih_users(id,email,github_id,display_name,avatar_url,email_verified)
-                    VALUES (%s,%s,%s,%s,%s,true) RETURNING *
+                    VALUES (%s,%s,%s,%s,%s,false) RETURNING *
                     """,
                     (user_id, email.lower(), github_id, display_name, avatar_url),
                 )
                 row = cur.fetchone()
-                self._activate_free_account(cur, user_id)
             conn.commit()
             assert row is not None
             return dict(row)

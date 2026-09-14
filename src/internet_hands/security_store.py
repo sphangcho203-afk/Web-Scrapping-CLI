@@ -143,6 +143,11 @@ class SecurityStore:
             )
             if verified and cur.rowcount == 1:
                 self.control._activate_free_account(cur, user_id)
+            elif not verified and cur.rowcount == 1:
+                cur.execute("DELETE FROM ih_api_keys WHERE user_id=%s", (user_id,))
+                cur.execute("DELETE FROM ih_subscriptions WHERE user_id=%s", (user_id,))
+                cur.execute("DELETE FROM ih_credit_ledger WHERE user_id=%s", (user_id,))
+                cur.execute("DELETE FROM ih_wallets WHERE user_id=%s", (user_id,))
             conn.commit()
 
     def create_email_verification(
