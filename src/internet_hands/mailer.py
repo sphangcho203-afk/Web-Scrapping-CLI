@@ -37,10 +37,17 @@ def resend_configured() -> bool:
 
 
 def mail_provider() -> str | None:
-    if smtp_configured():
+    preferred = (os.getenv("MAIL_PROVIDER") or "").strip().lower()
+    if preferred == "smtp" and smtp_configured():
         return "smtp"
+    if preferred == "resend" and resend_configured():
+        return "resend"
+    # Resend is the safer default: API acceptance is observable in its event
+    # dashboard, while an SMTP relay can accept a message and later drop it.
     if resend_configured():
         return "resend"
+    if smtp_configured():
+        return "smtp"
     return None
 
 
@@ -145,9 +152,21 @@ async def _send_resend(*, to: str, subject: str, text: str, html: str) -> MailRe
 
 
 async def send_mail(*, to: str, subject: str, text: str, html: str) -> MailResult:
-    """Send transactional mail. SMTP is preferred; Resend is the configured fallback."""
+    """Send transactional mail through the preferred provider with one fallback."""
+    preferred = mail_provider()
+    resend_error: MailError | None = None
     smtp_error: MailError | None = None
-    if smtp_configured():
+
+    if preferred == "resend":
+        try:
+            return await _send_resend(to=to, subject=subject, text=text, html=html)
+        except MailError as exc:
+            resend_error = exc
+
+    should_try_smtp = smtp_configured() and (
+        preferred != "resend" or resend_error is not None
+    )
+    if should_try_smtp:
         try:
             return await asyncio.to_thread(
                 _send_smtp_sync,
@@ -161,7 +180,7 @@ async def send_mail(*, to: str, subject: str, text: str, html: str) -> MailResul
             if not resend_configured():
                 raise
 
-    if resend_configured():
+    if preferred != "resend" and resend_configured():
         try:
             return await _send_resend(to=to, subject=subject, text=text, html=html)
         except MailError as exc:
@@ -169,6 +188,10 @@ async def send_mail(*, to: str, subject: str, text: str, html: str) -> MailResul
                 raise MailError("transactional email failed through SMTP and Resend fallback") from exc
             raise
 
+    if resend_error is not None and smtp_error is not None:
+        raise MailError("transactional email failed through Resend and SMTP fallback") from smtp_error
+    if resend_error is not None:
+        raise resend_error
     if smtp_error is not None:
         raise smtp_error
     raise MailError("transactional email is not configured")

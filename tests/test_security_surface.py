@@ -77,11 +77,20 @@ def test_enabled_two_factor_cannot_be_replaced_by_setup(monkeypatch) -> None:
     assert exc.value.status_code == 409
 
 
-def test_smtp_provider_is_preferred(monkeypatch) -> None:
+def test_resend_provider_is_preferred_by_default(monkeypatch) -> None:
     monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
     monkeypatch.setenv("SMTP_FROM_EMAIL", "noreply@example.com")
     monkeypatch.setenv("RESEND_API_KEY", "resend-test")
+    monkeypatch.delenv("MAIL_PROVIDER", raising=False)
     assert smtp_configured() is True
+    assert mail_provider() == "resend"
+
+
+def test_smtp_provider_can_be_selected_explicitly(monkeypatch) -> None:
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_FROM_EMAIL", "noreply@example.com")
+    monkeypatch.setenv("RESEND_API_KEY", "resend-test")
+    monkeypatch.setenv("MAIL_PROVIDER", "smtp")
     assert mail_provider() == "smtp"
 
 
@@ -90,6 +99,7 @@ async def test_smtp_failure_falls_back_to_resend(monkeypatch) -> None:
     monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
     monkeypatch.setenv("SMTP_FROM_EMAIL", "noreply@example.com")
     monkeypatch.setenv("RESEND_API_KEY", "resend-test")
+    monkeypatch.setenv("MAIL_PROVIDER", "smtp")
 
     def fail_smtp(**_kwargs):
         raise MailError("smtp unavailable")
@@ -117,6 +127,7 @@ def test_mail_provider_none_without_credentials(monkeypatch) -> None:
         "INTERNET_HANDS_FROM_EMAIL",
         "RESEND_FROM_EMAIL",
         "RESEND_API_KEY",
+        "MAIL_PROVIDER",
     ):
         monkeypatch.delenv(name, raising=False)
     assert mail_provider() is None

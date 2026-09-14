@@ -93,6 +93,25 @@ class SecurityStore:
             self.control.ensure_schema()
             with self.control._connect() as conn, conn.cursor() as cur:
                 cur.execute(SECURITY_SCHEMA_SQL)
+                # Repair legacy provisional identities that were incorrectly
+                # provisioned before email verification. The identity and its
+                # verification challenge remain; active resources do not.
+                cur.execute(
+                    "DELETE FROM ih_api_keys WHERE user_id IN "
+                    "(SELECT id FROM ih_users WHERE email_verified=false)"
+                )
+                cur.execute(
+                    "DELETE FROM ih_subscriptions WHERE user_id IN "
+                    "(SELECT id FROM ih_users WHERE email_verified=false)"
+                )
+                cur.execute(
+                    "DELETE FROM ih_credit_ledger WHERE user_id IN "
+                    "(SELECT id FROM ih_users WHERE email_verified=false)"
+                )
+                cur.execute(
+                    "DELETE FROM ih_wallets WHERE user_id IN "
+                    "(SELECT id FROM ih_users WHERE email_verified=false)"
+                )
                 conn.commit()
             self._schema_ready = True
 
@@ -122,6 +141,8 @@ class SecurityStore:
                 "UPDATE ih_users SET email_verified=%s,updated_at=now() WHERE id=%s",
                 (verified, user_id),
             )
+            if verified and cur.rowcount == 1:
+                self.control._activate_free_account(cur, user_id)
             conn.commit()
 
     def create_email_verification(
@@ -184,6 +205,7 @@ class SecurityStore:
                 if cur.rowcount != 1:
                     conn.rollback()
                     return None
+                self.control._activate_free_account(cur, row["user_id"])
                 cur.execute(
                     "UPDATE ih_email_verifications SET used_at=now() WHERE id=%s",
                     (row["id"],),
@@ -225,6 +247,7 @@ class SecurityStore:
                 if cur.rowcount != 1:
                     conn.rollback()
                     return None
+                self.control._activate_free_account(cur, row["user_id"])
                 cur.execute(
                     "UPDATE ih_email_verifications SET used_at=now() WHERE id=%s",
                     (row["id"],),

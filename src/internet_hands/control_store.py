@@ -372,8 +372,6 @@ class ControlStore:
     def create_user(self, *, email: str, password_hash: str, display_name: str | None) -> dict[str, Any]:
         self.ensure_schema()
         user_id = self._new_id("usr")
-        now = datetime.now(UTC)
-        period_end = now + timedelta(days=30)
         try:
             with self._connect() as conn:
                 with conn.cursor() as cur:
@@ -386,30 +384,55 @@ class ControlStore:
                         (user_id, email.strip().lower(), password_hash, display_name),
                     )
                     user = cur.fetchone()
-                    cur.execute(
-                        "INSERT INTO ih_wallets(user_id,monthly_credits) VALUES (%s,%s)",
-                        (user_id, 2500),
-                    )
-                    cur.execute(
-                        """
-                        INSERT INTO ih_credit_ledger(id,user_id,amount,bucket,kind,source,reference_id)
-                        VALUES (%s,%s,%s,'monthly','grant','signup','free')
-                        """,
-                        (self._new_id("led"), user_id, 2500),
-                    )
-                    cur.execute(
-                        """
-                        INSERT INTO ih_subscriptions(
-                            id,user_id,plan_slug,status,current_period_start,current_period_end,provider
-                        ) VALUES (%s,%s,'free','active',%s,%s,'internal')
-                        """,
-                        (self._new_id("sub"), user_id, now, period_end),
-                    )
                 conn.commit()
                 assert user is not None
                 return dict(user)
         except UniqueViolation as exc:
             raise ControlError("email_in_use", "an account with this email already exists", 409) from exc
+
+    def _activate_free_account(self, cur: Any, user_id: str) -> None:
+        """Provision account resources once, inside the caller's transaction."""
+        now = datetime.now(UTC)
+        cur.execute(
+            """
+            INSERT INTO ih_wallets(user_id,monthly_credits)
+            VALUES (%s,2500)
+            ON CONFLICT (user_id) DO NOTHING
+            """,
+            (user_id,),
+        )
+        cur.execute(
+            """
+            INSERT INTO ih_credit_ledger(
+                id,user_id,amount,bucket,kind,source,reference_id
+            )
+            SELECT %s,%s,2500,'monthly','grant','signup','free'
+            WHERE NOT EXISTS (
+                SELECT 1 FROM ih_credit_ledger
+                WHERE user_id=%s AND kind='grant' AND source='signup'
+            )
+            """,
+            (self._new_id("led"), user_id, user_id),
+        )
+        cur.execute(
+            """
+            INSERT INTO ih_subscriptions(
+                id,user_id,plan_slug,status,current_period_start,current_period_end,provider
+            )
+            SELECT %s,%s,'free','active',%s,%s,'internal'
+            WHERE NOT EXISTS (
+                SELECT 1 FROM ih_subscriptions
+                WHERE user_id=%s AND status='active'
+            )
+            """,
+            (self._new_id("sub"), user_id, now, now + timedelta(days=30), user_id),
+        )
+
+    def activate_free_account(self, user_id: str) -> None:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            self._activate_free_account(cur, user_id)
+            conn.commit()
 
     def get_user_by_email(self, email: str) -> dict[str, Any] | None:
         self.ensure_schema()
@@ -469,24 +492,7 @@ class ControlStore:
                     (user_id, email.lower(), github_id, display_name, avatar_url),
                 )
                 row = cur.fetchone()
-                cur.execute(
-                    "INSERT INTO ih_wallets(user_id,monthly_credits) VALUES (%s,2500)", (user_id,)
-                )
-                now = datetime.now(UTC)
-                cur.execute(
-                    """
-                    INSERT INTO ih_subscriptions(id,user_id,plan_slug,status,current_period_start,current_period_end,provider)
-                    VALUES (%s,%s,'free','active',%s,%s,'internal')
-                    """,
-                    (self._new_id("sub"), user_id, now, now + timedelta(days=30)),
-                )
-                cur.execute(
-                    """
-                    INSERT INTO ih_credit_ledger(id,user_id,amount,bucket,kind,source,reference_id)
-                    VALUES (%s,%s,2500,'monthly','grant','signup','free')
-                    """,
-                    (self._new_id("led"), user_id),
-                )
+                self._activate_free_account(cur, user_id)
             conn.commit()
             assert row is not None
             return dict(row)
