@@ -332,7 +332,12 @@ def logout(request: Request):
 @router.get("/api/auth/me")
 def auth_me(request: Request):
     user = _require_user(request)
-    return {"user": user, "account": store.account_snapshot(user["id"])}
+    verified = bool(user.get("email_verified"))
+    return {
+        "user": user,
+        "account": store.account_snapshot(user["id"]) if verified else None,
+        "verification_required": not verified,
+    }
 
 
 @router.get("/api/auth/github/start")

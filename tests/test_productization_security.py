@@ -227,6 +227,25 @@ async def test_unverified_password_login_reports_delivery_failure(monkeypatch) -
     assert payload["verification_context"] == "signin"
 
 
+def test_auth_me_returns_pending_identity_without_account_snapshot(monkeypatch) -> None:
+    pending = {
+        "id": "usr_pending",
+        "email": "pending@example.test",
+        "email_verified": False,
+    }
+    monkeypatch.setattr(control_api, "_require_user", lambda _request: pending)
+
+    def unexpected_snapshot(_user_id):
+        raise AssertionError("pending users must not require provisioned account resources")
+
+    monkeypatch.setattr(control_api.store, "account_snapshot", unexpected_snapshot)
+    payload = control_api.auth_me(object())
+
+    assert payload["user"] == pending
+    assert payload["account"] is None
+    assert payload["verification_required"] is True
+
+
 def test_unverified_accounts_fail_closed_at_privileged_guard() -> None:
     with pytest.raises(HTTPException) as exc:
         control_api._require_verified({"id": "usr_pending", "email_verified": False})
