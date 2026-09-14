@@ -1227,6 +1227,11 @@ class ControlStore:
         self.ensure_schema()
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
+                "UPDATE ih_password_resets SET used_at=now() "
+                "WHERE user_id=%s AND used_at IS NULL",
+                (user_id,),
+            )
+            cur.execute(
                 "INSERT INTO ih_password_resets(id,user_id,token_hash,expires_at) VALUES (%s,%s,%s,%s)",
                 (self._new_id("rst"), user_id, token_hash, datetime.now(UTC) + timedelta(minutes=30)),
             )
