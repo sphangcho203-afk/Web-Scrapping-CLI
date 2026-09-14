@@ -116,6 +116,41 @@ async def test_verification_setup_failure_does_not_strand_signup_response(monkey
 
 
 @pytest.mark.asyncio
+async def test_mail_configuration_failure_is_logged_without_recipient(monkeypatch, caplog) -> None:
+    monkeypatch.setattr(
+        security_api.security,
+        "claim_email_event",
+        lambda **_kwargs: "evt_1",
+    )
+    monkeypatch.setattr(
+        security_api.security,
+        "finish_email_event",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(security_api, "mail_provider", lambda: None)
+
+    async def fail_mail(**_kwargs):
+        raise security_api.MailError("transactional email is not configured")
+
+    monkeypatch.setattr(security_api, "send_mail", fail_mail)
+
+    with caplog.at_level("WARNING"):
+        sent = await security_api._deliver(
+            user_id="usr_pending",
+            email="private@example.test",
+            event_type="email_verification",
+            subject="Verify",
+            text="Verify",
+            body_html="<p>Verify</p>",
+        )
+
+    assert sent is False
+    assert caplog.records[-1].failure_reason == "not_configured"
+    assert caplog.records[-1].mail_provider == "none"
+    assert "private@example.test" not in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_unverified_password_login_returns_verification_next_step(monkeypatch) -> None:
     private = {
         "id": "usr_pending",

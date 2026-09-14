@@ -109,6 +109,24 @@ async def _deliver(
     except MailError as exc:
         if event_id:
             security.finish_email_event(event_id, status="failed", error=str(exc))
+        message = str(exc).lower()
+        reason = (
+            "not_configured"
+            if "not configured" in message
+            else "provider_auth"
+            if "http 401" in message or "http 403" in message
+            else "provider_rejected"
+            if "http 4" in message or "refused" in message
+            else "transport_failed"
+        )
+        logger.warning(
+            "transactional email failed",
+            extra={
+                "event_type": event_type,
+                "mail_provider": mail_provider() or "none",
+                "failure_reason": reason,
+            },
+        )
         return False
     if event_id:
         security.finish_email_event(
