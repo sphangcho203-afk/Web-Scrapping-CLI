@@ -46,7 +46,10 @@ POST /api/auth/email-verification/confirm
 GET  /api/auth/verify-email?token=...
 ```
 
-Creating new API keys is blocked until the Internet Hands email is verified.
+Signup returns a provisional web session and sends the user to `/verify-email`.
+Password and GitHub login do the same for any account that is still pending.
+Creating API keys, monitors, billing orders, and OAuth grants is blocked until
+the Internet Hands email is verified.
 
 ## Transactional messages
 
@@ -91,3 +94,22 @@ GET  /api/security/status
 When 2FA is enabled, password and GitHub sign-in stop before session creation and require a TOTP or one-time recovery code. TOTP counters are recorded to reject replay of an already-used time step.
 
 Recovery codes are shown only when generated or regenerated. Users should store them outside the Internet Hands account.
+
+## Account and session management
+
+The web console uses these authenticated endpoints for account security:
+
+```text
+PATCH /api/account/profile
+GET   /api/account/sessions
+POST  /api/account/sessions/{session_id}/revoke
+POST  /api/account/sessions/revoke-all
+POST  /api/account/password
+```
+
+Changing a password or completing a password reset revokes every existing web
+session. A successful password change also sends a security notification.
+
+`GET /api/security/status` reports only user-facing capability state. It does
+not expose the configured mail provider, encryption secrets, or infrastructure
+details.

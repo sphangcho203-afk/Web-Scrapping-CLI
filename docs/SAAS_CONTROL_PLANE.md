@@ -14,6 +14,7 @@ All routes live on the same origin.
 | Status | `/status` |
 | Login | `/login` |
 | Signup | `/signup` |
+| Email verification | `/verify-email` |
 | Dashboard | `/dashboard` |
 | Permanent MCP | `/mcp` |
 | OAuth protected-resource metadata | `/.well-known/oauth-protected-resource` |
@@ -108,6 +109,11 @@ X-API-Key: ih_live_...
 
 Customer API keys are shown once; only SHA-256 hashes are persisted.
 
+Email/password signup creates a provisional web session so the verification
+screen can resend or confirm a code. Unverified accounts cannot create API
+keys, monitors, billing orders, or OAuth grants. Password changes and password
+resets revoke all existing web sessions.
+
 ### MCP OAuth
 
 Unauthenticated MCP requests receive a `401` with a `WWW-Authenticate` challenge pointing at the protected-resource metadata document. OAuth-capable clients then use authorization-code + PKCE S256.
@@ -146,10 +152,11 @@ Do not switch the Vercel production branch to v0.6 until:
 
 - Ruff passes;
 - pytest passes on Python 3.11, 3.12, and 3.13;
-- the preview landing page loads;
+- the preview landing page and responsive console routes load;
 - OAuth discovery documents load;
 - unauthenticated `/mcp` returns the expected authorization challenge;
-- signup/login/API-key creation work against the configured control database;
+- signup, verification, login, session management, and API-key creation work
+  against the configured control database;
 - GitHub login completes against the production callback;
 - Razorpay configuration reports ready without creating a live charge;
 - webhook signature rejection/acceptance behavior is verified with non-financial test payloads.

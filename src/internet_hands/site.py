@@ -78,6 +78,11 @@ def signup_page():
     return _index()
 
 
+@router.get("/verify-email")
+def verify_email_page():
+    return _index()
+
+
 @router.get("/forgot-password")
 def forgot_password_page():
     return _index()
