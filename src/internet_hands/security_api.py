@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hmac
 import html
+import logging
 import os
 import secrets
 from datetime import UTC, datetime
@@ -14,6 +15,7 @@ import httpx
 import qrcode
 import qrcode.image.svg
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from .auth import (
@@ -50,6 +52,7 @@ from .totp import (
 router = APIRouter()
 security = SecurityStore(store)
 TWO_FACTOR_COOKIE = "ih_2fa_challenge"
+logger = logging.getLogger(__name__)
 
 
 def _verification_code() -> str:
@@ -120,12 +123,18 @@ async def _deliver(
 async def _send_verification(request: Request, user: dict[str, Any]) -> bool:
     token = random_token("ih_verify_")
     code = _verification_code()
-    security.create_email_verification(
-        user_id=user["id"],
-        email=user["email"],
-        token_hash=sha256_text(token),
-        code_hash=sha256_text(code),
-    )
+    try:
+        security.create_email_verification(
+            user_id=user["id"],
+            email=user["email"],
+            token_hash=sha256_text(token),
+            code_hash=sha256_text(code),
+        )
+    except Exception:
+        logger.exception(
+            "could not create email-verification challenge", extra={"user_id": user["id"]}
+        )
+        return False
     verify_url = f"{_origin(request)}/api/auth/verify-email?token={token}"
     safe_url = html.escape(verify_url, quote=True)
     body = (
@@ -191,7 +200,7 @@ async def _send_security_notice(user: dict[str, Any], title: str, message: str, 
 def _session_response(request: Request, user_id: str, payload: dict[str, Any]) -> JSONResponse:
     raw = random_token("ih_sess_")
     store.create_session(user_id=user_id, token_hash=sha256_text(raw))
-    response = JSONResponse(payload)
+    response = JSONResponse(jsonable_encoder(payload))
     response.set_cookie(
         SESSION_COOKIE,
         raw,
@@ -256,24 +265,38 @@ async def signup_secure(request: Request):
         raise HTTPException(status_code=400, detail="valid email required")
     try:
         encoded = hash_password(password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    resumed = False
+    try:
         created = store.create_user(email=email, password_hash=encoded, display_name=display_name)
         user = store.get_user(created["id"])
-        if not user:
-            raise ControlError("account_not_found", "account could not be loaded", 500)
-        raw = random_token("ih_sess_")
-        store.create_session(user_id=user["id"], token_hash=sha256_text(raw))
-    except (ValueError, ControlError) as exc:
-        if isinstance(exc, ControlError):
+    except ControlError as exc:
+        existing = store.get_user_by_email(email) if exc.code == "email_in_use" else None
+        if (
+            not existing
+            or bool(existing.get("email_verified"))
+            or not verify_password(password, existing.get("password_hash"))
+        ):
             raise _json_error(exc) from exc
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        user = store.get_user(existing["id"])
+        resumed = True
+    if not user:
+        raise _json_error(
+            ControlError("account_not_found", "account could not be loaded", 500)
+        )
+    raw = random_token("ih_sess_")
+    store.create_session(user_id=user["id"], token_hash=sha256_text(raw))
     sent = await _send_verification(request, user)
     response = JSONResponse(
-        {
+        jsonable_encoder({
             "user": user,
             "verification_required": True,
             "verification_sent": sent,
+            "resumed": resumed,
             "next": "/verify-email",
-        },
+        }),
         status_code=202,
     )
     response.set_cookie(

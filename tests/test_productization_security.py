@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
 
 from internet_hands import control_api, security_api
-from internet_hands.control_store import AuthIdentity, ControlStore
+from internet_hands.control_store import AuthIdentity, ControlError, ControlStore
 
 
 class _Request:
@@ -32,6 +33,7 @@ async def test_signup_enters_dedicated_verification_flow(monkeypatch) -> None:
         "email": "pending@example.test",
         "display_name": "Pending",
         "email_verified": False,
+        "created_at": datetime(2026, 9, 14, tzinfo=UTC),
     }
     monkeypatch.setattr(security_api.store, "create_user", lambda **_kwargs: created)
     monkeypatch.setattr(security_api.store, "get_user", lambda _user_id: user)
@@ -49,7 +51,68 @@ async def test_signup_enters_dedicated_verification_flow(monkeypatch) -> None:
     assert response.status_code == 202
     assert payload["verification_required"] is True
     assert payload["next"] == "/verify-email"
+    assert payload["resumed"] is False
     assert "ih_session=" in response.headers["set-cookie"]
+
+
+@pytest.mark.asyncio
+async def test_signup_resumes_matching_unverified_account_after_interrupted_response(
+    monkeypatch,
+) -> None:
+    password = "long-enough-password"
+    private = {
+        "id": "usr_pending",
+        "email": "pending@example.test",
+        "password_hash": security_api.hash_password(password),
+        "email_verified": False,
+    }
+    public = {
+        "id": "usr_pending",
+        "email": "pending@example.test",
+        "display_name": "Pending",
+        "email_verified": False,
+        "created_at": datetime(2026, 9, 14, tzinfo=UTC),
+    }
+
+    def duplicate(**_kwargs):
+        raise ControlError("email_in_use", "an account with this email already exists", 409)
+
+    monkeypatch.setattr(security_api.store, "create_user", duplicate)
+    monkeypatch.setattr(security_api.store, "get_user_by_email", lambda _email: private)
+    monkeypatch.setattr(security_api.store, "get_user", lambda _user_id: public)
+    monkeypatch.setattr(security_api.store, "create_session", lambda **_kwargs: None)
+
+    async def sent(_request, _user):
+        return True
+
+    monkeypatch.setattr(security_api, "_send_verification", sent)
+    response = await security_api.signup_secure(
+        _Request({"email": private["email"], "password": password})
+    )
+    payload = json.loads(response.body)
+
+    assert response.status_code == 202
+    assert payload["resumed"] is True
+    assert payload["verification_required"] is True
+    assert payload["next"] == "/verify-email"
+    assert "ih_session=" in response.headers["set-cookie"]
+
+
+@pytest.mark.asyncio
+async def test_verification_setup_failure_does_not_strand_signup_response(monkeypatch) -> None:
+    def fail_verification(**_kwargs):
+        raise RuntimeError("verification storage unavailable")
+
+    monkeypatch.setattr(
+        security_api.security, "create_email_verification", fail_verification
+    )
+
+    sent = await security_api._send_verification(
+        _Request(),
+        {"id": "usr_pending", "email": "pending@example.test"},
+    )
+
+    assert sent is False
 
 
 @pytest.mark.asyncio
@@ -63,6 +126,7 @@ async def test_unverified_password_login_returns_verification_next_step(monkeypa
         "id": "usr_pending",
         "email": "pending@example.test",
         "email_verified": False,
+        "created_at": datetime(2026, 9, 14, tzinfo=UTC),
     }
     monkeypatch.setattr(security_api.store, "get_user_by_email", lambda _email: private)
     monkeypatch.setattr(security_api.store, "get_user", lambda _user_id: public)
