@@ -1,23 +1,27 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#f3f0e8">
-  <meta name="description" content="Internet Hands — an executable internet workspace for agents.">
-  <title>Internet Hands</title>
+  <meta name="theme-color" content="#07090e">
+  <meta name="description" content="Internet Hands — Public Internet Intelligence, Web Scraping Studio, Authenticated MCP Gateway & SaaS Control Plane.">
+  <title>Internet Hands — Public Intelligence & Web Scraping Studio</title>
   <link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/assets/app.css">
-  <link rel="stylesheet" href="/assets/product-ui.css">
-  <link rel="stylesheet" href="/assets/product-ui-extended.css">
-  <link rel="stylesheet" href="/assets/editorial-ui.css">
-  <link rel="stylesheet" href="/assets/editorial-fixes.css">
 </head>
-<body>
-  <div id="app"><noscript>Internet Hands requires JavaScript for the web console.</noscript></div>
+<body class="theme-dark">
+  <div class="ambient-glow" aria-hidden="true"></div>
+  <div id="toast-region" aria-live="polite" aria-atomic="true"></div>
+  <div id="modal-container"></div>
+  <div id="app">
+    <div class="app-loading">
+      <div class="spinner"></div>
+      <p>Initializing Internet Hands…</p>
+    </div>
+  </div>
   <script src="/assets/app.js" defer></script>
-  <script src="/assets/product-ui.js" defer></script>
-  <script src="/assets/product-ui-extended.js" defer></script>
-  <script src="/assets/editorial-ui.js" defer></script>
 </body>
 </html>

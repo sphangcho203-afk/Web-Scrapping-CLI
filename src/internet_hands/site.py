@@ -108,3 +108,14 @@ def dashboard_page():
 @router.get("/dashboard/{path:path}")
 def dashboard_nested(path: str):
     return _index()
+
+
+@router.get("/studio")
+def studio_page():
+    return _index()
+
+
+@router.get("/studio/{path:path}")
+def studio_nested(path: str):
+    return _index()
+
