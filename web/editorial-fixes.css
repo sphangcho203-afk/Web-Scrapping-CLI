@@ -56,6 +56,42 @@
   opacity:1!important;
 }
 
+/* Restored legacy control-plane menus. */
+.ih-topbar{position:relative;}
+.ih-account-menu{
+  position:absolute;
+  top:56px;
+  right:20px;
+  z-index:90;
+  width:238px;
+  padding:8px;
+  background:#fbfaf6;
+  border:1px solid #bdb7ac;
+  border-radius:5px;
+  box-shadow:0 14px 36px rgba(23,23,22,.12)!important;
+}
+.ih-account-menu[hidden]{display:none!important;}
+.ih-account-menu a,
+.ih-account-menu button{
+  width:100%;
+  min-height:38px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:8px 10px;
+  border:0;
+  border-radius:3px!important;
+  background:transparent!important;
+  color:#302d29!important;
+  text-align:left;
+  font:600 12px/1.2 Inter,ui-sans-serif,sans-serif;
+  cursor:pointer;
+}
+.ih-account-menu a:hover,
+.ih-account-menu button:hover{background:#ebe7de!important;color:#171716!important;}
+.ih-account-menu .icon{width:16px;height:16px;flex:none;}
+.ih-top-actions>a.btn.small{display:inline-flex;align-items:center;gap:7px;text-decoration:none;}
+
 /* Mobile public run ledger: reflow instead of requiring sideways scrolling. */
 @media (max-width:760px) {
   .ed-table {
@@ -100,4 +136,7 @@
     overflow-x:auto!important;
     overscroll-behavior-inline:contain;
   }
+
+  .ih-top-actions>a.btn.small{display:none!important;}
+  .ih-account-menu{right:10px;top:54px;width:min(238px,calc(100vw - 20px));}
 }
