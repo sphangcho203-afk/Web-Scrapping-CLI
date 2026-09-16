@@ -74,7 +74,7 @@ ih-export = "internet_hands.export_cli:app"
 packages = ["src/internet_hands"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = [".", "src"]
 asyncio_mode = "auto"
 
 [tool.ruff]
