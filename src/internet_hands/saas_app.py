@@ -4,8 +4,10 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from . import account_mcp as _account_mcp  # noqa: F401
+from .connectors_api import router as connectors_router
 from .control_api import router as control_router
 from .control_hardening import router as hardening_router
 from .fleet_api import app as fleet_app
@@ -34,9 +36,6 @@ app = FastAPI(
     docs_url=None,
     redoc_url=None,
 )
-
-from fastapi.middleware.cors import CORSMiddleware
-from .connectors_api import router as connectors_router
 
 # Enable CORS
 app.add_middleware(

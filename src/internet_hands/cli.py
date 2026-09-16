@@ -11,6 +11,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .browser import render_page
+from .connectors import NeonConnector, VercelConnector, VercelNeonBridge
 from .crawler import crawl as crawl_site
 from .endpoints import Capability, endpoint_catalog
 from .fetcher import (
@@ -36,7 +37,6 @@ from .intel import (
     youtube_revenue_scenario,
     youtube_video,
 )
-from .connectors import NeonConnector, VercelConnector, VercelNeonBridge
 from .monitor import monitor_once
 from .pipeline import index_crawl, index_url, run_due_watches
 from .storage import DEFAULT_DB, Store

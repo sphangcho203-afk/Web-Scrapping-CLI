@@ -18,17 +18,15 @@ import httpx
 
 class ConnectorError(RuntimeError):
     """Base exception for connector errors."""
-    pass
 
 
 class NeonConnectorError(ConnectorError):
     """Exception raised by Neon connector."""
-    pass
 
 
 class VercelConnectorError(ConnectorError):
     """Exception raised by Vercel connector."""
-    pass
+
 
 
 @dataclass
@@ -271,7 +269,7 @@ class VercelNeonBridge:
             try:
                 info = await self.neon.verify_token()
                 neon_status.update({"valid": True, "info": info})
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 neon_status["error"] = str(exc)
 
         vercel_status = {"configured": bool(self.vercel.token), "valid": False}
@@ -279,7 +277,7 @@ class VercelNeonBridge:
             try:
                 user = await self.vercel.verify_token()
                 vercel_status.update({"valid": True, "user": user.get("username") or user.get("email")})
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 vercel_status["error"] = str(exc)
 
         return {
