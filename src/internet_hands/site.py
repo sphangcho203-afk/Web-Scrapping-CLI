@@ -16,6 +16,7 @@ ASSET_MEDIA_TYPES = {
     "product-ui.css": "text/css",
     "product-ui-extended.css": "text/css",
     "editorial-ui.css": "text/css",
+    "editorial-fixes.css": "text/css",
     "app.js": "application/javascript",
     "product-ui.js": "application/javascript",
     "product-ui-extended.js": "application/javascript",
