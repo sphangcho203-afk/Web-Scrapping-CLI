@@ -33,6 +33,7 @@ ASSET_MEDIA_TYPES = {
     "auth-nav.js": "application/javascript",
     "mark.svg": "image/svg+xml",
     "internet-hands-mark.webp": "image/webp",
+    "internet-hands-logo.webp": "image/webp",
 }
 
 
