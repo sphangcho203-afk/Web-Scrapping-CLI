@@ -21,6 +21,7 @@ ASSET_MEDIA_TYPES = {
     "product-ui.js": "application/javascript",
     "product-ui-extended.js": "application/javascript",
     "editorial-ui.js": "application/javascript",
+    "legacy-controls.js": "application/javascript",
     "security.js": "application/javascript",
     "recovery.js": "application/javascript",
     "auth-nav.js": "application/javascript",
