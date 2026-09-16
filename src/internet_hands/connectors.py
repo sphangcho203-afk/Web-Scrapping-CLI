@@ -269,7 +269,7 @@ class VercelNeonBridge:
             try:
                 info = await self.neon.verify_token()
                 neon_status.update({"valid": True, "info": info})
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 neon_status["error"] = str(exc)
 
         vercel_status = {"configured": bool(self.vercel.token), "valid": False}
@@ -277,7 +277,7 @@ class VercelNeonBridge:
             try:
                 user = await self.vercel.verify_token()
                 vercel_status.update({"valid": True, "user": user.get("username") or user.get("email")})
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 vercel_status["error"] = str(exc)
 
         return {

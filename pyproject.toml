@@ -85,7 +85,7 @@ target-version = "py311"
 "src/internet_hands/control_api.py" = ["I001"]
 "src/internet_hands/control_store.py" = ["I001"]
 "src/internet_hands/cli.py" = ["I001", "PLC0415"]
-"src/internet_hands/connectors.py" = ["BLE001", "PIE790"]
+"src/internet_hands/connectors.py" = ["PIE790"]
 "tests/test_connectors.py" = ["I001"]
 
 
