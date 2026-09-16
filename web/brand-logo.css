@@ -1,60 +1,123 @@
-/* Internet Hands pirate-tech brand mark integration */
-.ih-brand,.cos-brand{gap:10px!important}
-.ih-brand-mark,.cos-brand-mark{
-  display:grid!important;
-  place-items:center!important;
-  width:44px!important;
-  height:44px!important;
-  flex:0 0 44px!important;
+/* Internet Hands — exact selected logo artwork.
+ * The artwork already contains the brand lettering, so it stands alone.
+ */
+.ih-brand.ih-logo-only,
+.cos-brand.ih-logo-only{
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:flex-start!important;
+  width:auto!important;
+  min-width:0!important;
+  height:auto!important;
   padding:0!important;
+  margin:0!important;
+  gap:0!important;
+  border:0!important;
+  background:transparent!important;
+  box-shadow:none!important;
+  text-decoration:none!important;
   overflow:visible!important;
+}
+
+.ih-logo-only .ih-brand-art,
+.ih-brand.ih-logo-only>img,
+.cos-brand.ih-logo-only>img{
+  display:block!important;
+  width:86px!important;
+  height:86px!important;
+  max-width:none!important;
+  object-fit:contain!important;
+  object-position:center!important;
+  padding:0!important;
+  margin:0!important;
   border:0!important;
   border-radius:0!important;
   background:transparent!important;
   box-shadow:none!important;
+  filter:none!important;
 }
-.ih-brand-mark img,.cos-brand-mark img,.ih-brand img,.cos-brand img{
+
+/* Public navigation: enough room for the crest and its built-in lettering. */
+.site-header,
+.ih-site-header{
+  height:98px!important;
+}
+.site-nav,
+.ih-site-nav{
+  height:98px!important;
+  min-height:98px!important;
+  align-items:center!important;
+}
+.site-nav .ih-logo-only .ih-brand-art,
+.ih-site-nav .ih-logo-only .ih-brand-art{
+  width:84px!important;
+  height:84px!important;
+}
+
+/* Dashboard/sidebar gets a little more breathing room than the navbar. */
+.cos-sidebar-brand{
+  height:108px!important;
+  min-height:108px!important;
+  padding:0 18px!important;
+  align-items:center!important;
+}
+.cos-sidebar-brand .ih-logo-only .ih-brand-art{
+  width:98px!important;
+  height:98px!important;
+}
+
+/* Footer may show the mark larger without adding another wordmark beside it. */
+.ih-footer-brand .ih-logo-only .ih-brand-art,
+.footer .ih-logo-only .ih-brand-art{
+  width:106px!important;
+  height:106px!important;
+}
+
+/* Loading state uses the artwork as the whole identity, untouched. */
+.cos-boot-mark{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  min-height:154px!important;
+}
+.cos-boot-mark .ih-boot-art,
+.cos-boot-mark>img{
   display:block!important;
-  width:42px!important;
-  height:42px!important;
-  max-width:none!important;
+  width:150px!important;
+  height:150px!important;
   object-fit:contain!important;
+  object-position:center!important;
+  border:0!important;
   border-radius:0!important;
   background:transparent!important;
-  filter:drop-shadow(0 4px 8px rgba(0,0,0,.28));
+  box-shadow:none!important;
+  filter:none!important;
 }
-.ih-wordmark.cos-brand-copy,.cos-brand-copy{
-  display:flex!important;
-  flex-direction:column!important;
-  justify-content:center!important;
-  min-width:0;
-  line-height:1!important;
-}
-.ih-wordmark.cos-brand-copy b,.cos-brand-copy b{
-  color:var(--cos-text,#f5f7fa)!important;
-  font-size:14px!important;
-  font-style:normal!important;
-  font-weight:700!important;
-  letter-spacing:-.02em!important;
-  white-space:nowrap;
-}
-.ih-wordmark.cos-brand-copy small,.cos-brand-copy small{
-  display:block!important;
-  margin-top:5px!important;
-  color:#778494!important;
-  font:700 8px/1 ui-monospace,SFMono-Regular,Menlo,monospace!important;
-  letter-spacing:.12em!important;
-  white-space:nowrap;
-}
-.cos-sidebar-brand{min-height:76px!important}
-.cos-boot-mark img{
-  width:56px!important;
-  height:56px!important;
-  object-fit:contain!important;
-  border-radius:0!important;
-  filter:drop-shadow(0 6px 14px rgba(0,0,0,.32));
-}
+
 @media(max-width:760px){
-  .site-nav .ih-brand-mark,.site-nav .cos-brand-mark{width:40px!important;height:40px!important;flex-basis:40px!important}
-  .site-nav .ih-brand-mark img,.site-nav .cos-brand-mark img{width:38px!important;height:38px!important}
+  .site-header,
+  .ih-site-header,
+  .site-nav,
+  .ih-site-nav{
+    height:90px!important;
+    min-height:90px!important;
+  }
+  .site-nav .ih-logo-only .ih-brand-art,
+  .ih-site-nav .ih-logo-only .ih-brand-art{
+    width:76px!important;
+    height:76px!important;
+  }
+  .cos-sidebar-brand{
+    height:102px!important;
+    min-height:102px!important;
+  }
+  .cos-sidebar-brand .ih-logo-only .ih-brand-art{
+    width:90px!important;
+    height:90px!important;
+  }
+  .ih-footer-brand .ih-logo-only .ih-brand-art,
+  .footer .ih-logo-only .ih-brand-art{
+    width:96px!important;
+    height:96px!important;
+  }
 }
