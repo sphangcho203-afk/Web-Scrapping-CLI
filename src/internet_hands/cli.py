@@ -371,5 +371,34 @@ def serve(
     uvicorn.run("internet_hands.api:app", host=host, port=port, reload=False)
 
 
+@app.command()
+def ui(
+    host: str = typer.Option("127.0.0.1", help="Host to bind Web Studio service."),
+    port: int = typer.Option(8788, min=1, max=65535, help="Port for Web Studio service."),
+    browser: bool = typer.Option(True, "--browser/--no-browser", help="Open browser automatically."),
+):
+    """Launch the Internet Hands Web Studio & Dashboard."""
+    import webbrowser
+    import uvicorn
+
+    url = f"http://{host}:{port}/"
+    console.print(f"[bold green]Starting Internet Hands Web Studio at[/bold green] [bold cyan]{url}[/bold cyan]")
+    if browser:
+        webbrowser.open(url)
+
+    uvicorn.run("app:app", host=host, port=port, reload=False)
+
+
+@app.command()
+def web(
+    host: str = typer.Option("127.0.0.1"),
+    port: int = typer.Option(8788, min=1, max=65535),
+    browser: bool = typer.Option(True, "--browser/--no-browser"),
+):
+    """Alias for 'ui' — launch the Internet Hands Web Studio."""
+    ui(host=host, port=port, browser=browser)
+
+
 if __name__ == "__main__":
     app()
+

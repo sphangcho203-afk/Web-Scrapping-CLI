@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Internet Hands — Public Intelligence & Web Scraping Studio</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+            }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="relative min-h-screen text-slate-100 selection:bg-indigo-500 selection:text-white">
+
+  <!-- Ambient Glow -->
+  <div class="ambient-glow"></div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container"></div>
+
+  <!-- Top Global Header -->
+  <header class="sticky top-0 z-40 w-full border-b border-white/5 bg-slate-950/70 backdrop-blur-xl">
+    <div class="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+      
+      <!-- Brand & Version -->
+      <div class="flex items-center gap-3">
+        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-lg shadow-indigo-500/25">
+          <i data-lucide="scan-eye" class="h-5 w-5 text-white"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="font-bold tracking-tight text-white text-base">INTERNET HANDS</span>
+            <span class="rounded-full bg-indigo-500/10 px-2 py-0.5 text-[10px] font-semibold text-indigo-400 border border-indigo-500/20">v0.4.0</span>
+          </div>
+          <p class="text-[11px] text-slate-400 hidden sm:block">Public Internet Intelligence & Scraping Studio</p>
+        </div>
+      </div>
+
+      <!-- Quick Actions & Status -->
+      <div class="flex items-center gap-3">
+        <!-- Status Indicator Pill -->
+        <div id="connection-status-pill" onclick="openSettingsModal()" class="flex items-center gap-2 rounded-full border border-white/10 bg-slate-900/60 px-3 py-1.5 cursor-pointer hover:bg-slate-800 transition-all">
+          <span class="status-indicator status-demo"></span>
+          <span class="text-xs font-medium text-amber-400">Demo Simulator</span>
+        </div>
+
+        <!-- Command Palette Trigger (Cmd+K) -->
+        <button onclick="openSettingsModal()" class="hidden md:flex items-center gap-2 rounded-lg border border-white/10 bg-slate-900/40 px-3 py-1.5 text-xs text-slate-400 hover:border-white/20 hover:text-white transition-all">
+          <i data-lucide="search" class="w-3.5 h-3.5"></i>
+          <span>Settings</span>
+          <kbd class="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-mono text-slate-400">Ctrl+K</kbd>
+        </button>
+
+        <!-- Theme Toggle -->
+        <button id="theme-toggle-btn" onclick="toggleTheme()" class="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-slate-900/40 text-slate-400 hover:text-white hover:border-white/20 transition-all">
+          <i data-lucide="sun" class="w-4 h-4"></i>
+        </button>
+
+        <!-- GitHub Repo Link -->
+        <a href="https://github.com/sphangcho203-afk/Web-Scrapping-CLI" target="_blank" class="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-slate-900/40 text-slate-400 hover:text-white hover:border-white/20 transition-all">
+          <i data-lucide="github" class="w-4 h-4"></i>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Demo Mode Banner -->
+  <div id="demo-mode-banner" class="bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border-b border-amber-500/20 px-4 py-2 text-xs text-amber-300 flex items-center justify-between">
+    <div class="mx-auto flex max-w-7xl items-center gap-2">
+      <i data-lucide="sparkles" class="w-4 h-4 text-amber-400 shrink-0"></i>
+      <span>Interactive Demo Mode Active. Every button and tool is fully simulated. Connect your live server anytime in <button onclick="openSettingsModal()" class="underline font-semibold hover:text-white">Settings</button>.</span>
+    </div>
+  </div>
+
+  <!-- Main Container (Sidebar + Content) -->
+  <div class="mx-auto flex max-w-7xl flex-col md:flex-row gap-6 p-4 sm:p-6 lg:p-8">
+    
+    <!-- Sidebar Navigation -->
+    <aside class="w-full md:w-64 shrink-0 space-y-6">
+      
+      <!-- Section: Workspaces -->
+      <div class="space-y-1">
+        <div class="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Workspace</div>
+        <div class="nav-tab active" data-tab="overview" onclick="switchTab('overview')">
+          <i data-lucide="layout-dashboard" class="w-4 h-4"></i>
+          <span>Overview</span>
+        </div>
+        <div class="nav-tab" data-tab="scraper" onclick="switchTab('scraper')">
+          <i data-lucide="file-code" class="w-4 h-4"></i>
+          <span>Scraper Studio</span>
+        </div>
+        <div class="nav-tab" data-tab="crawler" onclick="switchTab('crawler')">
+          <i data-lucide="network" class="w-4 h-4"></i>
+          <span>Deep Crawler</span>
+        </div>
+      </div>
+
+      <!-- Section: Intelligence -->
+      <div class="space-y-1">
+        <div class="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Intelligence & Search</div>
+        <div class="nav-tab" data-tab="search" onclick="switchTab('search')">
+          <i data-lucide="search" class="w-4 h-4"></i>
+          <span>Brave Search</span>
+        </div>
+        <div class="nav-tab" data-tab="discovery" onclick="switchTab('discovery')">
+          <i data-lucide="compass" class="w-4 h-4"></i>
+          <span>API Discovery</span>
+        </div>
+        <div class="nav-tab" data-tab="osint" onclick="switchTab('osint')">
+          <i data-lucide="fingerprint" class="w-4 h-4"></i>
+          <span>OSINT & Recon</span>
+        </div>
+      </div>
+
+      <!-- Section: Automation & Storage -->
+      <div class="space-y-1">
+        <div class="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Automation & Cloud</div>
+        <div class="nav-tab" data-tab="watcher" onclick="switchTab('watcher')">
+          <i data-lucide="bell" class="w-4 h-4"></i>
+          <span>Site Watcher</span>
+        </div>
+        <div class="nav-tab" data-tab="sandbox" onclick="switchTab('sandbox')">
+          <i data-lucide="terminal" class="w-4 h-4"></i>
+          <span>Cloud Sandboxes</span>
+        </div>
+        <div class="nav-tab" data-tab="telemetry" onclick="switchTab('telemetry')">
+          <i data-lucide="activity" class="w-4 h-4"></i>
+          <span>Telemetry Stream</span>
+        </div>
+      </div>
+
+      <!-- Quick Specs Card -->
+      <div class="glass-panel p-4 rounded-xl border border-white/5 space-y-3">
+        <div class="flex items-center justify-between text-xs text-slate-400">
+          <span>Control Plane</span>
+          <span class="font-mono text-indigo-400">FastAPI</span>
+        </div>
+        <div class="flex items-center justify-between text-xs text-slate-400">
+          <span>Browser Engine</span>
+          <span class="font-mono text-emerald-400">Playwright</span>
+        </div>
+        <div class="flex items-center justify-between text-xs text-slate-400">
+          <span>Storage Backend</span>
+          <span class="font-mono text-amber-400">SQLite + FTS5</span>
+        </div>
+        <div class="pt-2 border-t border-white/5">
+          <button onclick="openSettingsModal()" class="w-full text-xs py-1.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white transition-colors">
+            Configure Server
+          </button>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 min-w-0 space-y-6">
+
+      <!-- ========================================================================= -->
+      <!-- VIEW 1: OVERVIEW DASHBOARD -->
+      <!-- ========================================================================= -->
+      <section id="view-overview" class="tab-view space-y-6">
+        
+        <!-- Welcome Hero -->
+        <div class="glass-panel rounded-2xl p-6 sm:p-8 border border-white/10 relative overflow-hidden">
+          <div class="relative z-10 max-w-2xl space-y-3">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-semibold">
+              <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
+              <span>Guarded Public Intelligence Fabric</span>
+            </div>
+            <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+              Scrape, Extract & Index Any Public Web Target
+            </h1>
+            <p class="text-sm text-slate-400 leading-relaxed">
+              Exact-byte HTTP captures, Trafilatura article extraction, Playwright browser rendering, multi-platform OSINT recon, and cloud sandboxes with cryptographic SHA-256 provenance.
+            </p>
+            <div class="pt-2 flex flex-wrap items-center gap-3">
+              <button onclick="switchTab('scraper')" class="btn-primary px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2">
+                <i data-lucide="play" class="w-4 h-4"></i> Launch Scraper Studio
+              </button>
+              <button onclick="switchTab('osint')" class="btn-secondary px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2">
+                <i data-lucide="fingerprint" class="w-4 h-4"></i> Run OSINT Scan
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Metrics Grid -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div class="glass-panel p-4 rounded-xl border border-white/5 space-y-1">
+            <div class="flex items-center justify-between text-slate-400 text-xs">
+              <span>Collection Engines</span>
+              <i data-lucide="cpu" class="w-4 h-4 text-indigo-400"></i>
+            </div>
+            <div class="text-2xl font-bold text-white">4 Active</div>
+            <div class="text-[11px] text-emerald-400 flex items-center gap-1">
+              <i data-lucide="check" class="w-3 h-3"></i> HTTP, Browser, Extractor, Fleet
+            </div>
+          </div>
+
+          <div class="glass-panel p-4 rounded-xl border border-white/5 space-y-1">
+            <div class="flex items-center justify-between text-slate-400 text-xs">
+              <span>Indexed Captures</span>
+              <i data-lucide="database" class="w-4 h-4 text-cyan-400"></i>
+            </div>
+            <div class="text-2xl font-bold text-white">849 Docs</div>
+            <div class="text-[11px] text-slate-400">SQLite FTS5 Full-Text</div>
+          </div>
+
+          <div class="glass-panel p-4 rounded-xl border border-white/5 space-y-1">
+            <div class="flex items-center justify-between text-slate-400 text-xs">
+              <span>Active Watches</span>
+              <i data-lucide="bell-ring" class="w-4 h-4 text-amber-400"></i>
+            </div>
+            <div class="text-2xl font-bold text-white">3 Jobs</div>
+            <div class="text-[11px] text-amber-400">1 change detected today</div>
+          </div>
+
+          <div class="glass-panel p-4 rounded-xl border border-white/5 space-y-1">
+            <div class="flex items-center justify-between text-slate-400 text-xs">
+              <span>Cloud Sandboxes</span>
+              <i data-lucide="cloud" class="w-4 h-4 text-violet-400"></i>
+            </div>
+            <div class="text-2xl font-bold text-white">Vercel MCP</div>
+            <div class="text-[11px] text-indigo-400">31 tools ready</div>
+          </div>
+        </div>
+
+        <!-- Live Telemetry Stream Ticker -->
+        <div class="glass-panel rounded-xl p-5 border border-white/5 space-y-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="status-indicator status-online"></span>
+              <h2 class="text-sm font-semibold text-white">Live Intelligence Stream</h2>
+            </div>
+            <button onclick="switchTab('telemetry')" class="text-xs text-indigo-400 hover:text-indigo-300">View All Events &rarr;</button>
+          </div>
+          <div class="space-y-2">
+            <div class="p-2.5 rounded-lg bg-slate-900/50 border border-slate-800 text-xs font-mono flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px]">fetch.success</span>
+                <span class="text-slate-300">https://news.ycombinator.com</span>
+              </div>
+              <span class="text-slate-500 text-[11px]">184ms</span>
+            </div>
+            <div class="p-2.5 rounded-lg bg-slate-900/50 border border-slate-800 text-xs font-mono flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-[10px]">content.indexed</span>
+                <span class="text-slate-300">SQLite FTS5 document #849</span>
+              </div>
+              <span class="text-slate-500 text-[11px]">14.2 KB</span>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- VIEW 2: SCRAPER STUDIO -->
+      <!-- ========================================================================= -->
+      <section id="view-scraper" class="tab-view hidden space-y-6">
+        
+        <div class="glass-panel p-5 sm:p-6 rounded-2xl border border-white/10 space-y-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <h2 class="text-lg font-bold text-white">Scraper & Extractor Studio</h2>
+              <p class="text-xs text-slate-400">Extract readable markdown, raw exact bytes, link graphs, and response headers.</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="exportActiveCapture('json')" class="px-3 py-1.5 rounded-lg border border-white/10 text-xs hover:bg-slate-800 flex items-center gap-1.5">
+                <i data-lucide="file-json" class="w-3.5 h-3.5 text-amber-400"></i> JSON
+              </button>
+              <button onclick="exportActiveCapture('csv')" class="px-3 py-1.5 rounded-lg border border-white/10 text-xs hover:bg-slate-800 flex items-center gap-1.5">
+                <i data-lucide="table" class="w-3.5 h-3.5 text-emerald-400"></i> CSV
+              </button>
+              <button onclick="exportActiveCapture('md')" class="px-3 py-1.5 rounded-lg border border-white/10 text-xs hover:bg-slate-800 flex items-center gap-1.5">
+                <i data-lucide="file-text" class="w-3.5 h-3.5 text-indigo-400"></i> Markdown
+              </button>
+            </div>
+          </div>
+
+          <!-- URL Input Bar -->
+          <div class="flex flex-col sm:flex-row gap-3">
+            <div class="relative flex-1">
+              <i data-lucide="globe" class="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500"></i>
+              <input id="scraper-url-input" type="url" value="https://news.ycombinator.com" placeholder="https://example.com/article" class="input-field w-full pl-10">
+            </div>
+            <select id="scraper-mode-select" class="input-field sm:w-56 font-medium">
+              <option value="fetch">Native HTTP (Exact Bytes)</option>
+              <option value="browser">Playwright Browser (Render JS)</option>
+              <option value="extract">Trafilatura Article Mode</option>
+            </select>
+            <button id="scraper-run-btn" onclick="runScraper()" class="btn-primary px-5 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 shrink-0">
+              <i data-lucide="play" class="w-4 h-4"></i> Execute Scrape
+            </button>
+          </div>
+        </div>
+
+        <!-- Scraper Results -->
+        <div id="scraper-results-container" class="space-y-6">
+          
+          <!-- Provenance Header Stats -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div class="glass-panel p-3.5 rounded-xl border border-white/5">
+              <div class="text-[11px] text-slate-400">HTTP Status</div>
+              <div id="stat-status-code" class="text-xl font-mono font-bold text-emerald-400">200 OK</div>
+            </div>
+            <div class="glass-panel p-3.5 rounded-xl border border-white/5">
+              <div class="text-[11px] text-slate-400">Response Timing</div>
+              <div id="stat-timing-ms" class="text-xl font-mono font-bold text-indigo-400">184 ms</div>
+            </div>
+            <div class="glass-panel p-3.5 rounded-xl border border-white/5">
+              <div class="text-[11px] text-slate-400">Payload Size</div>
+              <div id="stat-size-kb" class="text-xl font-mono font-bold text-cyan-400">18.0 KB</div>
+            </div>
+            <div class="glass-panel p-3.5 rounded-xl border border-white/5 truncate">
+              <div class="text-[11px] text-slate-400">SHA-256 Provenance</div>
+              <div id="stat-sha256" class="text-xs font-mono font-semibold text-slate-300 truncate">92b0c34298fc...</div>
+            </div>
+          </div>
+
+          <!-- Tabs for Extracted Data vs Links vs Headers -->
+          <div class="glass-panel rounded-2xl border border-white/10 overflow-hidden">
+            <div class="flex items-center gap-4 border-b border-white/10 px-5 pt-3">
+              <button class="pb-3 text-xs font-semibold text-indigo-400 border-b-2 border-indigo-500">Readable Text</button>
+              <button class="pb-3 text-xs font-semibold text-slate-400 hover:text-white">Extracted Links</button>
+              <button class="pb-3 text-xs font-semibold text-slate-400 hover:text-white">Raw HTTP Headers</button>
+              <button class="pb-3 text-xs font-semibold text-slate-400 hover:text-white">Raw HTML Body</button>
+            </div>
+
+            <!-- Extracted Text Card -->
+            <div class="p-5 sm:p-6 space-y-4">
+              <h3 id="scraper-extracted-title" class="text-lg font-bold text-white">Hacker News</h3>
+              <div id="scraper-extracted-text" class="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap font-sans bg-slate-900/40 p-4 rounded-xl border border-slate-800">
+                Hacker News is a social news website focusing on computer science and entrepreneurship...
+              </div>
+            </div>
+
+            <!-- Links Table -->
+            <div class="p-5 border-t border-white/5">
+              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Extracted Anchor Links</h4>
+              <div class="overflow-x-auto rounded-xl border border-slate-800">
+                <table class="w-full text-left">
+                  <thead class="bg-slate-900 text-[11px] uppercase text-slate-400 border-b border-slate-800">
+                    <tr>
+                      <th class="px-4 py-2.5">#</th>
+                      <th class="px-4 py-2.5">Target URL</th>
+                      <th class="px-4 py-2.5">Anchor Text</th>
+                    </tr>
+                  </thead>
+                  <tbody id="scraper-links-body">
+                    <!-- Dynamic Links -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Raw Headers Box -->
+            <div class="p-5 border-t border-white/5">
+              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Captured Headers & Provenance</h4>
+              <pre id="scraper-raw-headers" class="code-container p-4 overflow-x-auto text-xs text-indigo-300 font-mono"></pre>
+            </div>
+
+          </div>
+
+        </div>
+
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- VIEW 3: DEEP CRAWLER -->
+      <!-- ========================================================================= -->
+      <section id="view-crawler" class="tab-view hidden space-y-6">
+        
+        <div class="glass-panel p-5 sm:p-6 rounded-2xl border border-white/10 space-y-4">
+          <div>
+            <h2 class="text-lg font-bold text-white">Bounded Deep Crawler</h2>
+            <p class="text-xs text-slate-400">Traverse same-origin pages with URL canonicalization, deduplication, and budget caps.</p>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div class="sm:col-span-2">
+              <label class="block text-xs font-medium text-slate-400 mb-1.5">Seed URL</label>
+              <input id="crawler-url-input" type="url" value="https://example.com" class="input-field w-full">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-400 mb-1.5">Max Pages (Budget)</label>
+              <input id="crawler-max-pages" type="number" min="1" max="100" value="15" class="input-field w-full">
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between pt-2">
+            <div class="flex items-center gap-4 text-xs text-slate-400">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked class="rounded border-slate-700 text-indigo-500 focus:ring-0">
+                <span>Same-origin only</span>
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked class="rounded border-slate-700 text-indigo-500 focus:ring-0">
+                <span>Follow robots.txt</span>
+              </label>
+            </div>
+            <button id="crawler-run-btn" onclick="runCrawler()" class="btn-primary px-5 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2">
+              <i data-lucide="network" class="w-4 h-4"></i> Start Deep Crawl
+            </button>
+          </div>
+        </div>
+
+        <div id="crawler-results-container" class="space-y-4">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-bold text-white">Crawled Pages Index</h3>
+            <span id="crawler-count-badge" class="px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-mono font-medium">6 Pages</span>
+          </div>
+          <div id="crawler-pages-list" class="space-y-2">
+            <!-- Dynamic Crawler Pages -->
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- VIEW 4: BRAVE WEB SEARCH -->
+      <!-- ========================================================================= -->
+      <section id="view-search" class="tab-view hidden space-y-6">
+        
+        <div class="glass-panel p-5 sm:p-6 rounded-2xl border border-white/10 space-y-4">
+          <div>
+            <h2 class="text-lg font-bold text-white">Brave Web & News Search</h2>
+            <p class="text-xs text-slate-400">Discover public sources, news, and media with strict SafeSearch and freshness controls.</p>
+          </div>
+
+          <div class="flex flex-col sm:flex-row gap-3">
+            <div class="relative flex-1">
+              <i data-lucide="search" class="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500"></i>
+              <input id="search-query-input" type="text" value="web scraping intelligence agentic architecture" placeholder="Search the public internet..." class="input-field w-full pl-10">
+            </div>
+            <select id="search-kind-select" class="input-field sm:w-44 font-medium">
+              <option value="web">Web Search</option>
+              <option value="news">News Only</option>
+              <option value="videos">Videos</option>
+            </select>
+            <button id="search-run-btn" onclick="runSearch()" class="btn-primary px-5 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 shrink-0">
+              <i data-lucide="search" class="w-4 h-4"></i> Search Intelligence
+            </button>
+          </div>
+        </div>
+
+        <div id="search-results-container" class="space-y-4">
+          <h3 class="text-sm font-bold text-white">Search Results</h3>
+          <div id="search-results-list" class="space-y-3">
+            <!-- Dynamic Search Cards -->
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- VIEW 5: DISCOVERY & OPENAPI -->
+      <!-- ========================================================================= -->
+      <section id="view-discovery" class="tab-view hidden space-y-6">
+        
+        <div class="glass-panel p-5 sm:p-6 rounded-2xl border border-white/10 space-y-4">
+          <div>
+            <h2 class="text-lg font-bold text-white">Public Interface & OpenAPI Discovery</h2>
+            <p class="text-xs text-slate-400">Automatically probe and catalog machine-readable specs, Swagger endpoints, RSS feeds, and sitemaps.</p>
+          </div>
+
+          <div class="flex flex-col sm:flex-row gap-3">
+            <input id="discovery-url-input" type="url" value="https://stripe.com" class="input-field flex-1">
+            <button id="discovery-run-btn" onclick="runDiscovery()" class="btn-primary px-5 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 shrink-0">
+              <i data-lucide="compass" class="w-4 h-4"></i> Scan Interfaces
+            </button>
+          </div>
+          <div class="flex items-center gap-2 text-xs text-slate-400">
+            <input id="discovery-probe-openapi" type="checkbox" checked class="rounded border-slate-700 text-indigo-500 focus:ring-0">
+            <label for="discovery-probe-openapi" class="cursor-pointer">Probe Swagger / OpenAPI JSON specifications</label>
+          </div>
+        </div>
+
+        <div id="discovery-results-container" class="space-y-6">
+          <!-- Feeds Section -->
+          <div class="glass-panel p-5 rounded-2xl border border-white/10 space-y-3">
+            <h3 class="text-sm font-bold text-white flex items-center gap-2">
+              <i data-lucide="rss" class="w-4 h-4 text-cyan-400"></i>
+              <span>Feeds & Sitemaps</span>
+            </h3>
+            <div id="discovery-feeds-list" class="space-y-2">
+              <!-- Dynamic Feeds -->
+            </div>
+          </div>
+
+          <!-- OpenAPI Endpoints Section -->
+          <div class="glass-panel p-5 rounded-2xl border border-white/10 space-y-3">
+            <h3 class="text-sm font-bold text-white flex items-center gap-2">
+              <i data-lucide="terminal" class="w-4 h-4 text-indigo-400"></i>
+              <span>Discovered API Endpoints</span>
+            </h3>
+            <div id="discovery-openapi-list" class="space-y-2">
+              <!-- Dynamic Endpoints -->
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- VIEW 6: OSINT & RECON -->
+      <!-- ========================================================================= -->
+      <section id="view-osint" class="tab-view hidden space-y-6">
+        
+        <div class="glass-panel p-5 sm:p-6 rounded-2xl border border-white/10 space-y-4">
+          <div>
+            <h2 class="text-lg font-bold text-white">Cross-Platform Entity & Username Recon</h2>
+            <p class="text-xs text-slate-400">Simultaneously verify handles across GitHub, GitLab, YouTube, Bluesky, PyPI, npm, Twitch, and TikTok.</p>
+          </div>
+
+          <div class="flex flex-col sm:flex-row gap-3">
+            <div class="relative flex-1">
+              <span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-xs">@</span>
+              <input id="osint-username-input" type="text" value="sphangcho203-afk" placeholder="username" class="input-field w-full pl-8">
+            </div>
+            <button id="osint-run-btn" onclick="runOsintScan()" class="btn-primary px-5 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 shrink-0">
+              <i data-lucide="radar" class="w-4 h-4"></i> Run Intelligence Scan
+            </button>
+          </div>
+        </div>
+
+        <div id="osint-results-container" class="space-y-4">
+          <h3 class="text-sm font-bold text-white">Platform Scan Results</h3>
+          <div id="osint-platforms-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <!-- Dynamic Platform Cards -->
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- VIEW 7: SITE WATCHER -->
+      <!-- ========================================================================= -->
+      <section id="view-watcher" class="tab-view hidden space-y-6">
+        
+        <div class="glass-panel p-5 sm:p-6 rounded-2xl border border-white/10 space-y-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <h2 class="text-lg font-bold text-white">Persistent Site Watcher & Diff Engine</h2>
+              <p class="text-xs text-slate-400">Automated recurring checks for content drift, layout changes, and cryptographic hash alterations.</p>
+            </div>
+            <button onclick="showToast('Executed batch watch evaluation for all active jobs', 'success')" class="btn-primary px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5">
+              <i data-lucide="play-circle" class="w-4 h-4"></i> Run Due Watches
+            </button>
+          </div>
+
+          <div class="overflow-x-auto rounded-xl border border-slate-800">
+            <table class="w-full text-left">
+              <thead class="bg-slate-900 text-[11px] uppercase text-slate-400 border-b border-slate-800">
+                <tr>
+                  <th class="px-4 py-3">Monitored Target</th>
+                  <th class="px-4 py-3">Interval</th>
+                  <th class="px-4 py-3">Last Evaluated</th>
+                  <th class="px-4 py-3">State</th>
+                  <th class="px-4 py-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="watcher-jobs-list">
+                <!-- Dynamic Watches -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- VIEW 8: CLOUD SANDBOXES -->
+      <!-- ========================================================================= -->
+      <section id="view-sandbox" class="tab-view hidden space-y-6">
+        
+        <div class="glass-panel p-5 sm:p-6 rounded-2xl border border-white/10 space-y-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <h2 class="text-lg font-bold text-white">Vercel Cloud Sandbox & Remote MCP Control Plane</h2>
+              <p class="text-xs text-slate-400">Spawn isolated remote cloud computers with live Chromium sessions over private Unix sockets.</p>
+            </div>
+            <span class="px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-xs font-mono font-semibold">
+              31 Tools Available
+            </span>
+          </div>
+
+          <!-- Interactive Sandbox Console -->
+          <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 font-mono text-xs space-y-2">
+            <div class="text-slate-500">// Connected to Vercel Sandbox Provider</div>
+            <div class="text-indigo-400">$ sandbox_exec --command "curl -sI https://example.com"</div>
+            <div class="text-emerald-400">HTTP/2 200 OK</div>
+            <div class="text-slate-300">content-type: text/html; charset=UTF-8</div>
+            <div class="text-slate-300">server: cloudflare</div>
+            <div class="text-slate-500">// Execution completed in 142ms</div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <button onclick="showToast('Initiated remote browser screenshot request', 'info')" class="glass-panel p-3 rounded-xl border border-white/5 hover:border-indigo-500/50 text-left space-y-1">
+              <div class="text-xs font-semibold text-white flex items-center gap-2">
+                <i data-lucide="camera" class="w-3.5 h-3.5 text-indigo-400"></i> Screenshot
+              </div>
+              <div class="text-[11px] text-slate-400">Capture full-page viewport</div>
+            </button>
+            <button onclick="showToast('Cloned repository into sandbox environment', 'info')" class="glass-panel p-3 rounded-xl border border-white/5 hover:border-indigo-500/50 text-left space-y-1">
+              <div class="text-xs font-semibold text-white flex items-center gap-2">
+                <i data-lucide="git-branch" class="w-3.5 h-3.5 text-cyan-400"></i> Git Clone
+              </div>
+              <div class="text-[11px] text-slate-400">Isolate source repository</div>
+            </button>
+            <button onclick="showToast('Recorded interactive browser trace session', 'info')" class="glass-panel p-3 rounded-xl border border-white/5 hover:border-indigo-500/50 text-left space-y-1">
+              <div class="text-xs font-semibold text-white flex items-center gap-2">
+                <i data-lucide="video" class="w-3.5 h-3.5 text-amber-400"></i> Record Trace
+              </div>
+              <div class="text-[11px] text-slate-400">Export zip trace manifest</div>
+            </button>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- VIEW 9: TELEMETRY STREAM -->
+      <!-- ========================================================================= -->
+      <section id="view-telemetry" class="tab-view hidden space-y-6">
+        
+        <div class="glass-panel p-5 sm:p-6 rounded-2xl border border-white/10 space-y-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <h2 class="text-lg font-bold text-white">Live Telemetry & Event Stream (SSE)</h2>
+              <p class="text-xs text-slate-400">Real-time pipeline diagnostics from <code class="text-indigo-400 font-mono">/v1/events/stream</code>.</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="status-indicator status-online"></span>
+              <span class="text-xs font-mono text-emerald-400">Connected</span>
+            </div>
+          </div>
+
+          <div id="telemetry-events-list" class="space-y-2 max-h-[500px] overflow-y-auto pr-2">
+            <!-- Dynamic Telemetry Events -->
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- DEVELOPER CODE GENERATOR BAR (Synchronized across all tabs) -->
+      <!-- ========================================================================= -->
+      <section class="glass-panel rounded-2xl border border-white/10 overflow-hidden">
+        <div class="flex items-center justify-between border-b border-white/10 px-5 py-3 bg-slate-900/40">
+          <div class="flex items-center gap-2">
+            <i data-lucide="terminal" class="w-4 h-4 text-indigo-400"></i>
+            <span class="text-xs font-bold uppercase tracking-wider text-slate-300">Synchronized Developer Code</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="copyCodeSnippet('cli')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-mono flex items-center gap-1.5 transition-colors">
+              <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy CLI
+            </button>
+            <button onclick="copyCodeSnippet('python')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-mono flex items-center gap-1.5 transition-colors">
+              <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy Python
+            </button>
+            <button onclick="copyCodeSnippet('curl')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-mono flex items-center gap-1.5 transition-colors">
+              <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy cURL
+            </button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 divide-y lg:divide-y-0 lg:divide-x divide-white/10 bg-slate-950 p-4 font-mono text-xs">
+          <!-- CLI -->
+          <div class="space-y-2 p-2">
+            <div class="text-[11px] font-semibold text-slate-400">Terminal CLI</div>
+            <pre id="code-cli" class="text-emerald-400 whitespace-pre-wrap break-all"></pre>
+          </div>
+
+          <!-- Python SDK -->
+          <div class="space-y-2 p-2">
+            <div class="text-[11px] font-semibold text-slate-400">Python (httpx)</div>
+            <pre id="code-python" class="text-indigo-300 whitespace-pre-wrap break-all"></pre>
+          </div>
+
+          <!-- cURL -->
+          <div class="space-y-2 p-2">
+            <div class="text-[11px] font-semibold text-slate-400">cURL</div>
+            <pre id="code-curl" class="text-cyan-300 whitespace-pre-wrap break-all"></pre>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm hidden p-4">
+    <div class="glass-panel w-full max-w-md rounded-2xl border border-white/10 p-6 space-y-5 bg-slate-900 shadow-2xl">
+      <div class="flex items-center justify-between">
+        <h3 class="text-base font-bold text-white flex items-center gap-2">
+          <i data-lucide="sliders" class="w-4 h-4 text-indigo-400"></i>
+          <span>Environment & Server Settings</span>
+        </h3>
+        <button onclick="closeSettingsModal()" class="text-slate-400 hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1">Backend API Base URL</label>
+          <input id="settings-base-url" type="url" placeholder="http://localhost:8788" class="input-field w-full font-mono text-xs">
+          <p class="text-[11px] text-slate-500 mt-1">Default local port is 8788 or 8000.</p>
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1">API Key (Optional)</label>
+          <input id="settings-api-key" type="password" placeholder="INTERNET_HANDS_API_KEY" class="input-field w-full font-mono text-xs">
+          <p class="text-[11px] text-slate-500 mt-1">Leave blank if running unauthenticated local mode.</p>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-3 pt-2">
+        <button onclick="closeSettingsModal()" class="px-4 py-2 rounded-xl text-xs text-slate-400 hover:text-white">
+          Cancel
+        </button>
+        <button onclick="saveSettings()" class="btn-primary px-4 py-2 rounded-xl text-xs font-semibold">
+          Save Settings
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- App Script -->
+  <script src="app.js"></script>
+</body>
+</html>

@@ -9,6 +9,39 @@ authorized internet sources.
 
 > Find the source. Fetch the evidence. Keep the provenance. Route to the right engine.
 
+## 🖥️ Web Studio & Interactive Dashboard
+
+Internet Hands now includes an end-to-end, dark/light, glassmorphic **Web Studio** control plane for developers, researchers, and agentic workflows:
+
+- **Scraper & Extractor Studio**: Live URL fetching with Playwright browser rendering, Trafilatura article extraction, exact-byte provenance inspection, and anchor link explorer.
+- **Bounded Deep Crawler**: Interactive visual crawl progress, tree graph, and instant dataset export (JSON, CSV, Markdown).
+- **Brave Web & News Search**: Query public sources with SafeSearch, freshness filters, and one-click scrape routing.
+- **Interface & OpenAPI Discovery**: Automatically detect Swagger/OpenAPI specs, RSS/Atom feeds, and sitemaps.
+- **OSINT & Recon Hub**: Parallel username verification across GitHub, GitLab, Bluesky, YouTube, PyPI, npm, Twitch, and TikTok.
+- **Site Watcher & Diff Engine**: Monitor targets for content drift and hash alterations with scheduled evaluation.
+- **Vercel Cloud Sandboxes**: Manage isolated cloud computer environments and live Chromium sessions over Unix sockets.
+- **Synchronized Developer Code**: Live cURL, Python SDK (`httpx`), and CLI (`ih`) snippet generator for every operation.
+
+### Launching the Web Studio
+
+Launch the dashboard locally in your default browser with a single command:
+
+```bash
+ih ui
+# or explicitly with custom host and port:
+ih ui --host 127.0.0.1 --port 8788
+```
+
+You can also run it directly using Uvicorn or deploy to Vercel:
+
+```bash
+uvicorn app:app --port 8788
+```
+
+Alternatively, open `src/internet_hands/web/index.html` directly in any browser for full interactive demo mode.
+
+---
+
 ## v0.3 — internet intelligence fabric
 
 v0.3 turns the project from a single web collector into a layered internet-access subsystem for
