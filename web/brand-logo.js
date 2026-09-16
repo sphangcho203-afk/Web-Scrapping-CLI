@@ -1,22 +1,32 @@
-/* Internet Hands brand identity layer.
- * Owns the product mark without changing application behavior.
+/* Internet Hands exact brand artwork integration.
+ * Keeps the selected logo untouched and removes duplicate external wordmarks.
  */
 (() => {
-  const LOGO = '/assets/internet-hands-mark.webp';
+  const LOGO = '/assets/internet-hands-logo.webp';
 
-  const renderBrand = () => `<a class="brand ih-brand cos-brand" data-link href="/" aria-label="Internet Hands home">
-    <span class="ih-brand-mark cos-brand-mark"><img src="${LOGO}" width="42" height="42" alt=""></span>
-    <span class="ih-wordmark cos-brand-copy"><b>Internet Hands</b><small>CONTROL PLANE</small></span>
+  const renderBrand = () => `<a class="brand ih-brand cos-brand ih-logo-only" data-link href="/" aria-label="Internet Hands home">
+    <img class="ih-brand-art" src="${LOGO}" alt="">
   </a>`;
 
   if (typeof brand !== 'undefined') brand = renderBrand;
 
+  const normalizeBrand = el => {
+    const img = el.querySelector(':scope > .ih-brand-art');
+    const alreadyClean = el.classList.contains('ih-logo-only') && el.children.length === 1 && img?.getAttribute('src') === LOGO;
+    if (alreadyClean) return;
+    el.classList.add('ih-logo-only');
+    el.innerHTML = `<img class="ih-brand-art" src="${LOGO}" alt="">`;
+  };
+
+  const normalizeBoot = el => {
+    const img = el.querySelector(':scope > .ih-boot-art');
+    if (el.children.length === 1 && img?.getAttribute('src') === LOGO) return;
+    el.innerHTML = `<img class="ih-boot-art" src="${LOGO}" alt="Internet Hands">`;
+  };
+
   const applyIdentity = () => {
-    document.querySelectorAll('img[src="/assets/mark.svg"], .ih-brand img, .cos-brand img, .cos-boot-mark img')
-      .forEach(img => {
-        if (img.getAttribute('src') !== LOGO) img.setAttribute('src', LOGO);
-        img.setAttribute('alt', '');
-      });
+    document.querySelectorAll('.ih-brand, .cos-brand').forEach(normalizeBrand);
+    document.querySelectorAll('.cos-boot-mark').forEach(normalizeBoot);
 
     const favicon = document.querySelector('link[rel~="icon"]');
     if (favicon) {
