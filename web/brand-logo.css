@@ -1,0 +1,60 @@
+/* Internet Hands pirate-tech brand mark integration */
+.ih-brand,.cos-brand{gap:10px!important}
+.ih-brand-mark,.cos-brand-mark{
+  display:grid!important;
+  place-items:center!important;
+  width:44px!important;
+  height:44px!important;
+  flex:0 0 44px!important;
+  padding:0!important;
+  overflow:visible!important;
+  border:0!important;
+  border-radius:0!important;
+  background:transparent!important;
+  box-shadow:none!important;
+}
+.ih-brand-mark img,.cos-brand-mark img,.ih-brand img,.cos-brand img{
+  display:block!important;
+  width:42px!important;
+  height:42px!important;
+  max-width:none!important;
+  object-fit:contain!important;
+  border-radius:0!important;
+  background:transparent!important;
+  filter:drop-shadow(0 4px 8px rgba(0,0,0,.28));
+}
+.ih-wordmark.cos-brand-copy,.cos-brand-copy{
+  display:flex!important;
+  flex-direction:column!important;
+  justify-content:center!important;
+  min-width:0;
+  line-height:1!important;
+}
+.ih-wordmark.cos-brand-copy b,.cos-brand-copy b{
+  color:var(--cos-text,#f5f7fa)!important;
+  font-size:14px!important;
+  font-style:normal!important;
+  font-weight:700!important;
+  letter-spacing:-.02em!important;
+  white-space:nowrap;
+}
+.ih-wordmark.cos-brand-copy small,.cos-brand-copy small{
+  display:block!important;
+  margin-top:5px!important;
+  color:#778494!important;
+  font:700 8px/1 ui-monospace,SFMono-Regular,Menlo,monospace!important;
+  letter-spacing:.12em!important;
+  white-space:nowrap;
+}
+.cos-sidebar-brand{min-height:76px!important}
+.cos-boot-mark img{
+  width:56px!important;
+  height:56px!important;
+  object-fit:contain!important;
+  border-radius:0!important;
+  filter:drop-shadow(0 6px 14px rgba(0,0,0,.32));
+}
+@media(max-width:760px){
+  .site-nav .ih-brand-mark,.site-nav .cos-brand-mark{width:40px!important;height:40px!important;flex-basis:40px!important}
+  .site-nav .ih-brand-mark img,.site-nav .cos-brand-mark img{width:38px!important;height:38px!important}
+}
