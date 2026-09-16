@@ -9,6 +9,24 @@ router = APIRouter()
 WEB_ROOT = Path(__file__).resolve().parents[2] / "web"
 
 
+# Keep web assets explicit: the console can evolve without exposing arbitrary files
+# from the repository through /assets.
+ASSET_MEDIA_TYPES = {
+    "app.css": "text/css",
+    "product-ui.css": "text/css",
+    "product-ui-extended.css": "text/css",
+    "editorial-ui.css": "text/css",
+    "app.js": "application/javascript",
+    "product-ui.js": "application/javascript",
+    "product-ui-extended.js": "application/javascript",
+    "editorial-ui.js": "application/javascript",
+    "security.js": "application/javascript",
+    "recovery.js": "application/javascript",
+    "auth-nav.js": "application/javascript",
+    "mark.svg": "image/svg+xml",
+}
+
+
 def _file(name: str, media_type: str | None = None):
     path = WEB_ROOT / name
     if not path.is_file():
@@ -16,34 +34,12 @@ def _file(name: str, media_type: str | None = None):
     return FileResponse(path, media_type=media_type)
 
 
-@router.get("/assets/app.css")
-def site_css():
-    return _file("app.css", "text/css")
-
-
-@router.get("/assets/app.js")
-def site_js():
-    return _file("app.js", "application/javascript")
-
-
-@router.get("/assets/security.js")
-def security_js():
-    return _file("security.js", "application/javascript")
-
-
-@router.get("/assets/recovery.js")
-def recovery_js():
-    return _file("recovery.js", "application/javascript")
-
-
-@router.get("/assets/auth-nav.js")
-def auth_nav_js():
-    return _file("auth-nav.js", "application/javascript")
-
-
-@router.get("/assets/mark.svg")
-def site_mark():
-    return _file("mark.svg", "image/svg+xml")
+@router.get("/assets/{name}")
+def site_asset(name: str):
+    media_type = ASSET_MEDIA_TYPES.get(name)
+    if media_type is None:
+        raise HTTPException(status_code=404, detail="asset not found")
+    return _file(name, media_type)
 
 
 def _index():
