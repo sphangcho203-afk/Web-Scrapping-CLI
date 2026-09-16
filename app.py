@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from internet_hands.api import app as core_api
+from internet_hands.connectors_api import router as connectors_router
 from internet_hands.fleet_api import app
 
 # Enable CORS for browser access and local development
@@ -21,6 +22,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount Vercel & Neon custom connectors API router
+app.include_router(connectors_router)
 
 # Unify core intelligence/scraping routes into fleet control plane
 existing_paths = {route.path for route in app.routes}

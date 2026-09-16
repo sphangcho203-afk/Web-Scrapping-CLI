@@ -138,6 +138,10 @@
           <i data-lucide="terminal" class="w-4 h-4"></i>
           <span>Cloud Sandboxes</span>
         </div>
+        <div class="nav-tab" data-tab="connectors" onclick="switchTab('connectors')">
+          <i data-lucide="database-zap" class="w-4 h-4"></i>
+          <span>Vercel & Neon</span>
+        </div>
         <div class="nav-tab" data-tab="telemetry" onclick="switchTab('telemetry')">
           <i data-lucide="activity" class="w-4 h-4"></i>
           <span>Telemetry Stream</span>
@@ -635,7 +639,176 @@
       </section>
 
       <!-- ========================================================================= -->
-      <!-- VIEW 9: TELEMETRY STREAM -->
+      <!-- VIEW 9: VERCEL & NEON CLOUD CONNECTOR -->
+      <!-- ========================================================================= -->
+      <section id="view-connectors" class="tab-view hidden space-y-6">
+        
+        <div class="glass-panel p-5 sm:p-6 rounded-2xl border border-white/10 space-y-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold mb-2">
+                <i data-lucide="database-zap" class="w-3.5 h-3.5"></i>
+                <span>Serverless Compute + Postgres Fabric</span>
+              </div>
+              <h2 class="text-lg font-bold text-white">Vercel & Neon Custom Connector</h2>
+              <p class="text-xs text-slate-400">Synchronize serverless Postgres connection strings, branches, and credentials directly into Vercel project environments with API access tokens.</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="checkConnectorTokens()" class="btn-primary px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5">
+                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Verify Tokens
+              </button>
+            </div>
+          </div>
+
+          <!-- Token Credentials Grid -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+            <!-- Vercel Token Card -->
+            <div class="glass-panel p-4 rounded-xl border border-slate-800 space-y-3 bg-slate-900/40">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <div class="w-7 h-7 rounded-lg bg-black border border-white/20 flex items-center justify-center">
+                    <svg class="w-3.5 h-3.5 fill-white" viewBox="0 0 76 65" fill="none"><path d="M37.5274 0L75.0548 65H0L37.5274 0Z"/></svg>
+                  </div>
+                  <div>
+                    <h3 class="text-xs font-bold text-white">Vercel API Token</h3>
+                    <p class="text-[10px] text-slate-400">Cloud Serverless Deployment</p>
+                  </div>
+                </div>
+                <span id="vercel-token-badge" class="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-slate-800 text-slate-400 border border-slate-700">Not Verified</span>
+              </div>
+              <div>
+                <input id="connector-vercel-token" type="password" placeholder="VERCEL_TOKEN (e.g. vercel_tok_...)" class="input-field w-full font-mono text-xs">
+              </div>
+              <div class="text-[11px] text-slate-500 flex items-center justify-between">
+                <span>Targets: Production, Preview, Dev</span>
+                <span id="vercel-user-info" class="text-indigo-400 font-mono">@personal</span>
+              </div>
+            </div>
+
+            <!-- Neon Key Card -->
+            <div class="glass-panel p-4 rounded-xl border border-slate-800 space-y-3 bg-slate-900/40">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <div class="w-7 h-7 rounded-lg bg-emerald-950 border border-emerald-500/30 flex items-center justify-center">
+                    <i data-lucide="database" class="w-4 h-4 text-emerald-400"></i>
+                  </div>
+                  <div>
+                    <h3 class="text-xs font-bold text-white">Neon API Key</h3>
+                    <p class="text-[10px] text-slate-400">Serverless PostgreSQL (v2)</p>
+                  </div>
+                </div>
+                <span id="neon-token-badge" class="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-slate-800 text-slate-400 border border-slate-700">Not Verified</span>
+              </div>
+              <div>
+                <input id="connector-neon-key" type="password" placeholder="NEON_API_KEY (e.g. neon_api_...)" class="input-field w-full font-mono text-xs">
+              </div>
+              <div class="text-[11px] text-slate-500 flex items-center justify-between">
+                <span>Supports: Connection Pooling</span>
+                <span id="neon-project-count" class="text-emerald-400 font-mono">0 projects</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 1-Click Sync Console -->
+        <div class="glass-panel p-5 sm:p-6 rounded-2xl border border-white/10 space-y-5">
+          <div class="flex items-center justify-between border-b border-white/5 pb-3">
+            <div class="flex items-center gap-2">
+              <i data-lucide="arrow-left-right" class="w-4 h-4 text-indigo-400"></i>
+              <h3 class="text-sm font-bold text-white">1-Click Synchronization Engine</h3>
+            </div>
+            <span class="text-xs text-slate-400">Injects pooled & unpooled database credentials</span>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-medium text-slate-400 mb-1.5">Source Neon Project & Branch</label>
+              <select id="connector-neon-select" class="input-field w-full font-mono text-xs">
+                <option value="proj-sweet-dawn-1982">sweet-dawn-1982 (main • aws-us-east-1)</option>
+                <option value="proj-silent-fog-4421">silent-fog-4421 (staging • aws-eu-central-1)</option>
+                <option value="proj-solitary-pine-8310">solitary-pine-8310 (dev-preview)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-400 mb-1.5">Target Vercel Project</label>
+              <select id="connector-vercel-select" class="input-field w-full font-mono text-xs">
+                <option value="internet-hands">internet-hands (FastAPI / Serverless)</option>
+                <option value="web-scrapping-cli">web-scrapping-cli (Production)</option>
+                <option value="intelligence-portal">intelligence-portal (Next.js)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Environment Variables Preview Table -->
+          <div class="space-y-2">
+            <label class="block text-xs font-medium text-slate-400">Synchronized Environment Variables Preview</label>
+            <div class="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950/70">
+              <table class="w-full text-left text-xs font-mono">
+                <thead class="bg-slate-900/80 text-[10px] uppercase text-slate-400 border-b border-slate-800">
+                  <tr>
+                    <th class="px-4 py-2.5">Variable Name</th>
+                    <th class="px-4 py-2.5">Type</th>
+                    <th class="px-4 py-2.5">Value (Masked)</th>
+                    <th class="px-4 py-2.5">Targets</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800/60">
+                  <tr>
+                    <td class="px-4 py-2.5 text-indigo-400 font-bold">DATABASE_URL</td>
+                    <td class="px-4 py-2.5 text-emerald-400">Pooled</td>
+                    <td class="px-4 py-2.5 text-slate-400 break-all">postgresql://neondb_owner:••••••••@ep-sweet-dawn-pooler.neon.tech/neondb?sslmode=require</td>
+                    <td class="px-4 py-2.5 text-slate-300">Prod, Prev, Dev</td>
+                  </tr>
+                  <tr>
+                    <td class="px-4 py-2.5 text-indigo-400 font-bold">POSTGRES_URL</td>
+                    <td class="px-4 py-2.5 text-emerald-400">Pooled</td>
+                    <td class="px-4 py-2.5 text-slate-400 break-all">postgresql://neondb_owner:••••••••@ep-sweet-dawn-pooler.neon.tech/neondb?sslmode=require</td>
+                    <td class="px-4 py-2.5 text-slate-300">Prod, Prev, Dev</td>
+                  </tr>
+                  <tr>
+                    <td class="px-4 py-2.5 text-indigo-400 font-bold">POSTGRES_URL_NON_POOLING</td>
+                    <td class="px-4 py-2.5 text-cyan-400">Direct</td>
+                    <td class="px-4 py-2.5 text-slate-400 break-all">postgresql://neondb_owner:••••••••@ep-sweet-dawn.neon.tech/neondb?sslmode=require</td>
+                    <td class="px-4 py-2.5 text-slate-300">Prod, Prev, Dev</td>
+                  </tr>
+                  <tr>
+                    <td class="px-4 py-2.5 text-indigo-400 font-bold">INTERNET_HANDS_POSTGRES_DSN</td>
+                    <td class="px-4 py-2.5 text-emerald-400">Pooled</td>
+                    <td class="px-4 py-2.5 text-slate-400 break-all">postgresql://neondb_owner:••••••••@ep-sweet-dawn-pooler.neon.tech/neondb?sslmode=require</td>
+                    <td class="px-4 py-2.5 text-slate-300">Prod, Prev, Dev</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between pt-2">
+            <div class="flex items-center gap-4 text-xs text-slate-400">
+              <label class="flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" checked class="rounded border-slate-700 text-indigo-500 focus:ring-0">
+                <span>Production</span>
+              </label>
+              <label class="flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" checked class="rounded border-slate-700 text-indigo-500 focus:ring-0">
+                <span>Preview</span>
+              </label>
+              <label class="flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" checked class="rounded border-slate-700 text-indigo-500 focus:ring-0">
+                <span>Development</span>
+              </label>
+            </div>
+            <button id="sync-connector-btn" onclick="executeVercelNeonSync()" class="btn-primary px-5 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2">
+              <i data-lucide="zap" class="w-4 h-4 text-amber-300"></i>
+              <span>Sync to Vercel Project</span>
+            </button>
+          </div>
+
+        </div>
+
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- VIEW 10: TELEMETRY STREAM -->
       <!-- ========================================================================= -->
       <section id="view-telemetry" class="tab-view hidden space-y-6">
         

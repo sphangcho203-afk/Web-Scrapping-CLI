@@ -36,6 +36,7 @@ from .intel import (
     youtube_revenue_scenario,
     youtube_video,
 )
+from .connectors import NeonConnector, VercelConnector, VercelNeonBridge
 from .monitor import monitor_once
 from .pipeline import index_crawl, index_url, run_due_watches
 from .storage import DEFAULT_DB, Store
@@ -43,8 +44,10 @@ from .storage import DEFAULT_DB, Store
 app = typer.Typer(no_args_is_help=True, help="Internet Hands — public internet intelligence.")
 watch_app = typer.Typer(no_args_is_help=True, help="Persistent web monitoring jobs.")
 intel_app = typer.Typer(no_args_is_help=True, help="Provider-backed public intelligence.")
+connector_app = typer.Typer(no_args_is_help=True, help="Vercel & Neon custom cloud connectors.")
 app.add_typer(watch_app, name="watch")
 app.add_typer(intel_app, name="intel")
+app.add_typer(connector_app, name="connector")
 console = Console()
 DEFAULT_STATE = Path(".internet-hands/state.json")
 DbPath = Annotated[Path, typer.Option("--db")]
@@ -399,6 +402,64 @@ def web(
     ui(host=host, port=port, browser=browser)
 
 
+@connector_app.command("status")
+def connector_status(
+    neon_key: str = typer.Option(None, "--neon-key", help="Neon API access token."),
+    vercel_token: str = typer.Option(None, "--vercel-token", help="Vercel API access token."),
+):
+    """Verify credentials and connectivity for Vercel and Neon."""
+    bridge = VercelNeonBridge(
+        neon=NeonConnector(api_key=neon_key),
+        vercel=VercelConnector(token=vercel_token),
+    )
+    res = asyncio.run(bridge.check_status())
+    _dump(res)
+
+
+@connector_app.command("neon-projects")
+def connector_neon_projects(
+    api_key: str = typer.Option(None, "--key", "-k", help="Neon API access token."),
+):
+    """List Neon serverless Postgres projects."""
+    neon = NeonConnector(api_key=api_key)
+    res = asyncio.run(neon.list_projects())
+    _dump(res)
+
+
+@connector_app.command("vercel-projects")
+def connector_vercel_projects(
+    token: str = typer.Option(None, "--token", "-t", help="Vercel API access token."),
+):
+    """List Vercel projects."""
+    vercel = VercelConnector(token=token)
+    res = asyncio.run(vercel.list_projects())
+    _dump(res)
+
+
+@connector_app.command("sync")
+def connector_sync(
+    neon_project: str = typer.Option(..., "--neon-project", help="Neon project ID"),
+    vercel_project: str = typer.Option(..., "--vercel-project", help="Vercel project ID or name"),
+    neon_key: str = typer.Option(None, "--neon-key", help="Neon API key"),
+    vercel_token: str = typer.Option(None, "--vercel-token", help="Vercel API token"),
+    db: str = typer.Option("neondb", help="Postgres database name"),
+    role: str = typer.Option("neondb_owner", help="Postgres role name"),
+):
+    """Sync Neon Postgres connection strings directly to Vercel project environment variables."""
+    bridge = VercelNeonBridge(
+        neon=NeonConnector(api_key=neon_key),
+        vercel=VercelConnector(token=vercel_token),
+    )
+    res = asyncio.run(bridge.sync_neon_to_vercel(
+        neon_project_id=neon_project,
+        vercel_project_id_or_name=vercel_project,
+        database_name=db,
+        role_name=role,
+    ))
+    _dump(res)
+
+
 if __name__ == "__main__":
     app()
+
 
