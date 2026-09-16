@@ -115,7 +115,7 @@
         accountMenu.setAttribute('hidden','');
         accountToggle?.setAttribute('aria-expanded','false');
       }
-    }, { once: true });
+    });
 
     $('#account-logout')?.addEventListener('click', async () => {
       await api('/api/auth/logout', { method: 'POST' });
