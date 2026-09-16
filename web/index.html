@@ -11,13 +11,23 @@
   <link rel="stylesheet" href="/assets/product-ui.css">
   <link rel="stylesheet" href="/assets/product-ui-extended.css">
   <link rel="stylesheet" href="/assets/command-os.css">
+  <link rel="stylesheet" href="/assets/command-os-polish.css">
 </head>
 <body>
-  <div id="app"><noscript>Internet Hands requires JavaScript for the web console.</noscript></div>
+  <div id="app">
+    <div class="cos-boot" role="status" aria-label="Loading Internet Hands">
+      <div class="cos-boot-inner">
+        <div class="cos-boot-mark"><img src="/assets/mark.svg" alt=""><span><b>Internet Hands</b><small>CONTROL PLANE</small></span></div>
+        <div class="cos-boot-line" aria-hidden="true"></div>
+        <p>Preparing workspace…</p>
+      </div>
+    </div>
+    <noscript>Internet Hands requires JavaScript for the web console.</noscript>
+  </div>
   <script src="/assets/app.js" defer></script>
   <script src="/assets/product-ui.js" defer></script>
   <script src="/assets/product-ui-extended.js" defer></script>
-  <script src="/assets/legacy-controls.js" defer></script>
   <script src="/assets/command-os.js" defer></script>
+  <script src="/assets/command-os-polish.js" defer></script>
 </body>
 </html>
