@@ -19,6 +19,7 @@ ASSET_MEDIA_TYPES = {
     "editorial-fixes.css": "text/css",
     "command-os.css": "text/css",
     "command-os-polish.css": "text/css",
+    "brand-logo.css": "text/css",
     "app.js": "application/javascript",
     "product-ui.js": "application/javascript",
     "product-ui-extended.js": "application/javascript",
@@ -26,10 +27,12 @@ ASSET_MEDIA_TYPES = {
     "legacy-controls.js": "application/javascript",
     "command-os.js": "application/javascript",
     "command-os-polish.js": "application/javascript",
+    "brand-logo.js": "application/javascript",
     "security.js": "application/javascript",
     "recovery.js": "application/javascript",
     "auth-nav.js": "application/javascript",
     "mark.svg": "image/svg+xml",
+    "internet-hands-mark.webp": "image/webp",
 }
 
 
