@@ -152,3 +152,20 @@ def test_retired_frontend_asset_files_are_absent() -> None:
         "command-os.js",
     ):
         assert not (WEB / retired).exists(), f"retired frontend layer still exists: {retired}"
+
+
+def test_unshipped_legacy_frontend_artifacts_are_removed() -> None:
+    site = SITE.read_text(encoding="utf-8")
+    legacy = (
+        "editorial-ui.css",
+        "editorial-fixes.css",
+        "editorial-ui.js",
+        "legacy-controls.js",
+        "security.js",
+        "recovery.js",
+        "auth-nav.js",
+    )
+
+    for name in legacy:
+        assert f'"{name}":' not in site
+        assert not (WEB / name).exists(), f"dead unshipped frontend artifact remains: {name}"
