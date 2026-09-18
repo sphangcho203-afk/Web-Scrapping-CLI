@@ -29,6 +29,7 @@ ASSET_MEDIA_TYPES = {
     "command-os.js": "application/javascript",
     "command-os-polish.js": "application/javascript",
     "brand-logo.js": "application/javascript",
+    "cognitive-overview.js": "application/javascript",
     "security.js": "application/javascript",
     "recovery.js": "application/javascript",
     "auth-nav.js": "application/javascript",
