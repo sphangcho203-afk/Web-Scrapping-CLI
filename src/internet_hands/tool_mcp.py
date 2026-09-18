@@ -6,6 +6,7 @@ from typing import Any
 
 from .capability_packs import CapabilityRegistry, build_default_capabilities
 from .catalog_providers import build_catalog_providers
+from .composio_bridge import ComposioBridgeProvider
 from .firecrawl_capabilities import build_firecrawl_capabilities
 from .firecrawl_provider import FirecrawlToolProvider
 from .gaming_capabilities import build_gaming_capabilities
@@ -23,7 +24,8 @@ from .tool_providers import build_default_providers
 def get_tool_mesh() -> ToolMesh:
     return ToolMesh(
         [
-            *build_default_providers(),
+            *[provider for provider in build_default_providers() if provider.name != "composio"],
+            ComposioBridgeProvider(),
             FirecrawlToolProvider(),
             *build_catalog_providers(),
             *build_gaming_providers(),
