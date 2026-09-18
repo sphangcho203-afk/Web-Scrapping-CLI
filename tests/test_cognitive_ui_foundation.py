@@ -86,3 +86,33 @@ def test_overview_compatibility_layer_is_retired() -> None:
 
     assert "cognitive-overview.js" not in index
     assert "cognitive-overview.js" not in site
+
+
+def test_polish_and_brand_override_layers_are_retired() -> None:
+    index = (WEB / "index.html").read_text(encoding="utf-8")
+    site = SITE.read_text(encoding="utf-8")
+    foundation = (WEB / "cognitive-foundation.css").read_text(encoding="utf-8")
+    product = (WEB / "product-ui.js").read_text(encoding="utf-8")
+    command = (WEB / "command-os.js").read_text(encoding="utf-8")
+
+    for retired in (
+        "command-os-polish.css",
+        "command-os-polish.js",
+        "brand-logo.css",
+        "brand-logo.js",
+    ):
+        assert retired not in index
+        assert retired not in site
+
+    assert "Merged public polish + exact brand identity" in foundation
+    assert 'ih-brand ih-logo-only' in product
+    assert 'cos-brand ih-logo-only' in command
+    assert "MutationObserver" not in command
+
+
+def test_public_mobile_navigation_owns_its_accessibility_state() -> None:
+    app = (WEB / "app.js").read_text(encoding="utf-8")
+
+    assert "aria-controls" in app
+    assert "aria-expanded" in app
+    assert "syncNavState" in app

@@ -64,8 +64,19 @@ async function hydrateOptionalSession() {
 function go(path, replace = false) { history[replace ? 'replaceState' : 'pushState']({}, '', path); renderRoute(); }
 function brand() { return `<a class="brand" data-link href="/" aria-label="Internet Hands home"><img src="/assets/mark.svg" width="38" height="38" alt=""><span>INTERNET <b>HANDS</b></span></a>`; }
 function bindCommon() {
-  $$('[data-copy]').forEach(b => b.onclick = () => copyText(b.dataset.copy, b));
-  $('[data-nav-toggle]')?.addEventListener('click', () => $('[data-mobile-menu]')?.classList.toggle('open'));
+  $('[data-copy]').forEach(b => b.onclick = () => copyText(b.dataset.copy, b));
+  const navToggle = $('[data-nav-toggle]');
+  const mobileMenu = $('[data-mobile-menu]');
+  if (navToggle && mobileMenu) {
+    const syncNavState = () => navToggle.setAttribute('aria-expanded', String(mobileMenu.classList.contains('open')));
+    navToggle.setAttribute('aria-controls', 'ih-mobile-menu');
+    mobileMenu.id = 'ih-mobile-menu';
+    syncNavState();
+    navToggle.addEventListener('click', () => {
+      mobileMenu.classList.toggle('open');
+      syncNavState();
+    });
+  }
 }
 function codeBlock(code, title = 'Configuration') { return `<div class="code-block"><div><span>${esc(title)}</span><button data-copy="${esc(code)}">${icon('copy')} Copy</button></div><pre><code>${esc(code)}</code></pre></div>`; }
 function publicShell(content) {

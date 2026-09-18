@@ -12,9 +12,8 @@
   const statusDot = (tone = 'ok') => `<i class="ih-status-dot ${tone}"></i>`;
 
   brand = function brandV2() {
-    return `<a class="brand ih-brand" data-link href="/" aria-label="Internet Hands home">
-      <span class="ih-brand-mark"><img src="/assets/mark.svg" width="30" height="30" alt=""></span>
-      <span class="ih-wordmark"><b>Internet</b><em>Hands</em></span>
+    return `<a class="brand ih-brand ih-logo-only" data-link href="/" aria-label="Internet Hands home">
+      <img class="ih-brand-art" src="/assets/internet-hands-logo.webp" alt="Internet Hands">
     </a>`;
   };
 

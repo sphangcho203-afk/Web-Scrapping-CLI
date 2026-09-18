@@ -15,9 +15,8 @@
   const hrefFor = slug => `/dashboard${slug === 'overview' ? '' : `/${slug}`}`;
 
   brand = function commandBrand() {
-    return `<a class="brand ih-brand cos-brand" data-link href="/" aria-label="Internet Hands home">
-      <span class="cos-brand-mark"><img src="/assets/mark.svg" width="30" height="30" alt=""></span>
-      <span class="cos-brand-copy"><b>Internet Hands</b><small>CONTROL PLANE</small></span>
+    return `<a class="brand ih-brand cos-brand ih-logo-only" data-link href="/" aria-label="Internet Hands home">
+      <img class="ih-brand-art" src="/assets/internet-hands-logo.webp" alt="Internet Hands">
     </a>`;
   };
 
