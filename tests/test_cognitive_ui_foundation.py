@@ -45,18 +45,26 @@ def test_authenticated_shell_uses_cognitive_contract() -> None:
     assert "cos-mobile-bottom ih-mobile-bottom mobile-bottom" in shell
 
 
-def test_overview_migration_is_loaded_served_and_scoped() -> None:
+def test_overview_renderer_is_loaded_served_and_emits_cognitive_contract() -> None:
     index = (WEB / "index.html").read_text(encoding="utf-8")
     site = SITE.read_text(encoding="utf-8")
     overview = (WEB / "cognitive-overview.js").read_text(encoding="utf-8")
 
     assert '<script src="/assets/cognitive-overview.js" defer></script>' in index
     assert '"cognitive-overview.js": "application/javascript"' in site
-    assert "location.pathname === '/dashboard'" in overview
-    assert "location.pathname === '/dashboard/'" in overview
-    assert "content.dataset.ihOverview === '1'" in overview
-    assert "content.classList.add('ih-page-shell', 'ih-overview')" in overview
-    assert "head.classList.add('ih-page-header')" in overview
-    assert "stats.classList.add('ih-grid', 'ih-grid--4'" in overview
-    assert "dashboard.classList.add('ih-grid', 'ih-grid--2'" in overview
-    assert "card.classList.add('ih-panel'" in overview
+    assert "dashOverview = async function cognitiveOverview()" in overview
+    assert "ih-page-shell ih-overview" in overview
+    assert "page-head ih-page-header" in overview
+    assert "stats-grid ih-grid ih-grid--4" in overview
+    assert "dashboard-grid ih-grid ih-grid--2" in overview
+    assert "card chart-card ih-panel" in overview
+    assert "card quick-card ih-panel" in overview
+
+
+def test_overview_renderer_does_not_depend_on_post_render_dom_mutation() -> None:
+    overview = (WEB / "cognitive-overview.js").read_text(encoding="utf-8")
+
+    assert "MutationObserver" not in overview
+    assert "querySelector" not in overview
+    assert "classList.add" not in overview
+    assert "dataset.ihOverview" not in overview
