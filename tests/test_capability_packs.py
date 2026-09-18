@@ -179,3 +179,114 @@ def test_capability_listing_filters_pack_and_query() -> None:
     )
     result = registry.list(query="hero", pack="mlbb")
     assert [item["id"] for item in result["capabilities"]] == ["mlbb.hero.list"]
+
+
+class SideEffectProvider(CapabilityProvider):
+    async def describe(self, tool_id: str) -> ToolDescriptor:
+        return ToolDescriptor(
+            ref=f"{self.name}:{tool_id}",
+            provider=self.name,
+            tool_id=tool_id,
+            name=tool_id,
+            side_effecting=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_write_capability_requires_explicit_side_effect_gate() -> None:
+    mesh = ToolMesh([SideEffectProvider("composio")])
+    capability = Capability(
+        id="messaging.send",
+        name="Send message",
+        description="Send",
+        pack="connected",
+        tags=("messaging",),
+        read_only=False,
+        candidates=(
+            CapabilityCandidate(
+                provider="composio",
+                ref="composio:TELEGRAM_SEND_MESSAGE",
+                when={"platform": "telegram"},
+                argument_map={"target": "chat_id", "message": "text"},
+                passthrough_arguments=False,
+            ),
+        ),
+    )
+    registry = CapabilityRegistry(mesh, [capability])
+
+    with pytest.raises(PermissionError, match="allow_side_effects"):
+        await registry.execute(
+            "messaging.send",
+            {"platform": "telegram", "target": "123", "message": "hello"},
+        )
+
+
+@pytest.mark.asyncio
+async def test_write_capability_routes_by_condition_maps_args_and_account() -> None:
+    mesh = ToolMesh([SideEffectProvider("composio")])
+    capability = Capability(
+        id="messaging.send",
+        name="Send message",
+        description="Send",
+        pack="connected",
+        tags=("messaging",),
+        read_only=False,
+        candidates=(
+            CapabilityCandidate(
+                provider="composio",
+                ref="composio:TELEGRAM_SEND_MESSAGE",
+                priority=10,
+                when={"platform": "telegram"},
+                argument_map={"target": "chat_id", "message": "text"},
+                passthrough_arguments=False,
+            ),
+            CapabilityCandidate(
+                provider="composio",
+                ref="composio:DISCORDBOT_CREATE_MESSAGE",
+                priority=10,
+                when={"platform": "discord"},
+                argument_map={"target": "channel_id", "message": "content"},
+                passthrough_arguments=False,
+            ),
+        ),
+    )
+    registry = CapabilityRegistry(mesh, [capability])
+    result = await registry.execute(
+        "messaging.send",
+        {
+            "platform": "discord",
+            "target": "chan-1",
+            "message": "hello",
+            "provider_noise": "drop-me",
+        },
+        account="work",
+        allow_side_effects=True,
+    )
+    assert result["selected"] == "composio:DISCORDBOT_CREATE_MESSAGE"
+    assert result["attempts"][0]["status"] == "skipped"
+    assert result["execution"]["data"]["arguments"] == {
+        "channel_id": "chan-1",
+        "content": "hello",
+    }
+    assert result["execution"]["data"]["account"] == "work"
+
+
+def test_default_capabilities_include_connected_plane() -> None:
+    from internet_hands.capability_packs import build_default_capabilities
+
+    capabilities = {item.id: item for item in build_default_capabilities()}
+    for capability_id in (
+        "browser.navigate",
+        "browser.task.status",
+        "automation.workflow",
+        "automation.workflow.status",
+        "messaging.send",
+        "code.execute",
+    ):
+        assert capability_id in capabilities
+    assert capabilities["messaging.send"].read_only is False
+    assert capabilities["messaging.send"].input_schema["required"] == [
+        "platform",
+        "target",
+        "message",
+    ]

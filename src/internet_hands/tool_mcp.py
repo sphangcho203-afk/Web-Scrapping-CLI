@@ -190,15 +190,19 @@ async def mesh_capability_execute(
     capability: str,
     arguments: dict[str, Any],
     provider_preference: str | None = None,
+    account: str | None = None,
+    allow_side_effects: bool = False,
     dry_run: bool = False,
     wait_seconds: int = 30,
     timeout_seconds: int = 60,
 ) -> dict[str, Any]:
-    """Execute a semantic capability using the best available read-only provider fallback."""
+    """Execute a semantic capability with explicit gating for side-effecting operations."""
     return await get_capability_registry().execute(
         capability,
         arguments,
         provider_preference=provider_preference,
+        account=account,
+        allow_side_effects=allow_side_effects,
         dry_run=dry_run,
         wait_seconds=wait_seconds,
         timeout_seconds=timeout_seconds,

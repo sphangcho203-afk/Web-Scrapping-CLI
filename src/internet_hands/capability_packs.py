@@ -15,6 +15,8 @@ class CapabilityCandidate:
     priority: int = 100
     argument_map: dict[str, str] = field(default_factory=dict)
     defaults: dict[str, Any] = field(default_factory=dict)
+    when: dict[str, Any] = field(default_factory=dict)
+    passthrough_arguments: bool = True
     note: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -30,6 +32,7 @@ class Capability:
     tags: tuple[str, ...]
     candidates: tuple[CapabilityCandidate, ...]
     read_only: bool = True
+    input_schema: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -39,6 +42,7 @@ class Capability:
             "pack": self.pack,
             "tags": list(self.tags),
             "read_only": self.read_only,
+            "input_schema": self.input_schema,
             "candidates": [candidate.to_dict() for candidate in self.candidates],
         }
 
@@ -127,11 +131,17 @@ class CapabilityRegistry:
         arguments: dict[str, Any],
         *,
         provider_preference: str | None = None,
+        account: str | None = None,
+        allow_side_effects: bool = False,
         dry_run: bool = False,
         wait_seconds: int = 30,
         timeout_seconds: int = 60,
     ) -> dict[str, Any]:
         capability = self._get(capability_id)
+        if not capability.read_only and not dry_run and not allow_side_effects:
+            raise PermissionError(
+                "side-effecting capability requires allow_side_effects=true or dry_run=true"
+            )
         candidates = sorted(capability.candidates, key=lambda item: item.priority)
         if provider_preference:
             preferred = [item for item in candidates if item.provider == provider_preference]
@@ -141,6 +151,16 @@ class CapabilityRegistry:
         attempts: list[dict[str, Any]] = []
         started = time.time()
         for candidate in candidates:
+            if not self._candidate_matches(arguments, candidate):
+                attempts.append(
+                    {
+                        "provider": candidate.provider,
+                        "ref": candidate.ref,
+                        "status": "skipped",
+                        "error": "candidate conditions did not match",
+                    }
+                )
+                continue
             try:
                 ref = await self._resolve_candidate(candidate)
                 descriptor = await self.mesh.describe(ref)
@@ -150,6 +170,7 @@ class CapabilityRegistry:
                 execution = await self.mesh.execute(
                     ref,
                     mapped,
+                    account=account,
                     wait_seconds=wait_seconds,
                     timeout_seconds=timeout_seconds,
                     dry_run=dry_run,
@@ -219,6 +240,12 @@ class CapabilityRegistry:
         raise LookupError("search returned no read-only tools")
 
     @staticmethod
+    def _candidate_matches(
+        arguments: dict[str, Any], candidate: CapabilityCandidate
+    ) -> bool:
+        return all(arguments.get(name) == value for name, value in candidate.when.items())
+
+    @staticmethod
     def _map_arguments(
         arguments: dict[str, Any], candidate: CapabilityCandidate
     ) -> dict[str, Any]:
@@ -227,11 +254,14 @@ class CapabilityRegistry:
             for source, target in candidate.argument_map.items():
                 if source in arguments:
                     mapped[target] = arguments[source]
+            if candidate.passthrough_arguments:
+                for name, value in arguments.items():
+                    if name not in candidate.argument_map and name not in candidate.when:
+                        mapped[name] = value
+        elif candidate.passthrough_arguments:
             for name, value in arguments.items():
-                if name not in candidate.argument_map:
+                if name not in candidate.when:
                     mapped[name] = value
-        else:
-            mapped.update(arguments)
         return mapped
 
 
@@ -490,5 +520,224 @@ def _mlbb_capabilities() -> list[Capability]:
     ]
 
 
+
+def _connected_capabilities() -> list[Capability]:
+    return [
+        Capability(
+            id="browser.navigate",
+            name="Browser navigation task",
+            description=(
+                "Run a natural-language browser task without exposing the underlying browser vendor."
+            ),
+            pack="connected",
+            tags=("browser", "automation", "navigate", "connected"),
+            read_only=False,
+            input_schema={
+                "type": "object",
+                "required": ["goal"],
+                "properties": {
+                    "goal": {"type": "string"},
+                    "url": {"type": "string"},
+                    "session_id": {"type": "string"},
+                    "secrets": {"type": "object"},
+                },
+            },
+            candidates=(
+                CapabilityCandidate(
+                    provider="composio",
+                    ref="composio:BROWSER_TOOL_CREATE_TASK",
+                    priority=10,
+                    argument_map={
+                        "goal": "task",
+                        "url": "startUrl",
+                        "session_id": "sessionId",
+                        "secrets": "secrets",
+                    },
+                    passthrough_arguments=False,
+                    note="Composio cloud browser task.",
+                ),
+            ),
+        ),
+        Capability(
+            id="browser.task.status",
+            name="Browser task status",
+            description="Inspect progress and results from a semantic browser task.",
+            pack="connected",
+            tags=("browser", "automation", "status", "connected"),
+            input_schema={
+                "type": "object",
+                "required": ["task_id"],
+                "properties": {
+                    "task_id": {"type": "string"},
+                    "last_step_seen": {"type": "integer"},
+                },
+            },
+            candidates=(
+                CapabilityCandidate(
+                    provider="composio",
+                    ref="composio:BROWSER_TOOL_WATCH_TASK",
+                    priority=10,
+                    argument_map={
+                        "task_id": "taskId",
+                        "last_step_seen": "lastStepSeen",
+                    },
+                    passthrough_arguments=False,
+                ),
+            ),
+        ),
+        Capability(
+            id="automation.workflow",
+            name="Workflow execution",
+            description="Execute an automation workflow without exposing n8n-specific field names.",
+            pack="connected",
+            tags=("automation", "workflow", "n8n", "connected"),
+            read_only=False,
+            input_schema={
+                "type": "object",
+                "required": ["workflow_id"],
+                "properties": {
+                    "workflow_id": {"type": "string"},
+                    "mode": {"enum": ["manual", "production"]},
+                    "inputs": {"type": "object"},
+                    "trigger": {"type": "string"},
+                },
+            },
+            candidates=(
+                CapabilityCandidate(
+                    provider="composio",
+                    ref="composio:CUSTOM_N8N_EXECUTE_WORKFLOW",
+                    priority=10,
+                    argument_map={
+                        "workflow_id": "workflowId",
+                        "mode": "executionMode",
+                        "inputs": "inputs",
+                        "trigger": "triggerNodeName",
+                    },
+                    defaults={"executionMode": "manual"},
+                    passthrough_arguments=False,
+                    note="Connected n8n workflow execution.",
+                ),
+            ),
+        ),
+        Capability(
+            id="automation.workflow.status",
+            name="Workflow execution status",
+            description="Inspect an automation workflow execution and optionally include node data.",
+            pack="connected",
+            tags=("automation", "workflow", "status", "n8n", "connected"),
+            input_schema={
+                "type": "object",
+                "required": ["workflow_id", "execution_id"],
+                "properties": {
+                    "workflow_id": {"type": "string"},
+                    "execution_id": {"type": "string"},
+                    "include_data": {"type": "boolean"},
+                    "node_names": {"type": "array", "items": {"type": "string"}},
+                    "truncate_data": {"type": "integer"},
+                },
+            },
+            candidates=(
+                CapabilityCandidate(
+                    provider="composio",
+                    ref="composio:CUSTOM_N8N_GET_WORKFLOW_EXECUTION",
+                    priority=10,
+                    argument_map={
+                        "workflow_id": "workflowId",
+                        "execution_id": "executionId",
+                        "include_data": "includeData",
+                        "node_names": "nodeNames",
+                        "truncate_data": "truncateData",
+                    },
+                    passthrough_arguments=False,
+                ),
+            ),
+        ),
+        Capability(
+            id="messaging.send",
+            name="Send connected message",
+            description="Send a message through a supported connected messaging backend.",
+            pack="connected",
+            tags=("messaging", "telegram", "discord", "send", "connected"),
+            read_only=False,
+            input_schema={
+                "type": "object",
+                "required": ["platform", "target", "message"],
+                "properties": {
+                    "platform": {"enum": ["telegram", "discord"]},
+                    "target": {"type": ["string", "integer"]},
+                    "message": {"type": "string"},
+                    "parse_mode": {"type": "string"},
+                    "silent": {"type": "boolean"},
+                    "reply_to_message_id": {"type": ["string", "integer"]},
+                },
+            },
+            candidates=(
+                CapabilityCandidate(
+                    provider="composio",
+                    ref="composio:TELEGRAM_SEND_MESSAGE",
+                    priority=10,
+                    when={"platform": "telegram"},
+                    argument_map={
+                        "target": "chat_id",
+                        "message": "text",
+                        "parse_mode": "parse_mode",
+                        "silent": "disable_notification",
+                        "reply_to_message_id": "reply_to_message_id",
+                    },
+                    passthrough_arguments=False,
+                ),
+                CapabilityCandidate(
+                    provider="composio",
+                    ref="composio:DISCORDBOT_CREATE_MESSAGE",
+                    priority=10,
+                    when={"platform": "discord"},
+                    argument_map={
+                        "target": "channel_id",
+                        "message": "content",
+                        "reply_to_message_id": "message_reference",
+                    },
+                    passthrough_arguments=False,
+                    note="reply_to_message_id should use a full message_reference for advanced replies.",
+                ),
+            ),
+        ),
+        Capability(
+            id="code.execute",
+            name="Isolated code execution",
+            description=(
+                "Execute a shell command in an isolated connected cloud sandbox."
+            ),
+            pack="connected",
+            tags=("code", "shell", "sandbox", "execute", "connected"),
+            read_only=False,
+            input_schema={
+                "type": "object",
+                "required": ["command"],
+                "properties": {
+                    "command": {"type": "string"},
+                    "timeout_seconds": {"type": "integer"},
+                    "background": {"type": "boolean"},
+                    "restart": {"type": "boolean"},
+                },
+            },
+            candidates=(
+                CapabilityCandidate(
+                    provider="composio",
+                    ref="composio:HIGGSFIELD_MCP_SANDBOX_EXEC",
+                    priority=10,
+                    argument_map={
+                        "command": "command",
+                        "timeout_seconds": "timeout_seconds",
+                        "background": "background",
+                        "restart": "restart",
+                    },
+                    passthrough_arguments=False,
+                    note="Ephemeral isolated Higgsfield Linux sandbox.",
+                ),
+            ),
+        ),
+    ]
+
+
 def build_default_capabilities() -> list[Capability]:
-    return [*_apify_capabilities(), *_mlbb_capabilities()]
+    return [*_apify_capabilities(), *_mlbb_capabilities(), *_connected_capabilities()]
