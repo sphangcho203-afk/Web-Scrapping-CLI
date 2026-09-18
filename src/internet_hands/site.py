@@ -14,6 +14,7 @@ WEB_ROOT = Path(__file__).resolve().parents[2] / "web"
 ASSET_MEDIA_TYPES = {
     "cognitive-foundation.css": "text/css",
     "app.js": "application/javascript",
+    "usage-intelligence.js": "application/javascript",
     "mark.svg": "image/svg+xml",
     "internet-hands-mark.webp": "image/webp",
     "internet-hands-logo.webp": "image/webp",
