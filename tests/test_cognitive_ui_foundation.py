@@ -34,19 +34,17 @@ def test_cognitive_foundation_exposes_canonical_page_primitives() -> None:
 
 
 def test_authenticated_shell_uses_cognitive_contract() -> None:
-    # command-os.js is the runtime owner of the authenticated shell. app.js still
-    # contains the compatibility renderer while routes are migrated incrementally.
-    shell = (WEB / "command-os.js").read_text(encoding="utf-8")
+    runtime = (WEB / "app.js").read_text(encoding="utf-8")
 
-    assert "cos-sidebar ih-sidebar sidebar" in shell
-    assert "cos-workspace workspace ih-workspace" in shell
-    assert "cos-topbar topbar ih-topbar" in shell
-    assert "cos-mobile-bottom ih-mobile-bottom mobile-bottom" in shell
+    assert "cos-sidebar ih-sidebar sidebar" in runtime
+    assert "cos-workspace workspace ih-workspace" in runtime
+    assert "cos-topbar topbar ih-topbar" in runtime
+    assert "cos-mobile-bottom ih-mobile-bottom mobile-bottom" in runtime
 
 
 def test_authenticated_routes_share_cognitive_page_contract() -> None:
     app = (WEB / "app.js").read_text(encoding="utf-8")
-    shell = (WEB / "command-os.js").read_text(encoding="utf-8")
+    shell = app
 
     assert 'page-head ih-page-header' in app
     assert 'ih-page-heading' in app
@@ -59,7 +57,7 @@ def test_authenticated_routes_share_cognitive_page_contract() -> None:
 
 
 def test_navigation_matches_product_information_architecture() -> None:
-    shell = (WEB / "command-os.js").read_text(encoding="utf-8")
+    shell = (WEB / "app.js").read_text(encoding="utf-8")
 
     for group in ("Build", "Observe", "Connect", "Account"):
         assert f"['{group}', [" in shell
@@ -92,8 +90,7 @@ def test_polish_and_brand_override_layers_are_retired() -> None:
     index = (WEB / "index.html").read_text(encoding="utf-8")
     site = SITE.read_text(encoding="utf-8")
     foundation = (WEB / "cognitive-foundation.css").read_text(encoding="utf-8")
-    product = (WEB / "product-ui.js").read_text(encoding="utf-8")
-    command = (WEB / "command-os.js").read_text(encoding="utf-8")
+    runtime = (WEB / "app.js").read_text(encoding="utf-8")
 
     for retired in (
         "command-os-polish.css",
@@ -105,9 +102,8 @@ def test_polish_and_brand_override_layers_are_retired() -> None:
         assert retired not in site
 
     assert "Merged public polish + exact brand identity" in foundation
-    assert 'ih-brand ih-logo-only' in product
-    assert 'cos-brand ih-logo-only' in command
-    assert "MutationObserver" not in command
+    assert 'ih-brand ih-logo-only' in runtime
+    assert 'cos-brand ih-logo-only' in runtime
 
 
 def test_public_mobile_navigation_owns_its_accessibility_state() -> None:
@@ -116,3 +112,43 @@ def test_public_mobile_navigation_owns_its_accessibility_state() -> None:
     assert "aria-controls" in app
     assert "aria-expanded" in app
     assert "syncNavState" in app
+
+
+def test_frontend_is_shipped_as_one_runtime_and_one_stylesheet() -> None:
+    index = (WEB / "index.html").read_text(encoding="utf-8")
+    site = SITE.read_text(encoding="utf-8")
+    runtime = (WEB / "app.js").read_text(encoding="utf-8")
+    stylesheet = (WEB / "cognitive-foundation.css").read_text(encoding="utf-8")
+
+    retired_assets = (
+        "app.css",
+        "product-ui.css",
+        "product-ui-extended.css",
+        "command-os.css",
+        "product-ui.js",
+        "product-ui-extended.js",
+        "command-os.js",
+    )
+    for retired in retired_assets:
+        assert f'/assets/{retired}' not in index
+        assert f'"{retired}":' not in site
+
+    assert index.count('<link rel="stylesheet"') == 1
+    assert index.count('<script src="/assets/') == 1
+    assert "Internet Hands unified browser runtime" in runtime
+    assert "Internet Hands unified Cognitive UI stylesheet" in stylesheet
+    assert "Product experience" in runtime
+    assert "Command workspace shell" in runtime
+
+
+def test_retired_frontend_asset_files_are_absent() -> None:
+    for retired in (
+        "app.css",
+        "product-ui.css",
+        "product-ui-extended.css",
+        "command-os.css",
+        "product-ui.js",
+        "product-ui-extended.js",
+        "command-os.js",
+    ):
+        assert not (WEB / retired).exists(), f"retired frontend layer still exists: {retired}"

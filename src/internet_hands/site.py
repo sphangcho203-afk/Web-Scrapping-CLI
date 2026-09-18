@@ -12,19 +12,12 @@ WEB_ROOT = Path(__file__).resolve().parents[2] / "web"
 # Keep web assets explicit: the console can evolve without exposing arbitrary files
 # from the repository through /assets.
 ASSET_MEDIA_TYPES = {
-    "app.css": "text/css",
-    "product-ui.css": "text/css",
-    "product-ui-extended.css": "text/css",
     "editorial-ui.css": "text/css",
     "editorial-fixes.css": "text/css",
-    "command-os.css": "text/css",
     "cognitive-foundation.css": "text/css",
     "app.js": "application/javascript",
-    "product-ui.js": "application/javascript",
-    "product-ui-extended.js": "application/javascript",
     "editorial-ui.js": "application/javascript",
     "legacy-controls.js": "application/javascript",
-    "command-os.js": "application/javascript",
     "security.js": "application/javascript",
     "recovery.js": "application/javascript",
     "auth-nav.js": "application/javascript",

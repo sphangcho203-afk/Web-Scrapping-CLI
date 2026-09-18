@@ -1,3 +1,9 @@
+/* Internet Hands unified browser runtime.
+ * Execution order intentionally preserves the former app -> product -> extended -> command stack
+ * while shipping one browser asset. New work should edit this file directly instead of adding override scripts.
+ */
+
+/* === Core application ==================================================== */
 const app = document.getElementById('app');
 const state = { me: null, plans: null, sessionChecked: false };
 const $ = (s, r = document) => r.querySelector(s);
@@ -279,3 +285,715 @@ async function renderRoute(){window.scrollTo(0,0);const p=location.pathname;try{
 document.addEventListener('click',e=>{const a=e.target.closest('[data-link]');if(!a||e.metaKey||e.ctrlKey||e.shiftKey)return;e.preventDefault();go(a.getAttribute('href'));});
 window.addEventListener('popstate',renderRoute);
 renderRoute();
+
+
+/* === Product experience ================================================= */
+/* Internet Hands product UI layer.
+ * Keeps the existing control-plane/auth/billing implementation intact while
+ * replacing the public product story and the primary dashboard experience.
+ */
+(() => {
+  const providerBadge = (mark, brand, detail) => `
+    <div class="ih-provider">
+      <span class="ih-provider-mark">${platformMark(mark, brand)}</span>
+      <span><b>${esc(brand)}</b><small>${esc(detail)}</small></span>
+    </div>`;
+
+  const statusDot = (tone = 'ok') => `<i class="ih-status-dot ${tone}"></i>`;
+
+  brand = function brandV2() {
+    return `<a class="brand ih-brand ih-logo-only" data-link href="/" aria-label="Internet Hands home">
+      <img class="ih-brand-art" src="/assets/internet-hands-logo.webp" alt="Internet Hands">
+    </a>`;
+  };
+
+  publicShell = function publicShellV2(content) {
+    const authenticated = !!state.me?.user?.email_verified;
+    const primary = authenticated
+      ? `<a class="btn primary ih-nav-cta" data-link href="/dashboard">Open console ${icon('arrow')}</a>`
+      : `<a class="btn primary ih-nav-cta" data-link href="/signup">Start free ${icon('arrow')}</a>`;
+    const secondary = authenticated
+      ? ''
+      : `<a class="ih-nav-signin" data-link href="/login">Sign in</a>`;
+
+    app.innerHTML = `<div class="ih-public-shell">
+      <header class="site-header ih-site-header">
+        <nav class="site-nav container ih-site-nav">
+          ${brand()}
+          <div class="nav-links ih-nav-links">
+            <a data-link href="/docs/capabilities">Platform</a>
+            <a data-link href="/docs">Docs</a>
+            <a data-link href="/pricing">Pricing</a>
+            <a data-link href="/status"><span class="ih-nav-live">${statusDot()}Status</span></a>
+          </div>
+          <div class="nav-actions ih-nav-actions">${secondary}${primary}</div>
+          <button class="icon-btn nav-toggle" data-nav-toggle aria-label="Open navigation">${icon('menu')}</button>
+        </nav>
+        <div class="mobile-menu" data-mobile-menu>
+          <a data-link href="/docs/capabilities">Platform</a>
+          <a data-link href="/docs">Documentation</a>
+          <a data-link href="/pricing">Pricing</a>
+          <a data-link href="/status">Status</a>
+          ${authenticated ? '<a data-link href="/dashboard">Open console</a>' : '<a data-link href="/login">Sign in</a><a data-link href="/signup">Start free</a>'}
+        </div>
+      </header>
+      ${content}
+      <footer class="footer ih-footer">
+        <div class="container ih-footer-grid">
+          <div class="ih-footer-brand">${brand()}<p>One operational surface for agents that need the live internet.</p></div>
+          <div><b>Operate</b><a data-link href="/docs/capabilities">Capabilities</a><a data-link href="/docs/monitoring">Monitoring</a><a data-link href="/status">System status</a></div>
+          <div><b>Build</b><a data-link href="/docs/quickstart">Quickstart</a><a data-link href="/docs/mcp">MCP gateway</a><a href="https://github.com/sphangcho203-afk/Web-Scrapping-CLI" target="_blank" rel="noreferrer">GitHub</a></div>
+          <div class="ih-footer-meta">Internet Hands<br><span>Explicit · scoped · auditable</span></div>
+        </div>
+      </footer>
+    </div>`;
+    bindCommon();
+  };
+
+  const demoRun = () => `
+    <div class="ih-run-demo" aria-label="Internet Hands execution preview">
+      <div class="ih-run-demo-head">
+        <div><span class="ih-window-dot"></span><span class="ih-window-dot"></span><span class="ih-window-dot"></span></div>
+        <span>${statusDot()} LIVE EXECUTION</span>
+        <em>run_7f2c91</em>
+      </div>
+      <div class="ih-demo-command">
+        <span>${icon('activity')}</span>
+        <p>Research <b>acme.dev</b>, map the product, extract pricing and return evidence.</p>
+        <kbd>↵</kbd>
+      </div>
+      <div class="ih-demo-body">
+        <div class="ih-demo-timeline">
+          ${[
+            ['Route','Intent matched','18 ms'],
+            ['Discover','12 sources found','142 ms'],
+            ['Browse','Dynamic page rendered','1.8 s'],
+            ['Extract','Structured fields captured','326 ms'],
+            ['Evidence','7 citations retained','94 ms']
+          ].map((x,i)=>`<div class="ih-demo-step ${i<5?'done':''}"><span>${statusDot()}</span><div><b>${x[0]}</b><small>${x[1]}</small></div><em>${x[2]}</em></div>`).join('')}
+        </div>
+        <div class="ih-demo-inspector">
+          <div class="ih-demo-tabs"><b>Overview</b><span>Data</span><span>Evidence</span><span>Raw</span></div>
+          <div class="ih-demo-result">
+            <span>RESULT</span>
+            <h3>Pricing model extracted</h3>
+            <p>3 public plans · 14 product links · 7 evidence records</p>
+          </div>
+          <div class="ih-demo-metrics"><span><small>Pages</small><b>18</b></span><span><small>Latency</small><b>2.4s</b></span><span><small>Credits</small><b>11</b></span></div>
+          <div class="ih-evidence-row"><i>01</i><span><b>acme.dev/pricing</b><small>HTML · captured now</small></span><em>98%</em></div>
+          <div class="ih-evidence-row"><i>02</i><span><b>docs.acme.dev</b><small>Docs · structured</small></span><em>94%</em></div>
+        </div>
+      </div>
+    </div>`;
+
+  renderHome = async function renderHomeV2() {
+    publicShell(`<main class="ih-home">
+      <section class="ih-hero">
+        <div class="container ih-hero-grid">
+          <div class="ih-hero-copy">
+            <h1>The internet,<br><span>as an executable workspace.</span></h1>
+            <p>Search it. Browse it. Extract from it. Monitor it. Route into APIs and remote tools. Internet Hands gives agents one controlled surface for real internet work.</p>
+            <div class="ih-hero-actions">
+              <a class="btn primary large" data-link href="${state.me?.user?.email_verified ? '/dashboard' : '/signup'}">Open command center ${icon('arrow')}</a>
+              <a class="ih-text-link" data-link href="/docs/quickstart">See how it works ${icon('arrow')}</a>
+            </div>
+            <div class="ih-hero-proof">
+              <span>${statusDot()} Gateway online</span><span>Evidence retained</span><span>Scoped execution</span>
+            </div>
+          </div>
+          ${demoRun()}
+        </div>
+      </section>
+
+      <section class="ih-client-band">
+        <div class="container">
+          <div class="ih-band-label"><span>BUILT TO SIT BEHIND THE AGENTS YOU ALREADY USE</span><i></i></div>
+          <div class="ih-provider-row">
+            ${providerBadge('openai','OpenAI','ChatGPT')}
+            ${providerBadge('anthropic','Anthropic','Claude')}
+            ${providerBadge('xai','xAI','Grok')}
+            ${providerBadge('github','GitHub','Automation')}
+            ${providerBadge('mcp','MCP','Any compatible client')}
+          </div>
+        </div>
+      </section>
+
+      <section class="ih-section ih-operation-section">
+        <div class="container">
+          <div class="ih-section-lead">
+            <h2>One instruction becomes a traceable operation.</h2>
+            <p>Instead of exposing a wall of tools, Internet Hands discovers the capability, executes through the right provider, and keeps the run inspectable.</p>
+          </div>
+          <div class="ih-operation-grid">
+            <article class="ih-operation-primary">
+              <div class="ih-panel-head"><span>RUN / 001842</span><em>${statusDot()} complete</em></div>
+              <h3>Map every public pricing signal for a target company.</h3>
+              <div class="ih-operation-flow">
+                ${['Intent','Route','Browser','Extract','Validate','Evidence'].map((x,i)=>`<span><i>${String(i+1).padStart(2,'0')}</i><b>${x}</b></span>`).join('')}
+              </div>
+              <div class="ih-operation-footer"><span>6 execution stages</span><span>3 providers</span><span>12 credits</span><b>2.81 s</b></div>
+            </article>
+            <div class="ih-operation-stack">
+              <article><span>SEARCH + FETCH</span><h3>Public web intelligence</h3><p>Discover, fetch, crawl and preserve provenance instead of returning a dead blob of text.</p></article>
+              <article><span>BROWSER</span><h3>Dynamic web execution</h3><p>Use controlled Chromium sessions for pages that need a real browser, state, clicks or extraction.</p></article>
+              <article><span>TOOL MESH</span><h3>APIs and remote MCPs</h3><p>Route to external capabilities without loading every provider schema into the model at once.</p></article>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="ih-section ih-evidence-section">
+        <div class="container ih-evidence-grid">
+          <div class="ih-section-lead">
+            <h2>Power means nothing if the result is impossible to inspect.</h2>
+            <p>Every useful run should leave behind enough context to understand what happened: route, provider, latency, cost, status and evidence.</p>
+            <a class="ih-text-link" data-link href="/docs/capabilities">Explore the capability fabric ${icon('arrow')}</a>
+          </div>
+          <div class="ih-ledger">
+            <div class="ih-ledger-head"><span>LIVE RUN LEDGER</span><span>PROVIDER</span><span>STATE</span><span>LATENCY</span></div>
+            ${[
+              ['req_8ca5f2','web.search','ok','184 ms'],
+              ['req_63d1a0','browser.open','ok','1.2 s'],
+              ['req_a82e19','mesh.execute','ok','426 ms'],
+              ['req_1ed34b','extract.structured','ok','307 ms']
+            ].map(x=>`<div class="ih-ledger-row"><code>${x[0]}</code><span>${x[1]}</span><em>${statusDot()} ${x[2]}</em><b>${x[3]}</b></div>`).join('')}
+          </div>
+        </div>
+      </section>
+
+      <section class="ih-final">
+        <div class="container ih-final-inner">
+          <div><h2>Give the agent reach.<br>Keep the operation under control.</h2><p>One endpoint. Real internet capability. Runs you can actually inspect.</p></div>
+          <a class="btn primary large" data-link href="${state.me?.user?.email_verified ? '/dashboard' : '/signup'}">Launch Internet Hands ${icon('arrow')}</a>
+        </div>
+      </section>
+    </main>`);
+  };
+
+  const dashboardNav = [
+    ['Operate', [
+      ['overview','overview','Command center'],
+      ['usage','activity','Runs'],
+      ['monitors','monitor','Monitors']
+    ]],
+    ['Connect', [
+      ['integrations','plug','Integrations'],
+      ['api-keys','key','API keys']
+    ]],
+    ['Account', [
+      ['wallet','wallet','Credits'],
+      ['billing','wallet','Billing'],
+      ['settings','settings','Settings']
+    ]]
+  ];
+
+  dashboardShell = function dashboardShellV2(active, content) {
+    const u = state.me?.user || {};
+    const current = dashboardNav.flatMap(x=>x[1]).find(x=>x[0]===active);
+    const currentTitle = current?.[2] || 'Console';
+    app.innerHTML = `<div class="app-shell ih-app-shell">
+      <aside class="sidebar ih-sidebar">
+        <div class="ih-sidebar-top">${brand()}<span class="ih-console-tag">CONTROL PLANE</span></div>
+        <nav>
+          ${dashboardNav.map(([group,items])=>`<div class="nav-group"><span>${group}</span>${items.map(([slug,ico,title])=>`<a class="${slug===active?'active':''}" data-link href="/dashboard${slug==='overview'?'':`/${slug}`}">${icon(ico)}<b>${title}</b>${slug==='overview'?'<kbd>⌘ K</kbd>':''}</a>`).join('')}</div>`).join('')}
+        </nav>
+        <div class="ih-sidebar-system">
+          <div><span>${statusDot()}</span><b>Internet Hands</b><small>Gateway operational</small></div>
+          <a data-link href="/status">View status</a>
+        </div>
+        <div class="sidebar-foot"><a data-link href="/docs">${icon('docs')} Docs</a><button id="logout">Sign out</button></div>
+      </aside>
+      <section class="workspace ih-workspace">
+        <header class="topbar ih-topbar">
+          <div class="ih-topbar-title"><button class="icon-btn mobile-sidebar" data-sidebar-toggle>${icon('menu')}</button><span><small>INTERNET HANDS</small><b>${esc(currentTitle)}</b></span></div>
+          <div class="top-actions ih-top-actions">
+            <button class="ih-new-run" data-new-run>${icon('activity')} New run <kbd>N</kbd></button>
+            <span class="verified-chip">${statusDot()} Live</span>
+            <button class="account-button"><i>${esc((u.display_name||u.email||'I')[0].toUpperCase())}</i><b>${esc(u.display_name||u.email||'Account')}</b></button>
+          </div>
+        </header>
+        <main class="content ih-content">${content}</main>
+      </section>
+      <nav class="mobile-bottom ih-mobile-bottom">
+        ${[
+          ['overview','overview','Command'],
+          ['usage','activity','Runs'],
+          ['monitors','monitor','Watch'],
+          ['integrations','plug','Connect'],
+          ['more','more','More']
+        ].map(([slug,ico,title])=>`<a ${slug==='more'?'data-more':'data-link'} href="${slug==='more'?'#':`/dashboard${slug==='overview'?'':`/${slug}`}`}" class="${slug===active?'active':''}">${icon(ico)}<span>${title}</span></a>`).join('')}
+      </nav>
+      <div class="more-sheet" data-more-sheet><i></i><b>More</b>
+        ${dashboardNav.flatMap(x=>x[1]).filter(x=>!['overview','usage','monitors','integrations'].includes(x[0])).map(([slug,ico,title])=>`<a data-link href="/dashboard/${slug}">${icon(ico)}${title}</a>`).join('')}
+        <a data-link href="/docs">${icon('docs')}Documentation</a><button id="mobile-logout">Sign out</button>
+      </div>
+      <div class="sheet-backdrop" data-sheet-backdrop></div>
+    </div>`;
+    bindCommon();
+    $('[data-sidebar-toggle]')?.addEventListener('click',()=>$('.sidebar')?.classList.toggle('open'));
+    $('[data-more]')?.addEventListener('click',e=>{e.preventDefault();$('[data-more-sheet]')?.classList.add('open');$('[data-sheet-backdrop]')?.classList.add('open');});
+    $('[data-sheet-backdrop]')?.addEventListener('click',()=>{$('[data-more-sheet]')?.classList.remove('open');$('[data-sheet-backdrop]')?.classList.remove('open');});
+    $('[data-new-run]')?.addEventListener('click',()=>{
+      if(location.pathname!=='/dashboard') return go('/dashboard');
+      $('#ih-run-input')?.focus();
+    });
+    const logout = async()=>{await api('/api/auth/logout',{method:'POST'});state.me=null;go('/');};
+    $('#logout')?.addEventListener('click',logout);
+    $('#mobile-logout')?.addEventListener('click',logout);
+  };
+
+  const runStatus = status => ['ok','accepted'].includes(String(status||'').toLowerCase()) ? 'ok' : 'warn';
+  const runLabel = e => (e.tool_ref || 'Internet operation').replace(/^.*?:/,'');
+
+  function openRunInspector(event) {
+    const wrap = modal(`<div class="ih-run-modal">
+      <div class="modal-head"><span><span class="overline">RUN INSPECTOR</span><h2>${esc(runLabel(event))}</h2></span><button data-close aria-label="Close">×</button></div>
+      <div class="ih-inspector-status"><span>${statusDot(runStatus(event.status))}<b>${esc(event.status||'unknown')}</b></span><code>${esc(event.request_id||'No request id')}</code></div>
+      <div class="ih-inspector-grid">
+        <div><small>Provider</small><b>${esc(event.provider||'—')}</b></div>
+        <div><small>Credits</small><b>${fmt(event.credits_charged||0)}</b></div>
+        <div><small>Latency</small><b>${event.latency_ms==null?'—':`${fmt(event.latency_ms)} ms`}</b></div>
+        <div><small>Created</small><b>${esc(when(event.created_at))}</b></div>
+      </div>
+      <div class="ih-inspector-section"><span>EXECUTION REFERENCE</span><div class="ih-code-line"><code>${esc(event.tool_ref||'—')}</code><button class="btn small" data-copy="${esc(event.request_id||'')}">${icon('copy')} Copy ID</button></div></div>
+      <div class="ih-inspector-note"><b>Why this view matters</b><p>This run comes from your real metered request ledger. A future web-run endpoint can attach payload, browser trace and evidence to this same inspector without changing the information architecture.</p></div>
+    </div>`, true);
+    bindCommon();
+    return wrap;
+  }
+
+  function bindRunComposer() {
+    const form = $('#ih-run-form');
+    if (!form) return;
+    $$('[data-run-example]').forEach(b=>b.addEventListener('click',()=>{
+      const input = $('#ih-run-input');
+      input.value = b.dataset.runExample;
+      input.focus();
+    }));
+    form.addEventListener('submit',e=>{
+      e.preventDefault();
+      const input = $('#ih-run-input');
+      const value = input.value.trim();
+      if(!value) return input.focus();
+      const brief = `mesh_route(${JSON.stringify(value)})`;
+      const target = $('#ih-preflight');
+      target.innerHTML = `<div class="ih-preflight-card">
+        <div><span>${statusDot()} RUN READY</span><h3>${esc(value)}</h3><p>The current web control plane does not expose direct execution yet. Run this intent through your connected MCP client or scoped API key; the request will appear in Runs automatically.</p></div>
+        <div class="ih-preflight-actions"><button class="btn primary" data-copy="${esc(brief)}">${icon('copy')} Copy MCP intent</button><a class="btn" data-link href="/dashboard/integrations">Open integrations</a></div>
+      </div>`;
+      bindCommon();
+      target.scrollIntoView({behavior:'smooth',block:'nearest'});
+    });
+  }
+
+  dashOverview = async function dashOverviewV2() {
+    const [d, usageData] = await Promise.all([
+      api('/api/dashboard'),
+      api('/api/usage?limit=8').catch(()=>({events:[]}))
+    ]);
+    const a=d.account||{},u=d.usage||{},events=usageData.events||[];
+    const credits=Number(a.monthly_credits||0)+Number(a.purchased_credits||0);
+    const health=Number(u.success_rate??100);
+    dashboardShell('overview',`
+      <section class="ih-command-head">
+        <div><span>COMMAND CENTER</span><h1>What should Internet Hands do?</h1><p>Describe the outcome. The execution fabric handles capability discovery, routing and metering behind the boundary.</p></div>
+        <div class="ih-command-health"><span>${statusDot()} Gateway live</span><b>${health.toFixed(1)}%</b><small>30-day success</small></div>
+      </section>
+
+      <section class="ih-run-composer">
+        <form id="ih-run-form">
+          <div class="ih-run-input-wrap">${icon('activity')}<textarea id="ih-run-input" rows="3" placeholder="Research a company, inspect a site, extract structured data, monitor a target…"></textarea><button class="btn primary" type="submit">Prepare run ${icon('arrow')}</button></div>
+          <div class="ih-run-hints"><span>Try</span><button type="button" data-run-example="Research this URL and return the key claims with evidence">Research a URL</button><button type="button" data-run-example="Inspect this site and map its public API surface">Map an API</button><button type="button" data-run-example="Extract the product catalog into structured data">Extract data</button></div>
+        </form>
+        <div id="ih-preflight"></div>
+      </section>
+
+      <section class="ih-command-stats">
+        <div><span>AVAILABLE CREDITS</span><b>${fmt(credits)}</b><small>${fmt(a.monthly_credits)} monthly · ${fmt(a.purchased_credits)} rollover</small></div>
+        <div><span>REQUESTS · 24H</span><b>${fmt(u.calls_24h)}</b><small>${fmt(u.calls_30d)} in 30 days</small></div>
+        <div><span>AVG LATENCY</span><b>${fmt(u.avg_latency_ms)}<em> ms</em></b><small>Metered execution</small></div>
+        <div><span>MONITOR SLOTS</span><b>${fmt(a.monitor_limit)}</b><small>Plan allowance</small></div>
+      </section>
+
+      <section class="ih-command-grid">
+        <article class="ih-runs-panel">
+          <header><div><span>RECENT RUNS</span><h2>Execution ledger</h2></div><a data-link href="/dashboard/usage">View all ${icon('arrow')}</a></header>
+          <div class="ih-run-list">
+            ${events.length ? events.map((e,i)=>`<button class="ih-run-row" data-run-index="${i}"><span>${statusDot(runStatus(e.status))}</span><div><b>${esc(runLabel(e))}</b><small>${esc(e.provider||'Provider pending')} · ${esc(when(e.created_at))}</small></div><code>${esc((e.request_id||'run').slice(0,16))}</code><em>${e.latency_ms==null?'—':`${fmt(e.latency_ms)} ms`}</em>${icon('arrow')}</button>`).join('') : `<div class="ih-empty-run"><span>${icon('activity')}</span><div><b>No runs yet</b><p>Connect an agent and execute your first internet task. Its real request trace will appear here.</p></div><a class="btn" data-link href="/dashboard/integrations">Connect client</a></div>`}
+          </div>
+        </article>
+        <aside class="ih-system-panel">
+          <header><span>SYSTEM</span><h2>Capability fabric</h2></header>
+          ${[
+            ['Web intelligence','Search · fetch · crawl','Online'],
+            ['Browser computers','Chromium sessions','Ready'],
+            ['Tool mesh','APIs · remote MCP','Ready'],
+            ['Monitoring','Web · API · MCP','Online']
+          ].map(x=>`<div class="ih-system-row"><span>${statusDot()}</span><div><b>${x[0]}</b><small>${x[1]}</small></div><em>${x[2]}</em></div>`).join('')}
+          <a class="ih-system-link" data-link href="/docs/capabilities">Inspect capabilities ${icon('arrow')}</a>
+        </aside>
+      </section>`);
+    bindRunComposer();
+    $$('[data-run-index]').forEach(b=>b.addEventListener('click',()=>openRunInspector(events[Number(b.dataset.runIndex)])));
+  };
+
+  dashUsage = async function dashRunsV2() {
+    const d=await api('/api/usage?limit=250'),events=d.events||[];
+    const credits=events.reduce((s,x)=>s+Number(x.credits_charged||0),0);
+    const success=events.length ? events.filter(x=>['ok','accepted'].includes(String(x.status).toLowerCase())).length/events.length*100 : 100;
+    const latency=events.map(x=>Number(x.latency_ms)).filter(Number.isFinite).sort((a,b)=>a-b);
+    const p95=latency.length ? latency[Math.min(latency.length-1,Math.floor(latency.length*.95))] : 0;
+    dashboardShell('usage',`
+      <section class="ih-runs-head"><div><span>RUNS</span><h1>Every internet operation, traceable.</h1><p>Requests, providers, status, credits and latency from the real metered execution ledger.</p></div><button class="btn primary" data-new-run-inline>${icon('activity')} New run</button></section>
+      <section class="ih-runs-summary"><div><span>RUNS LOADED</span><b>${fmt(events.length)}</b></div><div><span>SUCCESS</span><b>${success.toFixed(1)}%</b></div><div><span>CREDITS</span><b>${fmt(credits)}</b></div><div><span>P95 LATENCY</span><b>${fmt(p95)} <small>ms</small></b></div></section>
+      <section class="ih-run-table-wrap">
+        <div class="ih-run-table-head"><span>STATE</span><span>RUN</span><span>PROVIDER</span><span>CREDITS</span><span>LATENCY</span><span>TIME</span><span></span></div>
+        ${events.length ? events.map((e,i)=>`<button class="ih-run-table-row" data-run-index="${i}"><span>${statusDot(runStatus(e.status))}<b>${esc(e.status||'unknown')}</b></span><span><b>${esc(runLabel(e))}</b><code>${esc((e.request_id||'—').slice(0,22))}</code></span><span>${esc(e.provider||'—')}</span><span>${fmt(e.credits_charged||0)}</span><span>${e.latency_ms==null?'—':`${fmt(e.latency_ms)} ms`}</span><span>${esc(when(e.created_at))}</span><span>${icon('arrow')}</span></button>`).join('') : `<div class="ih-empty-run large"><span>${icon('activity')}</span><div><b>Your run ledger is empty</b><p>Requests executed through your connected clients appear here automatically.</p></div><a class="btn primary" data-link href="/dashboard/integrations">Connect a client</a></div>`}
+      </section>`);
+    $('[data-new-run-inline]')?.addEventListener('click',()=>go('/dashboard'));
+    $$('[data-run-index]').forEach(b=>b.addEventListener('click',()=>openRunInspector(events[Number(b.dataset.runIndex)])));
+  };
+
+  // Re-render the current route now that the productized renderers are installed.
+  renderRoute();
+})();
+
+
+/* === Extended authenticated surfaces ==================================== */
+/* Internet Hands extended product UI.
+ * Second-stage presentation layer for the remaining control-plane surfaces.
+ * Reuses the existing API/security/billing handlers instead of duplicating backend logic.
+ */
+(() => {
+  const dot = (tone='ok') => `<i class="ihx-dot ${tone}"></i>`;
+  const headline = (kicker, title, body, action='') => `<header class="ihx-page-head"><div><span>${kicker}</span><h1>${title}</h1><p>${body}</p></div>${action}</header>`;
+  const empty = (ico,title,body,action='') => `<div class="ihx-empty">${icon(ico)}<div><b>${title}</b><p>${body}</p></div>${action}</div>`;
+  const clientMark = (mark, brand) => `<span class="ihx-client-mark ${mark}">${platformMark(mark,brand)}</span>`;
+
+  authShell = function authShellV3(title, sub, content, story='Infrastructure for agents that need reach.') {
+    const isVerify = /verify|two-factor|email/i.test(title);
+    app.innerHTML = `<main class="auth-layout ihx-auth-layout">
+      <section class="auth-story ihx-auth-story">
+        <div class="ihx-auth-top">${brand()}<span>${dot()} CONTROL PLANE ONLINE</span></div>
+        <div class="ihx-auth-copy">
+          <span>INTERNET HANDS / SECURE ACCESS</span>
+          <h1>${esc(story)}</h1>
+          <p>Identity, permissions, execution and evidence stay inside one auditable boundary.</p>
+        </div>
+        <div class="ihx-auth-console">
+          <div class="ihx-auth-console-head"><span>${dot()} AUTHENTICATED EDGE</span><code>/mcp</code></div>
+          <div class="ihx-auth-route"><span>Agent</span><i></i><strong><img src="/assets/mark.svg" alt="">IH</strong><i></i><span>Internet</span></div>
+          <div class="ihx-auth-console-foot"><span>${icon('shield')} Verified identity</span><span>${icon('key')} Scoped access</span><span>${icon('activity')} Request ledger</span></div>
+        </div>
+      </section>
+      <section class="auth-main ihx-auth-main">
+        <div class="auth-card ihx-auth-card">
+          <div class="auth-mobile-brand">${brand()}</div>
+          <header><span class="ihx-auth-kicker">${isVerify?'SECURITY CHECK':'WORKSPACE ACCESS'}</span><h2>${title}</h2><p>${sub}</p></header>
+          ${content}
+          <footer class="ihx-auth-foot">${icon('shield')} Encrypted session · server-side verification · auditable access</footer>
+        </div>
+      </section>
+    </main>`;
+    bindCommon();
+  };
+
+  dashIntegrations = async function dashIntegrationsV3() {
+    const endpoint = `${location.origin}/mcp`;
+    const clients = [
+      {mark:'openai',brand:'OpenAI',name:'ChatGPT',mode:'OAuth MCP',desc:'Give ChatGPT a stable remote MCP endpoint with explicit scopes.',steps:['Copy the permanent endpoint.','Add it as a remote/custom MCP server.','Approve requested scopes and run a public-web test.']},
+      {mark:'anthropic',brand:'Anthropic',name:'Claude',mode:'OAuth MCP',desc:'Connect Claude through Streamable HTTP and browser authorization.',steps:['Copy the permanent endpoint.','Add it under Claude integrations.','Complete OAuth consent and test the connection.']},
+      {mark:'xai',brand:'xAI',name:'Grok',mode:'Scoped key',desc:'Use a server-held bearer key when an interactive OAuth flow is not available.',steps:['Create a scoped Internet Hands key.','Use the MCP endpoint as your tool gateway.','Send the key as a Bearer token.']},
+      {mark:'hermes',brand:'Nous Research',name:'Hermes Agent',mode:'MCP / key',desc:'Register the same gateway in self-hosted agent runtimes.',steps:['Choose OAuth for user sessions or a scoped key for automation.','Register the endpoint in Hermes.','Run capability discovery before execution.']},
+      {mark:'mcp',brand:'Model Context Protocol',name:'Generic MCP client',mode:'OAuth MCP',desc:'Any compatible Streamable HTTP client can use the same gateway.',steps:['Register the endpoint.','Follow protected-resource discovery.','Authorize scopes and test mesh_route.']},
+      {mark:'api',brand:'HTTP API',name:'Direct automation',mode:'Bearer key',desc:'Scripts, CI and servers can use scoped credentials directly.',steps:['Create an API key.','Send it through Authorization: Bearer.','Keep one key per integration for clean revocation.']}
+    ];
+    dashboardShell('integrations',`
+      ${headline('CONNECTION FABRIC','One gateway. Every client.','Connect the tools you already use without duplicating provider credentials or changing the endpoint.',`<button class="btn primary" data-copy="${esc(endpoint)}">${icon('copy')} Copy MCP endpoint</button>`)}
+      <section class="ihx-endpoint-hero">
+        <div><span>${dot()} PERMANENT ENDPOINT</span><h2>${esc(endpoint)}</h2><p>OAuth discovery, scoped access and metered execution live behind this address.</p></div>
+        <div class="ihx-endpoint-meta"><span><small>Transport</small><b>Streamable HTTP</b></span><span><small>Identity</small><b>OAuth / key</b></span><span><small>State</small><b>Operational</b></span></div>
+      </section>
+      <section class="ihx-connection-modes">
+        <article><span>${icon('shield')}</span><div><small>INTERACTIVE CLIENTS</small><h3>OAuth MCP</h3><p>Consent + PKCE + short-lived bearer tokens.</p></div><a data-link href="/docs/oauth">OAuth guide ${icon('arrow')}</a></article>
+        <article><span>${icon('key')}</span><div><small>AUTOMATION</small><h3>Scoped API keys</h3><p>Independent credentials for scripts, CI and servers.</p></div><a data-link href="/dashboard/api-keys">Manage keys ${icon('arrow')}</a></article>
+      </section>
+      <section class="ihx-catalog">
+        <header><div><span>CLIENT CATALOG</span><h2>Your existing stack, connected properly.</h2></div><p>No raw provider-name wall. Each integration keeps its identity, mode and exact setup path.</p></header>
+        <div class="ihx-client-grid">
+          ${clients.map((x,i)=>`<article class="ihx-client-card" data-client-card>
+            <button class="ihx-client-main" data-client-toggle aria-expanded="false">
+              ${clientMark(x.mark,x.brand)}
+              <span class="ihx-client-copy"><small>${esc(x.brand)}</small><b>${esc(x.name)}</b><p>${esc(x.desc)}</p></span>
+              <span class="ihx-client-mode">${esc(x.mode)}</span>${icon('arrow')}
+            </button>
+            <div class="ihx-client-detail" hidden>
+              <ol>${x.steps.map((step,n)=>`<li><i>${String(n+1).padStart(2,'0')}</i><span>${esc(step)}</span></li>`).join('')}</ol>
+              <div class="ihx-client-code"><code>${esc(x.mode.includes('key')||x.mode.includes('Bearer')?`Authorization: Bearer ih_live_…\nEndpoint: ${endpoint}`:endpoint)}</code><button data-copy="${esc(x.mode.includes('key')||x.mode.includes('Bearer')?`Authorization: Bearer ih_live_…\nEndpoint: ${endpoint}`:endpoint)}">${icon('copy')} Copy</button></div>
+            </div>
+          </article>`).join('')}
+        </div>
+      </section>`);
+    bindCommon();
+    $$('[data-client-toggle]').forEach(b=>b.addEventListener('click',()=>{
+      const card=b.closest('[data-client-card]'), detail=card.querySelector('.ihx-client-detail'), open=detail.hidden;
+      detail.hidden=!open; b.setAttribute('aria-expanded',String(open)); card.classList.toggle('open',open);
+    }));
+  };
+
+  dashKeys = async function dashKeysV3() {
+    const d=await api('/api/api-keys'), keys=d.keys||[], active=keys.filter(x=>!x.revoked_at).length;
+    dashboardShell('api-keys',`
+      ${headline('ACCESS CONTROL','API keys','Separate credentials by integration. Keep scopes narrow, rotate cleanly and never expose raw secrets twice.',`<button class="btn primary" id="create-key">${icon('key')} Create key</button>`)}
+      <section class="ihx-key-summary"><div><span>${icon('shield')}</span><small>ACTIVE KEYS</small><b>${fmt(active)}</b><p>${fmt(keys.length-active)} revoked</p></div><div><span>${icon('key')}</span><small>DEFAULT SCOPE</small><b>MCP</b><p>Read + execute</p></div><div><span>${icon('activity')}</span><small>SECRET POLICY</small><b>Once</b><p>Raw values never reappear</p></div></section>
+      <section class="ihx-security-banner">${icon('shield')}<div><b>Credentials are infrastructure.</b><p>Create one key per client or environment so compromise and rotation stay isolated.</p></div><a data-link href="/docs/keys">Read key policy ${icon('arrow')}</a></section>
+      <section class="ihx-key-inventory">
+        <header><div><span>KEY INVENTORY</span><h2>Scoped credentials</h2></div><small>${fmt(keys.length)} total</small></header>
+        ${keys.length?`<div class="ihx-key-table"><div class="ihx-key-table-head"><span>NAME</span><span>PREFIX</span><span>SCOPES</span><span>LAST USED</span><span>STATE</span><span></span></div>${keys.map(x=>`<div class="ihx-key-row"><span><b>${esc(x.name)}</b><small>${esc(x.environment)}</small></span><code>${esc(x.prefix)}…</code><span class="ihx-scope-list">${(x.scopes||[]).map(s=>`<em>${esc(s)}</em>`).join('')}</span><span>${esc(when(x.last_used_at))}</span><span class="ihx-state ${x.revoked_at?'off':'on'}">${dot(x.revoked_at?'warn':'ok')} ${x.revoked_at?'Revoked':'Active'}</span><button class="btn ${x.revoked_at?'':'danger'} small" data-revoke-key="${x.id}" ${x.revoked_at?'disabled':''}>${x.revoked_at?'Revoked':'Revoke'}</button></div>`).join('')}</div>`:empty('key','No API keys yet','Create a scoped credential for a script, server, CI job or non-OAuth client.','<button class="btn primary" id="empty-key">Create first key</button>')}
+      </section>`);
+    const open=()=>showKeyModal();
+    $('#create-key')?.addEventListener('click',open); $('#empty-key')?.addEventListener('click',open);
+    $$('[data-revoke-key]').forEach(b=>b.addEventListener('click',async()=>{if(!confirm('Revoke this key?'))return;await api(`/api/api-keys/${b.dataset.revokeKey}/revoke`,{method:'POST'});toast('Key revoked','success');dashKeys();}));
+  };
+
+  dashMonitors = async function dashMonitorsV3() {
+    const d=await api('/api/monitors'), items=d.monitors||[], enabled=items.filter(x=>x.enabled).length, healthy=items.filter(x=>x.last_status==='ok').length;
+    dashboardShell('monitors',`
+      ${headline('OBSERVE','Monitors','Turn important public targets into persistent signals instead of repeating the same checks manually.',`<button class="btn primary" id="new-monitor">${icon('monitor')} New monitor</button>`)}
+      <section class="ihx-monitor-summary"><div><small>ACTIVE</small><b>${fmt(enabled)}</b><p>of ${fmt(items.length)} monitors</p></div><div><small>HEALTHY</small><b>${fmt(healthy)}</b><p>latest successful checks</p></div><div><small>TEMPLATES</small><b>04</b><p>uptime · latency · JSON · content</p></div></section>
+      <section class="ihx-monitor-templates">
+        ${[['Uptime','HTTP status','monitor'],['Latency','Threshold','activity'],['JSON field','Value check','docs'],['Content','Change detection','overview']].map(x=>`<button data-template="${x[0]}">${icon(x[2])}<span><b>${x[0]}</b><small>${x[1]}</small></span>${icon('arrow')}</button>`).join('')}
+      </section>
+      <section class="ihx-monitor-board">
+        <header><div><span>WATCHLIST</span><h2>Persistent targets</h2></div><small>${fmt(items.length)} configured</small></header>
+        ${items.length?`<div class="ihx-monitor-list">${items.map(x=>`<article class="ihx-monitor-row"><span class="ihx-monitor-orb ${x.last_status==='ok'?'ok':''}"></span><div class="ihx-monitor-target"><b>${esc(x.name)}</b><small>${esc(x.type)} · ${esc(x.target)}</small></div><div><small>LAST CHECK</small><b>${esc(when(x.last_checked_at))}</b></div><span class="ihx-state ${x.last_status==='ok'?'on':'idle'}">${dot(x.last_status==='ok'?'ok':'warn')} ${esc(x.last_status||'Not run')}</span><button class="btn small" data-toggle="${x.id}" data-enabled="${x.enabled}">${x.enabled?'Pause':'Enable'}</button></article>`).join('')}</div>`:empty('monitor','Nothing is watching yet','Create a monitor from a template and Internet Hands will keep the target in view.','<button class="btn primary" id="empty-monitor">Create monitor</button>')}
+      </section>`);
+    const open=t=>showMonitorModal(t||'');
+    $('#new-monitor')?.addEventListener('click',()=>open('')); $('#empty-monitor')?.addEventListener('click',()=>open(''));
+    $$('[data-template]').forEach(b=>b.addEventListener('click',()=>open(b.dataset.template)));
+    $$('[data-toggle]').forEach(b=>b.addEventListener('click',async()=>{await api(`/api/monitors/${b.dataset.toggle}/toggle`,{method:'POST',body:{enabled:b.dataset.enabled!=='true'}});dashMonitors();}));
+  };
+
+  dashWallet = async function dashWalletV3() {
+    const [d,p]=await Promise.all([api('/api/wallet?limit=150'),getPlans()]), w=d.wallet||{}, ledger=d.ledger||[];
+    const available=Number(w.monthly_credits||0)+Number(w.purchased_credits||0)-Number(w.reserved_credits||0);
+    dashboardShell('wallet',`
+      ${headline('CAPACITY','Credits','See exactly how much execution capacity is available, reserved and persistent across billing cycles.')}
+      <section class="ihx-credit-hero"><div><span>${dot()} AVAILABLE NOW</span><b>${fmt(available)}</b><p>credits ready for execution</p></div><div class="ihx-credit-split"><span><small>MONTHLY</small><b>${fmt(w.monthly_credits)}</b><em>refreshes with plan</em></span><span><small>PURCHASED</small><b>${fmt(w.purchased_credits)}</b><em>rolls over</em></span><span><small>RESERVED</small><b>${fmt(w.reserved_credits)}</b><em>held by active work</em></span></div></section>
+      <section class="ihx-credit-packs"><header><div><span>ROLLOVER CAPACITY</span><h2>Add credits without changing plan.</h2></div><p>Purchased credits persist until used.</p></header><div>${(p.credit_packs||[]).map(x=>`<article><span>${esc(x.name)}</span><b>${fmt(x.credits)}</b><small>credits</small><em>${money(x.price_inr)}</em><button class="btn primary small" data-buy="${x.slug}">Purchase</button></article>`).join('')||'<div class="notice">Credit packs unavailable.</div>'}</div></section>
+      <section class="ihx-ledger-panel"><header><div><span>LEDGER</span><h2>Wallet activity</h2></div><small>${fmt(ledger.length)} entries loaded</small></header>${ledger.length?`<div class="ihx-ledger-table"><div class="ihx-ledger-table-head"><span>TIME</span><span>KIND</span><span>BUCKET</span><span>SOURCE</span><span>AMOUNT</span></div>${ledger.map(x=>`<div><span>${esc(when(x.created_at))}</span><span>${esc(x.kind)}</span><span>${esc(x.bucket)}</span><span>${esc(x.source)}</span><b class="${Number(x.amount)>=0?'positive':'negative'}">${Number(x.amount)>0?'+':''}${fmt(x.amount)}</b></div>`).join('')}</div>`:empty('wallet','No wallet activity yet','Grants, reservations and purchases will appear here.')}</section>`);
+    $$('[data-buy]').forEach(b=>b.addEventListener('click',()=>startCheckout('credits',b.dataset.buy)));
+  };
+
+  dashBilling = async function dashBillingV3() {
+    const [p,s,pay]=await Promise.all([getPlans(),api('/api/billing/status'),api('/api/billing/payments')]), a=state.me.account||{}, payments=pay.payments||[];
+    dashboardShell('billing',`
+      ${headline('COMMERCIAL','Billing & plans','Plan capacity, renewal state and payment history without hiding the operational limits behind marketing.',`<span class="ihx-provider-status">${dot(s.configured?'ok':'warn')} Razorpay ${s.configured?'ready':'pending'}</span>`)}
+      <section class="ihx-plan-current"><div><span>CURRENT PLAN</span><h2>${esc(a.plan_name||'Free')}</h2><p>${fmt(a.monthly_credits)} monthly credits · resets ${esc(when(a.current_period_end))}</p></div><div><span><small>API KEYS</small><b>${fmt(a.api_key_limit)}</b></span><span><small>MONITORS</small><b>${fmt(a.monitor_limit)}</b></span><span><small>RATE LIMIT</small><b>${fmt(a.rpm_limit)}<em> rpm</em></b></span></div></section>
+      <section class="ihx-plan-grid">${(p.plans||[]).map(plan=>`<article class="${plan.slug==='pro'?'featured':''}"><header><span>${esc(plan.name)}</span>${plan.slug==='pro'?'<em>RECOMMENDED</em>':''}</header><div class="ihx-plan-price">${money(plan.monthly_price_inr)}<small>/month</small></div><p>${fmt(plan.included_credits)} monthly credits</p><ul><li>${icon('check')} ${fmt(plan.rpm_limit)} requests / minute</li><li>${icon('check')} ${fmt(plan.api_key_limit)} API keys</li><li>${icon('check')} ${fmt(plan.monitor_limit)} monitors</li><li>${icon('check')} ${plan.browser_enabled?'Browser access':'Public data tools'}</li><li>${icon('check')} ${plan.sandbox_enabled?'Sandbox execution':'Core execution'}</li></ul>${plan.slug==='free'?'<span class="ihx-current-label">Base tier</span>':`<button class="btn ${plan.slug==='pro'?'primary':''}" data-plan="${plan.slug}">Choose ${esc(plan.name)}</button>`}</article>`).join('')}</section>
+      <section class="ihx-payment-panel"><header><div><span>PAYMENTS</span><h2>Captured purchase history</h2></div><small>${icon('shield')} server verified</small></header>${payments.length?`<div class="ihx-payment-table"><div class="ihx-payment-head"><span>CREATED</span><span>PURPOSE</span><span>AMOUNT</span><span>STATUS</span><span>REFERENCE</span></div>${payments.map(x=>`<div><span>${esc(when(x.created_at))}</span><span>${esc(x.purpose)}</span><b>${money(Number(x.amount_paise)/100)}</b><span class="ihx-state ${['paid','captured'].includes(x.status)?'on':'idle'}">${dot(['paid','captured'].includes(x.status)?'ok':'warn')} ${esc(x.status)}</span><code>${esc(x.order_id||'—')}</code></div>`).join('')}</div>`:empty('wallet','No purchases yet','Captured payments will appear here after server verification.')}</section>`);
+    $$('[data-plan]').forEach(b=>b.addEventListener('click',()=>startCheckout('subscription',b.dataset.plan)));
+  };
+
+  dashSettings = async function dashSettingsV3() {
+    const [s,sessions]=await Promise.all([api('/api/security/status'),api('/api/account/sessions')]), u=state.me.user, list=sessions.sessions||[];
+    const score=s.two_factor_enabled?100:72;
+    dashboardShell('settings',`
+      ${headline('ACCOUNT','Settings & security','Identity, login protection and active sessions presented as one security surface.')}
+      <section class="ihx-settings-grid">
+        <article class="ihx-profile-panel"><header><div><span>PROFILE</span><h2>Workspace identity</h2></div><span class="ihx-state on">${dot()} Verified</span></header><form id="profile-form" class="form-stack"><label>Email<input value="${esc(u.email)}" disabled></label><label>Display name<input name="display_name" value="${esc(u.display_name||'')}" maxlength="80" required></label><div class="ihx-linked-account">${clientMark('github','GitHub')}<span><b>GitHub</b><small>${u.github_connected?'Connected to this identity':'Not connected'}</small></span><em>${u.github_connected?'Linked':'Optional'}</em></div><button class="btn">Save profile</button></form></article>
+        <article class="ihx-security-panel"><header><div><span>SECURITY POSTURE</span><h2>Protection status</h2></div><b class="ihx-score">${score}<small>/100</small></b></header><div class="ihx-security-rail"><div>${icon('check')}<span><b>Email verification</b><small>Privileged actions unlocked</small></span><em>On</em></div><div>${icon('shield')}<span><b>Authenticator 2FA</b><small>${s.two_factor_enabled?'Required after primary sign-in':'Add a second factor to reach full protection'}</small></span><button class="btn ${s.two_factor_enabled?'danger':'primary'} small" id="toggle-2fa">${s.two_factor_enabled?'Disable':'Set up'}</button></div>${s.two_factor_enabled?`<div>${icon('activity')}<span><b>Recovery codes</b><small>One-use emergency access</small></span><button class="btn small" id="regen">Regenerate</button></div>`:''}</div></article>
+        <article class="ihx-sessions-panel"><header><div><span>SESSIONS</span><h2>Active web sessions</h2></div><button class="btn danger small" id="revoke-all">Sign out everywhere</button></header><div>${list.map(x=>`<div class="ihx-session-row">${icon('activity')}<span><b>${x.current?'This session':'Web session'}</b><small>Created ${esc(when(x.created_at))} · expires ${esc(when(x.expires_at))}</small></span><em class="ihx-state ${x.current?'on':'idle'}">${dot(x.current?'ok':'warn')} ${x.current?'Current':'Active'}</em><button class="btn small" data-session="${x.id}">Revoke</button></div>`).join('')||'<div class="notice">No active sessions found.</div>'}</div></article>
+        <article class="ihx-password-panel"><header><div><span>PASSWORD</span><h2>Change primary credential</h2></div><p>Changing your password revokes existing sessions.</p></header><form id="password-form" class="ihx-password-form"><label>Current password<input type="password" name="current_password" required></label><label>New password<input type="password" name="new_password" minlength="8" required></label><button class="btn">Change and sign out</button></form></article>
+      </section>`);
+    $('#profile-form').onsubmit=async e=>{e.preventDefault();try{const r=await api('/api/account/profile',{method:'PATCH',body:Object.fromEntries(new FormData(e.currentTarget))});state.me.user=r.user;toast('Profile updated','success');}catch(error){toast(error.message,'error');}};
+    $('#toggle-2fa').onclick=()=>s.two_factor_enabled?showDisable2fa():showSetup2fa(); $('#regen')?.addEventListener('click',showRegenerate);
+    $$('[data-session]').forEach(b=>b.onclick=async()=>{const r=await api(`/api/account/sessions/${b.dataset.session}/revoke`,{method:'POST'});if(r.signed_out){state.me=null;go('/login');}else dashSettings();});
+    $('#revoke-all').onclick=async()=>{if(!confirm('Sign out every web session?'))return;await api('/api/account/sessions/revoke-all',{method:'POST'});state.me=null;go('/login');};
+    $('#password-form').onsubmit=async e=>{e.preventDefault();try{await api('/api/account/password',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))});state.me=null;toast('Password changed; sessions revoked','success');go('/login');}catch(error){toast(error.message,'error');}};
+  };
+
+  renderPricing = async function renderPricingV3() {
+    const data=await getPlans();
+    publicShell(`<main class="ihx-pricing-page"><section class="container ihx-pricing-hero"><span>PRICING / EXECUTION CAPACITY</span><h1>Pay for useful work.<br><em>See the limits before you hit them.</em></h1><p>Monthly capacity refreshes. Purchased credits roll over. Provider-heavy work spends according to the operation performed.</p></section><section class="container ihx-public-plan-grid">${(data.plans||[]).map(plan=>`<article class="${plan.slug==='pro'?'featured':''}"><header><b>${esc(plan.name)}</b>${plan.slug==='pro'?'<em>RECOMMENDED</em>':''}</header><div>${money(plan.monthly_price_inr)}<small>/month</small></div><p>${fmt(plan.included_credits)} monthly credits</p><ul><li>${fmt(plan.rpm_limit)} requests / minute</li><li>${fmt(plan.api_key_limit)} API keys</li><li>${fmt(plan.monitor_limit)} monitors</li><li>${plan.browser_enabled?'Browser execution':'Public data tools'}</li><li>${plan.sandbox_enabled?'Sandbox execution':'Core execution'}</li></ul><a class="btn ${plan.slug==='pro'?'primary':''}" data-link href="/signup${plan.slug==='free'?'':`?plan=${plan.slug}`}">${plan.slug==='free'?'Start free':`Choose ${esc(plan.name)}`}</a></article>`).join('')}</section><section class="container ihx-pricing-note"><div><span>CREDIT MODEL</span><h2>Meter the operation, not the mystery.</h2></div><p>Request IDs, provider routing, credit charges and latency are visible in Runs so usage is inspectable after execution.</p></section></main>`);
+  };
+
+  renderRoute();
+})();
+
+
+/* === Command workspace shell ============================================ */
+/* Internet Hands Command OS
+ * Final visual shell. Keeps all existing route renderers and backend handlers,
+ * but replaces the dashboard chrome with an operations-first workspace.
+ */
+(() => {
+  Object.assign(paths, {
+    terminal: '<path d="M4 5h16v14H4z"/><path d="m7 9 3 3-3 3m5 0h5"/>',
+    billing: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/>',
+    user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+    chevron: '<path d="m9 6 6 6-6 6"/>',
+    external: '<path d="M14 3h7v7M10 14 21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/>'
+  });
+
+  const statusDot = () => '<i class="cos-live-dot" aria-hidden="true"></i>';
+  const hrefFor = slug => `/dashboard${slug === 'overview' ? '' : `/${slug}`}`;
+
+  brand = function commandBrand() {
+    return `<a class="brand ih-brand cos-brand ih-logo-only" data-link href="/" aria-label="Internet Hands home">
+      <img class="ih-brand-art" src="/assets/internet-hands-logo.webp" alt="Internet Hands">
+    </a>`;
+  };
+
+  const nav = [
+    ['Build', [
+      ['overview','terminal','Command'],
+      ['api-keys','key','API keys']
+    ]],
+    ['Observe', [
+      ['usage','activity','Runs'],
+      ['monitors','monitor','Monitors']
+    ]],
+    ['Connect', [
+      ['integrations','plug','Integrations']
+    ]],
+    ['Account', [
+      ['wallet','wallet','Credits'],
+      ['billing','billing','Billing'],
+      ['settings','settings','Settings']
+    ]]
+  ];
+
+  dashboardShell = function commandOsShell(active, content) {
+    const u = state.me?.user || {};
+    const current = nav.flatMap(x => x[1]).find(x => x[0] === active);
+    const title = current?.[2] || 'Command';
+    const initials = esc((u.display_name || u.email || 'I')[0].toUpperCase());
+
+    app.innerHTML = `<div class="cos-app">
+      <aside class="cos-sidebar ih-sidebar sidebar">
+        <div class="cos-sidebar-brand">${brand()}</div>
+
+        <a class="cos-launch ${active === 'overview' ? 'active' : ''}" data-link href="/dashboard">
+          <span>${icon('terminal')}</span><b>Run command</b><kbd>⌘ K</kbd>
+        </a>
+
+        <nav class="cos-nav">
+          ${nav.map(([group, items]) => `<div class="cos-nav-group">
+            <span>${group}</span>
+            ${items.map(([slug, ico, label]) => `<a class="${slug === active ? 'active' : ''}" data-link href="${hrefFor(slug)}">
+              <span class="cos-nav-icon">${icon(ico)}</span><b>${label}</b>${slug === active ? '<i></i>' : ''}
+            </a>`).join('')}
+          </div>`).join('')}
+        </nav>
+
+        <div class="cos-sidebar-bottom">
+          <a class="cos-gateway" data-link href="/status"><span>${statusDot()}</span><div><b>Gateway online</b><small>All systems operational</small></div>${icon('chevron')}</a>
+          <div class="cos-sidebar-links"><a data-link href="/docs">${icon('docs')} Docs</a><a href="https://github.com/sphangcho203-afk/Web-Scrapping-CLI" target="_blank" rel="noreferrer">${icon('external')} GitHub</a></div>
+        </div>
+      </aside>
+
+      <section class="cos-workspace workspace ih-workspace">
+        <header class="cos-topbar topbar ih-topbar">
+          <div class="cos-topbar-left">
+            <button class="cos-mobile-menu icon-btn" data-sidebar-toggle aria-label="Open navigation">${icon('menu')}</button>
+            <div class="cos-breadcrumb"><span>Internet Hands</span><i>/</i><b>${esc(title)}</b></div>
+          </div>
+          <div class="cos-topbar-right">
+            ${active === 'overview' ? '' : `<a class="cos-command-cta" data-link href="/dashboard">${icon('terminal')}<span>Run command</span><kbd>⌘ K</kbd></a>`}
+            <a class="cos-docs-link" data-link href="/docs">Docs</a>
+            <button class="cos-account" data-account-toggle aria-expanded="false"><i>${initials}</i><span><b>${esc(u.display_name || 'Account')}</b><small>${esc(u.email || '')}</small></span>${icon('chevron')}</button>
+          </div>
+          <div class="cos-account-menu" data-account-menu hidden>
+            <div><span class="cos-account-avatar">${initials}</span><span><b>${esc(u.display_name || 'Internet Hands')}</b><small>${esc(u.email || '')}</small></span></div>
+            <a data-link href="/dashboard/settings">${icon('settings')} Settings & security</a>
+            <a data-link href="/dashboard/billing">${icon('billing')} Billing & plans</a>
+            <a data-link href="/dashboard/wallet">${icon('wallet')} Credits</a>
+            <a data-link href="/docs">${icon('docs')} Documentation</a>
+            <button id="account-logout">Sign out</button>
+          </div>
+        </header>
+
+        <main class="cos-content content ih-content"><div class="ih-page-shell ih-route-${esc(active)}" data-dashboard-route="${esc(active)}">${content}</div></main>
+      </section>
+
+      <nav class="cos-mobile-bottom ih-mobile-bottom mobile-bottom">
+        ${[
+          ['overview','terminal','Command'],
+          ['usage','activity','Runs'],
+          ['monitors','monitor','Watch'],
+          ['integrations','plug','Connect'],
+          ['more','more','More']
+        ].map(([slug, ico, label]) => `<a ${slug === 'more' ? 'data-more' : 'data-link'} href="${slug === 'more' ? '#' : hrefFor(slug)}" class="${slug === active ? 'active' : ''}">${icon(ico)}<span>${label}</span></a>`).join('')}
+      </nav>
+
+      <div class="cos-more-sheet more-sheet" data-more-sheet>
+        <div class="cos-sheet-handle"></div><b>Workspace</b>
+        <a data-link href="/dashboard/api-keys">${icon('key')} API keys</a>
+        <a data-link href="/dashboard/wallet">${icon('wallet')} Credits</a>
+        <a data-link href="/dashboard/billing">${icon('billing')} Billing & plans</a>
+        <a data-link href="/dashboard/settings">${icon('settings')} Settings & security</a>
+        <a data-link href="/docs">${icon('docs')} Documentation</a>
+        <a data-link href="/status">${icon('activity')} System status</a>
+        <button id="mobile-logout">Sign out</button>
+      </div>
+      <div class="cos-sheet-backdrop sheet-backdrop" data-sheet-backdrop></div>
+    </div>`;
+
+    bindCommon();
+
+    const sidebar = $('.cos-sidebar');
+    const sheet = $('[data-more-sheet]');
+    const backdrop = $('[data-sheet-backdrop]');
+    $('[data-sidebar-toggle]')?.addEventListener('click', () => sidebar?.classList.toggle('open'));
+    $('[data-more]')?.addEventListener('click', e => {
+      e.preventDefault();
+      sheet?.classList.add('open');
+      backdrop?.classList.add('open');
+    });
+    backdrop?.addEventListener('click', () => {
+      sheet?.classList.remove('open');
+      backdrop?.classList.remove('open');
+      sidebar?.classList.remove('open');
+    });
+
+    const accountToggle = $('[data-account-toggle]');
+    const accountMenu = $('[data-account-menu]');
+    accountToggle?.addEventListener('click', e => {
+      e.stopPropagation();
+      if (!accountMenu) return;
+      const opening = accountMenu.hasAttribute('hidden');
+      if (opening) accountMenu.removeAttribute('hidden'); else accountMenu.setAttribute('hidden','');
+      accountToggle.setAttribute('aria-expanded', String(opening));
+    });
+
+    if (window.__ihAccountCloser) document.removeEventListener('click', window.__ihAccountCloser);
+    window.__ihAccountCloser = e => {
+      if (!accountMenu || accountMenu.hasAttribute('hidden')) return;
+      if (!accountMenu.contains(e.target) && !accountToggle?.contains(e.target)) {
+        accountMenu.setAttribute('hidden','');
+        accountToggle?.setAttribute('aria-expanded','false');
+      }
+    };
+    document.addEventListener('click', window.__ihAccountCloser);
+
+    const logout = async () => {
+      await api('/api/auth/logout', { method:'POST' });
+      state.me = null;
+      go('/login');
+    };
+    $('#account-logout')?.addEventListener('click', logout);
+    $('#mobile-logout')?.addEventListener('click', logout);
+
+    if (window.__ihCommandShortcut) document.removeEventListener('keydown', window.__ihCommandShortcut);
+    window.__ihCommandShortcut = e => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'k') return;
+      e.preventDefault();
+      if (location.pathname !== '/dashboard') return go('/dashboard');
+      $('#ih-run-input')?.focus();
+    };
+    document.addEventListener('keydown', window.__ihCommandShortcut);
+  };
+
+  if (location.pathname.startsWith('/dashboard')) renderRoute();
+})();
