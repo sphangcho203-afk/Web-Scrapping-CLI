@@ -21,6 +21,30 @@ class UsageIntelligence:
     def __init__(self, store: ControlStore) -> None:
         self.store = store
 
+    def run_detail(self, user_id: str, request_id: str) -> dict[str, Any] | None:
+        """Return one user-owned metered run with its inspectable execution metadata."""
+        request_id = (request_id or "").strip()
+        if not request_id:
+            return None
+        self.store.ensure_schema()
+        with self.store._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT e.request_id,e.tool_ref,e.capability,e.provider,e.status,
+                       e.credits_charged,e.latency_ms,e.input_bytes,e.output_bytes,
+                       e.metadata,e.created_at,
+                       k.id AS api_key_id,k.name AS api_key_name,k.prefix AS api_key_prefix,
+                       k.environment AS api_key_environment
+                FROM ih_usage_events e
+                LEFT JOIN ih_api_keys k ON k.id=e.api_key_id AND k.user_id=e.user_id
+                WHERE e.user_id=%s AND e.request_id=%s
+                LIMIT 1
+                """,
+                (user_id, request_id),
+            )
+            row = cur.fetchone()
+        return dict(row) if row else None
+
     def snapshot(self, user_id: str, *, window: str = "30d", recent_limit: int = 12) -> dict[str, Any]:
         window = normalize_window(window)
         interval = WINDOWS[window]
