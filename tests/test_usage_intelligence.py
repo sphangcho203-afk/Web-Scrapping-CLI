@@ -25,3 +25,19 @@ def test_usage_api_is_registered_in_saas_app() -> None:
     assert "from .usage_api import router as usage_router" in source
     assert "app.include_router(usage_router)" in source
     assert '@router.get("/api/usage/intelligence")' in api
+    assert '@router.get("/api/usage/runs/{request_id}")' in api
+
+
+def test_run_detail_is_user_scoped_and_exposes_trace_fields() -> None:
+    source = (ROOT / "src/internet_hands/usage_intelligence.py").read_text(encoding="utf-8")
+    assert "WHERE e.user_id=%s AND e.request_id=%s" in source
+    for field in ("input_bytes", "output_bytes", "metadata", "api_key_name", "api_key_environment"):
+        assert field in source
+
+
+def test_usage_ui_supports_deep_linked_run_detail() -> None:
+    source = (ROOT / "web/usage-intelligence.js").read_text(encoding="utf-8")
+    assert "/api/usage/runs/" in source
+    assert "searchParams.set('run', requestId)" in source
+    assert "RUN DETAIL" in source
+    assert "RUN METADATA" in source
