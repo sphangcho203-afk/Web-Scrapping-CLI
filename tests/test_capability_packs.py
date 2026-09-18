@@ -182,6 +182,10 @@ def test_capability_listing_filters_pack_and_query() -> None:
 
 
 class SideEffectProvider(CapabilityProvider):
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self.last_account: str | None = None
+
     async def describe(self, tool_id: str) -> ToolDescriptor:
         return ToolDescriptor(
             ref=f"{self.name}:{tool_id}",
@@ -189,6 +193,26 @@ class SideEffectProvider(CapabilityProvider):
             tool_id=tool_id,
             name=tool_id,
             side_effecting=True,
+        )
+
+    async def execute(
+        self,
+        tool_id: str,
+        arguments: dict[str, Any],
+        *,
+        account: str | None = None,
+        wait_seconds: int = 30,
+        timeout_seconds: int = 60,
+        options: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        self.last_account = account
+        return await super().execute(
+            tool_id,
+            arguments,
+            account=account,
+            wait_seconds=wait_seconds,
+            timeout_seconds=timeout_seconds,
+            options=options,
         )
 
 
@@ -223,7 +247,8 @@ async def test_write_capability_requires_explicit_side_effect_gate() -> None:
 
 @pytest.mark.asyncio
 async def test_write_capability_routes_by_condition_maps_args_and_account() -> None:
-    mesh = ToolMesh([SideEffectProvider("composio")])
+    provider = SideEffectProvider("composio")
+    mesh = ToolMesh([provider])
     capability = Capability(
         id="messaging.send",
         name="Send message",
@@ -268,7 +293,7 @@ async def test_write_capability_routes_by_condition_maps_args_and_account() -> N
         "channel_id": "chan-1",
         "content": "hello",
     }
-    assert result["execution"]["data"]["account"] == "work"
+    assert provider.last_account == "work"
 
 
 def test_default_capabilities_include_connected_plane() -> None:
