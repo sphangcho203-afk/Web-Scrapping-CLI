@@ -20,6 +20,7 @@ ASSET_MEDIA_TYPES = {
     "command-os.css": "text/css",
     "command-os-polish.css": "text/css",
     "brand-logo.css": "text/css",
+    "cognitive-foundation.css": "text/css",
     "app.js": "application/javascript",
     "product-ui.js": "application/javascript",
     "product-ui-extended.js": "application/javascript",
