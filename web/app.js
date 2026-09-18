@@ -284,7 +284,6 @@ async function renderDashboard(){if(!await ensureMe())return;const slug=location
 async function renderRoute(){window.scrollTo(0,0);const p=location.pathname;try{if(p==='/'||p==='/pricing'||p==='/status'||p.startsWith('/docs'))await hydrateOptionalSession();if(p.startsWith('/dashboard'))return await renderDashboard();if(p==='/verify-email')return await renderVerify();if(p==='/login')return renderAuth('login');if(p==='/signup')return renderAuth('signup');if(p==='/forgot-password')return renderRecovery();if(p==='/reset-password')return renderRecovery(true);if(p.startsWith('/docs'))return renderDocs();if(p==='/pricing')return await renderPricing();if(p==='/status')return await renderStatus();return await renderHome();}catch(error){console.error(error);if(error.status===401)return go('/login',true);app.innerHTML=`<main class="fatal"><div>${brand()}<span class="eyebrow">REQUEST FAILED</span><h1>The control plane did not answer cleanly.</h1><p>${esc(error.message)}</p><button class="btn primary" onclick="location.reload()">Try again</button></div></main>`;}}
 document.addEventListener('click',e=>{const a=e.target.closest('[data-link]');if(!a||e.metaKey||e.ctrlKey||e.shiftKey)return;e.preventDefault();go(a.getAttribute('href'));});
 window.addEventListener('popstate',renderRoute);
-renderRoute();
 
 
 /* === Product experience ================================================= */
@@ -470,78 +469,6 @@ renderRoute();
     </main>`);
   };
 
-  const dashboardNav = [
-    ['Operate', [
-      ['overview','overview','Command center'],
-      ['usage','activity','Runs'],
-      ['monitors','monitor','Monitors']
-    ]],
-    ['Connect', [
-      ['integrations','plug','Integrations'],
-      ['api-keys','key','API keys']
-    ]],
-    ['Account', [
-      ['wallet','wallet','Credits'],
-      ['billing','wallet','Billing'],
-      ['settings','settings','Settings']
-    ]]
-  ];
-
-  dashboardShell = function dashboardShellV2(active, content) {
-    const u = state.me?.user || {};
-    const current = dashboardNav.flatMap(x=>x[1]).find(x=>x[0]===active);
-    const currentTitle = current?.[2] || 'Console';
-    app.innerHTML = `<div class="app-shell ih-app-shell">
-      <aside class="sidebar ih-sidebar">
-        <div class="ih-sidebar-top">${brand()}<span class="ih-console-tag">CONTROL PLANE</span></div>
-        <nav>
-          ${dashboardNav.map(([group,items])=>`<div class="nav-group"><span>${group}</span>${items.map(([slug,ico,title])=>`<a class="${slug===active?'active':''}" data-link href="/dashboard${slug==='overview'?'':`/${slug}`}">${icon(ico)}<b>${title}</b>${slug==='overview'?'<kbd>⌘ K</kbd>':''}</a>`).join('')}</div>`).join('')}
-        </nav>
-        <div class="ih-sidebar-system">
-          <div><span>${statusDot()}</span><b>Internet Hands</b><small>Gateway operational</small></div>
-          <a data-link href="/status">View status</a>
-        </div>
-        <div class="sidebar-foot"><a data-link href="/docs">${icon('docs')} Docs</a><button id="logout">Sign out</button></div>
-      </aside>
-      <section class="workspace ih-workspace">
-        <header class="topbar ih-topbar">
-          <div class="ih-topbar-title"><button class="icon-btn mobile-sidebar" data-sidebar-toggle>${icon('menu')}</button><span><small>INTERNET HANDS</small><b>${esc(currentTitle)}</b></span></div>
-          <div class="top-actions ih-top-actions">
-            <button class="ih-new-run" data-new-run>${icon('activity')} New run <kbd>N</kbd></button>
-            <span class="verified-chip">${statusDot()} Live</span>
-            <button class="account-button"><i>${esc((u.display_name||u.email||'I')[0].toUpperCase())}</i><b>${esc(u.display_name||u.email||'Account')}</b></button>
-          </div>
-        </header>
-        <main class="content ih-content">${content}</main>
-      </section>
-      <nav class="mobile-bottom ih-mobile-bottom">
-        ${[
-          ['overview','overview','Command'],
-          ['usage','activity','Runs'],
-          ['monitors','monitor','Watch'],
-          ['integrations','plug','Connect'],
-          ['more','more','More']
-        ].map(([slug,ico,title])=>`<a ${slug==='more'?'data-more':'data-link'} href="${slug==='more'?'#':`/dashboard${slug==='overview'?'':`/${slug}`}`}" class="${slug===active?'active':''}">${icon(ico)}<span>${title}</span></a>`).join('')}
-      </nav>
-      <div class="more-sheet" data-more-sheet><i></i><b>More</b>
-        ${dashboardNav.flatMap(x=>x[1]).filter(x=>!['overview','usage','monitors','integrations'].includes(x[0])).map(([slug,ico,title])=>`<a data-link href="/dashboard/${slug}">${icon(ico)}${title}</a>`).join('')}
-        <a data-link href="/docs">${icon('docs')}Documentation</a><button id="mobile-logout">Sign out</button>
-      </div>
-      <div class="sheet-backdrop" data-sheet-backdrop></div>
-    </div>`;
-    bindCommon();
-    $('[data-sidebar-toggle]')?.addEventListener('click',()=>$('.sidebar')?.classList.toggle('open'));
-    $('[data-more]')?.addEventListener('click',e=>{e.preventDefault();$('[data-more-sheet]')?.classList.add('open');$('[data-sheet-backdrop]')?.classList.add('open');});
-    $('[data-sheet-backdrop]')?.addEventListener('click',()=>{$('[data-more-sheet]')?.classList.remove('open');$('[data-sheet-backdrop]')?.classList.remove('open');});
-    $('[data-new-run]')?.addEventListener('click',()=>{
-      if(location.pathname!=='/dashboard') return go('/dashboard');
-      $('#ih-run-input')?.focus();
-    });
-    const logout = async()=>{await api('/api/auth/logout',{method:'POST'});state.me=null;go('/');};
-    $('#logout')?.addEventListener('click',logout);
-    $('#mobile-logout')?.addEventListener('click',logout);
-  };
-
   const runStatus = status => ['ok','accepted'].includes(String(status||'').toLowerCase()) ? 'ok' : 'warn';
   const runLabel = e => (e.tool_ref || 'Internet operation').replace(/^.*?:/,'');
 
@@ -654,8 +581,6 @@ renderRoute();
     $$('[data-run-index]').forEach(b=>b.addEventListener('click',()=>openRunInspector(events[Number(b.dataset.runIndex)])));
   };
 
-  // Re-render the current route now that the productized renderers are installed.
-  renderRoute();
 })();
 
 
@@ -797,12 +722,11 @@ renderRoute();
 
   dashSettings = async function dashSettingsV3() {
     const [s,sessions]=await Promise.all([api('/api/security/status'),api('/api/account/sessions')]), u=state.me.user, list=sessions.sessions||[];
-    const score=s.two_factor_enabled?100:72;
     dashboardShell('settings',`
       ${headline('ACCOUNT','Settings & security','Identity, login protection and active sessions presented as one security surface.')}
       <section class="ihx-settings-grid">
         <article class="ihx-profile-panel"><header><div><span>PROFILE</span><h2>Workspace identity</h2></div><span class="ihx-state on">${dot()} Verified</span></header><form id="profile-form" class="form-stack"><label>Email<input value="${esc(u.email)}" disabled></label><label>Display name<input name="display_name" value="${esc(u.display_name||'')}" maxlength="80" required></label><div class="ihx-linked-account">${clientMark('github','GitHub')}<span><b>GitHub</b><small>${u.github_connected?'Connected to this identity':'Not connected'}</small></span><em>${u.github_connected?'Linked':'Optional'}</em></div><button class="btn">Save profile</button></form></article>
-        <article class="ihx-security-panel"><header><div><span>SECURITY POSTURE</span><h2>Protection status</h2></div><b class="ihx-score">${score}<small>/100</small></b></header><div class="ihx-security-rail"><div>${icon('check')}<span><b>Email verification</b><small>Privileged actions unlocked</small></span><em>On</em></div><div>${icon('shield')}<span><b>Authenticator 2FA</b><small>${s.two_factor_enabled?'Required after primary sign-in':'Add a second factor to reach full protection'}</small></span><button class="btn ${s.two_factor_enabled?'danger':'primary'} small" id="toggle-2fa">${s.two_factor_enabled?'Disable':'Set up'}</button></div>${s.two_factor_enabled?`<div>${icon('activity')}<span><b>Recovery codes</b><small>One-use emergency access</small></span><button class="btn small" id="regen">Regenerate</button></div>`:''}</div></article>
+        <article class="ihx-security-panel"><header><div><span>SECURITY POSTURE</span><h2>Protection status</h2></div><span class="ihx-state ${s.two_factor_enabled?'on':'idle'}">${dot(s.two_factor_enabled?'ok':'warn')} ${s.two_factor_enabled?'2FA enabled':s.two_factor_available?'2FA available':'Server configuration required'}</span></header><div class="ihx-security-rail"><div>${icon('check')}<span><b>Email verification</b><small>Privileged actions unlocked</small></span><em>On</em></div><div>${icon('shield')}<span><b>Authenticator 2FA</b><small>${s.two_factor_enabled?'Required after primary sign-in':'Add a second factor to reach full protection'}</small></span><button class="btn ${s.two_factor_enabled?'danger':'primary'} small" id="toggle-2fa">${s.two_factor_enabled?'Disable':'Set up'}</button></div>${s.two_factor_enabled?`<div>${icon('activity')}<span><b>Recovery codes</b><small>One-use emergency access</small></span><button class="btn small" id="regen">Regenerate</button></div>`:''}</div></article>
         <article class="ihx-sessions-panel"><header><div><span>SESSIONS</span><h2>Active web sessions</h2></div><button class="btn danger small" id="revoke-all">Sign out everywhere</button></header><div>${list.map(x=>`<div class="ihx-session-row">${icon('activity')}<span><b>${x.current?'This session':'Web session'}</b><small>Created ${esc(when(x.created_at))} · expires ${esc(when(x.expires_at))}</small></span><em class="ihx-state ${x.current?'on':'idle'}">${dot(x.current?'ok':'warn')} ${x.current?'Current':'Active'}</em><button class="btn small" data-session="${x.id}">Revoke</button></div>`).join('')||'<div class="notice">No active sessions found.</div>'}</div></article>
         <article class="ihx-password-panel"><header><div><span>PASSWORD</span><h2>Change primary credential</h2></div><p>Changing your password revokes existing sessions.</p></header><form id="password-form" class="ihx-password-form"><label>Current password<input type="password" name="current_password" required></label><label>New password<input type="password" name="new_password" minlength="8" required></label><button class="btn">Change and sign out</button></form></article>
       </section>`);
@@ -818,7 +742,6 @@ renderRoute();
     publicShell(`<main class="ihx-pricing-page"><section class="container ihx-pricing-hero"><span>PRICING / EXECUTION CAPACITY</span><h1>Pay for useful work.<br><em>See the limits before you hit them.</em></h1><p>Monthly capacity refreshes. Purchased credits roll over. Provider-heavy work spends according to the operation performed.</p></section><section class="container ihx-public-plan-grid">${(data.plans||[]).map(plan=>`<article class="${plan.slug==='pro'?'featured':''}"><header><b>${esc(plan.name)}</b>${plan.slug==='pro'?'<em>RECOMMENDED</em>':''}</header><div>${money(plan.monthly_price_inr)}<small>/month</small></div><p>${fmt(plan.included_credits)} monthly credits</p><ul><li>${fmt(plan.rpm_limit)} requests / minute</li><li>${fmt(plan.api_key_limit)} API keys</li><li>${fmt(plan.monitor_limit)} monitors</li><li>${plan.browser_enabled?'Browser execution':'Public data tools'}</li><li>${plan.sandbox_enabled?'Sandbox execution':'Core execution'}</li></ul><a class="btn ${plan.slug==='pro'?'primary':''}" data-link href="/signup${plan.slug==='free'?'':`?plan=${plan.slug}`}">${plan.slug==='free'?'Start free':`Choose ${esc(plan.name)}`}</a></article>`).join('')}</section><section class="container ihx-pricing-note"><div><span>CREDIT MODEL</span><h2>Meter the operation, not the mystery.</h2></div><p>Request IDs, provider routing, credit charges and latency are visible in Runs so usage is inspectable after execution.</p></section></main>`);
   };
 
-  renderRoute();
 })();
 
 
@@ -995,5 +918,6 @@ renderRoute();
     document.addEventListener('keydown', window.__ihCommandShortcut);
   };
 
-  if (location.pathname.startsWith('/dashboard')) renderRoute();
+  // Initial render happens once, after every canonical renderer and shell is installed.
+  renderRoute();
 })();
