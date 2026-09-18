@@ -35,8 +35,28 @@ def test_cognitive_foundation_exposes_canonical_page_primitives() -> None:
 
 
 def test_authenticated_shell_uses_cognitive_contract() -> None:
-    app = (WEB / "app.js").read_text(encoding="utf-8")
+    # command-os.js is the runtime owner of the authenticated shell. app.js still
+    # contains the compatibility renderer while routes are migrated incrementally.
+    shell = (WEB / "command-os.js").read_text(encoding="utf-8")
 
-    assert "cos-sidebar ih-sidebar" in app
-    assert "cos-workspace ih-workspace" in app
-    assert "cos-topbar ih-topbar" in app
+    assert "cos-sidebar ih-sidebar sidebar" in shell
+    assert "cos-workspace workspace ih-workspace" in shell
+    assert "cos-topbar topbar ih-topbar" in shell
+    assert "cos-mobile-bottom ih-mobile-bottom mobile-bottom" in shell
+
+
+def test_overview_migration_is_loaded_served_and_scoped() -> None:
+    index = (WEB / "index.html").read_text(encoding="utf-8")
+    site = SITE.read_text(encoding="utf-8")
+    overview = (WEB / "cognitive-overview.js").read_text(encoding="utf-8")
+
+    assert '<script src="/assets/cognitive-overview.js" defer></script>' in index
+    assert '"cognitive-overview.js": "application/javascript"' in site
+    assert "location.pathname === '/dashboard'" in overview
+    assert "location.pathname === '/dashboard/'" in overview
+    assert "content.dataset.ihOverview === '1'" in overview
+    assert "content.classList.add('ih-page-shell', 'ih-overview')" in overview
+    assert "head.classList.add('ih-page-header')" in overview
+    assert "stats.classList.add('ih-grid', 'ih-grid--4'" in overview
+    assert "dashboard.classList.add('ih-grid', 'ih-grid--2'" in overview
+    assert "card.classList.add('ih-panel'" in overview
