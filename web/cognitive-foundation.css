@@ -1,0 +1,243 @@
+/* Internet Hands Cognitive UI Foundation v1
+   Single source of truth for product-wide tokens and structural primitives.
+   This layer intentionally contains no route-specific redesigns. */
+
+:root {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --ih-bg: #070a0e;
+  --ih-surface-1: #0b1016;
+  --ih-surface-2: #0f151d;
+  --ih-surface-3: #141c26;
+  --ih-overlay: rgba(7, 10, 14, .78);
+
+  /* Borders */
+  --ih-border-subtle: #17212c;
+  --ih-border: #202c39;
+  --ih-border-strong: #314154;
+
+  /* Text */
+  --ih-text: #f3f7fa;
+  --ih-text-secondary: #a7b4c2;
+  --ih-text-muted: #718092;
+  --ih-text-faint: #526071;
+
+  /* Semantic accents */
+  --ih-accent: #49d8c6;
+  --ih-accent-strong: #66ead8;
+  --ih-accent-soft: rgba(73, 216, 198, .10);
+  --ih-info: #6ca9ff;
+  --ih-success: #61d99a;
+  --ih-warning: #e6bc69;
+  --ih-danger: #f07878;
+
+  /* Typography */
+  --ih-font-sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --ih-font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  --ih-text-xs: .6875rem;
+  --ih-text-sm: .8125rem;
+  --ih-text-md: .9375rem;
+  --ih-text-lg: 1.125rem;
+  --ih-text-xl: 1.5rem;
+  --ih-text-2xl: clamp(2rem, 3.2vw, 3rem);
+
+  /* Spacing: 4px base rhythm */
+  --ih-space-1: .25rem;
+  --ih-space-2: .5rem;
+  --ih-space-3: .75rem;
+  --ih-space-4: 1rem;
+  --ih-space-5: 1.25rem;
+  --ih-space-6: 1.5rem;
+  --ih-space-8: 2rem;
+  --ih-space-10: 2.5rem;
+  --ih-space-12: 3rem;
+  --ih-space-16: 4rem;
+
+  /* Shape */
+  --ih-radius-sm: .5rem;
+  --ih-radius-md: .75rem;
+  --ih-radius-lg: 1rem;
+  --ih-radius-pill: 999px;
+
+  /* Layout */
+  --ih-sidebar-width: 13.5rem;
+  --ih-content-max: 90rem;
+  --ih-header-height: 3.5rem;
+
+  /* Elevation and motion */
+  --ih-shadow-float: 0 18px 50px rgba(0, 0, 0, .28);
+  --ih-ease: cubic-bezier(.2, .8, .2, 1);
+  --ih-duration-fast: 120ms;
+  --ih-duration: 180ms;
+}
+
+html {
+  background: var(--ih-bg);
+  color: var(--ih-text);
+  font-family: var(--ih-font-sans);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background: var(--ih-bg);
+  color: var(--ih-text);
+}
+
+::selection {
+  background: rgba(73, 216, 198, .24);
+  color: var(--ih-text);
+}
+
+:where(button, a, input, textarea, select):focus-visible {
+  outline: 2px solid var(--ih-accent);
+  outline-offset: 2px;
+}
+
+/* Shared structural primitives for new/rebuilt surfaces. */
+.ih-page-shell {
+  width: min(100%, var(--ih-content-max));
+  margin-inline: auto;
+  padding: var(--ih-space-10) var(--ih-space-8) var(--ih-space-16);
+}
+
+.ih-page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--ih-space-6);
+  margin-bottom: var(--ih-space-8);
+}
+
+.ih-page-heading {
+  min-width: 0;
+  max-width: 52rem;
+}
+
+.ih-eyebrow {
+  margin: 0 0 var(--ih-space-2);
+  color: var(--ih-accent);
+  font: 700 var(--ih-text-xs)/1.2 var(--ih-font-mono);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.ih-title {
+  margin: 0;
+  color: var(--ih-text);
+  font-size: var(--ih-text-2xl);
+  line-height: 1.05;
+  letter-spacing: -.045em;
+}
+
+.ih-subtitle {
+  max-width: 46rem;
+  margin: var(--ih-space-3) 0 0;
+  color: var(--ih-text-secondary);
+  font-size: var(--ih-text-md);
+  line-height: 1.65;
+}
+
+.ih-grid {
+  display: grid;
+  gap: var(--ih-space-4);
+}
+
+.ih-grid--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ih-grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ih-grid--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+.ih-panel {
+  min-width: 0;
+  border: 1px solid var(--ih-border-subtle);
+  border-radius: var(--ih-radius-md);
+  background: var(--ih-surface-1);
+}
+
+.ih-panel--raised {
+  border-color: var(--ih-border);
+  background: var(--ih-surface-2);
+  box-shadow: var(--ih-shadow-float);
+}
+
+.ih-panel-header,
+.ih-panel-body,
+.ih-panel-footer {
+  padding: var(--ih-space-5) var(--ih-space-6);
+}
+
+.ih-panel-header + .ih-panel-body,
+.ih-panel-body + .ih-panel-footer {
+  border-top: 1px solid var(--ih-border-subtle);
+}
+
+.ih-stack { display: flex; flex-direction: column; gap: var(--ih-space-4); }
+.ih-cluster { display: flex; align-items: center; flex-wrap: wrap; gap: var(--ih-space-3); }
+.ih-split { display: flex; align-items: center; justify-content: space-between; gap: var(--ih-space-4); }
+
+.ih-status {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  min-height: 1.75rem;
+  padding: 0 .65rem;
+  border: 1px solid var(--ih-border-subtle);
+  border-radius: var(--ih-radius-pill);
+  color: var(--ih-text-secondary);
+  background: var(--ih-surface-1);
+  font: 700 var(--ih-text-xs)/1 var(--ih-font-mono);
+}
+
+.ih-status::before {
+  content: "";
+  width: .42rem;
+  height: .42rem;
+  border-radius: 50%;
+  background: var(--ih-text-muted);
+}
+
+.ih-status[data-tone="success"]::before { background: var(--ih-success); }
+.ih-status[data-tone="warning"]::before { background: var(--ih-warning); }
+.ih-status[data-tone="danger"]::before { background: var(--ih-danger); }
+.ih-status[data-tone="info"]::before { background: var(--ih-info); }
+
+.ih-metric-value {
+  color: var(--ih-text);
+  font-size: clamp(1.65rem, 2.4vw, 2.35rem);
+  font-weight: 750;
+  line-height: 1;
+  letter-spacing: -.04em;
+}
+
+.ih-metric-label {
+  color: var(--ih-text-muted);
+  font: 700 var(--ih-text-xs)/1.2 var(--ih-font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.ih-divider { height: 1px; border: 0; background: var(--ih-border-subtle); }
+.ih-muted { color: var(--ih-text-muted); }
+.ih-mono { font-family: var(--ih-font-mono); }
+
+@media (max-width: 900px) {
+  .ih-page-shell { padding: var(--ih-space-8) var(--ih-space-5) var(--ih-space-12); }
+  .ih-page-header { align-items: flex-start; flex-direction: column; }
+  .ih-grid--3, .ih-grid--4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 620px) {
+  .ih-page-shell { padding-inline: var(--ih-space-4); }
+  .ih-grid--2, .ih-grid--3, .ih-grid--4 { grid-template-columns: 1fr; }
+  .ih-panel-header, .ih-panel-body, .ih-panel-footer { padding: var(--ih-space-4); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
