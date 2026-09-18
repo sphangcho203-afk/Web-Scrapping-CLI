@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "included_projects": [
+    "Web-Scrapping-CLI",
+    "ai-chatbot-v1",
+    "telegram-agent-os",
+    "relaymeter"
+  ],
+  "excluded_projects": [
+    "recharza-platform",
+    "nova-topup"
+  ],
+  "offer": {
+    "free_proof": {
+      "duration_days": 7,
+      "max_urls": 5
+    },
+    "pilot": {
+      "min_urls": 20,
+      "max_urls": 50,
+      "human_qa": true
+    }
+  },
+  "qualification": {
+    "threshold": 70
+  },
+  "economics": {
+    "target_gross_margin_pct": 80
+  },
+  "outreach": {
+    "auto_send": false,
+    "stop_on_opt_out": true,
+    "max_unanswered_attempts": 3
+  }
+}
