@@ -65,6 +65,11 @@ body { background:var(--ih-bg); color:var(--ih-text); }
 .ih-eyebrow { margin:0 0 var(--ih-space-2); color:var(--ih-accent); font:700 var(--ih-text-xs)/1.2 var(--ih-font-mono); letter-spacing:.12em; text-transform:uppercase; }
 .ih-title { margin:0; color:var(--ih-text); font-size:var(--ih-text-2xl); line-height:1.05; letter-spacing:-.045em; }
 .ih-subtitle { max-width:46rem; margin:var(--ih-space-3) 0 0; color:var(--ih-text-secondary); font-size:var(--ih-text-md); line-height:1.65; }
+.ih-page-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:var(--ih-space-3); flex:0 0 auto; }
+.ih-page-actions > :is(a,button) { min-height:2.5rem; }
+.ih-page-meta { display:flex; align-items:center; flex-wrap:wrap; gap:var(--ih-space-3); margin-top:var(--ih-space-4); color:var(--ih-text-muted); font-size:var(--ih-text-sm); }
+.ih-page-meta > * + * { position:relative; padding-left:var(--ih-space-4); }
+.ih-page-meta > * + *::before { content:""; position:absolute; left:.35rem; top:50%; width:.22rem; height:.22rem; border-radius:50%; background:var(--ih-border-strong); transform:translateY(-50%); }
 .ih-grid { display:grid; gap:var(--ih-space-4); }
 .ih-grid--2 { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .ih-grid--3 { grid-template-columns:repeat(3,minmax(0,1fr)); }
@@ -154,6 +159,7 @@ body { background:var(--ih-bg); color:var(--ih-text); }
 @media (max-width:900px) {
   .ih-page-shell { padding:var(--ih-space-8) var(--ih-space-5) var(--ih-space-12); }
   .ih-page-header { align-items:flex-start; flex-direction:column; }
+  .ih-page-actions { width:100%; justify-content:flex-start; }
   .ih-grid--3,.ih-grid--4 { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .cos-app { display:block; }
   .cos-sidebar.ih-sidebar { position:fixed; left:0; transform:translateX(-102%); width:min(19rem,86vw); box-shadow:var(--ih-shadow-float); transition:transform var(--ih-duration) var(--ih-ease); }
@@ -178,6 +184,8 @@ body { background:var(--ih-bg); color:var(--ih-text); }
 
 @media (max-width:620px) {
   .ih-page-shell { padding-inline:var(--ih-space-4); }
+  .ih-page-actions > :is(a,button) { flex:1 1 auto; justify-content:center; }
+  .ih-page-meta { gap:var(--ih-space-2); }
   .ih-grid--2,.ih-grid--3,.ih-grid--4 { grid-template-columns:1fr; }
   .ih-panel-header,.ih-panel-body,.ih-panel-footer { padding:var(--ih-space-4); }
 }
