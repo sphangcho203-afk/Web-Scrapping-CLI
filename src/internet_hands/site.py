@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 
 router = APIRouter()
 WEB_ROOT = Path(__file__).resolve().parents[2] / "web"
@@ -14,7 +14,6 @@ WEB_ROOT = Path(__file__).resolve().parents[2] / "web"
 ASSET_MEDIA_TYPES = {
     "cognitive-foundation.css": "text/css",
     "app.js": "application/javascript",
-    "usage-intelligence.js": "application/javascript",
     "mark.svg": "image/svg+xml",
     "internet-hands-mark.webp": "image/webp",
     "internet-hands-logo.webp": "image/webp",
@@ -28,11 +27,23 @@ def _file(name: str, media_type: str | None = None):
     return FileResponse(path, media_type=media_type)
 
 
+def _browser_runtime() -> Response:
+    """Ship one runtime while keeping bounded feature source reviewable."""
+    runtime = WEB_ROOT / "app.js"
+    usage = WEB_ROOT / "usage-intelligence.js"
+    if not runtime.is_file() or not usage.is_file():
+        raise HTTPException(status_code=404, detail="asset not found")
+    content = runtime.read_text(encoding="utf-8") + "\n\n" + usage.read_text(encoding="utf-8")
+    return Response(content=content, media_type="application/javascript")
+
+
 @router.get("/assets/{name}")
 def site_asset(name: str):
     media_type = ASSET_MEDIA_TYPES.get(name)
     if media_type is None:
         raise HTTPException(status_code=404, detail="asset not found")
+    if name == "app.js":
+        return _browser_runtime()
     return _file(name, media_type)
 
 
