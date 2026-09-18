@@ -15,6 +15,7 @@ from .oauth_compat import router as oauth_compat_router
 from .security_api import router as security_router
 from .security_hardening import router as security_hardening_router
 from .site import router as site_router
+from .usage_api import router as usage_router
 
 
 @asynccontextmanager
@@ -41,6 +42,7 @@ app.include_router(security_hardening_router)
 app.include_router(security_router)
 app.include_router(hardening_router)
 app.include_router(control_router)
+app.include_router(usage_router)
 app.include_router(site_router)
 app.mount("/mcp", customer_streamable_http_app())
 
