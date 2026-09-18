@@ -22,16 +22,18 @@
   };
 
   const nav = [
-    ['Operate', [
+    ['Build', [
       ['overview','terminal','Command'],
+      ['api-keys','key','API keys']
+    ]],
+    ['Observe', [
       ['usage','activity','Runs'],
       ['monitors','monitor','Monitors']
     ]],
     ['Connect', [
-      ['integrations','plug','Integrations'],
-      ['api-keys','key','API keys']
+      ['integrations','plug','Integrations']
     ]],
-    ['Manage', [
+    ['Account', [
       ['wallet','wallet','Credits'],
       ['billing','billing','Billing'],
       ['settings','settings','Settings']
@@ -88,7 +90,7 @@
           </div>
         </header>
 
-        <main class="cos-content content ih-content">${content}</main>
+        <main class="cos-content content ih-content"><div class="ih-page-shell ih-route-${esc(active)}" data-dashboard-route="${esc(active)}">${content}</div></main>
       </section>
 
       <nav class="cos-mobile-bottom ih-mobile-bottom mobile-bottom">
