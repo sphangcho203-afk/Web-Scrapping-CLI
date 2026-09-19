@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from internet_hands.monitor_lifecycle import validate_monitor_spec
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_monitor_spec_normalizes_complete_web_monitor() -> None:
@@ -73,3 +77,30 @@ def test_partial_target_uses_current_type_for_validation() -> None:
             {"target": "not-a-url", "current_type": "api"},
             partial=True,
         )
+
+
+def test_monitor_lifecycle_ui_is_composed_into_single_runtime() -> None:
+    site = (ROOT / "src/internet_hands/site.py").read_text()
+    ui = (ROOT / "web/monitor-lifecycle.js").read_text()
+    index = (ROOT / "web/index.html").read_text()
+    assert 'WEB_ROOT / "monitor-lifecycle.js"' in site
+    assert index.count('/assets/app.js') == 1
+    assert '/assets/monitor-lifecycle.js' not in index
+    assert "'/api/monitors/validate'" in ui
+    assert "'/api/monitors'" in ui
+    assert "/history?limit=25" in ui
+    assert "method:'PATCH'" in ui
+    assert "/toggle" in ui
+    assert "No fabricated health" in ui
+
+
+def test_monitor_detail_surfaces_persisted_lifecycle_state() -> None:
+    ui = (ROOT / "web/monitor-lifecycle.js").read_text()
+    for marker in (
+        "Last check",
+        "Next check",
+        "CHECK HISTORY",
+        "Load older checks",
+        "No persisted checks yet",
+    ):
+        assert marker in ui
