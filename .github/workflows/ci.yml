@@ -25,4 +25,5 @@ jobs:
       - run: python -m compileall -q src
       - run: node --check web/app.js
       - run: node --check web/usage-intelligence.js
+      - run: node --check web/monitor-lifecycle.js
       - run: pytest -q
