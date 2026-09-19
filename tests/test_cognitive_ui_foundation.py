@@ -169,3 +169,10 @@ def test_unshipped_legacy_frontend_artifacts_are_removed() -> None:
     for name in legacy:
         assert f'"{name}":' not in site
         assert not (WEB / name).exists(), f"dead unshipped frontend artifact remains: {name}"
+
+
+def test_common_bindings_tolerate_missing_copy_controls():
+    """Public/dashboard shells may legitimately render without copy controls."""
+    app_js = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
+    assert "$$('[data-copy]').forEach" in app_js
+    assert "$('[data-copy]').forEach" not in app_js
