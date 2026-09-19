@@ -7,7 +7,25 @@
   const windows = active => `<div class="ih-run-hints" data-usage-windows><span>Window</span>${['24h','7d','30d','90d'].map(w => `<button type="button" data-usage-window="${w}" aria-pressed="${String(w===active)}">${w}</button>`).join('')}</div>`;
   const bindWindows = rerender => $$('[data-usage-window]').forEach(button => button.addEventListener('click', () => { setUsageWindow(button.dataset.usageWindow); rerender(); }));
   const runRows = events => events.length ? events.map((e,i)=>`<button class="ih-run-table-row" data-run-index="${i}"><span>${statusDot(statusTone(e.status))}<b>${esc(e.status||'unknown')}</b></span><span><b>${esc(runLabel(e))}</b><code>${esc((e.request_id||'—').slice(0,22))}</code></span><span>${esc(e.provider||'—')}</span><span>${fmt(e.credits_charged||0)}</span><span>${e.latency_ms==null?'—':`${fmt(e.latency_ms)} ms`}</span><span>${esc(when(e.created_at))}</span><span>${icon('arrow')}</span></button>`).join('') : `<div class="ih-empty-run large"><span>${icon('activity')}</span><div><b>No telemetry in this window</b><p>Nothing is fabricated. Execute a metered request or choose a wider time window.</p></div></div>`;
-  const breakdown = (title, rows) => `<article class="ih-system-panel"><header><span>BREAKDOWN</span><h2>${esc(title)}</h2></header>${rows.length ? rows.map(row=>`<div class="ih-system-row"><span>${statusDot()}</span><div><b>${esc(row.name)}</b><small>${fmt(row.requests)} requests · ${fmt(row.credits)} credits</small></div><em>${fmt(row.avg_latency_ms)} ms</em></div>`).join('') : `<div class="ih-empty-run"><div><b>Unavailable</b><p>No metered events in this window.</p></div></div>`}</article>`;
+  const breakdown = (title, rows) => `<article class="ih-system-panel"><header><span>BREAKDOWN</span><h2>${esc(title)}</h2></header>${rows.length ? rows.map(row=>`<div class="ih-system-row"><span>${statusDot(statusTone(row.name))}</span><div><b>${esc(row.name)}</b><small>${fmt(row.requests)} requests · ${fmt(row.credits)} credits</small></div><em>${fmt(row.avg_latency_ms)} ms</em></div>`).join('') : `<div class="ih-empty-run"><div><b>Unavailable</b><p>No metered events in this window.</p></div></div>`}</article>`;
+
+  const trendGlyph = (value, max) => {
+    if (!max || !value) return '▁';
+    const glyphs = ['▁','▂','▃','▄','▅','▆','▇','█'];
+    return glyphs[Math.min(glyphs.length - 1, Math.max(0, Math.ceil((Number(value) / Number(max)) * glyphs.length) - 1))];
+  };
+  const trend = rows => {
+    if (!rows.length) return `<article class="ih-system-panel"><header><span>TREND</span><h2>Usage over time</h2></header><div class="ih-empty-run"><div><b>No trend yet</b><p>Daily telemetry appears here after metered requests run.</p></div></div></article>`;
+    const maxRequests = Math.max(...rows.map(row => Number(row.requests || 0)), 1);
+    const maxCredits = Math.max(...rows.map(row => Number(row.credits || 0)), 1);
+    const requestSpark = rows.map(row => trendGlyph(row.requests, maxRequests)).join('');
+    const creditSpark = rows.map(row => trendGlyph(row.credits, maxCredits)).join('');
+    const totalSucceeded = rows.reduce((sum,row)=>sum+Number(row.succeeded||0),0);
+    const totalRequests = rows.reduce((sum,row)=>sum+Number(row.requests||0),0);
+    const reliability = totalRequests ? `${(100*totalSucceeded/totalRequests).toFixed(1)}%` : '—';
+    const latest = rows.slice(-7);
+    return `<article class="ih-system-panel" aria-labelledby="usage-trend-title"><header><span>TREND</span><h2 id="usage-trend-title">Usage over time</h2></header><div class="ih-inspector-grid"><div><small>Requests</small><b aria-label="Request volume trend">${esc(requestSpark)}</b></div><div><small>Credits</small><b aria-label="Credit burn trend">${esc(creditSpark)}</b></div><div><small>Reliability</small><b>${reliability}</b></div><div><small>Days observed</small><b>${fmt(rows.length)}</b></div></div><div class="ih-run-list" aria-label="Latest daily usage">${latest.map(row=>`<div class="ih-system-row"><span>${statusDot(Number(row.requests||0) ? 'ok' : '')}</span><div><b>${esc(String(row.bucket||'').slice(0,10))}</b><small>${fmt(row.requests||0)} requests · ${fmt(row.credits||0)} credits</small></div><em>${fmt(row.avg_latency_ms||0)} ms</em></div>`).join('')}</div></article>`;
+  };
 
   const metadataRows = metadata => Object.entries(metadata || {}).filter(([,value]) => ['string','number','boolean'].includes(typeof value)).slice(0,12);
   const showRunDetail = async summary => {
@@ -68,11 +86,12 @@
   dashUsage = async function dashUsageIntelligence() {
     const window=usageWindow();
     const data=await api(`/api/usage/intelligence?window=${encodeURIComponent(window)}&recent_limit=50`);
-    const t=data.totals||{}, events=data.recent_runs||[], b=data.breakdowns||{};
+    const t=data.totals||{}, events=data.recent_runs||[], b=data.breakdowns||{}, series=data.series||[];
     dashboardShell('usage',`
       <section class="ih-runs-head"><div><span>USAGE INTELLIGENCE</span><h1>Metering you can trace.</h1><p>Change the time window, inspect real totals, then drill into the request ledger.</p></div><button class="btn primary" data-new-run-inline>${icon('activity')} New run</button></section>
       ${windows(window)}
       <section class="ih-runs-summary">${metric('REQUESTS',fmt(t.requests||0))}${metric('SUCCESS',t.success_rate==null?'—':`${Number(t.success_rate).toFixed(1)}%`)}${metric('CREDITS',fmt(t.credits||0))}${metric('P95 LATENCY',`${fmt(t.p95_latency_ms||0)} ms`)}</section>
+      <section class="ih-command-grid">${trend(series)}${breakdown('By status',b.status||[])}</section>
       <section class="ih-command-grid">${breakdown('By tool',b.tool||[])}${breakdown('By provider',b.provider||[])}</section>
       <section class="ih-run-table-wrap"><div class="ih-run-table-head"><span>STATE</span><span>RUN</span><span>PROVIDER</span><span>CREDITS</span><span>LATENCY</span><span>TIME</span><span></span></div>${runRows(events)}</section>`);
     bindWindows(dashUsage); $('[data-new-run-inline]')?.addEventListener('click',()=>go('/dashboard')); bindRunDetails(events);
