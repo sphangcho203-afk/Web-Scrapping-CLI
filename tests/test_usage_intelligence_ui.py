@@ -22,8 +22,10 @@ def test_usage_feature_is_composed_into_single_shipped_runtime() -> None:
 
     assert index.count('<script src="/assets/') == 1
     assert '<script src="/assets/app.js" defer></script>' in index
+    assert 'runtime = WEB_ROOT / "app.js"' in site
     assert 'usage = WEB_ROOT / "usage-intelligence.js"' in site
-    assert 'runtime.read_text(encoding="utf-8") + "\\n\\n" + usage.read_text' in site
+    assert "sources = [runtime, usage, monitors]" in site
+    assert '"\\n\\n".join(source.read_text(encoding="utf-8") for source in sources)' in site
     assert '"usage-intelligence.js":' not in site
 
 
