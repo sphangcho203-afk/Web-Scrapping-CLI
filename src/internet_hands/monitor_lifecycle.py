@@ -12,14 +12,11 @@ from .control_store import ControlError, ControlStore
 router = APIRouter()
 store = ControlStore()
 MONITOR_TYPES = {"web", "api", "mcp", "gaming"}
+EDITABLE_FIELDS = {"name", "type", "target", "interval_minutes", "config"}
 
 
 def validate_monitor_spec(payload: dict[str, Any], *, partial: bool = False) -> dict[str, Any]:
-    """Normalize and validate the user-editable monitor contract.
-
-    Validation is intentionally side-effect free so create/edit forms can validate before
-    persistence and so invalid targets never silently become scheduled work.
-    """
+    """Normalize and validate the user-editable monitor contract."""
     normalized: dict[str, Any] = {}
 
     if not partial or "name" in payload:
@@ -50,8 +47,11 @@ def validate_monitor_spec(payload: dict[str, Any], *, partial: bool = False) -> 
         normalized["target"] = target
 
     if not partial or "interval_minutes" in payload:
+        raw_interval = payload.get("interval_minutes")
+        if raw_interval is None:
+            raw_interval = 60
         try:
-            interval = int(payload.get("interval_minutes") or 60)
+            interval = int(raw_interval)
         except (TypeError, ValueError) as exc:
             raise ValueError("interval_minutes must be an integer") from exc
         if not 5 <= interval <= 10080:
@@ -91,10 +91,19 @@ async def update_monitor(request: Request, monitor_id: str):
     user = _require_verified(_require_user(request))
     current = _monitor_or_404(user["id"], monitor_id)
     body = await request.json()
-    if "type" not in body:
-        body["current_type"] = current["type"]
+    requested = {key: value for key, value in body.items() if key in EDITABLE_FIELDS}
+    if not requested:
+        raise HTTPException(status_code=422, detail={"code": "invalid_monitor", "message": "no editable monitor fields supplied"})
     try:
-        fields = validate_monitor_spec(body, partial=True)
+        merged = {
+            "name": requested.get("name", current["name"]),
+            "type": requested.get("type", current["type"]),
+            "target": requested.get("target", current["target"]),
+            "interval_minutes": requested.get("interval_minutes", current["interval_minutes"]),
+            "config": requested.get("config", current.get("config") or {}),
+        }
+        validated = validate_monitor_spec(merged)
+        fields = {key: validated[key] for key in requested}
         with store._connect() as conn, conn.cursor() as cur:  # noqa: SLF001 - lifecycle extension of ControlStore
             assignments: list[str] = []
             values: list[Any] = []
