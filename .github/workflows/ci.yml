@@ -8,6 +8,16 @@ permissions:
   contents: read
 
 jobs:
+  frontend-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e '.[dev,browser]'
+      - run: python -m playwright install --with-deps chromium
+      - run: pytest -q tests/test_control_plane_render.py tests/test_frontend_collections.py
   test:
     runs-on: ubuntu-latest
     strategy:

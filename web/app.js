@@ -51,13 +51,55 @@ async function copyText(text, button) {
   try { await navigator.clipboard.writeText(text); toast('Copied to clipboard', 'success'); if (button) { const old = button.innerHTML; button.innerHTML = `${icon('check')} Copied`; setTimeout(() => button.innerHTML = old, 1400); } }
   catch { toast('Clipboard access was blocked', 'error'); }
 }
+// Normalize only documented display collections. Do not alter arbitrary run
+// metadata, authentication responses, or mutation payloads.
+function normalizeCollections(path, data) {
+  const endpoint = path.split('?')[0];
+  const fields = {
+    '/api/public/plans': ['plans', 'credit_packs'],
+    '/api/dashboard': ['series'],
+    '/api/usage': ['events'],
+    '/api/usage/intelligence': ['recent_runs', 'recent_failures', 'series'],
+    '/api/api-keys': ['keys'],
+    '/api/monitors': ['monitors'],
+    '/api/wallet': ['ledger'],
+    '/api/billing/payments': ['payments'],
+    '/api/account/sessions': ['sessions'],
+  }[endpoint] || (/^\/api\/monitors\/[^/]+\/history$/.test(endpoint) ? ['runs'] : null);
+  if (!fields) return data;
+  const object = (value, field) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error(`Expected an object for ${endpoint}: ${field}`);
+    }
+    return value;
+  };
+  const collection = (value, field, records = true) => {
+    if (value == null) return [];
+    if (!Array.isArray(value)) throw new Error(`Expected an array for ${endpoint}: ${field}`);
+    if (records) value.forEach((item, index) => object(item, `${field}[${index}]`));
+    return value;
+  };
+  const result = {...object(data, 'response')};
+  fields.forEach(field => { result[field] = collection(data[field], field); });
+  if (endpoint === '/api/usage/intelligence') {
+    const breakdowns = data.breakdowns == null ? {} : object(data.breakdowns, 'breakdowns');
+    result.breakdowns = {...breakdowns};
+    ['status', 'tool', 'provider'].forEach(field => {
+      result.breakdowns[field] = collection(breakdowns[field], `breakdowns.${field}`);
+    });
+  }
+  if (endpoint === '/api/api-keys') {
+    result.keys = result.keys.map(key => ({...key, scopes: collection(key.scopes, 'keys.scopes', false)}));
+  }
+  return result;
+}
 async function api(path, options = {}) {
   const init = { credentials:'include', cache:'no-store', ...options, headers:{'Content-Type':'application/json', ...(options.headers || {})} };
   if (init.body && typeof init.body !== 'string') init.body = JSON.stringify(init.body);
   const response = await fetch(path, init); let data = {};
   try { data = await response.json(); } catch {}
   if (!response.ok) { const detail = data?.detail; const error = new Error(typeof detail === 'string' ? detail : detail?.message || data?.error || `Request failed (${response.status})`); error.status = response.status; error.code = detail?.code; throw error; }
-  return data;
+  return (init.method || 'GET').toUpperCase() === 'GET' ? normalizeCollections(path, data) : data;
 }
 async function hydrateOptionalSession() {
   if (state.sessionChecked) return;
@@ -286,6 +328,29 @@ document.addEventListener('click',e=>{const a=e.target.closest('[data-link]');if
 window.addEventListener('popstate',renderRoute);
 
 
+// Shared by the product and telemetry renderers in this canonical runtime.
+const statusDot = (tone = 'ok') => `<i class="ih-status-dot ${tone}"></i>`;
+const runStatus = status => ['ok','accepted'].includes(String(status||'').toLowerCase()) ? 'ok' : 'warn';
+const runLabel = e => (e.tool_ref || 'Internet operation').replace(/^.*?:/,'');
+
+function openRunInspector(event) {
+  const wrap = modal(`<div class="ih-run-modal">
+    <div class="modal-head"><span><span class="overline">RUN INSPECTOR</span><h2>${esc(runLabel(event))}</h2></span><button data-close aria-label="Close">×</button></div>
+    <div class="ih-inspector-status"><span>${statusDot(runStatus(event.status))}<b>${esc(event.status||'unknown')}</b></span><code>${esc(event.request_id||'No request id')}</code></div>
+    <div class="ih-inspector-grid">
+      <div><small>Provider</small><b>${esc(event.provider||'—')}</b></div>
+      <div><small>Credits</small><b>${fmt(event.credits_charged||0)}</b></div>
+      <div><small>Latency</small><b>${event.latency_ms==null?'—':`${fmt(event.latency_ms)} ms`}</b></div>
+      <div><small>Created</small><b>${esc(when(event.created_at))}</b></div>
+    </div>
+    <div class="ih-inspector-section"><span>EXECUTION REFERENCE</span><div class="ih-code-line"><code>${esc(event.tool_ref||'—')}</code><button class="btn small" data-copy="${esc(event.request_id||'')}">${icon('copy')} Copy ID</button></div></div>
+    <div class="ih-inspector-note"><b>Why this view matters</b><p>This run comes from your real metered request ledger. A future web-run endpoint can attach payload, browser trace and evidence to this same inspector without changing the information architecture.</p></div>
+  </div>`, true);
+  bindCommon();
+  return wrap;
+}
+
+
 /* === Product experience ================================================= */
 /* Internet Hands product UI layer.
  * Keeps the existing control-plane/auth/billing implementation intact while
@@ -298,7 +363,6 @@ window.addEventListener('popstate',renderRoute);
       <span><b>${esc(brand)}</b><small>${esc(detail)}</small></span>
     </div>`;
 
-  const statusDot = (tone = 'ok') => `<i class="ih-status-dot ${tone}"></i>`;
 
   brand = function brandV2() {
     return `<a class="brand ih-brand ih-logo-only" data-link href="/" aria-label="Internet Hands home">
@@ -468,26 +532,6 @@ window.addEventListener('popstate',renderRoute);
       </section>
     </main>`);
   };
-
-  const runStatus = status => ['ok','accepted'].includes(String(status||'').toLowerCase()) ? 'ok' : 'warn';
-  const runLabel = e => (e.tool_ref || 'Internet operation').replace(/^.*?:/,'');
-
-  function openRunInspector(event) {
-    const wrap = modal(`<div class="ih-run-modal">
-      <div class="modal-head"><span><span class="overline">RUN INSPECTOR</span><h2>${esc(runLabel(event))}</h2></span><button data-close aria-label="Close">×</button></div>
-      <div class="ih-inspector-status"><span>${statusDot(runStatus(event.status))}<b>${esc(event.status||'unknown')}</b></span><code>${esc(event.request_id||'No request id')}</code></div>
-      <div class="ih-inspector-grid">
-        <div><small>Provider</small><b>${esc(event.provider||'—')}</b></div>
-        <div><small>Credits</small><b>${fmt(event.credits_charged||0)}</b></div>
-        <div><small>Latency</small><b>${event.latency_ms==null?'—':`${fmt(event.latency_ms)} ms`}</b></div>
-        <div><small>Created</small><b>${esc(when(event.created_at))}</b></div>
-      </div>
-      <div class="ih-inspector-section"><span>EXECUTION REFERENCE</span><div class="ih-code-line"><code>${esc(event.tool_ref||'—')}</code><button class="btn small" data-copy="${esc(event.request_id||'')}">${icon('copy')} Copy ID</button></div></div>
-      <div class="ih-inspector-note"><b>Why this view matters</b><p>This run comes from your real metered request ledger. A future web-run endpoint can attach payload, browser trace and evidence to this same inspector without changing the information architecture.</p></div>
-    </div>`, true);
-    bindCommon();
-    return wrap;
-  }
 
   function bindRunComposer() {
     const form = $('#ih-run-form');
