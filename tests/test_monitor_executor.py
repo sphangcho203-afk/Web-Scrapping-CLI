@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from fastapi import HTTPException
 
@@ -28,7 +30,7 @@ def test_monitor_timeout_is_bounded() -> None:
 
 
 def test_execution_plane_uses_skip_locked_and_public_fetcher() -> None:
-    source = open("src/internet_hands/monitor_executor.py", encoding="utf-8").read()
+    source = Path("src/internet_hands/monitor_executor.py").read_text(encoding="utf-8")
     assert "FOR UPDATE SKIP LOCKED" in source
     assert "health_check(target" in source
     assert "next_check_at = now()" in source
@@ -37,8 +39,8 @@ def test_execution_plane_uses_skip_locked_and_public_fetcher() -> None:
 
 
 def test_scheduler_route_is_registered() -> None:
-    source = open("src/internet_hands/saas_app.py", encoding="utf-8").read()
-    executor = open("src/internet_hands/monitor_executor.py", encoding="utf-8").read()
+    source = Path("src/internet_hands/saas_app.py").read_text(encoding="utf-8")
+    executor = Path("src/internet_hands/monitor_executor.py").read_text(encoding="utf-8")
     assert "monitor_executor_router" in source
     assert 'router.get("/api/internal/monitors/tick")' in executor
     assert "CRON_SECRET" in executor
