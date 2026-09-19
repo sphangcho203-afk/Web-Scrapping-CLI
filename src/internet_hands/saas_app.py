@@ -11,6 +11,7 @@ from .control_hardening import router as hardening_router
 from .fleet_api import app as fleet_app
 from .mcp_customer import customer_streamable_http_app
 from .mcp_server import sandbox_mcp
+from .monitor_lifecycle import router as monitor_lifecycle_router
 from .oauth_compat import router as oauth_compat_router
 from .security_api import router as security_router
 from .security_hardening import router as security_hardening_router
@@ -41,6 +42,7 @@ app.include_router(oauth_compat_router)
 app.include_router(security_hardening_router)
 app.include_router(security_router)
 app.include_router(hardening_router)
+app.include_router(monitor_lifecycle_router)
 app.include_router(control_router)
 app.include_router(usage_router)
 app.include_router(site_router)
