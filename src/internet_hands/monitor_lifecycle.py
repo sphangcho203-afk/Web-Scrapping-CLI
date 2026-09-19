@@ -83,7 +83,8 @@ async def validate_monitor(request: Request):
     try:
         return {"valid": True, "monitor": validate_monitor_spec(body)}
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail={"code": "invalid_monitor", "message": str(exc)}) from exc
+        detail = {"code": "invalid_monitor", "message": str(exc)}
+        raise HTTPException(status_code=422, detail=detail) from exc
 
 
 @router.patch("/api/monitors/{monitor_id}")
@@ -93,18 +94,21 @@ async def update_monitor(request: Request, monitor_id: str):
     body = await request.json()
     requested = {key: value for key, value in body.items() if key in EDITABLE_FIELDS}
     if not requested:
-        raise HTTPException(status_code=422, detail={"code": "invalid_monitor", "message": "no editable monitor fields supplied"})
+        detail = {"code": "invalid_monitor", "message": "no editable monitor fields supplied"}
+        raise HTTPException(status_code=422, detail=detail)
     try:
         merged = {
             "name": requested.get("name", current["name"]),
             "type": requested.get("type", current["type"]),
             "target": requested.get("target", current["target"]),
-            "interval_minutes": requested.get("interval_minutes", current["interval_minutes"]),
+            "interval_minutes": requested.get(
+                "interval_minutes", current["interval_minutes"]
+            ),
             "config": requested.get("config", current.get("config") or {}),
         }
         validated = validate_monitor_spec(merged)
         fields = {key: validated[key] for key in requested}
-        with store._connect() as conn, conn.cursor() as cur:  # noqa: SLF001 - lifecycle extension of ControlStore
+        with store._connect() as conn, conn.cursor() as cur:
             assignments: list[str] = []
             values: list[Any] = []
             for key in ("name", "type", "target", "interval_minutes"):
@@ -120,7 +124,8 @@ async def update_monitor(request: Request, monitor_id: str):
             assignments.append("updated_at=now()")
             values.extend([monitor_id, user["id"]])
             cur.execute(
-                f"UPDATE ih_monitors SET {', '.join(assignments)} WHERE id=%s AND user_id=%s RETURNING *",
+                f"UPDATE ih_monitors SET {', '.join(assignments)} "
+                "WHERE id=%s AND user_id=%s RETURNING *",
                 tuple(values),
             )
             row = cur.fetchone()
@@ -131,7 +136,8 @@ async def update_monitor(request: Request, monitor_id: str):
     except ControlError as exc:
         raise _json_error(exc) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail={"code": "invalid_monitor", "message": str(exc)}) from exc
+        detail = {"code": "invalid_monitor", "message": str(exc)}
+        raise HTTPException(status_code=422, detail=detail) from exc
 
 
 @router.get("/api/monitors/{monitor_id}/history")
@@ -143,7 +149,7 @@ def monitor_history(
 ):
     user = _require_user(request)
     _monitor_or_404(user["id"], monitor_id)
-    with store._connect() as conn, conn.cursor() as cur:  # noqa: SLF001 - lifecycle extension of ControlStore
+    with store._connect() as conn, conn.cursor() as cur:
         if before:
             cur.execute(
                 """
@@ -155,7 +161,8 @@ def monitor_history(
             )
         else:
             cur.execute(
-                "SELECT * FROM ih_monitor_runs WHERE monitor_id=%s ORDER BY created_at DESC LIMIT %s",
+                "SELECT * FROM ih_monitor_runs "
+                "WHERE monitor_id=%s ORDER BY created_at DESC LIMIT %s",
                 (monitor_id, limit + 1),
             )
         rows = [dict(row) for row in cur.fetchall()]
