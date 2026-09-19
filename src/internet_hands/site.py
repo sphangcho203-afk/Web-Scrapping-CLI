@@ -29,11 +29,14 @@ def _file(name: str, media_type: str | None = None):
 
 def _browser_runtime() -> Response:
     """Ship one runtime while keeping bounded feature source reviewable."""
-    runtime = WEB_ROOT / "app.js"
-    usage = WEB_ROOT / "usage-intelligence.js"
-    if not runtime.is_file() or not usage.is_file():
+    sources = [
+        WEB_ROOT / "app.js",
+        WEB_ROOT / "usage-intelligence.js",
+        WEB_ROOT / "monitor-lifecycle.js",
+    ]
+    if any(not source.is_file() for source in sources):
         raise HTTPException(status_code=404, detail="asset not found")
-    content = runtime.read_text(encoding="utf-8") + "\n\n" + usage.read_text(encoding="utf-8")
+    content = "\n\n".join(source.read_text(encoding="utf-8") for source in sources)
     return Response(content=content, media_type="application/javascript")
 
 
