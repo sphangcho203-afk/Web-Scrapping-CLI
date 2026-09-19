@@ -89,7 +89,7 @@ def test_monitor_lifecycle_ui_is_composed_into_single_runtime() -> None:
     assert "'/api/monitors/validate'" in ui
     assert "'/api/monitors'" in ui
     assert "/history?limit=25" in ui
-    assert "method:'PATCH'" in ui
+    assert "method:monitor ? 'PATCH' : 'POST'" in ui
     assert "/toggle" in ui
     assert "No fabricated health" in ui
 
