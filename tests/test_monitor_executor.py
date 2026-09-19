@@ -36,7 +36,9 @@ def test_execution_plane_uses_skip_locked_and_public_fetcher() -> None:
     assert "last_checked_at" in source
 
 
-def test_vercel_scheduler_contract() -> None:
-    source = open("vercel.json", encoding="utf-8").read()
-    assert '"/api/internal/monitors/tick"' in source
-    assert '"*/10 * * * *"' in source
+def test_scheduler_route_is_registered() -> None:
+    source = open("src/internet_hands/saas_app.py", encoding="utf-8").read()
+    executor = open("src/internet_hands/monitor_executor.py", encoding="utf-8").read()
+    assert "monitor_executor_router" in source
+    assert 'router.get("/api/internal/monitors/tick")' in executor
+    assert "CRON_SECRET" in executor
