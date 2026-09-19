@@ -6,6 +6,7 @@ from typing import Any
 
 from .capability_packs import CapabilityRegistry, build_default_capabilities
 from .catalog_providers import build_catalog_providers
+from .composio_bridge import ComposioBridgeProvider
 from .firecrawl_capabilities import build_firecrawl_capabilities
 from .firecrawl_provider import FirecrawlToolProvider
 from .gaming_capabilities import build_gaming_capabilities
@@ -23,7 +24,8 @@ from .tool_providers import build_default_providers
 def get_tool_mesh() -> ToolMesh:
     return ToolMesh(
         [
-            *build_default_providers(),
+            *[provider for provider in build_default_providers() if provider.name != "composio"],
+            ComposioBridgeProvider(),
             FirecrawlToolProvider(),
             *build_catalog_providers(),
             *build_gaming_providers(),
@@ -188,15 +190,19 @@ async def mesh_capability_execute(
     capability: str,
     arguments: dict[str, Any],
     provider_preference: str | None = None,
+    account: str | None = None,
+    allow_side_effects: bool = False,
     dry_run: bool = False,
     wait_seconds: int = 30,
     timeout_seconds: int = 60,
 ) -> dict[str, Any]:
-    """Execute a semantic capability using the best available read-only provider fallback."""
+    """Execute a semantic capability with explicit gating for side-effecting operations."""
     return await get_capability_registry().execute(
         capability,
         arguments,
         provider_preference=provider_preference,
+        account=account,
+        allow_side_effects=allow_side_effects,
         dry_run=dry_run,
         wait_seconds=wait_seconds,
         timeout_seconds=timeout_seconds,
