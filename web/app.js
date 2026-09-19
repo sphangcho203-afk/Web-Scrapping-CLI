@@ -70,7 +70,7 @@ async function hydrateOptionalSession() {
 function go(path, replace = false) { history[replace ? 'replaceState' : 'pushState']({}, '', path); renderRoute(); }
 function brand() { return `<a class="brand" data-link href="/" aria-label="Internet Hands home"><img src="/assets/mark.svg" width="38" height="38" alt=""><span>INTERNET <b>HANDS</b></span></a>`; }
 function bindCommon() {
-  $('[data-copy]').forEach(b => b.onclick = () => copyText(b.dataset.copy, b));
+  $$('[data-copy]').forEach(b => b.onclick = () => copyText(b.dataset.copy, b));
   const navToggle = $('[data-nav-toggle]');
   const mobileMenu = $('[data-mobile-menu]');
   if (navToggle && mobileMenu) {
