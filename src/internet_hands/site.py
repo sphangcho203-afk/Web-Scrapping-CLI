@@ -8,6 +8,12 @@ from fastapi.responses import FileResponse, HTMLResponse, Response
 router = APIRouter()
 WEB_ROOT = Path(__file__).resolve().parents[2] / "web"
 
+NO_STORE_HEADERS = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
+
 
 # Keep web assets explicit: the console can evolve without exposing arbitrary files
 # from the repository through /assets.
@@ -20,11 +26,15 @@ ASSET_MEDIA_TYPES = {
 }
 
 
-def _file(name: str, media_type: str | None = None):
+def _file(name: str, media_type: str | None = None, *, no_store: bool = False):
     path = WEB_ROOT / name
     if not path.is_file():
         raise HTTPException(status_code=404, detail="asset not found")
-    return FileResponse(path, media_type=media_type)
+    return FileResponse(
+        path,
+        media_type=media_type,
+        headers=NO_STORE_HEADERS if no_store else None,
+    )
 
 
 def _browser_runtime() -> Response:
@@ -37,7 +47,11 @@ def _browser_runtime() -> Response:
     if any(not source.is_file() for source in sources):
         raise HTTPException(status_code=404, detail="asset not found")
     content = "\n\n".join(source.read_text(encoding="utf-8") for source in sources)
-    return Response(content=content, media_type="application/javascript")
+    return Response(
+        content=content,
+        media_type="application/javascript",
+        headers=NO_STORE_HEADERS,
+    )
 
 
 @router.get("/assets/{name}")
@@ -47,14 +61,14 @@ def site_asset(name: str):
         raise HTTPException(status_code=404, detail="asset not found")
     if name == "app.js":
         return _browser_runtime()
-    return _file(name, media_type)
+    return _file(name, media_type, no_store=name == "cognitive-foundation.css")
 
 
 def _index():
     path = WEB_ROOT / "index.html"
     if not path.is_file():
         return HTMLResponse("Internet Hands web console is not packaged", status_code=503)
-    return FileResponse(path, media_type="text/html")
+    return FileResponse(path, media_type="text/html", headers=NO_STORE_HEADERS)
 
 
 @router.get("/")

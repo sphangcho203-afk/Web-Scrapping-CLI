@@ -113,7 +113,15 @@ function clearTransientUi() {
   document.documentElement.classList.remove('ih-overlay-open');
   document.body?.classList.remove('ih-overlay-open');
   document.querySelectorAll('.cos-sidebar.open,.cos-more-sheet.open,[data-sheet-backdrop].open').forEach(el=>el.classList.remove('open'));
-  document.querySelectorAll('[data-account-menu]').forEach(el=>el.setAttribute('hidden',''));
+  document.querySelectorAll('[data-account-menu]').forEach(el=>{
+    const nativePopover = typeof el.hidePopover === 'function' && el.hasAttribute('popover');
+    if (nativePopover) {
+      try { if (el.matches(':popover-open')) el.hidePopover(); } catch {}
+      el.removeAttribute('hidden');
+    } else {
+      el.setAttribute('hidden','');
+    }
+  });
   document.querySelectorAll('[aria-expanded="true"]').forEach(el=>el.setAttribute('aria-expanded','false'));
 }
 function go(path, replace = false) {
@@ -977,11 +985,11 @@ function openRunInspector(event) {
           <div class="cos-topbar-right">
             ${active === 'overview' ? '' : `<a class="cos-command-cta" data-link href="/dashboard">${icon('terminal')}<span>Run command</span><kbd>⌘ K</kbd></a>`}
             <a class="cos-docs-link" data-link href="/docs">Docs</a>
-            <button class="cos-account" type="button" data-account-toggle aria-expanded="false"><i>${initials}</i><span><b>${esc(u.display_name || 'Account')}</b><small>${esc(u.email || '')}</small></span>${icon('chevron')}</button>
+            <button class="cos-account" type="button" data-account-toggle popovertarget="ih-account-menu" popovertargetaction="toggle" aria-expanded="false"><i>${initials}</i><span><b>${esc(u.display_name || 'Account')}</b><small>${esc(u.email || '')}</small></span>${icon('chevron')}</button>
           </div>
         </header>
 
-        <div class="cos-account-menu" data-account-menu hidden>
+        <div class="cos-account-menu" id="ih-account-menu" data-account-menu popover="auto">
           <div><span class="cos-account-avatar">${initials}</span><span><b>${esc(u.display_name || 'Internet Hands')}</b><small>${esc(u.email || '')}</small></span></div>
           <a data-link href="/dashboard/settings">${icon('settings')} Settings & Security</a>
           <a data-link href="/dashboard/billing">${icon('billing')} Billing & Plans</a>
@@ -1031,16 +1039,22 @@ function openRunInspector(event) {
     const moreToggle = $('[data-more]');
     const mobileShell = () => window.matchMedia('(max-width: 900px)').matches;
 
-    const accountOpen = () => Boolean(accountMenu && !accountMenu.hasAttribute('hidden'));
+    const nativeAccountPopover = Boolean(accountMenu && typeof accountMenu.showPopover === 'function' && accountMenu.hasAttribute('popover'));
+    const accountOpen = () => Boolean(accountMenu && (nativeAccountPopover ? accountMenu.matches(':popover-open') : !accountMenu.hasAttribute('hidden')));
     const syncOverlayState = () => {
-      const modalOpen = Boolean(sidebar?.classList.contains('open') || sheet?.classList.contains('open') || (mobileShell() && accountOpen()));
+      const modalOpen = Boolean(sidebar?.classList.contains('open') || sheet?.classList.contains('open') || (!nativeAccountPopover && mobileShell() && accountOpen()));
       backdrop?.classList.toggle('open', modalOpen);
       document.documentElement.classList.toggle('ih-overlay-open', modalOpen);
       sidebarToggle?.setAttribute('aria-expanded', String(Boolean(sidebar?.classList.contains('open'))));
       moreToggle?.setAttribute('aria-expanded', String(Boolean(sheet?.classList.contains('open'))));
     };
     const closeAccount = () => {
-      accountMenu?.setAttribute('hidden','');
+      if (!accountMenu) return;
+      if (nativeAccountPopover) {
+        try { if (accountMenu.matches(':popover-open')) accountMenu.hidePopover(); } catch {}
+      } else {
+        accountMenu.setAttribute('hidden','');
+      }
       accountToggle?.setAttribute('aria-expanded','false');
     };
     const closeOverlays = () => {
@@ -1075,29 +1089,27 @@ function openRunInspector(event) {
       syncOverlayState();
     });
 
-    let accountPointerAt = 0;
-    const toggleAccountMenu = () => {
-      if (!accountMenu) return;
-      const opening = accountMenu.hasAttribute('hidden');
-      sidebar?.classList.remove('open');
-      sheet?.classList.remove('open');
-      if (opening) accountMenu.removeAttribute('hidden'); else accountMenu.setAttribute('hidden','');
-      accountToggle?.setAttribute('aria-expanded', String(opening));
-      syncOverlayState();
-    };
-    accountToggle?.addEventListener('pointerup', e => {
-      if (e.pointerType !== 'touch' && e.pointerType !== 'pen') return;
-      e.preventDefault();
-      e.stopPropagation();
-      accountPointerAt = performance.now();
-      toggleAccountMenu();
-    });
-    accountToggle?.addEventListener('click', e => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (performance.now() - accountPointerAt < 650) return;
-      toggleAccountMenu();
-    });
+    if (nativeAccountPopover) {
+      accountMenu?.addEventListener('toggle', () => {
+        const open = accountMenu.matches(':popover-open');
+        accountToggle?.setAttribute('aria-expanded', String(open));
+        sidebar?.classList.remove('open');
+        sheet?.classList.remove('open');
+        syncOverlayState();
+      });
+    } else {
+      accountToggle?.addEventListener('click', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!accountMenu) return;
+        const opening = accountMenu.hasAttribute('hidden');
+        sidebar?.classList.remove('open');
+        sheet?.classList.remove('open');
+        if (opening) accountMenu.removeAttribute('hidden'); else accountMenu.setAttribute('hidden','');
+        accountToggle?.setAttribute('aria-expanded', String(opening));
+        syncOverlayState();
+      });
+    }
 
     const blockOverlayPointer = e => {
       e.preventDefault();
@@ -1114,7 +1126,7 @@ function openRunInspector(event) {
 
     if (window.__ihAccountCloser) document.removeEventListener('click', window.__ihAccountCloser);
     window.__ihAccountCloser = e => {
-      if (!accountOpen()) return;
+      if (nativeAccountPopover || !accountOpen()) return;
       if (!accountMenu.contains(e.target) && !accountToggle?.contains(e.target)) {
         closeAccount();
         syncOverlayState();
