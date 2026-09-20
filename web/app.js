@@ -624,13 +624,13 @@ function openRunInspector(event) {
     const health=Number(u.success_rate??100);
     dashboardShell('overview',`
       <section class="ih-command-head">
-        <div><span>COMMAND CENTER</span><h1>What should Internet Hands do?</h1><p>Describe the outcome. The execution fabric handles capability discovery, routing and metering behind the boundary.</p></div>
+        <div><span>OVERVIEW</span><h1>Internet Hands</h1><p>Usage, capacity, recent execution and the quickest path into your workspace.</p></div>
         <div class="ih-command-health"><span>${statusDot()} Gateway live</span><b>${health.toFixed(1)}%</b><small>30-day success</small></div>
       </section>
 
       <section class="ih-run-composer">
         <form id="ih-run-form">
-          <div class="ih-run-input-wrap">${icon('activity')}<textarea id="ih-run-input" rows="3" placeholder="Research a company, inspect a site, extract structured data, monitor a target…"></textarea><button class="btn primary" type="submit">Prepare run ${icon('arrow')}</button></div>
+          <div class="ih-run-input-wrap">${icon('activity')}<textarea id="ih-run-input" rows="2" placeholder="Describe a web task to prepare for your connected agent…"></textarea><button class="btn primary" type="submit">Prepare ${icon('arrow')}</button></div>
           <div class="ih-run-hints"><span>Try</span><button type="button" data-run-example="Research this URL and return the key claims with evidence">Research a URL</button><button type="button" data-run-example="Inspect this site and map its public API surface">Map an API</button><button type="button" data-run-example="Extract the product catalog into structured data">Extract data</button></div>
         </form>
         <div id="ih-preflight"></div>
@@ -771,8 +771,8 @@ function openRunInspector(event) {
     const d=await api('/api/api-keys'), keys=d.keys||[], active=keys.filter(x=>!x.revoked_at).length;
     dashboardShell('api-keys',`
       ${headline('ACCESS CONTROL','API keys','Separate credentials by integration. Keep scopes narrow, rotate cleanly and never expose raw secrets twice.',`<button class="btn primary" id="create-key">${icon('key')} Create key</button>`)}
-      <section class="ihx-key-summary"><div><span>${icon('shield')}</span><small>ACTIVE KEYS</small><b>${fmt(active)}</b><p>${fmt(keys.length-active)} revoked</p></div><div><span>${icon('key')}</span><small>DEFAULT SCOPE</small><b>MCP</b><p>Read + execute</p></div><div><span>${icon('activity')}</span><small>SECRET POLICY</small><b>Once</b><p>Raw values never reappear</p></div></section>
-      <section class="ihx-security-banner">${icon('shield')}<div><b>Credentials are infrastructure.</b><p>Create one key per client or environment so compromise and rotation stay isolated.</p></div><a data-link href="/docs/keys">Read key policy ${icon('arrow')}</a></section>
+      <section class="ih-key-meta"><span><b>${fmt(active)}</b> active</span><span><b>${fmt(keys.length-active)}</b> revoked</span><span>${icon('shield')} Secrets shown once</span></section>
+      <section class="ihx-security-banner">${icon('shield')}<div><b>One key per client or environment.</b><p>That keeps rotation, attribution and revocation isolated.</p></div><a data-link href="/docs/keys">Key policy ${icon('arrow')}</a></section>
       <section class="ihx-key-inventory">
         <header><div><span>KEY INVENTORY</span><h2>Scoped credentials</h2></div><small>${fmt(keys.length)} total</small></header>
         ${keys.length?`<div class="ihx-key-table"><div class="ihx-key-table-head"><span>NAME</span><span>PREFIX</span><span>SCOPES</span><span>LAST USED</span><span>STATE</span><span></span></div>${keys.map(x=>`<div class="ihx-key-row"><span><b>${esc(x.name)}</b><small>${esc(x.environment)}</small></span><code>${esc(x.prefix)}…</code><span class="ihx-scope-list">${(x.scopes||[]).map(s=>`<em>${esc(s)}</em>`).join('')}</span><span>${esc(when(x.last_used_at))}</span><span class="ihx-state ${x.revoked_at?'off':'on'}">${dot(x.revoked_at?'warn':'ok')} ${x.revoked_at?'Revoked':'Active'}</span><button class="btn ${x.revoked_at?'':'danger'} small" data-revoke-key="${x.id}" ${x.revoked_at?'disabled':''}>${x.revoked_at?'Revoked':'Revoke'}</button></div>`).join('')}</div>`:empty('key','No API keys yet','Create a scoped credential for a script, server, CI job or non-OAuth client.','<button class="btn primary" id="empty-key">Create first key</button>')}
@@ -797,24 +797,27 @@ function openRunInspector(event) {
 
     const keyOptions=keys.map((key,index)=>'<option value="'+esc(key.id)+'" '+(index===0?'selected':'')+'>'+esc(key.name)+' · '+esc(key.prefix)+'… · '+esc(key.environment)+'</option>').join('');
     const html =
-      headline('METERED TESTING','Playground','Run the real crawler through an active API key. Every test spends credits and appears in Runs.','<a class="btn" data-link href="/dashboard/usage">'+icon('activity')+' View runs</a>') +
+      headline('PLAYGROUND','Playground','Test a real crawl with your existing API key. Usage is metered and recorded in Runs.','<a class="btn" data-link href="/dashboard/usage">'+icon('activity')+' Runs</a>') +
       '<section class="ihp-key">' +
-        '<div class="ihp-key-copy">'+icon('key')+'<div><small>STEP 01 / API KEY</small><h2>Active API key detected.</h2><p>Choose which normal API key should own this Playground run. No raw secret needs to be pasted here.</p></div></div>' +
+        '<div class="ihp-key-copy">'+icon('key')+'<div><small>API KEY</small><h2>Using an active key</h2><p>Select the credential that should own this run. Raw secrets never need to be pasted here.</p></div></div>' +
         '<div class="ihp-key-actions"><span class="ihx-state on">'+dot('ok')+' '+fmt(keys.length)+' active key'+(keys.length===1?'':'s')+'</span><a class="btn" data-link href="/dashboard/api-keys">Manage keys</a></div>' +
         '<label class="ihp-key-select">Use API key<select id="ihp-key-id">'+keyOptions+'</select><small>Usage and last-used activity are attributed to this key.</small></label>' +
       '</section>' +
       '<section class="ihp-main">' +
         '<form id="ihp-form" class="ihp-form">' +
-          '<header><div><small>STEP 02 / CRAWL</small><h2>Web crawl test</h2><p>Public HTTP(S) only · robots respected · SSRF protected · bounded fan-out.</p></div><span class="ihp-cost">2 credits / run</span></header>' +
+          '<header><div><small>CRAWL REQUEST</small><h2>Run a bounded crawl</h2><p>Public HTTP(S) targets only. robots.txt and network safety rules stay enforced.</p></div><span class="ihp-cost">2 credits / run</span></header>' +
           '<label>Target URL<input id="ihp-url" type="url" required placeholder="https://example.com"></label>' +
-          '<div class="ihp-budgets"><label>Pages<input id="ihp-pages" type="number" min="1" max="50" value="12"></label><label>Depth<input id="ihp-depth" type="number" min="0" max="4" value="2"></label><label>Concurrency<input id="ihp-concurrency" type="number" min="1" max="6" value="4"></label><label>Seconds<input id="ihp-seconds" type="number" min="5" max="45" value="30"></label></div>' +
-          '<div class="ihp-paths"><label>Include paths <small>comma-separated globs</small><input id="ihp-include" placeholder="/docs/*, /blog/*"></label><label>Exclude paths <small>comma-separated globs</small><input id="ihp-exclude" placeholder="/private/*, /account/*"></label></div>' +
-          '<div class="ihp-options"><label><input id="ihp-subdomains" type="checkbox"> Include subdomains</label><label><input id="ihp-query" type="checkbox"> Preserve query parameters</label><span>'+icon('shield')+' robots.txt always respected</span></div>' +
-          '<div class="ihp-presets"><span>Quick budget</span><button type="button" data-preset="5,1,2,15">5 pages</button><button type="button" data-preset="15,2,4,30">15 pages</button><button type="button" data-preset="30,3,5,40">30 pages</button></div>' +
+          '<div class="ihp-budgets ihp-budgets-primary"><label>Pages<input id="ihp-pages" type="number" min="1" max="50" value="12"></label><label>Depth<input id="ihp-depth" type="number" min="0" max="4" value="2"></label></div>' +
+          '<details class="ihp-advanced"><summary>Advanced crawl settings <span>Concurrency, time, paths & URL rules</span></summary><div class="ihp-advanced-body">' +
+            '<div class="ihp-budgets"><label>Concurrency<input id="ihp-concurrency" type="number" min="1" max="6" value="4"></label><label>Seconds<input id="ihp-seconds" type="number" min="5" max="45" value="30"></label></div>' +
+            '<div class="ihp-paths"><label>Include paths <small>comma-separated globs</small><input id="ihp-include" placeholder="/docs/*, /blog/*"></label><label>Exclude paths <small>comma-separated globs</small><input id="ihp-exclude" placeholder="/private/*, /account/*"></label></div>' +
+            '<div class="ihp-options"><label><input id="ihp-subdomains" type="checkbox"> Include subdomains</label><label><input id="ihp-query" type="checkbox"> Preserve query parameters</label><span>'+icon('shield')+' robots.txt respected</span></div>' +
+            '<div class="ihp-presets"><span>Quick budget</span><button type="button" data-preset="5,1,2,15">5 pages</button><button type="button" data-preset="15,2,4,30">15 pages</button><button type="button" data-preset="30,3,5,40">30 pages</button></div>' +
+          '</div></details>' +
           '<button class="btn primary large ihp-run" type="submit">'+icon('activity')+' Run metered crawl</button>' +
           '<p class="ihp-note">Available balance: <b>'+fmt(available)+'</b> credits. This test is attributed to the selected API key.</p>' +
         '</form>' +
-        '<aside class="ihp-boundary"><small>EXECUTION BOUNDARY</small><h3>Real test. Real accounting.</h3><div>'+icon('shield')+'<p><b>Public targets only</b>Private, loopback, link-local and reserved addresses are rejected.</p></div><div>'+icon('monitor')+'<p><b>Bounded crawling</b>Pages, depth, concurrency and time stop runaway jobs.</p></div><div>'+icon('activity')+'<p><b>Usage-visible</b>Request ID, status, latency and credits appear in Runs.</p></div><div>'+icon('key')+'<p><b>Normal API keys</b>Playground uses the same revocable keys created in API Keys.</p></div></aside>' +
+        '<aside class="ihp-boundary"><small>RUN GUARDRAILS</small><h3>Safety stays on.</h3><div>'+icon('shield')+'<p><b>Public targets</b>Private and reserved networks are rejected.</p></div><div>'+icon('monitor')+'<p><b>Bounded execution</b>Page, depth and time limits stop runaway jobs.</p></div><div>'+icon('activity')+'<p><b>Visible usage</b>Status, latency and credits appear in Runs.</p></div><div>'+icon('key')+'<p><b>Revocable identity</b>The selected normal API key owns this run.</p></div></aside>' +
       '</section><section id="ihp-result" class="ihp-result" hidden></section>';
     dashboardShell('playground', html);
 
