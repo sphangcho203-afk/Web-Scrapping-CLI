@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from .auth import authenticate_secret
 from .control_store import AuthIdentity, ControlError, ControlStore
 from .crawler import crawl
-from .policy import PolicyError, validate_public_http_url
+from .policy import PolicyError, ResolutionUnavailable, validate_public_http_url
 
 router = APIRouter()
 store = ControlStore()
@@ -103,6 +103,12 @@ async def playground_run(request: Request):
         raise HTTPException(status_code=400, detail={"code": "url_required", "message": "Enter a public HTTP(S) URL to crawl."})
     try:
         validate_public_http_url(url)
+    except ResolutionUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "resolver_busy", "message": str(exc)},
+            headers={"Retry-After": "1"},
+        ) from exc
     except PolicyError as exc:
         raise HTTPException(status_code=400, detail={"code": "target_blocked", "message": str(exc)}) from exc
 
@@ -178,6 +184,12 @@ async def playground_run(request: Request):
         output_bytes = len(json.dumps(response, default=str, separators=(",", ":")).encode())
         status = "ok"
         return response
+    except ResolutionUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "resolver_busy", "message": str(exc), "request_id": request_id, "credits_charged": credits},
+            headers={"Retry-After": "1"},
+        ) from exc
     except (ValueError, PolicyError) as exc:
         raise HTTPException(
             status_code=400,

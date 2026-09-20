@@ -12,7 +12,7 @@ from urllib.parse import unquote, urljoin, urlsplit
 import httpx
 
 from .models import ApiEnvelope, DownloadInfo, FetchResult, HealthResult, LinkResult
-from .policy import resolve_public_http_url, validate_public_http_url, validate_public_ip
+from .policy import resolve_public_http_url, validate_public_ip
 
 DEFAULT_UA = "InternetHands/0.2 (+https://github.com/sphangcho203-afk/Web-Scrapping-CLI)"
 REDIRECT_CODES = {301, 302, 303, 307, 308}
@@ -48,7 +48,6 @@ async def fetch_url(
     user_agent: str = DEFAULT_UA,
     max_redirects: int = 10,
 ) -> FetchResult:
-    validate_public_http_url(url)
     started = time.perf_counter()
     current = url
 
@@ -65,7 +64,6 @@ async def fetch_url(
                     peer_ip = validate_public_ip(peer_ip)
                 if response.status_code in REDIRECT_CODES and response.headers.get("location"):
                     current = urljoin(str(response.url), response.headers["location"])
-                    validate_public_http_url(current)
                     continue
 
                 chunks: list[bytes] = []
@@ -156,7 +154,6 @@ async def health_check(url: str, *, timeout: float = 10.0) -> HealthResult:
 async def inspect_download(
     url: str, *, timeout: float = 20.0, max_redirects: int = 10
 ) -> DownloadInfo:
-    validate_public_http_url(url)
     current = url
     peer_ip: str | None = None
     resolved_addresses: tuple[str, ...] = ()
