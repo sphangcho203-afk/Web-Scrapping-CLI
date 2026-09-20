@@ -1951,3 +1951,24 @@ html.ih-overlay-open,html.ih-overlay-open body{overflow:hidden}
   .ih-route-wallet .ihx-credit-packs>header{gap:.45rem!important;margin-bottom:.9rem!important}
   .ih-route-wallet .ihx-credit-packs h2{font-size:1.55rem!important}
 }
+
+/* === Account trigger reliability v5 ==================================== */
+@media(max-width:900px){
+  .cos-topbar-right{position:relative!important;z-index:120!important}
+  .cos-account{
+    position:relative!important;
+    z-index:121!important;
+    pointer-events:auto!important;
+    touch-action:manipulation!important;
+    cursor:pointer!important;
+  }
+  .cos-account::after{
+    content:"";
+    position:absolute;
+    inset:-.35rem;
+  }
+  .cos-account-menu{
+    pointer-events:auto!important;
+    z-index:119!important;
+  }
+}

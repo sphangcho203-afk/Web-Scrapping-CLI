@@ -977,7 +977,7 @@ function openRunInspector(event) {
           <div class="cos-topbar-right">
             ${active === 'overview' ? '' : `<a class="cos-command-cta" data-link href="/dashboard">${icon('terminal')}<span>Run command</span><kbd>⌘ K</kbd></a>`}
             <a class="cos-docs-link" data-link href="/docs">Docs</a>
-            <button class="cos-account" data-account-toggle aria-expanded="false"><i>${initials}</i><span><b>${esc(u.display_name || 'Account')}</b><small>${esc(u.email || '')}</small></span>${icon('chevron')}</button>
+            <button class="cos-account" type="button" data-account-toggle aria-expanded="false"><i>${initials}</i><span><b>${esc(u.display_name || 'Account')}</b><small>${esc(u.email || '')}</small></span>${icon('chevron')}</button>
           </div>
           <div class="cos-account-menu" data-account-menu hidden>
             <div><span class="cos-account-avatar">${initials}</span><span><b>${esc(u.display_name || 'Internet Hands')}</b><small>${esc(u.email || '')}</small></span></div>
@@ -1074,15 +1074,28 @@ function openRunInspector(event) {
       syncOverlayState();
     });
 
-    accountToggle?.addEventListener('click', e => {
-      e.stopPropagation();
+    let accountPointerAt = 0;
+    const toggleAccountMenu = () => {
       if (!accountMenu) return;
       const opening = accountMenu.hasAttribute('hidden');
       sidebar?.classList.remove('open');
       sheet?.classList.remove('open');
       if (opening) accountMenu.removeAttribute('hidden'); else accountMenu.setAttribute('hidden','');
-      accountToggle.setAttribute('aria-expanded', String(opening));
+      accountToggle?.setAttribute('aria-expanded', String(opening));
       syncOverlayState();
+    };
+    accountToggle?.addEventListener('pointerup', e => {
+      if (e.pointerType !== 'touch' && e.pointerType !== 'pen') return;
+      e.preventDefault();
+      e.stopPropagation();
+      accountPointerAt = performance.now();
+      toggleAccountMenu();
+    });
+    accountToggle?.addEventListener('click', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (performance.now() - accountPointerAt < 650) return;
+      toggleAccountMenu();
     });
 
     const blockOverlayPointer = e => {
