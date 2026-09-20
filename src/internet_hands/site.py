@@ -29,10 +29,11 @@ def _file(name: str, media_type: str | None = None):
 
 def _browser_runtime() -> Response:
     """Ship one runtime while keeping bounded feature source reviewable."""
+    legal = WEB_ROOT / "legal-content.js"
     runtime = WEB_ROOT / "app.js"
     usage = WEB_ROOT / "usage-intelligence.js"
     monitors = WEB_ROOT / "monitor-lifecycle.js"
-    sources = [runtime, usage, monitors]
+    sources = [legal, runtime, usage, monitors]
     if any(not source.is_file() for source in sources):
         raise HTTPException(status_code=404, detail="asset not found")
     content = "\n\n".join(source.read_text(encoding="utf-8") for source in sources)
@@ -103,6 +104,46 @@ def docs_page():
 
 @router.get("/docs/{path:path}")
 def docs_nested(path: str):
+    return _index()
+
+
+@router.get("/legal")
+def legal_page():
+    return _index()
+
+
+@router.get("/legal/{path:path}")
+def legal_nested(path: str):
+    return _index()
+
+
+@router.get("/terms")
+def terms_page():
+    return _index()
+
+
+@router.get("/privacy")
+def privacy_page():
+    return _index()
+
+
+@router.get("/acceptable-use")
+def acceptable_use_page():
+    return _index()
+
+
+@router.get("/cookies")
+def cookies_page():
+    return _index()
+
+
+@router.get("/billing-policy")
+def billing_policy_page():
+    return _index()
+
+
+@router.get("/security")
+def security_policy_page():
     return _index()
 
 
