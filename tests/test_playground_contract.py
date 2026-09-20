@@ -32,3 +32,11 @@ def test_playground_usage_is_priced_and_registered() -> None:
     saas = Path("src/internet_hands/saas_app.py").read_text(encoding="utf-8")
     assert '("playground:crawl", 2' in store
     assert "app.include_router(playground_router)" in saas
+
+
+def test_playground_dashboard_surface() -> None:
+    app = Path("web/app.js").read_text(encoding="utf-8")
+    assert "/dashboard/playground" in app
+    assert "Create playground key" in app
+    assert "/api/playground/run" in app
+    assert "Run metered crawl" in app
