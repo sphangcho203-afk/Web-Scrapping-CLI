@@ -1077,13 +1077,18 @@ function openRunInspector(event) {
       syncOverlayState();
     });
 
-    const consumeOverlayPointer = e => {
+    const blockOverlayPointer = e => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    const dismissOverlayPointer = e => {
       e.preventDefault();
       e.stopPropagation();
       closeOverlays();
     };
-    backdrop?.addEventListener('pointerdown', consumeOverlayPointer);
-    backdrop?.addEventListener('click', consumeOverlayPointer);
+    backdrop?.addEventListener('pointerdown', blockOverlayPointer);
+    backdrop?.addEventListener('pointerup', dismissOverlayPointer);
+    backdrop?.addEventListener('click', dismissOverlayPointer);
 
     if (window.__ihAccountCloser) document.removeEventListener('click', window.__ihAccountCloser);
     window.__ihAccountCloser = e => {

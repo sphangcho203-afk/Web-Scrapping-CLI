@@ -10,8 +10,10 @@ def test_route_navigation_clears_overlay_lock() -> None:
 
 def test_mobile_backdrop_consumes_pointer_before_underlay() -> None:
     app = Path("web/app.js").read_text(encoding="utf-8")
-    assert "consumeOverlayPointer" in app
-    assert "addEventListener('pointerdown', consumeOverlayPointer)" in app
+    assert "blockOverlayPointer" in app
+    assert "dismissOverlayPointer" in app
+    assert "addEventListener('pointerdown', blockOverlayPointer)" in app
+    assert "addEventListener('pointerup', dismissOverlayPointer)" in app
     assert "e.stopPropagation();" in app
 
 
