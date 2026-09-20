@@ -979,15 +979,16 @@ function openRunInspector(event) {
             <a class="cos-docs-link" data-link href="/docs">Docs</a>
             <button class="cos-account" type="button" data-account-toggle aria-expanded="false"><i>${initials}</i><span><b>${esc(u.display_name || 'Account')}</b><small>${esc(u.email || '')}</small></span>${icon('chevron')}</button>
           </div>
-          <div class="cos-account-menu" data-account-menu hidden>
-            <div><span class="cos-account-avatar">${initials}</span><span><b>${esc(u.display_name || 'Internet Hands')}</b><small>${esc(u.email || '')}</small></span></div>
-            <a data-link href="/dashboard/settings">${icon('settings')} Settings & security</a>
-            <a data-link href="/dashboard/billing">${icon('billing')} Billing & plans</a>
-            <a data-link href="/dashboard/wallet">${icon('wallet')} Credits</a>
-            <a data-link href="/docs">${icon('docs')} Documentation</a>
-            <button id="account-logout">Sign out</button>
-          </div>
         </header>
+
+        <div class="cos-account-menu" data-account-menu hidden>
+          <div><span class="cos-account-avatar">${initials}</span><span><b>${esc(u.display_name || 'Internet Hands')}</b><small>${esc(u.email || '')}</small></span></div>
+          <a data-link href="/dashboard/settings">${icon('settings')} Settings & Security</a>
+          <a data-link href="/dashboard/billing">${icon('billing')} Billing & Plans</a>
+          <a data-link href="/dashboard/wallet">${icon('wallet')} Credits</a>
+          <a data-link href="/docs">${icon('docs')} Documentation</a>
+          <button id="account-logout">Sign out</button>
+        </div>
 
         <main class="cos-content content ih-content"><div class="ih-page-shell ih-route-${esc(active)}" data-dashboard-route="${esc(active)}">${content}</div></main>
       </section>
