@@ -944,7 +944,10 @@ function openRunInspector(event) {
 
     app.innerHTML = `<div class="cos-app">
       <aside class="cos-sidebar ih-sidebar sidebar">
-        <div class="cos-sidebar-brand">${brand()}</div>
+        <div class="cos-sidebar-head">
+          <div class="cos-sidebar-brand">${brand()}</div>
+          <button class="cos-sidebar-close" type="button" data-sidebar-close aria-label="Close navigation"><span aria-hidden="true">×</span></button>
+        </div>
 
         <a class="cos-launch ${active === 'overview' ? 'active' : ''}" data-link href="/dashboard">
           <span>${icon('terminal')}</span><b>New run</b><kbd>⌘ K</kbd>
@@ -1048,6 +1051,11 @@ function openRunInspector(event) {
 
     sidebarToggle?.setAttribute('aria-expanded','false');
     moreToggle?.setAttribute('aria-expanded','false');
+    $('[data-sidebar-close]')?.addEventListener('click', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      closeOverlays();
+    });
 
     sidebarToggle?.addEventListener('click', () => {
       const opening = !sidebar?.classList.contains('open');
