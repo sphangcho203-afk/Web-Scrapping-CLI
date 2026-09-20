@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
-from .auth import authenticate_secret
+from .control_api import _require_user
 from .control_store import AuthIdentity, ControlError, ControlStore
 from .crawler import crawl
 from .policy import PolicyError, ResolutionUnavailable, validate_public_http_url
@@ -29,24 +29,22 @@ def _http_error(exc: ControlError) -> HTTPException:
     return HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": exc.detail})
 
 
-def _playground_identity(request: Request) -> AuthIdentity:
-    supplied = request.headers.get("x-api-key", "").strip()
-    authorization = request.headers.get("authorization", "")
-    if authorization.lower().startswith("bearer "):
-        supplied = authorization[7:].strip()
-    if not supplied:
+def _playground_identity(request: Request, body: dict[str, Any]) -> AuthIdentity:
+    user = _require_user(request)
+    key_id = str(body.get("api_key_id") or "").strip()
+    if not key_id:
         raise HTTPException(
-            status_code=401,
-            detail={"code": "api_key_required", "message": "Create or provide an Internet Hands API key to use the playground."},
+            status_code=409,
+            detail={"code": "api_key_required", "message": "Create an API key in the API Keys section before using Playground."},
         )
     try:
-        identity = authenticate_secret(store, supplied)
+        identity = store.api_key_identity_for_user(user["id"], key_id)
     except ControlError as exc:
         raise _http_error(exc) from exc
-    if not identity or identity.source != "api_key":
+    if not identity:
         raise HTTPException(
-            status_code=401,
-            detail={"code": "invalid_api_key", "message": "The playground requires a valid raw Internet Hands API key."},
+            status_code=409,
+            detail={"code": "api_key_required", "message": "That API key is unavailable or revoked. Create or select an active key."},
         )
     scopes = set(identity.scopes or [])
     if "*" not in scopes and "mcp:execute" not in scopes:
@@ -85,7 +83,6 @@ def _patterns(value: Any, name: str) -> list[str]:
 
 @router.post("/api/playground/run")
 async def playground_run(request: Request):
-    identity = _playground_identity(request)
     raw = await request.body()
     try:
         body = json.loads(raw or b"{}")
@@ -94,6 +91,7 @@ async def playground_run(request: Request):
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail={"code": "invalid_input", "message": "Request body must be a JSON object."})
 
+    identity = _playground_identity(request, body)
     operation = str(body.get("operation") or "crawl").strip().lower()
     if operation != "crawl":
         raise HTTPException(status_code=400, detail={"code": "unsupported_operation", "message": "The current playground supports the crawl operation."})
