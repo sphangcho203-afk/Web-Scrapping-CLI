@@ -693,6 +693,33 @@ class ControlStore:
             source=source,
         )
 
+    def api_key_identity_for_user(self, user_id: str, key_id: str) -> AuthIdentity | None:
+        """Resolve one active API key owned by a signed-in user for first-party playground use."""
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT k.user_id,k.id AS api_key_id,k.scopes,p.slug AS plan_slug,p.rpm_limit
+                FROM ih_api_keys k
+                LEFT JOIN LATERAL (
+                    SELECT plan_slug FROM ih_subscriptions s
+                    WHERE s.user_id=k.user_id AND s.status='active'
+                    ORDER BY s.created_at DESC LIMIT 1
+                ) s ON true
+                JOIN ih_plans p ON p.slug=COALESCE(s.plan_slug,'free')
+                WHERE k.id=%s AND k.user_id=%s AND k.revoked_at IS NULL
+                  AND (k.expires_at IS NULL OR k.expires_at>now())
+                """,
+                (key_id, user_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            cur.execute("UPDATE ih_api_keys SET last_used_at=now() WHERE id=%s", (key_id,))
+            conn.commit()
+            return self._identity_from_key_row(dict(row), "api_key")
+
+
     def authenticate_api_key(self, key_hash: str) -> AuthIdentity | None:
         self.ensure_schema()
         with self._connect() as conn, conn.cursor() as cur:

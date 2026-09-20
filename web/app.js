@@ -754,82 +754,55 @@ function openRunInspector(event) {
     $$('[data-revoke-key]').forEach(b=>b.addEventListener('click',async()=>{if(!confirm('Revoke this key?'))return;await api(`/api/api-keys/${b.dataset.revokeKey}/revoke`,{method:'POST'});toast('Key revoked','success');dashKeys();}));
   };
 
-  dashPlayground = async function dashPlaygroundV1() {
+  dashPlayground = async function dashPlaygroundV2() {
     const [keyData, dashboard] = await Promise.all([api('/api/api-keys'), api('/api/dashboard')]);
-    const keys=(keyData.keys||[]).filter(x=>!x.revoked_at), account=dashboard.account||{};
-    const available=Number(account.monthly_credits||0)+Number(account.purchased_credits||0);
+    const keys=(keyData.keys||[]).filter(x=>!x.revoked_at && (!x.expires_at || new Date(x.expires_at)>new Date()));
+    const account=dashboard.account||{}, available=Number(account.monthly_credits||0)+Number(account.purchased_credits||0);
+
+    if(!keys.length){
+      dashboardShell('playground',
+        headline('METERED TESTING','Playground','Test Internet Hands against the real usage ledger. An active API key is required before execution.','<a class="btn" data-link href="/dashboard/usage">'+icon('activity')+' View runs</a>') +
+        '<section class="ihp-key ihp-key-required"><div class="ihp-key-copy">'+icon('key')+'<div><small>API KEY REQUIRED</small><h2>Create an API key before using Playground.</h2><p>Playground does not create special credentials. Create a normal scoped key in API Keys, then return here to run metered tests.</p></div></div><div class="ihp-key-actions"><span class="ihx-state idle">'+dot('warn')+' No active API keys</span><a class="btn primary" data-link href="/dashboard/api-keys">'+icon('key')+' Create API key</a></div></section>' +
+        '<section class="ihp-locked"><span>'+icon('shield')+'</span><div><small>PLAYGROUND LOCKED</small><h3>Execution is unavailable until your account has an active API key.</h3><p>Keys define scopes, isolate clients and attach usage to a revocable credential.</p></div></section>');
+      return;
+    }
+
+    const keyOptions=keys.map((key,index)=>'<option value="'+esc(key.id)+'" '+(index===0?'selected':'')+'>'+esc(key.name)+' · '+esc(key.prefix)+'… · '+esc(key.environment)+'</option>').join('');
     const html =
-      headline('METERED TESTING','Playground','Run the real crawler with a real API key. Every test spends credits and appears in Runs.','<a class="btn" data-link href="/dashboard/usage">'+icon('activity')+' View runs</a>') +
+      headline('METERED TESTING','Playground','Run the real crawler through an active API key. Every test spends credits and appears in Runs.','<a class="btn" data-link href="/dashboard/usage">'+icon('activity')+' View runs</a>') +
       '<section class="ihp-key">' +
-        '<div class="ihp-key-copy">'+icon('key')+'<div><small>STEP 01 / API KEY</small><h2>Unlock the playground with an API key.</h2><p>Your signed-in session can configure the page, but execution requires a raw Internet Hands API key.</p></div></div>' +
-        '<div class="ihp-key-actions"><span class="ihx-state '+(keys.length?'on':'idle')+'">'+dot(keys.length?'ok':'warn')+' '+(keys.length?fmt(keys.length)+' active key'+(keys.length===1?'':'s'):'No active keys')+'</span><button class="btn primary" id="ihp-create-key">'+icon('key')+' Create playground key</button></div>' +
-        '<label class="ihp-secret">API key<div><input id="ihp-api-key" type="password" autocomplete="off" spellcheck="false" placeholder="ih_test_… or ih_live_…"><button type="button" id="ihp-show-key">Show</button></div><small>Raw keys are not stored in browser local storage. Existing key secrets cannot be revealed again.</small></label>' +
-        '<div id="ihp-key-created"></div>' +
+        '<div class="ihp-key-copy">'+icon('key')+'<div><small>STEP 01 / API KEY</small><h2>Active API key detected.</h2><p>Choose which normal API key should own this Playground run. No raw secret needs to be pasted here.</p></div></div>' +
+        '<div class="ihp-key-actions"><span class="ihx-state on">'+dot('ok')+' '+fmt(keys.length)+' active key'+(keys.length===1?'':'s')+'</span><a class="btn" data-link href="/dashboard/api-keys">Manage keys</a></div>' +
+        '<label class="ihp-key-select">Use API key<select id="ihp-key-id">'+keyOptions+'</select><small>Usage and last-used activity are attributed to this key.</small></label>' +
       '</section>' +
       '<section class="ihp-main">' +
         '<form id="ihp-form" class="ihp-form">' +
           '<header><div><small>STEP 02 / CRAWL</small><h2>Web crawl test</h2><p>Public HTTP(S) only · robots respected · SSRF protected · bounded fan-out.</p></div><span class="ihp-cost">2 credits / run</span></header>' +
           '<label>Target URL<input id="ihp-url" type="url" required placeholder="https://example.com"></label>' +
-          '<div class="ihp-budgets">' +
-            '<label>Pages<input id="ihp-pages" type="number" min="1" max="50" value="12"></label>' +
-            '<label>Depth<input id="ihp-depth" type="number" min="0" max="4" value="2"></label>' +
-            '<label>Concurrency<input id="ihp-concurrency" type="number" min="1" max="6" value="4"></label>' +
-            '<label>Seconds<input id="ihp-seconds" type="number" min="5" max="45" value="30"></label>' +
-          '</div>' +
+          '<div class="ihp-budgets"><label>Pages<input id="ihp-pages" type="number" min="1" max="50" value="12"></label><label>Depth<input id="ihp-depth" type="number" min="0" max="4" value="2"></label><label>Concurrency<input id="ihp-concurrency" type="number" min="1" max="6" value="4"></label><label>Seconds<input id="ihp-seconds" type="number" min="5" max="45" value="30"></label></div>' +
           '<div class="ihp-paths"><label>Include paths <small>comma-separated globs</small><input id="ihp-include" placeholder="/docs/*, /blog/*"></label><label>Exclude paths <small>comma-separated globs</small><input id="ihp-exclude" placeholder="/private/*, /account/*"></label></div>' +
           '<div class="ihp-options"><label><input id="ihp-subdomains" type="checkbox"> Include subdomains</label><label><input id="ihp-query" type="checkbox"> Preserve query parameters</label><span>'+icon('shield')+' robots.txt always respected</span></div>' +
           '<div class="ihp-presets"><span>Quick budget</span><button type="button" data-preset="5,1,2,15">5 pages</button><button type="button" data-preset="15,2,4,30">15 pages</button><button type="button" data-preset="30,3,5,40">30 pages</button></div>' +
           '<button class="btn primary large ihp-run" type="submit">'+icon('activity')+' Run metered crawl</button>' +
-          '<p class="ihp-note">Available balance: <b>'+fmt(available)+'</b> credits. Validated executions use the same usage ledger as MCP calls.</p>' +
+          '<p class="ihp-note">Available balance: <b>'+fmt(available)+'</b> credits. This test is attributed to the selected API key.</p>' +
         '</form>' +
-        '<aside class="ihp-boundary"><small>EXECUTION BOUNDARY</small><h3>Real test. Real accounting.</h3>' +
-          '<div>'+icon('shield')+'<p><b>Public targets only</b>Private, loopback, link-local and reserved addresses are rejected.</p></div>' +
-          '<div>'+icon('monitor')+'<p><b>Bounded crawling</b>Pages, depth, concurrency and time stop runaway jobs.</p></div>' +
-          '<div>'+icon('activity')+'<p><b>Usage-visible</b>Request ID, status, latency and credits appear in Runs.</p></div>' +
-          '<div>'+icon('key')+'<p><b>Key required</b>Cookie authentication alone cannot execute a playground crawl.</p></div>' +
-        '</aside>' +
-      '</section>' +
-      '<section id="ihp-result" class="ihp-result" hidden></section>';
+        '<aside class="ihp-boundary"><small>EXECUTION BOUNDARY</small><h3>Real test. Real accounting.</h3><div>'+icon('shield')+'<p><b>Public targets only</b>Private, loopback, link-local and reserved addresses are rejected.</p></div><div>'+icon('monitor')+'<p><b>Bounded crawling</b>Pages, depth, concurrency and time stop runaway jobs.</p></div><div>'+icon('activity')+'<p><b>Usage-visible</b>Request ID, status, latency and credits appear in Runs.</p></div><div>'+icon('key')+'<p><b>Normal API keys</b>Playground uses the same revocable keys created in API Keys.</p></div></aside>' +
+      '</section><section id="ihp-result" class="ihp-result" hidden></section>';
     dashboardShell('playground', html);
 
-    const keyInput=$('#ihp-api-key');
-    $('#ihp-show-key')?.addEventListener('click',e=>{keyInput.type=keyInput.type==='password'?'text':'password';e.currentTarget.textContent=keyInput.type==='password'?'Show':'Hide';});
-    $('#ihp-create-key')?.addEventListener('click',async e=>{
-      const button=e.currentTarget;busy(button,true,'Creating…');
-      try{
-        const created=await api('/api/api-keys',{method:'POST',body:{name:'Playground test key',environment:'test',scopes:['mcp:read','mcp:execute']}});
-        keyInput.value=created.secret||'';
-        $('#ihp-key-created').innerHTML='<div class="ihp-created">'+icon('check')+'<span><b>Test key created and loaded.</b><small>Copy it now if you want to reuse it after this page closes.</small><code>'+esc(created.secret||'')+'</code></span><button class="btn small" data-copy="'+esc(created.secret||'')+'">'+icon('copy')+' Copy</button></div>';
-        bindCommon();toast('Playground key created','success');
-      }catch(error){toast(error.message,'error');}
-      finally{busy(button,false);}
-    });
-
-    $$('[data-preset]').forEach(button=>button.addEventListener('click',()=>{
-      const values=button.dataset.preset.split(',');
-      $('#ihp-pages').value=values[0];$('#ihp-depth').value=values[1];$('#ihp-concurrency').value=values[2];$('#ihp-seconds').value=values[3];
-    }));
+    $$('[data-preset]').forEach(button=>button.addEventListener('click',()=>{const values=button.dataset.preset.split(',');$('#ihp-pages').value=values[0];$('#ihp-depth').value=values[1];$('#ihp-concurrency').value=values[2];$('#ihp-seconds').value=values[3];}));
     const patterns=value=>String(value||'').split(',').map(x=>x.trim()).filter(Boolean);
-
     $('#ihp-form')?.addEventListener('submit',async e=>{
       e.preventDefault();
-      const secret=keyInput.value.trim();
-      if(!secret){toast('Create or paste an API key first','error');keyInput.focus();return;}
       const button=$('.ihp-run',e.currentTarget), result=$('#ihp-result');
-      busy(button,true,'Crawling…');
-      result.hidden=false;
-      result.innerHTML='<div class="ihp-running">'+icon('activity')+'<span><b>Crawl in progress</b><small>Applying your page, depth, concurrency and time budgets…</small></span></div>';
-      const body={operation:'crawl',url:$('#ihp-url').value.trim(),max_pages:Number($('#ihp-pages').value),max_depth:Number($('#ihp-depth').value),concurrency:Number($('#ihp-concurrency').value),max_seconds:Number($('#ihp-seconds').value),include_paths:patterns($('#ihp-include').value),exclude_paths:patterns($('#ihp-exclude').value),include_subdomains:$('#ihp-subdomains').checked,preserve_query:$('#ihp-query').checked};
+      busy(button,true,'Crawling…');result.hidden=false;result.innerHTML='<div class="ihp-running">'+icon('activity')+'<span><b>Crawl in progress</b><small>Applying your page, depth, concurrency and time budgets…</small></span></div>';
+      const body={api_key_id:$('#ihp-key-id').value,operation:'crawl',url:$('#ihp-url').value.trim(),max_pages:Number($('#ihp-pages').value),max_depth:Number($('#ihp-depth').value),concurrency:Number($('#ihp-concurrency').value),max_seconds:Number($('#ihp-seconds').value),include_paths:patterns($('#ihp-include').value),exclude_paths:patterns($('#ihp-exclude').value),include_subdomains:$('#ihp-subdomains').checked,preserve_query:$('#ihp-query').checked};
       try{
-        const response=await fetch('/api/playground/run',{method:'POST',credentials:'include',cache:'no-store',headers:{'Content-Type':'application/json','Authorization':'Bearer '+secret},body:JSON.stringify(body)});
-        let data={};try{data=await response.json();}catch{}
-        if(!response.ok){const detail=data?.detail;throw new Error(typeof detail==='string'?detail:detail?.message||data?.error||('Request failed ('+response.status+')'));}
+        const response=await fetch('/api/playground/run',{method:'POST',credentials:'include',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+        let data={};try{data=await response.json();}catch{} if(!response.ok){const detail=data?.detail;throw new Error(typeof detail==='string'?detail:detail?.message||data?.error||('Request failed ('+response.status+')'));}
         const summary=data.summary||{}, pages=data.result?.pages||[];
         const rows=pages.map(page=>'<div class="ihp-row"><span class="ihx-state '+(page.error?'idle':'on')+'">'+dot(page.error?'warn':'ok')+' '+(page.error?'Error':esc(page.status_code||'OK'))+'</span><span>'+fmt(page.depth)+'</span><span><b>'+esc(page.url)+'</b>'+(page.error?'<small>'+esc(page.error)+'</small>':'')+'</span><span>'+fmt(page.links_found)+'</span><span>'+(page.elapsed_ms==null?'—':fmt(Math.round(page.elapsed_ms))+' ms')+'</span></div>').join('');
-        result.innerHTML='<header class="ihp-result-head"><div><span>'+dot()+' CRAWL COMPLETE</span><h2>'+esc(body.url)+'</h2><p>Request <code>'+esc(data.request_id)+'</code> · '+fmt(data.usage?.credits_charged||0)+' credits charged</p></div><a class="btn" data-link href="/dashboard/usage">Open in Runs '+icon('arrow')+'</a></header>' +
-          '<div class="ihp-stats"><div><small>PAGES</small><b>'+fmt(summary.pages)+'</b></div><div><small>SUCCESS</small><b>'+fmt(summary.successful)+'</b></div><div><small>DISCOVERED</small><b>'+fmt(summary.discovered_urls)+'</b></div><div><small>LINKS</small><b>'+fmt(summary.links_found)+'</b></div><div><small>DURATION</small><b>'+fmt(summary.duration_ms)+'<em> ms</em></b></div></div>' +
-          '<div class="ihp-table"><div class="ihp-table-head"><span>STATE</span><span>DEPTH</span><span>URL</span><span>LINKS</span><span>TIME</span></div>'+(rows||'<div class="notice">No pages returned.</div>')+'</div>' +
-          '<details class="ihp-raw"><summary>Raw crawl response</summary><pre><code>'+esc(JSON.stringify(data,null,2))+'</code></pre></details>';
+        result.innerHTML='<header class="ihp-result-head"><div><span>'+dot()+' CRAWL COMPLETE</span><h2>'+esc(body.url)+'</h2><p>Request <code>'+esc(data.request_id)+'</code> · '+fmt(data.usage?.credits_charged||0)+' credits charged</p></div><a class="btn" data-link href="/dashboard/usage">Open in Runs '+icon('arrow')+'</a></header><div class="ihp-stats"><div><small>PAGES</small><b>'+fmt(summary.pages)+'</b></div><div><small>SUCCESS</small><b>'+fmt(summary.successful)+'</b></div><div><small>DISCOVERED</small><b>'+fmt(summary.discovered_urls)+'</b></div><div><small>LINKS</small><b>'+fmt(summary.links_found)+'</b></div><div><small>DURATION</small><b>'+fmt(summary.duration_ms)+'<em> ms</em></b></div></div><div class="ihp-table"><div class="ihp-table-head"><span>STATE</span><span>DEPTH</span><span>URL</span><span>LINKS</span><span>TIME</span></div>'+(rows||'<div class="notice">No pages returned.</div>')+'</div><details class="ihp-raw"><summary>Raw crawl response</summary><pre><code>'+esc(JSON.stringify(data,null,2))+'</code></pre></details>';
         bindCommon();result.scrollIntoView({behavior:'smooth',block:'start'});
       }catch(error){result.innerHTML='<div class="ihp-error">'+icon('activity')+'<span><b>Crawl failed</b><p>'+esc(error.message)+'</p></span></div>';toast(error.message,'error');}
       finally{busy(button,false);}

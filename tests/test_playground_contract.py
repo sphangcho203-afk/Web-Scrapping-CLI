@@ -37,6 +37,17 @@ def test_playground_usage_is_priced_and_registered() -> None:
 def test_playground_dashboard_surface() -> None:
     app = Path("web/app.js").read_text(encoding="utf-8")
     assert "/dashboard/playground" in app
-    assert "Create playground key" in app
+    assert "Create API key" in app
     assert "/api/playground/run" in app
     assert "Run metered crawl" in app
+
+
+def test_playground_uses_normal_account_api_keys() -> None:
+    app = Path("web/app.js").read_text(encoding="utf-8")
+    store = Path("src/internet_hands/control_store.py").read_text(encoding="utf-8")
+    api = Path("src/internet_hands/playground_api.py").read_text(encoding="utf-8")
+    assert "Playground test key" not in app
+    assert 'href="/dashboard/api-keys"' in app
+    assert "api_key_id" in app
+    assert "api_key_identity_for_user" in store
+    assert "_require_user" in api
