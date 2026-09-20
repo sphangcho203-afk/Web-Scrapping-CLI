@@ -805,7 +805,7 @@ function openRunInspector(event) {
       finally{busy(button,false);}
     });
 
-    $('[data-preset]').forEach(button=>button.addEventListener('click',()=>{
+    $$('[data-preset]').forEach(button=>button.addEventListener('click',()=>{
       const values=button.dataset.preset.split(',');
       $('#ihp-pages').value=values[0];$('#ihp-depth').value=values[1];$('#ihp-concurrency').value=values[2];$('#ihp-seconds').value=values[3];
     }));
