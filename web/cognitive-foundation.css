@@ -1972,3 +1972,29 @@ html.ih-overlay-open,html.ih-overlay-open body{overflow:hidden}
     z-index:119!important;
   }
 }
+
+
+/* === Native account popover v6 ========================================= */
+.cos-account-menu[popover]{
+  margin:0!important;
+}
+.cos-account-menu[popover]:not(:popover-open){
+  display:none!important;
+}
+.cos-account-menu[popover]:popover-open{
+  display:grid!important;
+}
+.cos-account-menu[popover]::backdrop{
+  background:rgba(0,0,0,.56);
+  backdrop-filter:blur(1px);
+}
+@media(max-width:900px){
+  .cos-account-menu[popover]{
+    inset:auto .75rem calc(4.95rem + env(safe-area-inset-bottom)) .75rem!important;
+    width:auto!important;
+    max-width:none!important;
+  }
+  .cos-account-menu[popover]::backdrop{
+    background:rgba(0,0,0,.62);
+  }
+}
