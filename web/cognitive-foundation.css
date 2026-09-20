@@ -1867,3 +1867,37 @@ html.ih-overlay-open,html.ih-overlay-open body{overflow:hidden}
   .ih-page-shell .ih-command-stats>div,.ih-page-shell .stat-card{min-height:7.2rem!important}
   .ih-page-shell :is(.ihx-endpoint-hero,.ihx-connection-modes article,.card,.ih-panel){max-width:100%!important}
 }
+
+
+/* === Interaction hardening v3 ========================================== */
+:where(button,a,[role="button"]){touch-action:manipulation}
+.cos-sheet-backdrop{
+  user-select:none!important;
+  -webkit-user-select:none!important;
+  touch-action:none!important;
+}
+@media(max-width:900px){
+  .cos-sheet-backdrop{pointer-events:none!important}
+  .cos-sheet-backdrop.open{pointer-events:auto!important}
+  .cos-sidebar.ih-sidebar,.cos-more-sheet,.cos-account-menu{
+    overscroll-behavior:contain!important;
+    -webkit-overflow-scrolling:touch;
+  }
+  .cos-account-menu a,.cos-account-menu button,
+  .cos-more-sheet a,.cos-more-sheet button,
+  .cos-sidebar a{position:relative!important;z-index:1!important}
+  .ih-route-settings :is(.ihx-settings-grid,.settings-grid)>article>header{
+    min-width:0!important;display:flex!important;align-items:flex-start!important;justify-content:flex-start!important;
+    flex-wrap:wrap!important;gap:.75rem!important
+  }
+  .ih-route-settings :is(.ihx-settings-grid,.settings-grid)>article>header>span:first-child{
+    min-width:0!important;flex:1 1 14rem!important
+  }
+  .ih-route-settings :is(.ihx-settings-grid,.settings-grid)>article>header>.ihx-state,
+  .ih-route-settings :is(.ihx-settings-grid,.settings-grid)>article>header>.badge{
+    flex:0 0 auto!important;max-width:100%!important;margin-left:0!important
+  }
+  .ih-route-settings :is(.ihx-settings-grid,.settings-grid)>article{
+    min-width:0!important;overflow:hidden!important
+  }
+}

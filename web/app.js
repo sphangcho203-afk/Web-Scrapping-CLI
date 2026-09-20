@@ -109,7 +109,18 @@ async function hydrateOptionalSession() {
     if (current?.user?.email_verified) state.me = current;
   } catch {}
 }
-function go(path, replace = false) { history[replace ? 'replaceState' : 'pushState']({}, '', path); renderRoute(); }
+function clearTransientUi() {
+  document.documentElement.classList.remove('ih-overlay-open');
+  document.body?.classList.remove('ih-overlay-open');
+  document.querySelectorAll('.cos-sidebar.open,.cos-more-sheet.open,[data-sheet-backdrop].open').forEach(el=>el.classList.remove('open'));
+  document.querySelectorAll('[data-account-menu]').forEach(el=>el.setAttribute('hidden',''));
+  document.querySelectorAll('[aria-expanded="true"]').forEach(el=>el.setAttribute('aria-expanded','false'));
+}
+function go(path, replace = false) {
+  clearTransientUi();
+  history[replace ? 'replaceState' : 'pushState']({}, '', path);
+  renderRoute();
+}
 function brand() { return `<a class="brand" data-link href="/" aria-label="Internet Hands home"><img src="/assets/mark.svg" width="38" height="38" alt=""><span>INTERNET <b>HANDS</b></span></a>`; }
 function bindCommon() {
   $$('[data-copy]').forEach(b => b.onclick = () => copyText(b.dataset.copy, b));
@@ -351,9 +362,18 @@ function renderLegalDocument(slug){
 function renderLegal(){const path=location.pathname.replace(/\/+$/,'')||'/';const alias=LEGAL_ALIASES[path];if(alias)return renderLegalDocument(alias);if(path==='/legal')return renderLegalHub();const slug=path.startsWith('/legal/')?decodeURIComponent(path.slice(7)):'';return slug?renderLegalDocument(slug):renderLegalHub()}
 
 async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
-async function renderRoute(){window.scrollTo(0,0);const p=location.pathname;try{if(p==='/'||p==='/pricing'||p==='/status'||p.startsWith('/docs')||p.startsWith('/legal')||LEGAL_ALIASES[p])await hydrateOptionalSession();if(p.startsWith('/dashboard'))return await renderDashboard();if(p==='/verify-email')return await renderVerify();if(p==='/login')return renderAuth('login');if(p==='/signup')return renderAuth('signup');if(p==='/forgot-password')return renderRecovery();if(p==='/reset-password')return renderRecovery(true);if(p.startsWith('/legal')||LEGAL_ALIASES[p])return renderLegal();if(p.startsWith('/docs'))return renderDocs();if(p==='/pricing')return await renderPricing();if(p==='/status')return await renderStatus();return await renderHome();}catch(error){console.error(error);if(error.status===401)return go('/login',true);app.innerHTML=`<main class="fatal"><div>${brand()}<span class="eyebrow">REQUEST FAILED</span><h1>The control plane did not answer cleanly.</h1><p>${esc(error.message)}</p><button class="btn primary" onclick="location.reload()">Try again</button></div></main>`;}}
-document.addEventListener('click',e=>{const a=e.target.closest('[data-link]');if(!a||e.metaKey||e.ctrlKey||e.shiftKey)return;e.preventDefault();go(a.getAttribute('href'));});
-window.addEventListener('popstate',renderRoute);
+async function renderRoute(){clearTransientUi();window.scrollTo(0,0);const p=location.pathname;try{if(p==='/'||p==='/pricing'||p==='/status'||p.startsWith('/docs')||p.startsWith('/legal')||LEGAL_ALIASES[p])await hydrateOptionalSession();if(p.startsWith('/dashboard'))return await renderDashboard();if(p==='/verify-email')return await renderVerify();if(p==='/login')return renderAuth('login');if(p==='/signup')return renderAuth('signup');if(p==='/forgot-password')return renderRecovery();if(p==='/reset-password')return renderRecovery(true);if(p.startsWith('/legal')||LEGAL_ALIASES[p])return renderLegal();if(p.startsWith('/docs'))return renderDocs();if(p==='/pricing')return await renderPricing();if(p==='/status')return await renderStatus();return await renderHome();}catch(error){console.error(error);if(error.status===401)return go('/login',true);app.innerHTML=`<main class="fatal"><div>${brand()}<span class="eyebrow">REQUEST FAILED</span><h1>The control plane did not answer cleanly.</h1><p>${esc(error.message)}</p><button class="btn primary" onclick="location.reload()">Try again</button></div></main>`;}}
+document.addEventListener('click',e=>{
+  if(e.defaultPrevented)return;
+  const a=e.target.closest('[data-link]');
+  if(!a||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
+  e.preventDefault();
+  e.stopPropagation();
+  const href=a.getAttribute('href');
+  if(href)go(href);
+});
+window.addEventListener('popstate',()=>{clearTransientUi();renderRoute();});
+window.addEventListener('pageshow',clearTransientUi);
 
 
 // Shared by the product and telemetry renderers in this canonical runtime.
@@ -1057,7 +1077,13 @@ function openRunInspector(event) {
       syncOverlayState();
     });
 
-    backdrop?.addEventListener('click', closeOverlays);
+    const consumeOverlayPointer = e => {
+      e.preventDefault();
+      e.stopPropagation();
+      closeOverlays();
+    };
+    backdrop?.addEventListener('pointerdown', consumeOverlayPointer);
+    backdrop?.addEventListener('click', consumeOverlayPointer);
 
     if (window.__ihAccountCloser) document.removeEventListener('click', window.__ihAccountCloser);
     window.__ihAccountCloser = e => {
@@ -1068,6 +1094,20 @@ function openRunInspector(event) {
       }
     };
     document.addEventListener('click', window.__ihAccountCloser);
+
+    [sidebar,sheet,accountMenu].filter(Boolean).forEach(region=>{
+      region.addEventListener('click',e=>{
+        const link=e.target.closest('[data-link]');
+        if(!link)return;
+        clearTransientUi();
+      });
+    });
+
+    if (window.__ihShellResize) window.removeEventListener('resize', window.__ihShellResize);
+    window.__ihShellResize = () => {
+      if (!mobileShell()) closeOverlays();
+    };
+    window.addEventListener('resize', window.__ihShellResize);
 
     if (window.__ihShellEscape) document.removeEventListener('keydown', window.__ihShellEscape);
     window.__ihShellEscape = e => { if (e.key === 'Escape') closeOverlays(); };
