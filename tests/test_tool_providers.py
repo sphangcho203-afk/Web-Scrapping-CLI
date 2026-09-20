@@ -5,7 +5,7 @@ import json
 import httpx
 import pytest
 
-from internet_hands.tool_providers import ApifyToolProvider, ComposioToolProvider
+from internet_hands.tool_providers import ApifyToolProvider, ComposioToolProvider, _side_effecting
 
 
 @pytest.mark.asyncio
@@ -156,3 +156,12 @@ async def test_composio_search_describe_and_execute() -> None:
         )
         assert result["status"] == "completed"
         assert result["data"]["html_url"].endswith("/1")
+
+
+def test_side_effect_classifier_handles_execute_and_read_exceptions() -> None:
+    assert _side_effecting("CUSTOM_N8N_EXECUTE_WORKFLOW") is True
+    assert _side_effecting("HIGGSFIELD_MCP_SANDBOX_EXEC") is True
+    assert _side_effecting("CUSTOM_ZAPIER_EXECUTE_ZAPIER_WRITE_ACTION") is True
+    assert _side_effecting("CUSTOM_ZAPIER_EXECUTE_ZAPIER_READ_ACTION") is False
+    assert _side_effecting("CUSTOM_N8N_GET_WORKFLOW_EXECUTION") is False
+    assert _side_effecting("BROWSER_TOOL_WATCH_TASK") is False

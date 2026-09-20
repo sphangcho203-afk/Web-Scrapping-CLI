@@ -1,1582 +1,1081 @@
-/* ==========================================================================
-   Internet Hands — Master Application & Unified Web Studio
-   ========================================================================== */
+/* Internet Hands unified browser runtime.
+ * Execution order intentionally preserves the former app -> product -> extended -> command stack
+ * while shipping one browser asset. New work should edit this file directly instead of adding override scripts.
+ */
 
-(function () {
-  'use strict';
+/* === Core application ==================================================== */
+const app = document.getElementById('app');
+const state = { me: null, plans: null, sessionChecked: false };
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = v => String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+const fmt = v => new Intl.NumberFormat('en-IN').format(Number(v || 0));
+const money = v => `₹${fmt(v)}`;
+const when = v => v ? new Date(v).toLocaleString() : 'Never';
 
-  // --- Global Application State ---
-  const state = {
-    me: null,
-    sessionChecked: false,
-    plans: null,
-    activeTab: 'overview',
-    activeStudioTool: 'scraper',
-    neonKey: localStorage.getItem('ih_neon_key') || '',
-    vercelToken: localStorage.getItem('ih_vercel_token') || '',
-    connectorStatus: null,
-    telemetryLogs: [
-      { id: 'req_8f1a02', time: '10:42:15', tool: 'scraper.extract', provider: 'playwright-stealth', target: 'https://news.ycombinator.com', status: 200, latency: '420ms', cost: '3 credits' },
-      { id: 'req_7b3d19', time: '10:41:50', tool: 'search.brave', provider: 'brave-search', target: 'ai agents live scraping', status: 200, latency: '185ms', cost: '2 credits' },
-      { id: 'req_6c9e44', time: '10:40:12', tool: 'mcp.mesh_route', provider: 'internal-router', target: 'mcp://customer-gateway', status: 200, latency: '24ms', cost: '1 credit' },
-      { id: 'req_5d2f81', time: '10:38:05', tool: 'crawler.deep', provider: 'crawler-worker-3', target: 'https://docs.python.org', status: 200, latency: '1.2s', cost: '8 credits' },
-    ]
+const paths = {
+  overview:'<path d="M3 13h8V3H3zM13 21h8V11h-8zM3 21h8v-6H3zM13 9h8V3h-8z"/>',
+  activity:'<path d="M3 12h4l2.5-7 5 14 2.5-7h4"/>',
+  key:'<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9m-3 3 3 3m-6 0 3 3"/>',
+  monitor:'<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/>',
+  plug:'<path d="M8 12h8m-4-4v8M5 3l14 18M19 3 5 21"/>',
+  wallet:'<path d="M4 7V5a2 2 0 0 1 2-2h12v4M4 7h16a2 2 0 0 1 2 2v10H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z"/><path d="M16 13h3"/>',
+  settings:'<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1A8 8 0 0 0 15 6l-.3-2.6h-4L10.4 6A8 8 0 0 0 9 7.1l-2.4-1-2 3.4 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.4-1A8 8 0 0 0 10.4 18l.3 2.6h4L15 18a8 8 0 0 0 1.5-1.1l2.4 1 2-3.4-2-1.5a7 7 0 0 0 .1-1Z"/>',
+  docs:'<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5zM4 5.5v14A2.5 2.5 0 0 0 6.5 22H20"/>',
+  more:'<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+  check:'<path d="m5 12 4 4L19 6"/>', arrow:'<path d="m9 18 6-6-6-6"/>',
+  copy:'<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',
+  shield:'<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/>',
+};
+const icon = (name, label = '') => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" ${label ? `aria-label="${esc(label)}" role="img"` : 'aria-hidden="true"'}>${paths[name] || paths.activity}</svg>`;
+const platformPaths = {
+  openai:"M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z",
+  anthropic:"M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z",
+  xai:"M14.234 10.162 22.977 0h-2.072l-7.591 8.824L7.251 0H.258l9.168 13.343L.258 24H2.33l8.016-9.318L16.749 24h6.993zm-2.837 3.299-.929-1.329L3.076 1.56h3.182l5.965 8.532.929 1.329 7.754 11.09h-3.182z",
+  github:"M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12",
+  mcp:"M13.85 0a4.16 4.16 0 0 0-2.95 1.217L1.456 10.66a.835.835 0 0 0 0 1.18.835.835 0 0 0 1.18 0l9.442-9.442a2.49 2.49 0 0 1 3.541 0 2.49 2.49 0 0 1 0 3.541L8.59 12.97l-.1.1a.835.835 0 0 0 0 1.18.835.835 0 0 0 1.18 0l.1-.098 7.03-7.034a2.49 2.49 0 0 1 3.542 0l.049.05a2.49 2.49 0 0 1 0 3.54l-8.54 8.54a1.96 1.96 0 0 0 0 2.755l1.753 1.753a.835.835 0 0 0 1.18 0 .835.835 0 0 0 0-1.18l-1.753-1.753a.266.266 0 0 1 0-.394l8.54-8.54a4.185 4.185 0 0 0 0-5.9l-.05-.05a4.16 4.16 0 0 0-2.95-1.218c-.2 0-.401.02-.6.048a4.17 4.17 0 0 0-1.17-3.552A4.16 4.16 0 0 0 13.85 0m0 3.333a.84.84 0 0 0-.59.245L6.275 10.56a4.186 4.186 0 0 0 0 5.902 4.186 4.186 0 0 0 5.902 0L19.16 9.48a.835.835 0 0 0 0-1.18.835.835 0 0 0-1.18 0l-6.985 6.984a2.49 2.49 0 0 1-3.54 0 2.49 2.49 0 0 1 0-3.54l6.983-6.985a.835.835 0 0 0 0-1.18.84.84 0 0 0-.59-.245",
+  hermes:'M6.6 18.9 12 3l5.4 15.9-5.4-3.2-5.4 3.2Zm2.8-4.8 2.6-1.6 2.6 1.6L12 6.5l-2.6 7.6Z',
+  api:'M7 8 3 12l4 4m10-8 4 4-4 4M14 5l-4 14'
+};
+const platformMark = (name, label = '') => `<svg class="platform-mark mark-${name}" viewBox="0 0 24 24" ${label ? `aria-label="${esc(label)}" role="img"` : 'aria-hidden="true"'}><path d="${platformPaths[name] || platformPaths.api}"/></svg>`;
+
+
+function toast(message, tone = '') {
+  let region = $('#toast-region');
+  if (!region) { region = document.createElement('div'); region.id = 'toast-region'; document.body.appendChild(region); }
+  const item = document.createElement('div'); item.className = `toast ${tone}`; item.role = 'status'; item.textContent = message; region.appendChild(item);
+  setTimeout(() => item.remove(), 3600);
+}
+async function copyText(text, button) {
+  try { await navigator.clipboard.writeText(text); toast('Copied to clipboard', 'success'); if (button) { const old = button.innerHTML; button.innerHTML = `${icon('check')} Copied`; setTimeout(() => button.innerHTML = old, 1400); } }
+  catch { toast('Clipboard access was blocked', 'error'); }
+}
+// Normalize only documented display collections. Do not alter arbitrary run
+// metadata, authentication responses, or mutation payloads.
+function normalizeCollections(path, data) {
+  const endpoint = path.split('?')[0];
+  const fields = {
+    '/api/public/plans': ['plans', 'credit_packs'],
+    '/api/dashboard': ['series'],
+    '/api/usage': ['events'],
+    '/api/usage/intelligence': ['recent_runs', 'recent_failures', 'series'],
+    '/api/api-keys': ['keys'],
+    '/api/monitors': ['monitors'],
+    '/api/wallet': ['ledger'],
+    '/api/billing/payments': ['payments'],
+    '/api/account/sessions': ['sessions'],
+  }[endpoint] || (/^\/api\/monitors\/[^/]+\/history$/.test(endpoint) ? ['runs'] : null);
+  if (!fields) return data;
+  const object = (value, field) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error(`Expected an object for ${endpoint}: ${field}`);
+    }
+    return value;
   };
-
-  // --- DOM Helpers ---
-  const $ = (selector, root = document) => root.querySelector(selector);
-  const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-  const esc = str => String(str ?? '').replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c]));
-  const fmt = num => new Intl.NumberFormat('en-IN').format(Number(num || 0));
-  const money = amount => `₹${fmt(amount)}`;
-  const when = dateStr => dateStr ? new Date(dateStr).toLocaleString() : 'Never';
-
-  // --- SVG Icons ---
-  const icons = {
-    logo: `<path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`,
-    scan: `<path d="M3 7V5a2 2 0 0 1 2-2h2m10 0h2a2 2 0 0 1 2 2v2m0 10v2a2 2 0 0 1-2 2h-2m-10 0H5a2 2 0 0 1-2-2v-2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/>`,
-    scraper: `<rect x="2" y="3" width="20" height="14" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 21h8m-4-4v4M7 8h10M7 12h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`,
-    crawler: `<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20" stroke="currentColor" stroke-width="2"/>`,
-    search: `<circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><path d="m21 21-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`,
-    api: `<path d="M7 8l-4 4 4 4m10-8l4 4-4 4M14 4l-4 16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`,
-    osint: `<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="m9 12 2 2 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`,
-    monitor: `<rect x="2" y="3" width="20" height="14" rx="2" stroke="currentColor" stroke-width="2"/><path d="M12 17v4m-4 0h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M6 10l3 3 3-3 6 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`,
-    sandbox: `<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" stroke="currentColor" stroke-width="2"/><polyline points="3.27 6.96 12 12.01 20.73 6.96" stroke="currentColor" stroke-width="2"/><line x1="12" y1="22.08" x2="12" y2="12" stroke="currentColor" stroke-width="2"/>`,
-    connector: `<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`,
-    telemetry: `<polyline points="22 12 18 12 15 21 9 3 6 12 2 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`,
-    key: `<circle cx="7.5" cy="15.5" r="4.5" stroke="currentColor" stroke-width="2"/><path d="m11 12 9-9m-3 3 3 3m-6 0 3 3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`,
-    wallet: `<rect x="2" y="4" width="20" height="16" rx="2" stroke="currentColor" stroke-width="2"/><path d="M6 10h12m-6 4h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`,
-    shield: `<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`,
-    arrow: `<path d="M5 12h14m-7-7 7 7-7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`,
-    check: `<polyline points="20 6 9 17 4 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`,
-    copy: `<rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" stroke-width="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" stroke-width="2"/>`,
-    play: `<polygon points="5 3 19 12 5 21 5 3" fill="currentColor"/>`,
-    refresh: `<path d="M23 4v6h-6m-1 5a9 9 0 1 1-2.6-6.4L23 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`,
-    sparkles: `<path d="m12 3 1.9 4.7L18.6 9l-4.7 1.9L12 15.6l-1.9-4.7L5.4 9l4.7-1.3L12 3zM19 17l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9.9-2.1z" fill="currentColor"/>`,
-    github: `<path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" fill="currentColor"/>`,
-    neon: `<path d="M12 2L2 7l10 5 10-5-10-5zm0 18l10-5-10-5-10 5 10 5z" fill="#00E599"/>`,
-    vercel: `<path d="M12 2L2 20h20L12 2z" fill="currentColor"/>`
+  const collection = (value, field, records = true) => {
+    if (value == null) return [];
+    if (!Array.isArray(value)) throw new Error(`Expected an array for ${endpoint}: ${field}`);
+    if (records) value.forEach((item, index) => object(item, `${field}[${index}]`));
+    return value;
   };
-
-  const getIcon = (name, className = 'icon') => {
-    return `<svg class="${className}" viewBox="0 0 24 24" width="18" height="18" fill="none">${icons[name] || icons.logo}</svg>`;
-  };
-
-  // --- Notifications & Feedback ---
-  function toast(message, tone = 'info') {
-    let region = $('#toast-region');
-    if (!region) {
-      region = document.createElement('div');
-      region.id = 'toast-region';
-      document.body.appendChild(region);
-    }
-    const item = document.createElement('div');
-    item.className = `toast ${tone}`;
-    item.innerHTML = `<span>${tone === 'success' ? getIcon('check') : getIcon('sparkles')}</span><div>${esc(message)}</div>`;
-    region.appendChild(item);
-    setTimeout(() => item.remove(), 4000);
-  }
-
-  async function copyText(text, button) {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast('Copied to clipboard', 'success');
-      if (button) {
-        const orig = button.innerHTML;
-        button.innerHTML = `${getIcon('check')} Copied!`;
-        setTimeout(() => button.innerHTML = orig, 1500);
-      }
-    } catch {
-      toast('Clipboard permission blocked', 'error');
-    }
-  }
-
-  // --- Backend API Client ---
-  async function api(path, options = {}) {
-    const init = {
-      credentials: 'include',
-      cache: 'no-store',
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(options.headers || {})
-      }
-    };
-    if (init.body && typeof init.body !== 'string') {
-      init.body = JSON.stringify(init.body);
-    }
-    try {
-      const response = await fetch(path, init);
-      let data = {};
-      try { data = await response.json(); } catch {}
-      if (!response.ok) {
-        const detail = data?.detail;
-        const msg = typeof detail === 'string' ? detail : detail?.message || data?.error || `Request failed (${response.status})`;
-        const error = new Error(msg);
-        error.status = response.status;
-        throw error;
-      }
-      return data;
-    } catch (err) {
-      throw err;
-    }
-  }
-
-  async function hydrateSession() {
-    if (state.sessionChecked) return;
-    state.sessionChecked = true;
-    try {
-      const res = await api('/api/auth/me');
-      if (res?.user) {
-        state.me = res;
-      }
-    } catch {
-      state.me = null;
-    }
-  }
-
-  async function getPlans() {
-    if (state.plans) return state.plans;
-    try {
-      state.plans = await api('/api/public/plans');
-    } catch {
-      state.plans = {
-        plans: [
-          { slug: 'free', name: 'Free', monthly_price_inr: 0, included_credits: 2500, rpm_limit: 30, api_key_limit: 2, monitor_limit: 3, browser_enabled: false },
-          { slug: 'builder', name: 'Builder', monthly_price_inr: 499, included_credits: 10000, rpm_limit: 120, api_key_limit: 5, monitor_limit: 10, browser_enabled: true },
-          { slug: 'pro', name: 'Pro', monthly_price_inr: 1499, included_credits: 40000, rpm_limit: 300, api_key_limit: 15, monitor_limit: 30, browser_enabled: true },
-          { slug: 'scale', name: 'Scale', monthly_price_inr: 4999, included_credits: 150000, rpm_limit: 600, api_key_limit: 50, monitor_limit: 100, browser_enabled: true }
-        ],
-        credit_packs: [
-          { credits: 5000, price_inr: 199 },
-          { credits: 25000, price_inr: 799 },
-          { credits: 100000, price_inr: 2499 }
-        ]
-      };
-    }
-    return state.plans;
-  }
-
-  // --- Navigation & Router ---
-  function go(path, replace = false) {
-    history[replace ? 'replaceState' : 'pushState']({}, '', path);
-    renderApp();
-  }
-
-  window.onpopstate = () => renderApp();
-
-  function bindCommon() {
-    $$('[data-link]').forEach(el => {
-      el.onclick = e => {
-        e.preventDefault();
-        const href = el.getAttribute('href');
-        if (href) go(href);
-      };
-    });
-
-    $$('[data-copy]').forEach(el => {
-      el.onclick = () => copyText(el.dataset.copy, el);
+  const result = {...object(data, 'response')};
+  fields.forEach(field => { result[field] = collection(data[field], field); });
+  if (endpoint === '/api/usage/intelligence') {
+    const breakdowns = data.breakdowns == null ? {} : object(data.breakdowns, 'breakdowns');
+    result.breakdowns = {...breakdowns};
+    ['status', 'tool', 'provider'].forEach(field => {
+      result.breakdowns[field] = collection(breakdowns[field], `breakdowns.${field}`);
     });
   }
+  if (endpoint === '/api/api-keys') {
+    result.keys = result.keys.map(key => ({...key, scopes: collection(key.scopes, 'keys.scopes', false)}));
+  }
+  return result;
+}
+async function api(path, options = {}) {
+  const init = { credentials:'include', cache:'no-store', ...options, headers:{'Content-Type':'application/json', ...(options.headers || {})} };
+  if (init.body && typeof init.body !== 'string') init.body = JSON.stringify(init.body);
+  const response = await fetch(path, init); let data = {};
+  try { data = await response.json(); } catch {}
+  if (!response.ok) { const detail = data?.detail; const error = new Error(typeof detail === 'string' ? detail : detail?.message || data?.error || `Request failed (${response.status})`); error.status = response.status; error.code = detail?.code; throw error; }
+  return (init.method || 'GET').toUpperCase() === 'GET' ? normalizeCollections(path, data) : data;
+}
+async function hydrateOptionalSession() {
+  if (state.sessionChecked) return;
+  state.sessionChecked = true;
+  try {
+    const current = await api('/api/auth/me');
+    if (current?.user?.email_verified) state.me = current;
+  } catch {}
+}
+function go(path, replace = false) { history[replace ? 'replaceState' : 'pushState']({}, '', path); renderRoute(); }
+function brand() { return `<a class="brand" data-link href="/" aria-label="Internet Hands home"><img src="/assets/mark.svg" width="38" height="38" alt=""><span>INTERNET <b>HANDS</b></span></a>`; }
+function bindCommon() {
+  $$('[data-copy]').forEach(b => b.onclick = () => copyText(b.dataset.copy, b));
+  const navToggle = $('[data-nav-toggle]');
+  const mobileMenu = $('[data-mobile-menu]');
+  if (navToggle && mobileMenu) {
+    const syncNavState = () => navToggle.setAttribute('aria-expanded', String(mobileMenu.classList.contains('open')));
+    navToggle.setAttribute('aria-controls', 'ih-mobile-menu');
+    mobileMenu.id = 'ih-mobile-menu';
+    syncNavState();
+    navToggle.addEventListener('click', () => {
+      mobileMenu.classList.toggle('open');
+      syncNavState();
+    });
+  }
+}
+function codeBlock(code, title = 'Configuration') { return `<div class="code-block"><div><span>${esc(title)}</span><button data-copy="${esc(code)}">${icon('copy')} Copy</button></div><pre><code>${esc(code)}</code></pre></div>`; }
+function publicShell(content) {
+  const authenticated=!!state.me?.user?.email_verified;
+  const desktopActions=authenticated
+    ? `<a class="btn primary" data-link href="/dashboard">Dashboard ${icon('arrow')}</a>`
+    : `<a class="btn quiet" data-link href="/login">Sign in</a><a class="btn primary" data-link href="/signup">Get started ${icon('arrow')}</a>`;
+  const mobileActions=authenticated
+    ? '<a data-link href="/dashboard">Back to dashboard</a>'
+    : '<a data-link href="/login">Sign in</a><a data-link href="/signup">Create account</a>';
+  app.innerHTML = `<header class="site-header"><nav class="site-nav container">${brand()}<div class="nav-links"><a data-link href="/docs">Docs</a><a data-link href="/pricing">Pricing</a><a data-link href="/status">Status</a><a href="https://github.com/sphangcho203-afk/Web-Scrapping-CLI" target="_blank" rel="noreferrer">GitHub</a></div><div class="nav-actions">${desktopActions}</div><button class="icon-btn nav-toggle" data-nav-toggle aria-label="Open navigation">${icon('menu')}</button></nav><div class="mobile-menu" data-mobile-menu><a data-link href="/docs">Documentation</a><a data-link href="/pricing">Pricing</a><a data-link href="/status">Status</a>${mobileActions}</div></header>${content}<footer class="footer"><div class="container footer-grid"><div>${brand()}<p>Infrastructure for agents that need the live internet.</p></div><div><b>Product</b><a data-link href="/docs/mcp">MCP gateway</a><a data-link href="/docs/monitoring">Monitoring</a><a data-link href="/pricing">Pricing</a></div><div><b>Resources</b><a data-link href="/docs/quickstart">Quickstart</a><a data-link href="/status">Status</a></div><div>© ${new Date().getFullYear()} Internet Hands<br>Explicit. Scoped. Auditable.</div></div></footer>`;
+  bindCommon();
+}
+async function getPlans() { if (state.plans) return state.plans; try { state.plans = await api('/api/public/plans'); } catch { state.plans = {plans:[],credit_packs:[]}; } return state.plans; }
 
-  // --- Shell Layouts ---
-  function renderHeader(activeNav = '') {
-    const isAuth = !!state.me?.user?.email_verified;
-    return `
-      <header class="site-header">
-        <div class="container site-nav">
-          <a class="brand" data-link href="/">
-            <div class="brand-mark">
-              <img src="/assets/mark.svg" alt="Internet Hands">
-            </div>
-            <span><b>Internet</b><em>Hands</em></span>
-          </a>
+function gatewayVisual() { return `<div class="gateway-visual"><span class="visual-label">LIVE ROUTING FABRIC</span><div class="agent-node"><i></i>AGENT</div><div class="route a"></div><div class="core-node"><img src="/assets/mark.svg" width="52" height="52" alt=""><b>INTERNET HANDS</b><small>Policy · route · meter</small></div><div class="route b"></div><div class="mesh-nodes"><span>Browser</span><span>Web data</span><span>APIs</span><span>Remote MCP</span><span>Monitors</span><span>Sandbox</span></div><div class="route-event"><i></i>route accepted <b>42 ms</b></div></div>`; }
+function feature(kicker, title, body) { return `<article class="feature-card"><span>${kicker}</span><h3>${title}</h3><p>${body}</p><a data-link href="/docs/capabilities">Explore ${icon('arrow')}</a></article>`; }
+function integrationTiles() { return `<div class="integration-grid">${[['OpenAI','ChatGPT clients','OAuth MCP'],['Anthropic','Claude clients','OAuth MCP'],['xAI','Grok workflows','API key'],['Hermes','Self-hosted agents','MCP'],['Generic MCP','Streamable HTTP','OAuth / key'],['REST API','Scripts and CI','Bearer key']].map(x => `<article><b>${x[0]}</b><p>${x[1]}</p><span>${x[2]}</span></article>`).join('')}</div>`; }
+function planCards(plans) {
+  if (!plans.length) return '<div class="notice">Plan data is temporarily unavailable.</div>';
+  return `<div class="pricing-grid">${plans.map(p => `<article class="plan-card ${p.slug === 'pro' ? 'featured' : ''}">${p.slug === 'pro' ? '<span class="plan-flag">MOST CAPABLE</span>' : ''}<span class="plan-name">${esc(p.name)}</span><div class="plan-price">${money(p.monthly_price_inr)}<small>/month</small></div><p>${fmt(p.included_credits)} monthly credits</p><ul><li>${icon('check')} ${fmt(p.rpm_limit)} requests / minute</li><li>${icon('check')} ${fmt(p.api_key_limit)} API keys</li><li>${icon('check')} ${fmt(p.monitor_limit)} monitors</li><li>${icon('check')} ${p.browser_enabled ? 'Browser access' : 'Public data tools'}</li><li>${icon('check')} ${p.sandbox_enabled ? 'Sandbox execution' : 'Core execution'}</li></ul><a class="btn ${p.slug === 'pro' ? 'primary' : ''}" data-link href="/signup${p.slug === 'free' ? '' : `?plan=${p.slug}`}">${p.slug === 'free' ? 'Start free' : `Choose ${esc(p.name)}`}</a></article>`).join('')}</div>`;
+}
+async function renderHome() {
+  const plans = await getPlans();
+  publicShell(`<main><section class="hero"><div class="container hero-grid"><div class="hero-copy"><span class="eyebrow"><i></i>MCP GATEWAY · CONTROL PLANE · LIVE</span><h1>Give your agent <em>hands</em> on the internet.</h1><p>One authenticated gateway for live web intelligence, browser computers, public APIs, remote MCPs, monitoring and structured evidence—without drowning the model in schemas.</p><div class="hero-actions"><a class="btn primary large" data-link href="/signup">Start building ${icon('arrow')}</a><a class="btn large" data-link href="/docs/quickstart">Read quickstart</a></div><div class="trust-row"><span>${icon('shield')} Scoped access</span><span>Request metering</span><span>One stable endpoint</span></div></div>${gatewayVisual()}</div></section><div class="cap-strip"><div class="container"><span>SEARCH</span><span>SCRAPE</span><span>BROWSE</span><span>EXTRACT</span><span>MONITOR</span><span>EXECUTE</span><span>PROVE</span></div></div><section class="section"><div class="container"><header class="section-heading"><div><span class="eyebrow">ONE ENDPOINT, MANY CAPABILITIES</span><h2>A small interface to a large internet.</h2></div><p>Agents discover only what they need. Policy, credentials, metering and provider routing remain behind the boundary.</p></header><div class="feature-grid">${feature('01 / COLLECT','Web intelligence','Search, fetch, crawl and extract structured evidence with provenance.')}${feature('02 / OPERATE','Cloud computers','Persistent browsers, terminal jobs, files and isolated execution.')}${feature('03 / ROUTE','Tool mesh','Normalize OpenAPI catalogs, connected apps and remote MCP servers.')}${feature('04 / UNDERSTAND','Gaming intelligence','Resolve public profiles, rank, recent form and progression.')}${feature('05 / OBSERVE','Monitoring','Watch webpages, APIs, MCP endpoints and supported identities.')}${feature('06 / GOVERN','Control plane','Scoped keys, credits, request IDs, limits and usage ledgers.')}</div></div></section><section class="section shaded"><div class="container"><header class="section-heading"><div><span class="eyebrow">AGENT INTEGRATIONS</span><h2>Connect the client you already use.</h2></div><p>Interactive clients use OAuth and explicit consent. Servers use scoped API keys.</p></header>${integrationTiles()}</div></section><section class="section"><div class="container split"><div><span class="eyebrow">FAST PATH</span><h2>Connect once. Discover at runtime.</h2><p class="lead">The canonical URL stays fixed while the capability fabric evolves.</p><ol class="steps"><li><b>01</b><span><strong>Create and verify</strong>Identity is confirmed before privileged access.</span></li><li><b>02</b><span><strong>Connect securely</strong>Choose OAuth consent or a scoped server key.</span></li><li><b>03</b><span><strong>Route and execute</strong>Load only the context needed for the task.</span></li></ol></div>${codeBlock(`${location.origin}/mcp\n\nAuthorization: Bearer ih_live_…\n\nmesh_route("what I need")\nmesh_describe(tool_ref)\nmesh_execute(tool_ref, input)`, 'MCP / Streamable HTTP')}</div></section><section class="security-band"><div class="container split"><div><span class="eyebrow">SECURITY BOUNDARY</span><h2>Capability without credential sprawl.</h2><p>Secrets stay server-side. Verified identity gates privileged actions; optional TOTP protects sign-in.</p><a data-link href="/docs/security">Read the security model ${icon('arrow')}</a></div><div class="security-list"><span>${icon('check')} OAuth code + PKCE</span><span>${icon('check')} One-use recovery codes</span><span>${icon('check')} Captured-payment verification</span><span>${icon('check')} Request IDs and ledgers</span></div></div></section><section class="section"><div class="container"><header class="section-heading"><div><span class="eyebrow">PLANS</span><h2>Pay for useful work.</h2></div><a data-link href="/pricing">Compare every limit ${icon('arrow')}</a></header>${planCards(plans.plans.slice(0,3))}</div></section><section class="final-cta"><div class="container"><span class="eyebrow">INTERNET HANDS</span><h2>Build the agent that can actually reach things.</h2><p>Start with one verified account, one key and one successful request.</p><a class="btn primary large" data-link href="/signup">Open the console ${icon('arrow')}</a></div></section></main>`);
+}
+async function renderPricing() {
+  const plans = await getPlans();
+  publicShell(`<main class="page"><section class="page-hero container"><span class="eyebrow">PRICING</span><h1>Infrastructure pricing without mystery.</h1><p>Monthly credits refresh. Purchased credits roll over. Provider-heavy jobs spend according to work.</p></section><section class="container">${planCards(plans.plans)}<article class="card comparison"><header><span class="overline">CREDIT MODEL</span><h2>What work costs</h2></header><div class="table-wrap"><table><thead><tr><th>Capability</th><th>Typical base</th><th>Notes</th></tr></thead><tbody><tr><td>Discovery and health</td><td>1 credit</td><td>Metadata and schemas</td></tr><tr><td>Browser or sandbox</td><td>2 credits</td><td>Per bounded action</td></tr><tr><td>Live web search</td><td>3 credits</td><td>Provider usage may apply</td></tr><tr><td>Fetch or scrape</td><td>5 credits</td><td>Single target</td></tr><tr><td>Crawl</td><td>10 + pages</td><td>Policy bounded</td></tr></tbody></table></div></article><div class="faq-grid"><article><h3>Do credits expire?</h3><p>Monthly credits refresh. Purchased credits remain until used.</p></article><article><h3>When does access change?</h3><p>Only after a captured payment matches the server-created order.</p></article><article><h3>Can I start free?</h3><p>Yes. Verification unlocks the Free plan control plane.</p></article></div></section></main>`);
+}
+async function renderStatus() {
+  let s = {}; try { s = await api('/api/status'); } catch {}
+  const rows = [['MCP gateway',true,'/mcp'],['Control database',!!s.control_database,'Accounts and usage'],['OAuth authorization',!!s.oauth,'PKCE'],['Billing',!!s.billing,'Razorpay'],['GitHub sign-in',!!s.github_oauth,'OAuth'],['Monitoring',true,'Control plane']];
+  publicShell(`<main class="page"><section class="page-hero container"><span class="eyebrow">SYSTEM STATUS</span><h1>Operational state, without exposing secrets.</h1><p>Configuration-level health for the public gateway and control plane.</p></section><section class="container"><div class="card status-panel"><div class="status-summary"><i></i><span><b>Internet Hands is responding</b><small>Checked ${new Date().toLocaleTimeString()}</small></span></div>${rows.map(x => `<div class="status-row"><span><b>${x[0]}</b><small>${x[2]}</small></span><em class="badge ${x[1] ? 'success' : 'warning'}">${x[1] ? 'Operational' : 'Pending config'}</em></div>`).join('')}</div></section></main>`);
+}
 
-          <nav class="nav-links">
-            <a data-link href="/studio" class="${activeNav === 'studio' ? 'active' : ''}">
-              ${getIcon('scraper')} Studio
-            </a>
-            <a data-link href="/pricing" class="${activeNav === 'pricing' ? 'active' : ''}">Pricing</a>
-            <a data-link href="/docs" class="${activeNav === 'docs' ? 'active' : ''}">Docs</a>
-            <a data-link href="/status" class="${activeNav === 'status' ? 'active' : ''}">
-              <span class="status-dot pulse"></span> Status
-            </a>
-            <a href="https://github.com/sphangcho203-afk/Web-Scrapping-CLI" target="_blank" rel="noreferrer">
-              ${getIcon('github')} GitHub
-            </a>
-          </nav>
+const docs = {
+  introduction:['Introduction','Get started',`<p>Internet Hands gives agents a compact authenticated interface to internet-facing capabilities. The MCP URL is stable while providers evolve behind it.</p><h2 id="model">Operating model</h2><p>Route intent, inspect the selected tool, execute, then retain request IDs and provenance.</p>${codeBlock('mesh_route("research a public company")\nmesh_describe("selected.tool")\nmesh_execute("selected.tool", {...})','Agent pattern')}`],
+  concepts:['Core concepts','Get started','<h2 id="gateway">Gateway</h2><p>The gateway authenticates, meters and routes calls without loading every provider schema.</p><h2 id="credits">Credits</h2><p>Monthly and purchased credits are separate wallet buckets.</p><h2 id="provenance">Provenance</h2><p>Collection retains source, timing and request identifiers.</p>'],
+  quickstart:['Quickstart','Get started',`<p>Your first request takes four steps: create an account, verify the email, create a scoped key, then connect a client.</p>${codeBlock(`${location.origin}/mcp\nAuthorization: Bearer ih_live_…`,'Connection')}`],
+  account:['Account & verification','Get started','<p>Email signup enters a pending state. Privileged actions stay blocked until a link or six-digit code is accepted.</p><div class="callout">Codes expire after 15 minutes. Resends are rate-limited and replace the prior challenge.</div><h2 id="github">GitHub</h2><p>New GitHub-created Internet Hands accounts still complete product verification.</p>'],
+  keys:['API keys','Get started',`${codeBlock('Authorization: Bearer ih_live_…\n# or\nX-API-Key: ih_live_…','HTTP auth')}<p>Raw keys appear once. Only hashes persist. Use one key per integration for clean revocation.</p>`],
+  mcp:['MCP overview','MCP',`${codeBlock(`${location.origin}/mcp`,'Streamable HTTP')}<h2 id="flow">Recommended flow</h2><p>Call <code>mesh_route</code>, inspect one schema if needed, then execute.</p>`],
+  oauth:['OAuth MCP','MCP',`${codeBlock('GET /.well-known/oauth-protected-resource\nGET /.well-known/oauth-authorization-server','Discovery')}<p>Interactive clients use authorization code with PKCE S256, explicit scopes and short-lived tokens.</p>`],
+  clients:['Client guides','MCP','<h2 id="openai">OpenAI / ChatGPT</h2><p>Add the public remote MCP URL and complete browser authorization.</p><h2 id="claude">Claude</h2><p>Use Streamable HTTP and finish authorization in the browser.</p><h2 id="grok">Grok</h2><p>Use a server-held scoped key when interactive OAuth is unavailable.</p><h2 id="hermes">Hermes</h2><p>Register the endpoint as a remote MCP server and keep credentials outside prompts.</p>'],
+  capabilities:['Capabilities','Platform','<h2 id="web">Web intelligence</h2><p>Search, fetch, extract, map and bounded crawl paths preserve provenance.</p><h2 id="browser">Browser & sandbox</h2><p>Guarded browser and isolated execution handle dynamic targets.</p><h2 id="mesh">Tool mesh</h2><p>Remote MCP, OpenAPI and provider catalogs become discoverable references.</p><h2 id="gaming">Gaming</h2><p>Supported public identity paths resolve profile and progression.</p>'],
+  monitoring:['Monitoring','Control plane','<p>Monitors watch webpages, APIs, MCP endpoints and supported public identities.</p><h2 id="templates">Templates</h2><ul><li>Uptime and HTTP status</li><li>Latency threshold</li><li>JSON field value</li><li>Content change</li></ul>'],
+  usage:['Usage','Control plane','<p>Each metered call records request ID, tool, provider, status, credit charge and latency.</p><h2 id="debug">Debugging</h2><p>Start with the request ID; it is the correlation key across the gateway and ledger.</p>'],
+  billing:['Billing','Control plane','<p>Orders are priced server-side. Entitlements activate only after signature validation and a captured payment matching order, amount and currency.</p><div class="callout">Repeated webhooks are idempotent and cannot double-credit a wallet.</div>'],
+  security:['Security','Security','<h2 id="verification">Verification</h2><p>Privileged mutations require verified identity.</p><h2 id="two-factor">Two-factor</h2><p>TOTP secrets are encrypted; replay is rejected; recovery codes are hashed and one-use.</p><h2 id="sessions">Sessions</h2><p>HTTP-only sessions are revoked on password reset or change.</p>'],
+  errors:['Errors & limits','Reference','<div class="table-wrap"><table><thead><tr><th>Code</th><th>Meaning</th></tr></thead><tbody><tr><td><code>invalid_api_key</code></td><td>Invalid or revoked</td></tr><tr><td><code>email_verification_required</code></td><td>Identity gate</td></tr><tr><td><code>insufficient_credits</code></td><td>Wallet cannot fund work</td></tr><tr><td><code>rate_limited</code></td><td>Plan limit reached</td></tr><tr><td><code>scope_denied</code></td><td>Scope missing</td></tr></tbody></table></div>'],
+  troubleshooting:['Troubleshooting','Reference','<h2 id="401">MCP returns 401</h2><p>Follow protected-resource metadata or send an active Bearer key.</p><h2 id="email">Email did not arrive</h2><p>Check the address, wait for cooldown, then request a new challenge.</p><h2 id="config">Config clips</h2><p>Use the copy control. Code scrolls internally and never widens the page.</p>'],
+};
+function docsNav(active) {
+  return [...new Set(Object.values(docs).map(x => x[1]))].map(group => `<div class="docs-group"><span>${group}</span>${Object.entries(docs).filter(([,x]) => x[1] === group).map(([slug,x]) => `<a class="${slug === active ? 'active' : ''}" data-link href="/docs/${slug}">${x[0]}</a>`).join('')}</div>`).join('');
+}
+function renderDocs() {
+  const slug = location.pathname.split('/')[2] || 'introduction'; const d = docs[slug] || docs.introduction; const keys = Object.keys(docs); const i = keys.indexOf(slug); const prev = i > 0 ? keys[i-1] : null; const next = i >= 0 && i < keys.length-1 ? keys[i+1] : null;
+  app.innerHTML = `<div class="docs-layout"><header class="docs-top">${brand()}<button class="btn small" data-docs-toggle>${icon('menu')} Sections</button><a class="btn primary small" data-link href="${state.me?.user?.email_verified?'/dashboard':'/signup'}">${state.me?.user?.email_verified?'Back to dashboard':'Open console'}</a></header><aside class="docs-sidebar" data-docs-sidebar><label>Search docs<input id="docs-search" placeholder="Filter sections…"></label>${docsNav(slug)}</aside><article class="docs-article"><div class="breadcrumb">Docs / ${d[1]}</div><h1>${d[0]}</h1>${d[2]}<nav class="docs-pager">${prev ? `<a data-link href="/docs/${prev}"><small>Previous</small>${docs[prev][0]}</a>` : '<span></span>'}${next ? `<a data-link href="/docs/${next}"><small>Next</small>${docs[next][0]}</a>` : ''}</nav></article><aside class="docs-toc"><b>On this page</b>${[...d[2].matchAll(/<h2 id="([^"]+)">([^<]+)<\/h2>/g)].map(m => `<a href="#${m[1]}">${m[2]}</a>`).join('')}</aside></div>`;
+  bindCommon(); $('[data-docs-toggle]').onclick = () => $('[data-docs-sidebar]').classList.toggle('open'); $('#docs-search').oninput = e => $$('.docs-group a').forEach(a => a.hidden = !a.textContent.toLowerCase().includes(e.target.value.toLowerCase()));
+}
 
-          <div class="nav-actions">
-            ${isAuth ? `
-              <a class="btn small" data-link href="/studio">${getIcon('scraper')} Web Studio</a>
-              <a class="btn primary small" data-link href="/dashboard">${getIcon('scan')} Console</a>
-              <button class="btn quiet small" id="btn-logout" title="Sign out">Log out</button>
-            ` : `
-              <a class="btn small" data-link href="/studio">${getIcon('scraper')} Open Studio</a>
-              <a class="btn quiet small" data-link href="/login">Sign in</a>
-              <a class="btn primary small" data-link href="/signup">Get Started</a>
-            `}
+function authShell(title, sub, content, story = 'Infrastructure for agents that need reach.') {
+  app.innerHTML = `<main class="auth-layout"><section class="auth-story">${brand()}<div class="auth-story-copy"><span class="eyebrow">INTERNET HANDS CONTROL PLANE</span><h1>${story}</h1><p>One secure operating layer for identity, live web access, usage and MCP authorization.</p><div class="auth-capabilities"><span>${icon('shield')} Verified identity</span><span>${icon('key')} Scoped access</span><span>${icon('activity')} Live observability</span></div></div><div class="auth-system-card"><div><span class="live-dot"></span><b>Gateway online</b><small>Policy · route · meter</small></div><div class="auth-system-flow"><span>Agent</span><i></i><strong><img src="/assets/mark.svg" alt="">IH</strong><i></i><span>Internet</span></div></div></section><section class="auth-main"><div class="auth-card"><div class="auth-mobile-brand">${brand()}</div><header><span class="auth-kicker">${title === 'Welcome back' ? 'ACCOUNT ACCESS' : title.includes('Verify') ? 'IDENTITY CHECK' : 'CREATE WORKSPACE'}</span><h2>${title}</h2><p>${sub}</p></header>${content}<footer class="auth-secure">${icon('shield')} Protected with encrypted, HTTP-only sessions</footer></div></section></main>`; bindCommon();
+}
+function busy(button, on, label) { if (on) { button.dataset.old = button.innerHTML; button.disabled = true; button.textContent = label; } else { button.disabled = false; button.innerHTML = button.dataset.old; } }
+function authDestination(result) {
+  const next=result.next||(result.verification_required?'/verify-email':'/dashboard');
+  if(!result.verification_required)return next;
+  const target=new URL(next,location.origin);
+  if(result.verification_context)target.searchParams.set('context',result.verification_context);
+  if(result.verification_sent===false)target.searchParams.set('delivery','failed');
+  return target.pathname+target.search;
+}
+function renderAuth(mode) {
+  const signup = mode === 'signup'; const params = new URLSearchParams(location.search); if (params.get('two_factor') === 'required') return renderTwoFactor(); const github = params.get('github');
+  authShell(signup ? 'Create your account' : 'Welcome back', signup ? 'Start with a verified identity and 2,500 monthly credits.' : 'Sign in to the developer control plane.', `${github ? `<div class="notice warning">GitHub: ${esc(github.replaceAll('_',' '))}</div>` : ''}<a class="btn github-btn" href="/api/auth/github/start"><span class="brand-icon github">${platformMark('github','GitHub')}</span><span>Continue with GitHub</span>${icon('arrow')}</a><div class="divider"><span>or use email</span></div><form id="auth-form" class="form-stack">${signup ? '<label>Display name<input name="display_name" maxlength="80" autocomplete="name" placeholder="How should we address you?"></label>' : ''}<label>Email<input required type="email" name="email" autocomplete="email" placeholder="you@example.com"></label><label>Password<div class="password-field"><input id="password" required minlength="8" type="password" name="password" autocomplete="${signup ? 'new-password' : 'current-password'}"><button type="button" data-show>Show</button></div></label>${signup ? '<small>Use at least 8 characters. Verification comes next.</small><p class="ih-auth-policy-note">By creating an account or continuing with GitHub, you agree to the <a data-link href="/legal/terms">Terms</a> and <a data-link href="/legal/acceptable-use">Acceptable Use Policy</a> and acknowledge the <a data-link href="/legal/privacy">Privacy Policy</a>.</p>' : ''}<button class="btn primary large" type="submit">${signup ? 'Create account' : 'Sign in'} ${icon('arrow')}</button></form><div class="auth-links">${signup ? '<span>Already registered? <a data-link href="/login">Sign in</a></span>' : '<a class="btn quiet" data-link href="/forgot-password">Forgot password?</a><span>New here? <a data-link href="/signup">Create account</a></span>'}</div>`);
+  $('[data-show]').onclick = e => { const input = $('#password'); input.type = input.type === 'password' ? 'text' : 'password'; e.currentTarget.textContent = input.type === 'password' ? 'Show' : 'Hide'; };
+  $('#auth-form').onsubmit = async e => { e.preventDefault(); const button = $('button[type=submit]', e.currentTarget); busy(button,true,signup?'Creating account…':'Signing in…'); try { const result = await api(signup?'/api/auth/signup':'/api/auth/login',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))}); if (result.two_factor_required) return renderTwoFactor(); if(result.verification_required){state.me={user:result.user,account:null,verification_required:true};history.pushState({},'',authDestination(result));return renderVerify(state.me);}state.me=null;go(authDestination(result)); } catch(error) { toast(error.message,'error'); busy(button,false); } };
+}
+function renderTwoFactor() {
+  authShell('Two-factor check','Complete the second step before a session is issued.',`<div class="auth-step"><b>1</b><i></i><b class="active">2</b></div><form id="two-factor-form" class="form-stack"><label>Authenticator or recovery code<input required name="code" autocomplete="one-time-code" placeholder="000000 or recovery code"></label><button class="btn primary large">Verify and sign in ${icon('arrow')}</button></form><p class="auth-foot">Challenge expires in 10 minutes. <a data-link href="/login">Start again</a></p>`);
+  $('#two-factor-form').onsubmit = async e => { e.preventDefault(); const button=$('button',e.currentTarget); busy(button,true,'Verifying…'); try { const result=await api('/api/auth/2fa/challenge',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))}); state.me=null; go(authDestination(result)); } catch(error){toast(error.message,'error');busy(button,false);} };
+}
+async function renderVerify(seed=null) {
+  if(seed) state.me=seed;
+  else {
+    try { state.me = await api('/api/auth/me'); }
+    catch { return go('/login?verify=session_required',true); }
+  }
+  if (state.me.user.email_verified) return renderOnboarding(); const email=state.me.user.email.replace(/^(.{2}).*(@.*)$/,'$1••••$2'), params=new URLSearchParams(location.search), deliveryFailed=params.get('delivery')==='failed', fromSignin=params.get('context')==='signin';
+  const verificationMessage=deliveryFailed?`This account still requires verification, but the email could not be sent. Use Resend code for ${esc(email)}.`:fromSignin?`This account wasn't verified, so we sent a six-digit code to ${esc(email)}. Enter it below to continue.`:`We sent a link and six-digit code to ${esc(email)}.`;
+  authShell('Verify your email',verificationMessage,`<div class="verify-mark">${icon('activity')}</div>${deliveryFailed?'<div class="notice warning">Delivery failed. No active account, credits, or subscription will be created until verification succeeds.</div>':''}<form id="verify-form" class="form-stack"><label>Verification code<input class="code-input" required name="code" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" autocomplete="one-time-code" placeholder="000000"></label><button class="btn primary large">Verify account ${icon('arrow')}</button></form><div class="verify-actions"><button id="resend">Resend code <span></span></button><button id="other-account">Use another account</button></div><div class="notice">The newest code replaces older codes and expires after 15 minutes.</div>`,'One small gate before the internet opens up.');
+  $('#verify-form').onsubmit=async e=>{e.preventDefault();const button=$('button',e.currentTarget);busy(button,true,'Checking…');try{await api('/api/auth/email-verification/confirm',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))});state.me=null;go('/verify-email?verified=1');}catch(error){toast(error.message,'error');busy(button,false);}};
+  let seconds=0;const tick=()=>{const b=$('#resend');$('span',b).textContent=seconds?`(${seconds}s)`:'';b.disabled=seconds>0;if(seconds-->0)setTimeout(tick,1000);};
+  $('#resend').onclick=async()=>{try{const result=await api('/api/auth/email-verification/send',{method:'POST'});if(!result.sent)throw new Error('Verification email could not be sent. Try again shortly.');seconds=60;tick();toast('New verification email sent','success');}catch(error){toast(error.message,'error');}};
+  $('#other-account').onclick=async()=>{await api('/api/auth/logout',{method:'POST'});state.me=null;go('/login');};
+  const pollVerification=async()=>{if(location.pathname!=='/verify-email')return;try{const latest=await api('/api/auth/me');if(latest.user.email_verified){state.me=latest;go('/verify-email?verified=1',true);return;}}catch{}setTimeout(pollVerification,3000);};
+  setTimeout(pollVerification,3000);
+}
+function renderOnboarding(){authShell('Email verified','Choose the shortest route to your first successful request.',`<div class="success-orbit">${icon('check')}</div><div class="onboarding-grid"><a data-link href="/dashboard/integrations"><b>Connect an agent</b><small>ChatGPT, Claude, Grok or MCP</small>${icon('arrow')}</a><a data-link href="/dashboard/api-keys"><b>Create an API key</b><small>Scripts, servers and CI</small>${icon('arrow')}</a><a data-link href="/dashboard/monitors"><b>Create a monitor</b><small>Watch an endpoint</small>${icon('arrow')}</a><a data-link href="/docs/quickstart"><b>Open quickstart</b><small>Make the first request</small>${icon('arrow')}</a></div><a class="btn quiet onboarding-skip" data-link href="/dashboard">Go to mission control</a>`,'Identity confirmed. Now give your agent reach.');}
+function renderRecovery(reset=false){
+  const token=new URLSearchParams(location.search).get('token')||'';
+  authShell(
+    reset?'Choose a new password':'Reset your password',
+    reset?'A successful reset signs every web session out.':'Enter the email connected to your account. We will send a secure reset link.',
+    `<form id="recovery-form" class="form-stack">${reset?'<label>New password<input required minlength="8" type="password" name="password" autocomplete="new-password"></label><label>Confirm password<input required minlength="8" type="password" name="confirm" autocomplete="new-password"></label>':'<label>Account email<input required type="email" name="email" autocomplete="email" placeholder="you@example.com"></label>'}<button class="btn primary large" ${reset&&!token?'disabled':''}>${reset?'Update password':'Send reset link'} ${icon('arrow')}</button></form>${reset&&!token?'<div class="notice warning">This reset link is missing its security token. Request a new one.</div>':''}<p class="auth-foot"><a data-link href="/login">Back to sign in</a></p>`
+  );
+  $('#recovery-form').onsubmit=async e=>{
+    e.preventDefault();
+    const button=$('button',e.currentTarget),values=Object.fromEntries(new FormData(e.currentTarget));
+    if(reset&&values.password!==values.confirm)return toast('Passwords do not match','error');
+    busy(button,true,reset?'Updating password…':'Sending reset link…');
+    try{
+      const result=await api(reset?'/api/auth/password-reset/confirm':'/api/auth/password-reset/request',{
+        method:'POST',
+        body:reset?{token,password:values.password}:values
+      });
+      if(reset){
+        toast('Password updated. Sign in with your new password.','success');
+        go('/login');
+        return;
+      }
+      authShell(
+        'Check your inbox',
+        result.message,
+        `<div class="verify-mark">${icon('activity')}</div><div class="notice">The reset link expires after 30 minutes. Only the newest link will work.</div><a class="btn primary large" data-link href="/login">Back to sign in ${icon('arrow')}</a>`,
+        'Recover access without weakening account security.'
+      );
+    }catch(error){
+      toast(error.message,'error');
+      busy(button,false);
+    }
+  };
+}
+
+const navGroups=[['Workspace',[['overview','overview','Overview'],['usage','activity','Usage'],['api-keys','key','API keys'],['monitors','monitor','Monitors'],['integrations','plug','Integrations']]],['Commercial',[['wallet','wallet','Wallet'],['billing','wallet','Billing & plans']]],['Account',[['settings','settings','Settings & security']]]];
+function dashboardShell(active,content){const u=state.me?.user||{};const current=navGroups.flatMap(x=>x[1]).find(x=>x[0]===active);app.innerHTML=`<div class="app-shell"><aside class="sidebar">${brand()}<nav>${navGroups.map(([group,items])=>`<div class="nav-group"><span>${group}</span>${items.map(([slug,ico,title])=>`<a class="${slug===active?'active':''}" data-link href="/dashboard${slug==='overview'?'':`/${slug}`}">${icon(ico)}<b>${title}</b></a>`).join('')}</div>`).join('')}</nav><div class="sidebar-foot"><a data-link href="/docs">${icon('docs')} Docs</a><button id="logout">Sign out</button></div></aside><section class="workspace"><header class="topbar"><div><button class="icon-btn mobile-sidebar" data-sidebar-toggle>${icon('menu')}</button><b>${current?.[2]||'Console'}</b></div><div class="top-actions"><span class="verified-chip">${icon('shield')} Verified</span><button class="account-button"><i>${esc((u.display_name||u.email||'I')[0].toUpperCase())}</i><b>${esc(u.display_name||u.email||'Account')}</b></button></div></header><main class="content">${content}</main></section><nav class="mobile-bottom">${[['overview','overview','Overview'],['usage','activity','Usage'],['integrations','plug','Connect'],['billing','wallet','Billing'],['more','more','More']].map(([slug,ico,title])=>`<a ${slug==='more'?'data-more':'data-link'} href="${slug==='more'?'#':`/dashboard${slug==='overview'?'':`/${slug}`}`}" class="${slug===active?'active':''}">${icon(ico)}<span>${title}</span></a>`).join('')}</nav><div class="more-sheet" data-more-sheet><i></i><b>More</b>${navGroups.flatMap(x=>x[1]).filter(x=>!['overview','usage','integrations','billing'].includes(x[0])).map(([slug,ico,title])=>`<a data-link href="/dashboard/${slug}">${icon(ico)}${title}</a>`).join('')}<a data-link href="/docs">${icon('docs')}Documentation</a><button id="mobile-logout">Sign out</button></div><div class="sheet-backdrop" data-sheet-backdrop></div></div>`;bindCommon();$('[data-sidebar-toggle]').onclick=()=>$('.sidebar').classList.toggle('open');$('[data-more]').onclick=e=>{e.preventDefault();$('[data-more-sheet]').classList.add('open');$('[data-sheet-backdrop]').classList.add('open');};$('[data-sheet-backdrop]').onclick=()=>{$('[data-more-sheet]').classList.remove('open');$('[data-sheet-backdrop]').classList.remove('open');};const logout=async()=>{await api('/api/auth/logout',{method:'POST'});state.me=null;go('/');};$('#logout').onclick=logout;$('#mobile-logout').onclick=logout;}
+async function ensureMe(){try{state.me=await api('/api/auth/me');if(!state.me.user.email_verified){go('/verify-email',true);return null;}return state.me;}catch(error){if(error.status===401){go('/login',true);return null;}throw error;}}
+const pageHead=(k,t,d,a='')=>`<header class="page-head ih-page-header"><div class="ih-page-heading"><span class="overline ih-eyebrow">${k}</span><h1 class="ih-title">${t}</h1><p class="ih-subtitle">${d}</p></div>${a?`<div class="ih-page-actions">${a}</div>`:''}</header>`;
+const stat=(l,v,n,t='')=>`<article class="stat-card ih-panel ih-metric-card ${t}"><span class="ih-metric-label">${l}</span><b class="ih-metric-value">${v}</b><small class="ih-muted">${n}</small></article>`;
+
+async function dashOverview(){const d=await api('/api/dashboard'),a=d.account||{},u=d.usage||{},series=d.series||[],max=Math.max(1,...series.map(x=>Number(x.calls)));dashboardShell('overview',`${pageHead('MISSION CONTROL',`Good ${new Date().getHours()<12?'morning':new Date().getHours()<18?'afternoon':'evening'}.`,'Your gateway, wallet, monitoring and security at a glance.',`<span class="badge success">${esc(a.plan_name||'Free')} plan</span>`)}<section class="stats-grid">${stat('Available credits',fmt(Number(a.monthly_credits||0)+Number(a.purchased_credits||0)),`${fmt(a.monthly_credits)} monthly · ${fmt(a.purchased_credits)} rollover`,'accent')}${stat('Requests · 24h',fmt(u.calls_24h),`${fmt(u.calls_30d)} in 30 days`)}${stat('Success · 30d',`${Number(u.success_rate??100).toFixed(1)}%`,'Accepted calls')}${stat('Average latency',`${fmt(u.avg_latency_ms)} ms`,'Metered work')}</section><section class="dashboard-grid"><article class="card chart-card"><header><div><span class="overline">REQUEST VOLUME</span><h2>Last 30 days</h2></div><a data-link href="/dashboard/usage">Open usage ${icon('arrow')}</a></header>${series.length?`<div class="bar-chart">${series.map(x=>`<i title="${esc(x.day)} · ${fmt(x.calls)}" style="height:${Math.max(3,Number(x.calls)/max*100)}%"></i>`).join('')}</div>`:`<div class="smart-empty compact">${icon('activity')}<span><b>No requests yet</b><p>Connect an agent. Your first request appears with latency and cost.</p></span><a class="btn small" data-link href="/dashboard/integrations">Connect</a></div>`}</article><article class="card health-card"><header><span><span class="overline">READINESS</span><h2>Account health</h2></span></header>${[['shield','Email verified','Privileged actions unlocked','Ready'],['key','API access','Scoped credentials','Review'],['monitor','Monitoring',`${fmt(a.monitor_limit)} slots`,'Open']].map(x=>`<div><i>${icon(x[0])}</i><span><b>${x[1]}</b><small>${x[2]}</small></span><em>${x[3]}</em></div>`).join('')}</article></section><article class="card quick-card"><header><span><span class="overline">QUICK ACTIONS</span><h2>Move the system</h2></span></header><div>${[['plug','Connect an agent','OAuth or direct key','integrations'],['key','Create API key','Scoped and shown once','api-keys'],['monitor','Add monitor','Web, API, MCP or gaming','monitors']].map(x=>`<a data-link href="/dashboard/${x[3]}">${icon(x[0])}<span><b>${x[1]}</b><small>${x[2]}</small></span>${icon('arrow')}</a>`).join('')}</div></article>`);}
+async function dashUsage(){const d=await api('/api/usage?limit=250'),events=d.events||[],credits=events.reduce((s,x)=>s+Number(x.credits_charged||0),0),ok=events.length?events.filter(x=>['ok','accepted'].includes(x.status)).length/events.length*100:100,lat=events.map(x=>Number(x.latency_ms)).filter(Number.isFinite).sort((a,b)=>a-b),pct=p=>lat.length?lat[Math.min(lat.length-1,Math.floor(lat.length*p))]:0;dashboardShell('usage',`${pageHead('ANALYTICS','Runs & usage','Requests, credits, provider routing and traceable failures.')}<section class="stats-grid">${stat('Requests',fmt(events.length),'Loaded activity')}${stat('Credits',fmt(credits),'Consumed')}${stat('Success',`${ok.toFixed(1)}%`,'OK and accepted')}${stat('p95 latency',`${fmt(pct(.95))} ms`,`p50 ${fmt(pct(.5))} ms`)}</section><article class="card">${events.length?`<div class="table-wrap"><table><thead><tr><th>Time</th><th>Request</th><th>Tool</th><th>Provider</th><th>Status</th><th>Credits</th><th>Latency</th></tr></thead><tbody>${events.map(x=>`<tr><td>${when(x.created_at)}</td><td><code>${esc(x.request_id||'').slice(0,18)}</code></td><td>${esc(x.tool_ref||'—')}</td><td>${esc(x.provider||'—')}</td><td><span class="badge ${['ok','accepted'].includes(x.status)?'success':'danger'}">${esc(x.status)}</span></td><td>${fmt(x.credits_charged)}</td><td>${x.latency_ms==null?'—':`${fmt(x.latency_ms)} ms`}</td></tr>`).join('')}</tbody></table></div>`:`<div class="smart-empty">${icon('activity')}<span><b>Your request log is ready</b><p>Request ID, route, status, cost and latency will appear here.</p></span><a class="btn primary" data-link href="/docs/quickstart">Make first request</a></div>`}</article>`);}
+function modal(content,wide=false){const wrap=document.createElement('div');wrap.className='modal-backdrop';wrap.innerHTML=`<section class="modal ${wide?'wide':''}" role="dialog" aria-modal="true">${content}</section>`;document.body.appendChild(wrap);$$('[data-close]',wrap).forEach(b=>b.onclick=()=>wrap.remove());wrap.onclick=e=>{if(e.target===wrap)wrap.remove();};return wrap;}
+async function dashKeys(){const d=await api('/api/api-keys'),keys=d.keys||[];dashboardShell('api-keys',`${pageHead('ACCESS','API keys','Credentials for scripts, servers, CI and direct agents.','<button class="btn primary" id="create-key">Create key</button>')}<div class="security-note">${icon('shield')}<span><b>Secrets are shown once.</b><p>Give every integration its own revocable key.</p></span></div><article class="card">${keys.length?`<div class="table-wrap"><table><thead><tr><th>Name</th><th>Prefix</th><th>Scope</th><th>Created</th><th>Last used</th><th></th></tr></thead><tbody>${keys.map(x=>`<tr><td><b>${esc(x.name)}</b><small>${esc(x.environment)}</small></td><td><code>${esc(x.prefix)}…</code></td><td>${(x.scopes||[]).map(s=>`<span class="mini-tag">${esc(s)}</span>`).join(' ')}</td><td>${when(x.created_at)}</td><td>${when(x.last_used_at)}</td><td><button class="btn danger small" data-revoke-key="${x.id}" ${x.revoked_at?'disabled':''}>${x.revoked_at?'Revoked':'Revoke'}</button></td></tr>`).join('')}</tbody></table></div>`:`<div class="smart-empty">${icon('key')}<span><b>No API keys yet</b><p>Create one for a client that cannot use interactive OAuth.</p></span><button class="btn primary" id="empty-key">Create first key</button></div>`}</article>`);const open=()=>showKeyModal();$('#create-key').onclick=open;$('#empty-key')?.addEventListener('click',open);$$('[data-revoke-key]').forEach(b=>b.onclick=async()=>{if(!confirm('Revoke this key?'))return;await api(`/api/api-keys/${b.dataset.revokeKey}/revoke`,{method:'POST'});toast('Key revoked','success');dashKeys();});}
+function showKeyModal(){const wrap=modal(`<div class="modal-head"><span><span class="overline">NEW CREDENTIAL</span><h2>Create API key</h2></span><button data-close>×</button></div><form id="key-form" class="form-stack"><label>Name<input required name="name" maxlength="80" placeholder="Production agent"></label><label>Environment<select name="environment"><option value="live">Live</option><option value="test">Test</option></select></label><fieldset><legend>Scopes</legend>${[['mcp:read','MCP discovery'],['mcp:execute','MCP execution'],['account:read','Account usage'],['monitors:read','Monitor status']].map((x,i)=>`<label class="check"><input type="checkbox" name="scope" value="${x[0]}" ${i<2?'checked':''}>${x[1]}</label>`).join('')}</fieldset><button class="btn primary large">Create secure key</button></form>`);$('#key-form',wrap).onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{const r=await api('/api/api-keys',{method:'POST',body:{name:f.get('name'),environment:f.get('environment'),scopes:f.getAll('scope')}});$('.modal',wrap).innerHTML=`<div class="modal-head"><span><span class="overline">SAVE NOW</span><h2>Your API key</h2></span></div><div class="notice warning">This secret will not appear again.</div>${codeBlock(r.secret,'Secret')}<label class="ack"><input type="checkbox" id="key-saved"> I saved this key securely.</label><button class="btn primary large" id="finish-key" disabled>Finish</button>`;bindCommon();$('#key-saved').onchange=e=>$('#finish-key').disabled=!e.target.checked;$('#finish-key').onclick=()=>{wrap.remove();dashKeys();};}catch(error){toast(error.message,'error');}};}
+async function dashMonitors(){const d=await api('/api/monitors'),items=d.monitors||[];dashboardShell('monitors',`${pageHead('OBSERVE','Monitors','Watch webpages, APIs, MCP endpoints and public identities.','<button class="btn primary" id="new-monitor">New monitor</button>')}<div class="template-row">${[['Web page','HTTP / content','web'],['API endpoint','JSON / status','api'],['MCP endpoint','Streamable HTTP','mcp'],['Gaming identity','Public profile','gaming']].map(x=>`<button data-template="${x[2]}">${icon('monitor')}<b>${x[0]}</b><small>${x[1]}</small></button>`).join('')}</div><article class="card">${items.length?`<div class="monitor-list">${items.map(x=>`<div class="monitor-row"><i class="monitor-state ${x.last_status==='ok'?'ok':''}"></i><span><b>${esc(x.name)}</b><small>${esc(x.type)} · ${esc(x.target)}</small></span><span><small>Last check</small><b>${when(x.last_checked_at)}</b></span><span class="badge ${x.last_status==='ok'?'success':'warning'}">${esc(x.last_status||'Not run')}</span><button class="btn small" data-toggle="${x.id}" data-enabled="${x.enabled}">${x.enabled?'Pause':'Enable'}</button></div>`).join('')}</div>`:`<div class="smart-empty">${icon('monitor')}<span><b>Nothing is watching yet</b><p>Start with a template. Status and incidents collect here.</p></span><button class="btn primary" id="empty-monitor">Create monitor</button></div>`}</article>`);const open=t=>showMonitorModal(t);$('#new-monitor').onclick=()=>open('');$('#empty-monitor')?.addEventListener('click',()=>open(''));$$('[data-template]').forEach(b=>b.onclick=()=>open(b.dataset.template));$$('[data-toggle]').forEach(b=>b.onclick=async()=>{await api(`/api/monitors/${b.dataset.toggle}/toggle`,{method:'POST',body:{enabled:b.dataset.enabled!=='true'}});dashMonitors();});}
+function showMonitorModal(template=''){const labels={web:'Web page',api:'API endpoint',mcp:'MCP endpoint',gaming:'Gaming identity'};const wrap=modal(`<div class="modal-head"><span><span class="overline">MONITOR WIZARD</span><h2>${template?esc(labels[template]||template):'Create monitor'}</h2></span><button data-close>×</button></div><div class="mini-stepper"><b>1</b><i></i><span>2</span><i></i><span>3</span></div><form id="monitor-form" class="form-stack"><label>Name<input required name="name" maxlength="120" placeholder="Production health"></label><div class="field-pair"><label>Type<select name="type"><option value="web" ${template==='web'?'selected':''}>Web page</option><option value="api" ${template==='api'?'selected':''}>API endpoint</option><option value="mcp" ${template==='mcp'?'selected':''}>MCP endpoint</option><option value="gaming" ${template==='gaming'?'selected':''}>Gaming identity</option></select></label><label>Interval<select name="interval_minutes"><option value="15">15 min</option><option value="60" selected>1 hour</option><option value="360">6 hours</option><option value="1440">Daily</option></select></label></div><label>Target<input required name="target" placeholder="https://example.com/health"></label><button class="btn primary large">Create monitor</button></form>`);$('#monitor-form',wrap).onsubmit=async e=>{e.preventDefault();const body=Object.fromEntries(new FormData(e.currentTarget));body.interval_minutes=Number(body.interval_minutes);try{await api('/api/monitors',{method:'POST',body});wrap.remove();toast('Monitor created','success');dashMonitors();}catch(error){toast(error.message,'error');}};}
+async function dashIntegrations(){
+  const endpoint=`${location.origin}/mcp`;
+  const clients=[
+    {mark:'openai',brand:'OpenAI',name:'ChatGPT',mode:'OAuth MCP',tone:'emerald',steps:['Copy your permanent endpoint.','Add it as a custom MCP server in ChatGPT.','Approve the requested scopes and run a test.']},
+    {mark:'anthropic',brand:'Anthropic',name:'Claude',mode:'OAuth MCP',tone:'sand',steps:['Copy your permanent endpoint.','Add the connector in Claude integrations.','Complete OAuth consent, then test a public page.']},
+    {mark:'xai',brand:'xAI',name:'Grok',mode:'API key',tone:'mono',steps:['Create a scoped Internet Hands key.','Use the endpoint as your tool gateway.','Send the key as a Bearer token.']},
+    {mark:'hermes',brand:'Nous Research',name:'Hermes Agent',mode:'MCP / key',tone:'violet',steps:['Choose OAuth for a user session or a key for automation.','Register the endpoint in Hermes Agent.','Run a capability discovery request.']},
+    {mark:'mcp',brand:'Model Context Protocol',name:'Generic MCP client',mode:'OAuth MCP',tone:'orange',steps:['Register the endpoint in any Streamable HTTP client.','Follow protected-resource discovery.','Authorize scopes and test the connection.']},
+    {mark:'api',brand:'HTTP API',name:'Direct API',mode:'Bearer key',tone:'cyan',steps:['Create a scoped API key.','Send it in the Authorization header.','Call only the capabilities granted to that key.']}
+  ];
+  dashboardShell('integrations',`${pageHead('CONNECT','Integrations','Connect leading AI clients to one permanent, policy-controlled endpoint.','<span class="badge success">Streamable HTTP · Ready</span>')}
+  <section class="connection-hero card">
+    <div class="endpoint-copy"><span class="overline">YOUR PERMANENT MCP ENDPOINT</span><h2>${esc(endpoint)}</h2><p>Stable across every client. OAuth discovery and scoped direct access are already enabled.</p></div>
+    <button class="btn primary endpoint-button" data-copy="${esc(endpoint)}">${icon('copy')} Copy endpoint</button>
+  </section>
+  <section class="connection-modes">
+    <article><span class="mode-icon">${icon('shield')}</span><div><span>INTERACTIVE</span><h3>OAuth MCP</h3><p>Consent, PKCE and short-lived tokens.</p></div><a data-link href="/docs/oauth">Guide ${icon('arrow')}</a></article>
+    <article><span class="mode-icon">${icon('key')}</span><div><span>AUTOMATION</span><h3>Direct key</h3><p>Scoped access for scripts and agents.</p></div><a data-link href="/dashboard/api-keys">Create key ${icon('arrow')}</a></article>
+  </section>
+  <header class="catalog-head"><div><span class="overline">CLIENT CATALOG</span><h2>Connect your stack</h2></div><p>Choose a platform for exact setup instructions.</p></header>
+  <section class="integration-guides">
+    ${clients.map((x,i)=>`<article class="integration-card ${x.tone}">
+      <button class="integration-summary" aria-expanded="false">
+        <span class="brand-icon ${x.mark}">${platformMark(x.mark,x.brand)}</span>
+        <span class="integration-name"><small>${esc(x.brand)}</small><b>${esc(x.name)}</b><em>${esc(x.mode)}</em></span>
+        <span class="integration-action">Setup ${icon('arrow')}</span>
+      </button>
+      <div class="integration-detail" hidden>
+        <ol>${x.steps.map(step=>`<li>${esc(step)}</li>`).join('')}</ol>
+        ${codeBlock(x.mode.includes('key')||x.mode.includes('Bearer')?`Authorization: Bearer ih_live_…\nEndpoint: ${endpoint}`:endpoint,`${x.name} connection`)}
+      </div>
+    </article>`).join('')}
+  </section>`);
+  bindCommon();
+  $$('.integration-summary').forEach(b=>b.onclick=()=>{
+    const card=b.closest('.integration-card'),detail=b.nextElementSibling,opening=detail.hidden;
+    detail.hidden=!opening;b.ariaExpanded=String(opening);card.classList.toggle('open',opening);
+  });
+}
+async function dashWallet(){const [d,p]=await Promise.all([api('/api/wallet?limit=150'),getPlans()]),w=d.wallet||{};dashboardShell('wallet',`${pageHead('CREDITS','Wallet','Monthly credits spend first. Purchased credits roll over.')}<div class="wallet-hero">${[['MONTHLY',w.monthly_credits,'Refreshes with plan'],['PURCHASED',w.purchased_credits,'Rollover balance'],['RESERVED',w.reserved_credits,'Work currently held']].map(x=>`<article><span>${x[0]}</span><b>${fmt(x[1])}</b><small>${x[2]}</small></article>`).join('')}</div><header class="subhead"><span><span class="overline">TOP UP</span><h2>Add rollover credits</h2></span></header><div class="pack-grid">${(p.credit_packs||[]).map(x=>`<article><span>${esc(x.name)}</span><b>${fmt(x.credits)} credits</b><em>${money(x.price_inr)}</em><button class="btn primary small" data-buy="${x.slug}">Purchase</button></article>`).join('')||'<div class="notice">Credit packs unavailable.</div>'}</div><article class="card"><header><span><span class="overline">LEDGER</span><h2>Wallet activity</h2></span></header>${d.ledger.length?`<div class="table-wrap"><table><thead><tr><th>Time</th><th>Kind</th><th>Bucket</th><th>Amount</th><th>Source</th></tr></thead><tbody>${d.ledger.map(x=>`<tr><td>${when(x.created_at)}</td><td>${esc(x.kind)}</td><td>${esc(x.bucket)}</td><td class="${Number(x.amount)>=0?'positive':''}">${Number(x.amount)>0?'+':''}${fmt(x.amount)}</td><td>${esc(x.source)}</td></tr>`).join('')}</tbody></table></div>`:'<div class="smart-empty compact"><span><b>No wallet activity yet</b><p>Grants and purchases appear here.</p></span></div>'}</article>`);$$('[data-buy]').forEach(b=>b.onclick=()=>startCheckout('credits',b.dataset.buy));}
+async function dashBilling(){const [p,s,pay]=await Promise.all([getPlans(),api('/api/billing/status'),api('/api/billing/payments')]),a=state.me.account||{};dashboardShell('billing',`${pageHead('COMMERCIAL','Billing & plans','Plan limits, renewal state and captured-payment history.',`<span class="badge ${s.configured?'success':'warning'}">Razorpay ${s.configured?'ready':'pending'}</span>`)}<div class="current-plan card"><span><span class="overline">CURRENT PLAN</span><h2>${esc(a.plan_name||'Free')}</h2><p>${fmt(a.monthly_credits)} monthly credits · resets ${when(a.current_period_end)}</p></span><div><span>Keys <b>${fmt(a.api_key_limit)}</b></span><span>Monitors <b>${fmt(a.monitor_limit)}</b></span><span>RPM <b>${fmt(a.rpm_limit)}</b></span></div></div>${planCards(p.plans)}<article class="card"><header><span><span class="overline">PAYMENTS</span><h2>Purchase history</h2></span><em>${icon('shield')} Verified server-side</em></header>${pay.payments.length?`<div class="table-wrap"><table><thead><tr><th>Created</th><th>Purpose</th><th>Amount</th><th>Status</th><th>Reference</th></tr></thead><tbody>${pay.payments.map(x=>`<tr><td>${when(x.created_at)}</td><td>${esc(x.purpose)}</td><td>${money(Number(x.amount_paise)/100)}</td><td><span class="badge ${['paid','captured'].includes(x.status)?'success':'warning'}">${esc(x.status)}</span></td><td><code>${esc(x.order_id||'—')}</code></td></tr>`).join('')}</tbody></table></div>`:'<div class="smart-empty compact"><span><b>No purchases yet</b><p>Captured payments appear here.</p></span></div>'}</article>`);$$('.plan-card a[href*="plan="]').forEach(a=>a.onclick=e=>{e.preventDefault();startCheckout('subscription',new URL(a.href).searchParams.get('plan'));});}
+async function startCheckout(purpose,slug){try{const r=await api('/api/billing/create-order',{method:'POST',body:{purpose,slug}});if(!window.Razorpay)await new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://checkout.razorpay.com/v1/checkout.js';s.onload=ok;s.onerror=no;document.head.appendChild(s);});new Razorpay({key:r.key_id,order_id:r.order.id,amount:r.order.amount,currency:'INR',name:'Internet Hands',description:purpose==='credits'?'Credit top-up':'Plan',theme:{color:'#5de1e6'},handler:async response=>{try{await api('/api/billing/verify',{method:'POST',body:response});toast('Payment verified','success');state.me=null;go(`/dashboard/${purpose==='credits'?'wallet':'billing'}`);}catch(error){toast(error.message,'error');}}}).open();}catch(error){toast(error.message,'error');}}
+async function dashSettings(){const [s,sessions]=await Promise.all([api('/api/security/status'),api('/api/account/sessions')]),u=state.me.user;dashboardShell('settings',`${pageHead('ACCOUNT','Settings & security','Identity, login protection, active sessions and recovery.')}<div class="settings-grid"><section class="card"><header><span><span class="overline">PROFILE</span><h2>Account details</h2></span><span class="badge success">Verified</span></header><form id="profile-form" class="form-stack"><label>Email<input value="${esc(u.email)}" disabled></label><label>Display name<input name="display_name" value="${esc(u.display_name||'')}" maxlength="80" required></label><div class="linked-row"><i>GH</i><span><b>GitHub</b><small>${u.github_connected?'Connected':'Not connected'}</small></span><em class="badge ${u.github_connected?'success':'neutral'}">${u.github_connected?'Linked':'Optional'}</em></div><button class="btn">Save profile</button></form></section><section class="card"><header><span><span class="overline">SECURITY</span><h2>Protection status</h2></span><span class="badge ${s.two_factor_enabled?'success':'warning'}">${s.two_factor_enabled?'2FA enabled':s.two_factor_available?'2FA available':'2FA needs server configuration'}</span></header><div class="security-status"><div>${icon('check')}<span><b>Email verified</b><small>Privileged actions unlocked</small></span><em>On</em></div><div>${icon('shield')}<span><b>Authenticator 2FA</b><small>${s.two_factor_enabled?'Required after primary sign-in':'Add a second factor'}</small></span><button class="btn ${s.two_factor_enabled?'danger':'primary'} small" id="toggle-2fa">${s.two_factor_enabled?'Disable':'Set up'}</button></div>${s.two_factor_enabled?`<div>${icon('activity')}<span><b>Recovery codes</b><small>Regenerate when needed</small></span><button class="btn small" id="regen">Regenerate</button></div>`:''}</div></section><section class="card full"><header><span><span class="overline">SESSIONS</span><h2>Active web sessions</h2></span><button class="btn danger small" id="revoke-all">Sign out everywhere</button></header><div class="session-list">${sessions.sessions.map(x=>`<div>${icon('activity')}<span><b>${x.current?'This session':'Web session'}</b><small>Created ${when(x.created_at)} · expires ${when(x.expires_at)}</small></span><em class="badge ${x.current?'success':'neutral'}">${x.current?'Current':'Active'}</em><button class="btn small" data-session="${x.id}">Revoke</button></div>`).join('')}</div></section><section class="card full"><header><span><span class="overline">PASSWORD</span><h2>Change password</h2></span></header><form id="password-form" class="inline-form"><label>Current password<input type="password" name="current_password" required></label><label>New password<input type="password" name="new_password" minlength="8" required></label><button class="btn">Change and sign out</button></form></section></div>`);$('#profile-form').onsubmit=async e=>{e.preventDefault();try{const r=await api('/api/account/profile',{method:'PATCH',body:Object.fromEntries(new FormData(e.currentTarget))});state.me.user=r.user;toast('Profile updated','success');}catch(error){toast(error.message,'error');}};$('#toggle-2fa').onclick=()=>s.two_factor_enabled?showDisable2fa():showSetup2fa();$('#regen')?.addEventListener('click',showRegenerate);$$('[data-session]').forEach(b=>b.onclick=async()=>{const r=await api(`/api/account/sessions/${b.dataset.session}/revoke`,{method:'POST'});if(r.signed_out){state.me=null;go('/login');}else dashSettings();});$('#revoke-all').onclick=async()=>{if(!confirm('Sign out every web session?'))return;await api('/api/account/sessions/revoke-all',{method:'POST'});state.me=null;go('/login');};$('#password-form').onsubmit=async e=>{e.preventDefault();try{await api('/api/account/password',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))});state.me=null;toast('Password changed; sessions revoked','success');go('/login');}catch(error){toast(error.message,'error');}};}
+function showSetup2fa(){api('/api/auth/2fa/setup',{method:'POST'}).then(setup=>{const wrap=modal(`<div class="modal-head"><span><span class="overline">STEP 1 OF 2</span><h2>Set up authenticator</h2></span><button data-close aria-label="Close">×</button></div><div class="setup-panel"><div class="qr-panel"><img src="${esc(setup.qr_data_uri)}" width="176" height="176" alt="Authenticator setup QR code"><small>Scan with your authenticator</small></div><span><p>Add Internet Hands in your authenticator app.</p>${codeBlock(setup.secret,'Manual key')}${codeBlock(setup.otpauth_uri,'Authenticator URI')}</span></div><form id="confirm-2fa" class="form-stack"><label>Current 6-digit code<input class="code-input" name="code" required maxlength="6" pattern="[0-9]{6}" inputmode="numeric" autocomplete="one-time-code"></label><button class="btn primary large">Verify and enable</button></form>`,true);$('#confirm-2fa',wrap).onsubmit=async e=>{e.preventDefault();try{const r=await api('/api/auth/2fa/confirm',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))});showCodes(wrap,r.recovery_codes);}catch(error){toast(error.message,'error');}};}).catch(error=>toast(error.message,'error'));}
+function showCodes(wrap,codes){$('.modal',wrap).innerHTML=`<div class="modal-head"><span><span class="overline">FINAL STEP</span><h2>Save recovery codes</h2></span></div><div class="notice warning">Each code works once and will not appear again.</div><div class="recovery-grid">${codes.map(x=>`<code>${esc(x)}</code>`).join('')}</div><button class="btn" data-copy="${esc(codes.join('\n'))}">${icon('copy')} Copy all</button><label class="ack"><input type="checkbox" id="codes-saved"> I stored these separately.</label><button class="btn primary large" id="finish-2fa" disabled>Finish</button>`;bindCommon();$('#codes-saved').onchange=e=>$('#finish-2fa').disabled=!e.target.checked;$('#finish-2fa').onclick=()=>{wrap.remove();dashSettings();};}
+function showDisable2fa(){const wrap=modal(`<div class="modal-head"><span><span class="overline">SECURITY CHANGE</span><h2>Disable 2FA</h2></span><button data-close>×</button></div><div class="notice warning">Existing recovery codes will be invalidated.</div><form id="disable-2fa" class="form-stack"><label>Authenticator or recovery code<input name="code" required></label><button class="btn danger large">Disable 2FA</button></form>`);$('#disable-2fa',wrap).onsubmit=async e=>{e.preventDefault();try{await api('/api/auth/2fa/disable',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))});wrap.remove();dashSettings();}catch(error){toast(error.message,'error');}};}
+function showRegenerate(){const wrap=modal(`<div class="modal-head"><span><span class="overline">RECOVERY</span><h2>Regenerate codes</h2></span><button data-close>×</button></div><form id="regen-form" class="form-stack"><label>Authenticator code<input name="code" required maxlength="6"></label><button class="btn primary">Generate new codes</button></form>`);$('#regen-form',wrap).onsubmit=async e=>{e.preventDefault();try{const r=await api('/api/auth/2fa/recovery/regenerate',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))});showCodes(wrap,r.recovery_codes);}catch(error){toast(error.message,'error');}};}
+
+
+const LEGAL_ALIASES={'/terms':'terms','/privacy':'privacy','/acceptable-use':'acceptable-use','/cookies':'cookies','/billing-policy':'billing','/security':'security'};
+function legalDocs(){return window.IH_LEGAL_DOCS||{}}
+function legalMeta(){return window.IH_LEGAL_META||{}}
+function legalHref(slug){return `/legal/${slug}`}
+function legalBlock(block){
+  if(!block)return '';
+  if(block.type==='p')return `<p>${esc(block.text)}</p>`;
+  if(block.type==='ul')return `<ul>${(block.items||[]).map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`;
+  if(block.type==='note')return `<aside class="ih-legal-callout"><b>${esc(block.title||'Note')}</b><p>${esc(block.text)}</p></aside>`;
+  if(block.type==='table')return `<div class="ih-legal-table-wrap"><table><thead><tr>${(block.headers||[]).map(x=>`<th>${esc(x)}</th>`).join('')}</tr></thead><tbody>${(block.rows||[]).map(row=>`<tr>${row.map(x=>`<td>${esc(x)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  return '';
+}
+function legalSideNav(active=''){
+  return `<nav class="ih-legal-side" aria-label="Legal documents"><a class="${!active?'active':''}" data-link href="/legal"><b>Legal center</b></a>${Object.entries(legalDocs()).map(([slug,doc])=>`<a class="${slug===active?'active':''}" data-link href="${legalHref(slug)}"><b>${esc(doc.shortTitle||doc.title)}</b></a>`).join('')}</nav>`;
+}
+function renderLegalHub(){
+  const items=legalDocs(),m=legalMeta();document.title='Legal Center — Internet Hands';
+  publicShell(`<main class="ih-legal-page"><section class="ih-legal-hero"><div class="container"><span class="ih-legal-kicker">TRUST / POLICY / CONTROL</span><h1>Rules that match the product.</h1><p>Internet Hands can search, browse, extract, monitor, route, and execute. These documents define the boundaries around that power, the data it processes, and how paid usage works.</p><div class="ih-legal-meta"><span>Policy version <b>${esc(m.version||'current')}</b></span><span>Effective <b>${esc(m.effective||'')}</b></span><span>Governing law <b>${esc(m.governingLaw||'')}</b></span></div></div></section><section class="container ih-legal-hub"><div class="ih-legal-principles"><article><span>01</span><b>Authorized access only</b><p>Automation does not create permission you did not already have.</p></article><article><span>02</span><b>Scoped execution</b><p>Credentials, providers, costs, and external actions stay bounded and auditable.</p></article><article><span>03</span><b>Data minimization</b><p>Send connected services only what a requested operation reasonably needs.</p></article><article><span>04</span><b>Verified payment state</b><p>Paid capacity is fulfilled only after server-side confirmation of captured payment state.</p></article></div><div class="ih-legal-card-grid">${Object.entries(items).map(([slug,doc])=>`<a class="ih-legal-card" data-link href="${legalHref(slug)}"><span>${esc(doc.shortTitle||doc.title)}</span><h2>${esc(doc.title)}</h2><p>${esc(doc.summary)}</p><em>Read policy ${icon('arrow')}</em></a>`).join('')}</div><aside class="ih-legal-review"><div>${icon('shield')}<span><b>Implementation-aligned policies</b><p>These pages are versioned against current product behavior. Review them whenever payment behavior, data flows, providers, or the legal operator changes.</p></span></div><a data-link href="/legal/security">Security policy ${icon('arrow')}</a></aside></section></main>`);
+}
+function renderLegalDocument(slug){
+  const items=legalDocs(),doc=items[slug],m=legalMeta();if(!doc)return renderLegalHub();document.title=`${doc.title} — Internet Hands`;
+  const toc=(doc.sections||[]).map(s=>`<a href="#${esc(s.id)}">${esc(s.title)}</a>`).join('');
+  const related=(doc.related||[]).map(k=>items[k]?`<a data-link href="${legalHref(k)}">${esc(items[k].shortTitle||items[k].title)} ${icon('arrow')}</a>`:'').join('');
+  publicShell(`<main class="ih-legal-page ih-legal-doc-page"><section class="container ih-legal-doc-head"><a class="ih-legal-back" data-link href="/legal">${icon('arrow')} Legal center</a><span class="ih-legal-kicker">INTERNET HANDS / POLICY</span><h1>${esc(doc.title)}</h1><p>${esc(doc.summary)}</p><div class="ih-legal-meta"><span>Version <b>${esc(m.version||'current')}</b></span><span>Effective <b>${esc(m.effective||'')}</b></span><span>Updated <b>${esc(m.updated||'')}</b></span></div></section><section class="container ih-legal-layout">${legalSideNav(slug)}<article class="ih-legal-article"><nav class="ih-legal-toc"><b>On this page</b>${toc}</nav>${(doc.sections||[]).map(s=>`<section id="${esc(s.id)}"><h2>${esc(s.title)}</h2>${(s.blocks||[]).map(legalBlock).join('')}</section>`).join('')}<footer class="ih-legal-related"><div><span>RELATED POLICIES</span>${related}</div><p>Policy version ${esc(m.version||'current')} · Last updated ${esc(m.updated||'')}</p></footer></article></section></main>`);
+}
+function renderLegal(){const path=location.pathname.replace(/\/+$/,'')||'/';const alias=LEGAL_ALIASES[path];if(alias)return renderLegalDocument(alias);if(path==='/legal')return renderLegalHub();const slug=path.startsWith('/legal/')?decodeURIComponent(path.slice(7)):'';return slug?renderLegalDocument(slug):renderLegalHub()}
+
+async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
+async function renderRoute(){window.scrollTo(0,0);const p=location.pathname;try{if(p==='/'||p==='/pricing'||p==='/status'||p.startsWith('/docs')||p.startsWith('/legal')||LEGAL_ALIASES[p])await hydrateOptionalSession();if(p.startsWith('/dashboard'))return await renderDashboard();if(p==='/verify-email')return await renderVerify();if(p==='/login')return renderAuth('login');if(p==='/signup')return renderAuth('signup');if(p==='/forgot-password')return renderRecovery();if(p==='/reset-password')return renderRecovery(true);if(p.startsWith('/legal')||LEGAL_ALIASES[p])return renderLegal();if(p.startsWith('/docs'))return renderDocs();if(p==='/pricing')return await renderPricing();if(p==='/status')return await renderStatus();return await renderHome();}catch(error){console.error(error);if(error.status===401)return go('/login',true);app.innerHTML=`<main class="fatal"><div>${brand()}<span class="eyebrow">REQUEST FAILED</span><h1>The control plane did not answer cleanly.</h1><p>${esc(error.message)}</p><button class="btn primary" onclick="location.reload()">Try again</button></div></main>`;}}
+document.addEventListener('click',e=>{const a=e.target.closest('[data-link]');if(!a||e.metaKey||e.ctrlKey||e.shiftKey)return;e.preventDefault();go(a.getAttribute('href'));});
+window.addEventListener('popstate',renderRoute);
+
+
+// Shared by the product and telemetry renderers in this canonical runtime.
+const statusDot = (tone = 'ok') => `<i class="ih-status-dot ${tone}"></i>`;
+const runStatus = status => ['ok','accepted'].includes(String(status||'').toLowerCase()) ? 'ok' : 'warn';
+const runLabel = e => (e.tool_ref || 'Internet operation').replace(/^.*?:/,'');
+
+function openRunInspector(event) {
+  const wrap = modal(`<div class="ih-run-modal">
+    <div class="modal-head"><span><span class="overline">RUN INSPECTOR</span><h2>${esc(runLabel(event))}</h2></span><button data-close aria-label="Close">×</button></div>
+    <div class="ih-inspector-status"><span>${statusDot(runStatus(event.status))}<b>${esc(event.status||'unknown')}</b></span><code>${esc(event.request_id||'No request id')}</code></div>
+    <div class="ih-inspector-grid">
+      <div><small>Provider</small><b>${esc(event.provider||'—')}</b></div>
+      <div><small>Credits</small><b>${fmt(event.credits_charged||0)}</b></div>
+      <div><small>Latency</small><b>${event.latency_ms==null?'—':`${fmt(event.latency_ms)} ms`}</b></div>
+      <div><small>Created</small><b>${esc(when(event.created_at))}</b></div>
+    </div>
+    <div class="ih-inspector-section"><span>EXECUTION REFERENCE</span><div class="ih-code-line"><code>${esc(event.tool_ref||'—')}</code><button class="btn small" data-copy="${esc(event.request_id||'')}">${icon('copy')} Copy ID</button></div></div>
+    <div class="ih-inspector-note"><b>Why this view matters</b><p>This run comes from your real metered request ledger. A future web-run endpoint can attach payload, browser trace and evidence to this same inspector without changing the information architecture.</p></div>
+  </div>`, true);
+  bindCommon();
+  return wrap;
+}
+
+
+/* === Product experience ================================================= */
+/* Internet Hands product UI layer.
+ * Keeps the existing control-plane/auth/billing implementation intact while
+ * replacing the public product story and the primary dashboard experience.
+ */
+(() => {
+  const providerBadge = (mark, brand, detail) => `
+    <div class="ih-provider">
+      <span class="ih-provider-mark">${platformMark(mark, brand)}</span>
+      <span><b>${esc(brand)}</b><small>${esc(detail)}</small></span>
+    </div>`;
+
+
+  brand = function brandV2() {
+    return `<a class="brand ih-brand ih-logo-only" data-link href="/" aria-label="Internet Hands home">
+      <img class="ih-brand-art" src="/assets/internet-hands-logo.webp" alt="Internet Hands">
+    </a>`;
+  };
+
+  publicShell = function publicShellV2(content) {
+    const authenticated = !!state.me?.user?.email_verified;
+    const primary = authenticated
+      ? `<a class="btn primary ih-nav-cta" data-link href="/dashboard">Open console ${icon('arrow')}</a>`
+      : `<a class="btn primary ih-nav-cta" data-link href="/signup">Start free ${icon('arrow')}</a>`;
+    const secondary = authenticated
+      ? ''
+      : `<a class="ih-nav-signin" data-link href="/login">Sign in</a>`;
+
+    app.innerHTML = `<div class="ih-public-shell">
+      <header class="site-header ih-site-header">
+        <nav class="site-nav container ih-site-nav">
+          ${brand()}
+          <div class="nav-links ih-nav-links">
+            <a data-link href="/docs/capabilities">Platform</a>
+            <a data-link href="/docs">Docs</a>
+            <a data-link href="/pricing">Pricing</a>
+            <a data-link href="/status"><span class="ih-nav-live">${statusDot()}Status</span></a>
           </div>
+          <div class="nav-actions ih-nav-actions">${secondary}${primary}</div>
+          <button class="icon-btn nav-toggle" data-nav-toggle aria-label="Open navigation">${icon('menu')}</button>
+        </nav>
+        <div class="mobile-menu" data-mobile-menu>
+          <a data-link href="/docs/capabilities">Platform</a>
+          <a data-link href="/docs">Documentation</a>
+          <a data-link href="/pricing">Pricing</a>
+          <a data-link href="/status">Status</a>
+          ${authenticated ? '<a data-link href="/dashboard">Open console</a>' : '<a data-link href="/login">Sign in</a><a data-link href="/signup">Start free</a>'}
         </div>
       </header>
-    `;
-  }
-
-  function renderFooter() {
-    return `
-      <footer class="site-footer">
-        <div class="container footer-grid">
-          <div>
-            <a class="brand" data-link href="/" style="margin-bottom: 16px;">
-              <div class="brand-mark"><img src="/assets/mark.svg" alt="Internet Hands"></div>
-              <span><b>Internet</b><em>Hands</em></span>
-            </a>
-            <p style="color: var(--text-muted); max-width: 320px; font-size: 13px; line-height: 1.6;">
-              Public internet intelligence, high-performance web scraping studio, authenticated MCP gateway, and isolated cloud execution.
-            </p>
-          </div>
-          <div class="footer-col">
-            <h4>Studio & Tools</h4>
-            <a data-link href="/studio">Scraper Studio</a>
-            <a data-link href="/studio">Deep Crawler</a>
-            <a data-link href="/studio">Brave Web Search</a>
-            <a data-link href="/studio">Vercel & Neon Sync</a>
-          </div>
-          <div class="footer-col">
-            <h4>Platform</h4>
-            <a data-link href="/dashboard">MCP Gateway</a>
-            <a data-link href="/dashboard">API Keys</a>
-            <a data-link href="/pricing">Pricing & Credits</a>
-            <a data-link href="/status">Operational Status</a>
-          </div>
-          <div class="footer-col">
-            <h4>Commercial License</h4>
-            <p style="color: var(--text-dim); font-size: 12px; margin-bottom: 8px;">
-              Proprietary Software.<br>© ${new Date().getFullYear()} Internet Hands.<br>All rights reserved.
-            </p>
-            <span class="badge indigo">COMMERCIAL SAAS</span>
-          </div>
+      ${content}
+      <footer class="footer ih-footer">
+        <div class="container ih-footer-grid">
+          <div class="ih-footer-brand">${brand()}<p>One operational surface for agents that need the live internet.</p></div>
+          <div><b>Operate</b><a data-link href="/docs/capabilities">Capabilities</a><a data-link href="/docs/monitoring">Monitoring</a><a data-link href="/status">System status</a></div>
+          <div><b>Build</b><a data-link href="/docs/quickstart">Quickstart</a><a data-link href="/docs/mcp">MCP gateway</a><a href="https://github.com/sphangcho203-afk/Web-Scrapping-CLI" target="_blank" rel="noreferrer">GitHub</a></div>
+          <div><b>Legal</b><a data-link href="/legal/terms">Terms</a><a data-link href="/legal/privacy">Privacy</a><a data-link href="/legal/acceptable-use">Acceptable use</a><a data-link href="/legal">Legal center</a></div>
+          <div class="ih-footer-meta">Internet Hands<br><span>Explicit · scoped · auditable</span></div>
         </div>
       </footer>
-    `;
-  }
-
-  // --- PAGE: Home (Marketing + Interactive Execution Preview) ---
-  async function renderHome() {
-    const plansData = await getPlans();
-    const plans = plansData.plans || [];
-
-    const html = `
-      ${renderHeader('home')}
-      <main>
-        <!-- Hero Section -->
-        <section class="hero">
-          <div class="container hero-grid">
-            <div class="hero-copy">
-              <span class="eyebrow">${getIcon('sparkles')} NEXT-GEN PUBLIC INTELLIGENCE & MCP GATEWAY</span>
-              <h1>Give your agents <span class="text-gradient">hands</span> on the live web.</h1>
-              <p class="lead">
-                One high-performance interface to scrape, crawl, search, probe APIs, and bridge Vercel & Neon databases. Stop wrestling with browser anti-bot hurdles and complex MCP schemas.
-              </p>
-              <div class="hero-actions">
-                <a class="btn primary large" data-link href="/studio">
-                  ${getIcon('play')} Open Web Studio ${getIcon('arrow')}
-                </a>
-                <a class="btn large" data-link href="/signup">
-                  Start Free Account
-                </a>
-              </div>
-              <div class="hero-badges">
-                <span>${getIcon('shield')} Authenticated MCP Edge</span>
-                <span>${getIcon('connector')} Vercel & Neon 1-Click Sync</span>
-                <span>${getIcon('telemetry')} Real-Time Provenance</span>
-              </div>
-            </div>
-
-            <!-- Interactive Execution Preview -->
-            <div class="runner-card">
-              <div class="runner-head">
-                <div class="window-dots"><i></i><i></i><i></i></div>
-                <div style="display:flex; align-items:center; gap:8px;">
-                  <span class="status-dot pulse"></span>
-                  <span>LIVE INTELLIGENCE FABRIC</span>
-                </div>
-                <span style="color: var(--accent-cyan);">run_9a2f1c</span>
-              </div>
-              <div class="runner-body">
-                <div class="terminal-prompt">
-                  <span>&gt;</span>
-                  <p>ih scrape <b>https://github.com/trending</b> --depth 2 --stealth --extract "title,stars,forks"</p>
-                </div>
-                <div class="execution-steps">
-                  <div class="step-row">
-                    <div class="step-info">
-                      <span class="status-dot"></span>
-                      <b>Gateway Route</b>
-                      <span style="color: var(--text-muted);">Intent matched to Playwright Stealth</span>
-                    </div>
-                    <span class="step-latency">18ms</span>
-                  </div>
-                  <div class="step-row">
-                    <div class="step-info">
-                      <span class="status-dot"></span>
-                      <b>Bypass Shield</b>
-                      <span style="color: var(--text-muted);">TLS fingerprint spoofed, cookie retained</span>
-                    </div>
-                    <span class="step-latency">140ms</span>
-                  </div>
-                  <div class="step-row">
-                    <div class="step-info">
-                      <span class="status-dot"></span>
-                      <b>Structured Parse</b>
-                      <span style="color: var(--text-muted);">25 repositories extracted with provenance</span>
-                    </div>
-                    <span class="step-latency">280ms</span>
-                  </div>
-                  <div class="step-row">
-                    <div class="step-info">
-                      <span class="status-dot"></span>
-                      <b>Neon DB Stream</b>
-                      <span style="color: var(--text-muted);">Inserted into pgvector control store</span>
-                    </div>
-                    <span class="step-latency">45ms</span>
-                  </div>
-                </div>
-                <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 10px; border-top: 1px solid var(--border-subtle); font-size: 12px; color: var(--text-muted);">
-                  <span>Total Latency: <b style="color: var(--text-primary);">483ms</b></span>
-                  <span>Credit Deducted: <b style="color: var(--accent-cyan);">3 credits</b></span>
-                  <a data-link href="/studio" class="btn small cyan">Try in Studio</a>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- Capabilities Section -->
-        <section class="features-section">
-          <div class="container">
-            <div class="section-head">
-              <span class="eyebrow">BUILT FOR ENGINEERS & AGENTS</span>
-              <h2>Comprehensive Web Intelligence Toolkit</h2>
-              <p>Everything you need to turn the untamed public internet into reliable structured data.</p>
-            </div>
-
-            <div class="feature-grid">
-              <div class="feature-card">
-                <div class="feature-icon">${getIcon('scraper')}</div>
-                <h3>Scraper Studio</h3>
-                <p>Interactive target exploration, visual CSS/XPath selector builder, dynamic JavaScript rendering, and clean markdown/JSON extraction.</p>
-              </div>
-              <div class="feature-card">
-                <div class="feature-icon">${getIcon('crawler')}</div>
-                <h3>Deep Web Crawler</h3>
-                <p>Autonomous multi-hop website mapper with domain boundary limits, concurrent connection pools, and automatic sitemap discovery.</p>
-              </div>
-              <div class="feature-card">
-                <div class="feature-icon">${getIcon('connector')}</div>
-                <h3>Vercel & Neon Connector</h3>
-                <p>Native bidirectional integration. Authenticate API tokens, inspect serverless Postgres schemas, and push secrets directly into Vercel.</p>
-              </div>
-              <div class="feature-card">
-                <div class="feature-icon">${getIcon('search')}</div>
-                <h3>Brave & Serper Search</h3>
-                <p>Live search query engine. Obtain fresh web results, rich knowledge graph snippets, and instant URL citations for your agents.</p>
-              </div>
-              <div class="feature-card">
-                <div class="feature-icon">${getIcon('api')}</div>
-                <h3>OpenAPI & Endpoint Probe</h3>
-                <p>Inspect third-party APIs, benchmark endpoint latency, test request payloads, and auto-generate clean client code on the fly.</p>
-              </div>
-              <div class="feature-card">
-                <div class="feature-icon">${getIcon('osint')}</div>
-                <h3>OSINT & Tech Recon</h3>
-                <p>Perform deep DNS resolution, SSL cert verification, WHOIS audit, and web technology stack fingerprinting in under 2 seconds.</p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- Pricing Section -->
-        <section class="pricing-section">
-          <div class="container">
-            <div class="section-head">
-              <span class="eyebrow">TRANSPARENT COMMERCIAL PLANS</span>
-              <h2>Predictable Pricing for High-Volume Work</h2>
-              <p>Pay only for useful work. Top-up credits anytime with instant Razorpay checkout.</p>
-            </div>
-
-            <div class="pricing-grid">
-              ${plans.map(p => `
-                <div class="plan-card ${p.slug === 'pro' ? 'featured' : ''}">
-                  ${p.slug === 'pro' ? '<div class="featured-badge">MOST POPULAR</div>' : ''}
-                  <div class="plan-name">${esc(p.name)}</div>
-                  <div class="plan-price">
-                    ${money(p.monthly_price_inr)}<span>/mo</span>
-                  </div>
-                  <div class="plan-credits">${fmt(p.included_credits)} monthly credits</div>
-                  <ul class="plan-features">
-                    <li>${getIcon('check')} ${fmt(p.rpm_limit)} requests / minute</li>
-                    <li>${getIcon('check')} ${fmt(p.api_key_limit)} Scoped API keys</li>
-                    <li>${getIcon('check')} ${fmt(p.monitor_limit)} Active site monitors</li>
-                    <li>${getIcon('check')} ${p.browser_enabled ? 'Headless browser execution' : 'Standard HTTP scraper'}</li>
-                    <li>${getIcon('check')} Vercel & Neon connector access</li>
-                  </ul>
-                  <a class="btn ${p.slug === 'pro' ? 'primary' : ''}" data-link href="/signup?plan=${p.slug}">
-                    ${p.slug === 'free' ? 'Get Started' : 'Subscribe Now'}
-                  </a>
-                </div>
-              `).join('')}
-            </div>
-          </div>
-        </section>
-      </main>
-      ${renderFooter()}
-    `;
-
-    $('#app').innerHTML = html;
+    </div>`;
     bindCommon();
-    setupAuthListeners();
-  }
+  };
 
-  // --- PAGE: Pricing ---
-  async function renderPricing() {
-    const plansData = await getPlans();
-    const plans = plansData.plans || [];
-    const packs = plansData.credit_packs || [];
-
-    const html = `
-      ${renderHeader('pricing')}
-      <div class="container" style="padding: 60px 0 80px;">
-        <div class="section-head">
-          <span class="eyebrow">COMMERCIAL SAAS PRICING</span>
-          <h1>Engineered for Scalable Internet Work</h1>
-          <p>Subscription plans include monthly recurring credits. Unused top-up packs never expire.</p>
+  const demoRun = () => `
+    <div class="ih-run-demo" aria-label="Internet Hands execution preview">
+      <div class="ih-run-demo-head">
+        <div><span class="ih-window-dot"></span><span class="ih-window-dot"></span><span class="ih-window-dot"></span></div>
+        <span>${statusDot()} LIVE EXECUTION</span>
+        <em>run_7f2c91</em>
+      </div>
+      <div class="ih-demo-command">
+        <span>${icon('activity')}</span>
+        <p>Research <b>acme.dev</b>, map the product, extract pricing and return evidence.</p>
+        <kbd>↵</kbd>
+      </div>
+      <div class="ih-demo-body">
+        <div class="ih-demo-timeline">
+          ${[
+            ['Route','Intent matched','18 ms'],
+            ['Discover','12 sources found','142 ms'],
+            ['Browse','Dynamic page rendered','1.8 s'],
+            ['Extract','Structured fields captured','326 ms'],
+            ['Evidence','7 citations retained','94 ms']
+          ].map((x,i)=>`<div class="ih-demo-step ${i<5?'done':''}"><span>${statusDot()}</span><div><b>${x[0]}</b><small>${x[1]}</small></div><em>${x[2]}</em></div>`).join('')}
         </div>
-
-        <div class="pricing-grid">
-          ${plans.map(p => `
-            <div class="plan-card ${p.slug === 'pro' ? 'featured' : ''}">
-              ${p.slug === 'pro' ? '<div class="featured-badge">RECOMMENDED</div>' : ''}
-              <div class="plan-name">${esc(p.name)}</div>
-              <div class="plan-price">${money(p.monthly_price_inr)}<span>/month</span></div>
-              <div class="plan-credits">${fmt(p.included_credits)} monthly credits</div>
-              <ul class="plan-features">
-                <li>${getIcon('check')} ${fmt(p.rpm_limit)} RPM rate limit</li>
-                <li>${getIcon('check')} ${fmt(p.api_key_limit)} Scoped keys</li>
-                <li>${getIcon('check')} ${fmt(p.monitor_limit)} Monitors</li>
-                <li>${getIcon('check')} ${p.browser_enabled ? 'Stealth browser enabled' : 'Basic HTTP mode'}</li>
-                <li>${getIcon('check')} Vercel & Neon sync</li>
-              </ul>
-              <button class="btn ${p.slug === 'pro' ? 'primary' : ''}" onclick="handlePlanCheckout('${p.slug}')">
-                ${p.slug === 'free' ? 'Choose Free' : `Upgrade to ${esc(p.name)}`}
-              </button>
-            </div>
-          `).join('')}
-        </div>
-
-        <div style="margin-top: 80px;">
-          <div class="section-head">
-            <h2>Credit Top-Up Packs</h2>
-            <p>Need extra bandwidth? Buy one-time credit boosts anytime.</p>
+        <div class="ih-demo-inspector">
+          <div class="ih-demo-tabs"><b>Overview</b><span>Data</span><span>Evidence</span><span>Raw</span></div>
+          <div class="ih-demo-result">
+            <span>RESULT</span>
+            <h3>Pricing model extracted</h3>
+            <p>3 public plans · 14 product links · 7 evidence records</p>
           </div>
-          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; max-width: 960px; margin: 0 auto;">
-            ${packs.map(pack => `
-              <div class="panel" style="text-align: center; padding: 28px;">
-                <b style="font-size: 24px; color: var(--accent-cyan);">${fmt(pack.credits)}</b>
-                <p style="color: var(--text-muted); font-size: 13px; margin: 8px 0 16px;">Credits</p>
-                <div style="font-size: 28px; font-weight: 700; margin-bottom: 20px;">${money(pack.price_inr)}</div>
-                <button class="btn primary small" style="width: 100%;" onclick="handlePackCheckout(${pack.credits}, ${pack.price_inr})">
-                  Buy Now
-                </button>
-              </div>
-            `).join('')}
-          </div>
+          <div class="ih-demo-metrics"><span><small>Pages</small><b>18</b></span><span><small>Latency</small><b>2.4s</b></span><span><small>Credits</small><b>11</b></span></div>
+          <div class="ih-evidence-row"><i>01</i><span><b>acme.dev/pricing</b><small>HTML · captured now</small></span><em>98%</em></div>
+          <div class="ih-evidence-row"><i>02</i><span><b>docs.acme.dev</b><small>Docs · structured</small></span><em>94%</em></div>
         </div>
       </div>
-      ${renderFooter()}
-    `;
+    </div>`;
 
-    $('#app').innerHTML = html;
-    bindCommon();
-  }
-
-  // --- PAGE: System Status ---
-  async function renderStatus() {
-    let health = {};
-    try { health = await api('/api/status'); } catch {}
-
-    const services = [
-      { name: 'Customer MCP Gateway', status: 'operational', endpoint: '/mcp', latency: '12ms' },
-      { name: 'Control Plane Database', status: health.control_database ? 'operational' : 'degraded', endpoint: 'Postgres Store', latency: '4ms' },
-      { name: 'Razorpay Billing & Webhooks', status: health.billing ? 'operational' : 'operational', endpoint: '/api/webhooks/razorpay', latency: '35ms' },
-      { name: 'GitHub OAuth Engine', status: health.github_oauth ? 'operational' : 'operational', endpoint: '/api/auth/github/*', latency: '48ms' },
-      { name: 'Vercel & Neon Bridge', status: 'operational', endpoint: '/v1/connectors/*', latency: '15ms' },
-      { name: 'Headless Browser Cluster', status: 'operational', endpoint: 'Playwright Sandbox', latency: '110ms' }
-    ];
-
-    const html = `
-      ${renderHeader('status')}
-      <div class="container" style="padding: 60px 0 80px; max-width: 900px;">
-        <div class="section-head" style="text-align: left; margin-bottom: 36px;">
-          <span class="eyebrow">${getIcon('shield')} REAL-TIME TELEMETRY</span>
-          <h1>System Operational Status</h1>
-          <p>Current operational metrics and service availability.</p>
-        </div>
-
-        <div class="panel">
-          <div class="panel-header" style="background: rgba(16, 185, 129, 0.08); border-color: rgba(16, 185, 129, 0.2);">
-            <div style="display: flex; align-items: center; gap: 10px;">
-              <span class="status-dot pulse"></span>
-              <b style="color: var(--success); font-size: 15px;">All Core Systems Fully Operational</b>
+  renderHome = async function renderHomeV2() {
+    publicShell(`<main class="ih-home">
+      <section class="ih-hero">
+        <div class="container ih-hero-grid">
+          <div class="ih-hero-copy">
+            <h1>The internet,<br><span>as an executable workspace.</span></h1>
+            <p>Search it. Browse it. Extract from it. Monitor it. Route into APIs and remote tools. Internet Hands gives agents one controlled surface for real internet work.</p>
+            <div class="ih-hero-actions">
+              <a class="btn primary large" data-link href="${state.me?.user?.email_verified ? '/dashboard' : '/signup'}">Open command center ${icon('arrow')}</a>
+              <a class="ih-text-link" data-link href="/docs/quickstart">See how it works ${icon('arrow')}</a>
             </div>
-            <span style="color: var(--text-dim); font-size: 12px; font-family: var(--font-mono);">Updated: Just now</span>
+            <div class="ih-hero-proof">
+              <span>${statusDot()} Gateway online</span><span>Evidence retained</span><span>Scoped execution</span>
+            </div>
           </div>
-          <div class="panel-body" style="padding: 0;">
-            <div class="table-wrap" style="border: none; border-radius: 0;">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Service Component</th>
-                    <th>Route / Subsystem</th>
-                    <th>Latency</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${services.map(s => `
-                    <tr>
-                      <td><b>${esc(s.name)}</b></td>
-                      <td><code style="color: var(--accent-cyan); font-size: 12px;">${esc(s.endpoint)}</code></td>
-                      <td style="font-family: var(--font-mono); color: var(--text-dim);">${esc(s.latency)}</td>
-                      <td><span class="badge green">OPERATIONAL</span></td>
-                    </tr>
-                  `).join('')}
-                </tbody>
-              </table>
+          ${demoRun()}
+        </div>
+      </section>
+
+      <section class="ih-client-band">
+        <div class="container">
+          <div class="ih-band-label"><span>BUILT TO SIT BEHIND THE AGENTS YOU ALREADY USE</span><i></i></div>
+          <div class="ih-provider-row">
+            ${providerBadge('openai','OpenAI','ChatGPT')}
+            ${providerBadge('anthropic','Anthropic','Claude')}
+            ${providerBadge('xai','xAI','Grok')}
+            ${providerBadge('github','GitHub','Automation')}
+            ${providerBadge('mcp','MCP','Any compatible client')}
+          </div>
+        </div>
+      </section>
+
+      <section class="ih-section ih-operation-section">
+        <div class="container">
+          <div class="ih-section-lead">
+            <h2>One instruction becomes a traceable operation.</h2>
+            <p>Instead of exposing a wall of tools, Internet Hands discovers the capability, executes through the right provider, and keeps the run inspectable.</p>
+          </div>
+          <div class="ih-operation-grid">
+            <article class="ih-operation-primary">
+              <div class="ih-panel-head"><span>RUN / 001842</span><em>${statusDot()} complete</em></div>
+              <h3>Map every public pricing signal for a target company.</h3>
+              <div class="ih-operation-flow">
+                ${['Intent','Route','Browser','Extract','Validate','Evidence'].map((x,i)=>`<span><i>${String(i+1).padStart(2,'0')}</i><b>${x}</b></span>`).join('')}
+              </div>
+              <div class="ih-operation-footer"><span>6 execution stages</span><span>3 providers</span><span>12 credits</span><b>2.81 s</b></div>
+            </article>
+            <div class="ih-operation-stack">
+              <article><span>SEARCH + FETCH</span><h3>Public web intelligence</h3><p>Discover, fetch, crawl and preserve provenance instead of returning a dead blob of text.</p></article>
+              <article><span>BROWSER</span><h3>Dynamic web execution</h3><p>Use controlled Chromium sessions for pages that need a real browser, state, clicks or extraction.</p></article>
+              <article><span>TOOL MESH</span><h3>APIs and remote MCPs</h3><p>Route to external capabilities without loading every provider schema into the model at once.</p></article>
             </div>
           </div>
         </div>
-      </div>
-      ${renderFooter()}
-    `;
+      </section>
 
-    $('#app').innerHTML = html;
-    bindCommon();
-  }
-
-  // --- PAGE: Web Scraping Studio (/studio) ---
-  function renderStudio() {
-    const activeTool = state.activeStudioTool;
-
-    const tools = [
-      { id: 'scraper', name: 'Scraper Studio', icon: 'scraper', desc: 'CSS/XPath selector extraction & live preview' },
-      { id: 'crawler', name: 'Deep Crawler', icon: 'crawler', desc: 'Multi-hop autonomous site crawler' },
-      { id: 'search', name: 'Brave Web Search', icon: 'search', desc: 'Instant live web search & SERP analysis' },
-      { id: 'api', name: 'API Discovery', icon: 'api', desc: 'REST endpoint testing & latency probe' },
-      { id: 'osint', name: 'OSINT Recon', icon: 'osint', desc: 'DNS, WHOIS & technology stack detection' },
-      { id: 'sandbox', name: 'Cloud Sandbox', icon: 'sandbox', desc: 'Isolated script execution & log streamer' },
-      { id: 'connectors', name: 'Vercel & Neon', icon: 'connector', desc: 'Serverless Postgres & project sync' },
-      { id: 'telemetry', name: 'Telemetry Stream', icon: 'telemetry', desc: 'Real-time request audit & cost ledger' }
-    ];
-
-    const html = `
-      ${renderHeader('studio')}
-      <div class="studio-shell">
-        <!-- Sidebar Navigation -->
-        <aside class="studio-sidebar">
-          <div>
-            <div class="sidebar-group-title">Web Intelligence Tools</div>
-            <div class="sidebar-nav">
-              ${tools.map(t => `
-                <div class="nav-item ${activeTool === t.id ? 'active' : ''}" data-tool="${t.id}">
-                  ${getIcon(t.icon)}
-                  <div>
-                    <div>${esc(t.name)}</div>
-                  </div>
-                </div>
-              `).join('')}
-            </div>
+      <section class="ih-section ih-evidence-section">
+        <div class="container ih-evidence-grid">
+          <div class="ih-section-lead">
+            <h2>Power means nothing if the result is impossible to inspect.</h2>
+            <p>Every useful run should leave behind enough context to understand what happened: route, provider, latency, cost, status and evidence.</p>
+            <a class="ih-text-link" data-link href="/docs/capabilities">Explore the capability fabric ${icon('arrow')}</a>
           </div>
-
-          <div style="margin-top: auto; padding-top: 16px; border-top: 1px solid var(--border-subtle);">
-            <div style="display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--text-dim);">
-              <span>Mode</span>
-              <span class="badge cyan">STUDIO ACTIVE</span>
-            </div>
-          </div>
-        </aside>
-
-        <!-- Studio Main Workspace -->
-        <main class="studio-content">
-          ${renderStudioToolContent(activeTool)}
-        </main>
-      </div>
-    `;
-
-    $('#app').innerHTML = html;
-    bindCommon();
-    bindStudioEvents();
-  }
-
-  function renderStudioToolContent(toolId) {
-    switch (toolId) {
-      case 'scraper':
-        return `
-          <div class="content-head">
-            <div>
-              <h1>Scraper Studio</h1>
-              <p>Target any public website, configure stealth anti-bot bypass, and extract clean structured fields.</p>
-            </div>
-            <div style="display: flex; gap: 8px;">
-              <button class="btn small" id="btn-scraper-preset">Example: Hacker News</button>
-              <button class="btn primary small" id="btn-run-scrape">${getIcon('play')} Extract Data</button>
-            </div>
-          </div>
-
-          <div class="panel">
-            <div class="panel-body">
-              <div class="form-group">
-                <label>Target URL</label>
-                <div class="url-bar">
-                  <select id="scraper-method">
-                    <option value="GET">GET</option>
-                    <option value="POST">POST</option>
-                  </select>
-                  <input id="scraper-url" placeholder="https://example.com" value="https://news.ycombinator.com">
-                </div>
-              </div>
-
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-                <div class="form-group">
-                  <label>CSS Selector (e.g. .titleline &gt; a)</label>
-                  <input class="input" id="scraper-selector" value=".titleline > a" placeholder="a.headline">
-                </div>
-                <div class="form-group">
-                  <label>Render Engine</label>
-                  <select class="select" id="scraper-engine">
-                    <option value="playwright">Headless Browser (Stealth)</option>
-                    <option value="http">Standard Fast HTTP</option>
-                    <option value="markdown">Clean Trafilatura Markdown</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="panel">
-            <div class="panel-header">
-              <h3>Extracted Structured Results</h3>
-              <div style="display: flex; gap: 8px;">
-                <button class="btn small" id="btn-copy-scrape-result">${getIcon('copy')} Copy JSON</button>
-              </div>
-            </div>
-            <div class="panel-body" style="padding: 0;">
-              <div class="code-box" style="border: none; border-radius: 0;">
-                <pre id="scraper-result-output"><code>// Click "Extract Data" to run live scraper...</code></pre>
-              </div>
-            </div>
-          </div>
-        `;
-
-      case 'crawler':
-        return `
-          <div class="content-head">
-            <div>
-              <h1>Deep Web Crawler</h1>
-              <p>Autonomously spider links across web domains with depth limits and concurrency controls.</p>
-            </div>
-            <button class="btn primary small" id="btn-run-crawl">${getIcon('play')} Start Crawl Job</button>
-          </div>
-
-          <div class="panel">
-            <div class="panel-body">
-              <div class="form-group">
-                <label>Seed URL</label>
-                <input class="input" id="crawl-url" value="https://docs.python.org/3/" placeholder="https://target.com">
-              </div>
-              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;">
-                <div class="form-group">
-                  <label>Max Depth</label>
-                  <select class="select" id="crawl-depth">
-                    <option value="1">1 Hop (Same page)</option>
-                    <option value="2" selected>2 Hops (Direct subpages)</option>
-                    <option value="3">3 Hops (Deep discovery)</option>
-                  </select>
-                </div>
-                <div class="form-group">
-                  <label>Max Page Count</label>
-                  <input class="input" type="number" id="crawl-limit" value="25" min="1" max="500">
-                </div>
-                <div class="form-group">
-                  <label>Domain Lock</label>
-                  <select class="select" id="crawl-domain-lock">
-                    <option value="true">Strict (Origin domain only)</option>
-                    <option value="false">Allow Subdomains</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="panel">
-            <div class="panel-header">
-              <h3>Crawled Pages Stream</h3>
-              <span class="badge cyan" id="crawl-page-count">0 Pages</span>
-            </div>
-            <div class="panel-body" id="crawl-stream-container">
-              <p style="color: var(--text-muted); font-size: 13px;">No crawl job active. Click "Start Crawl Job" to initialize discovery.</p>
-            </div>
-          </div>
-        `;
-
-      case 'search':
-        return `
-          <div class="content-head">
-            <div>
-              <h1>Brave Web Search</h1>
-              <p>Perform live queries against public web indices and generate cited research cards.</p>
-            </div>
-          </div>
-
-          <div class="panel">
-            <div class="panel-body">
-              <div class="form-group">
-                <label>Search Query</label>
-                <div style="display: flex; gap: 10px;">
-                  <input class="input" id="search-query-input" value="fastapi mcp server implementation" placeholder="Enter query...">
-                  <button class="btn primary" id="btn-run-search">${getIcon('search')} Search</button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div id="search-results-list" style="display: flex; flex-direction: column; gap: 14px;">
-            <!-- Search Results Rendered Here -->
-          </div>
-        `;
-
-      case 'api':
-        return `
-          <div class="content-head">
-            <div>
-              <h1>API Discovery & Probe</h1>
-              <p>Test REST endpoints, observe latency ms, inspect headers, and format payloads.</p>
-            </div>
-            <button class="btn primary small" id="btn-run-probe">${getIcon('play')} Send Request</button>
-          </div>
-
-          <div class="panel">
-            <div class="panel-body">
-              <div class="form-group">
-                <label>Endpoint Address</label>
-                <div class="url-bar">
-                  <select id="probe-method">
-                    <option value="GET">GET</option>
-                    <option value="POST">POST</option>
-                    <option value="PUT">PUT</option>
-                    <option value="DELETE">DELETE</option>
-                  </select>
-                  <input id="probe-url" value="/api/status">
-                </div>
-              </div>
-              <div class="form-group">
-                <label>Headers (JSON)</label>
-                <textarea class="textarea" id="probe-headers" style="min-height: 60px;">{ "Accept": "application/json" }</textarea>
-              </div>
-            </div>
-          </div>
-
-          <div class="panel">
-            <div class="panel-header">
-              <h3>Response Inspection</h3>
-              <span id="probe-status-pill" class="badge green">Ready</span>
-            </div>
-            <div class="panel-body" style="padding: 0;">
-              <div class="code-box" style="border: none;">
-                <pre id="probe-output"><code>Click "Send Request" to inspect response payload...</code></pre>
-              </div>
-            </div>
-          </div>
-        `;
-
-      case 'osint':
-        return `
-          <div class="content-head">
-            <div>
-              <h1>OSINT & Tech Recon</h1>
-              <p>Inspect domain DNS records, certificate health, and web server fingerprinting.</p>
-            </div>
-            <button class="btn primary small" id="btn-run-osint">${getIcon('osint')} Scan Domain</button>
-          </div>
-
-          <div class="panel">
-            <div class="panel-body">
-              <div class="form-group">
-                <label>Target Domain</label>
-                <input class="input" id="osint-domain-input" value="github.com" placeholder="example.com">
-              </div>
-            </div>
-          </div>
-
-          <div id="osint-results-panel">
-            <div class="stats-row">
-              <div class="stat-box"><span>Registrar</span><b>MarkMonitor</b></div>
-              <div class="stat-box"><span>SSL Issuer</span><b>DigiCert Inc</b></div>
-              <div class="stat-box"><span>DNS Protocol</span><b>DNSSEC Valid</b></div>
-              <div class="stat-box"><span>Edge CDN</span><b>Fastly / Azure</b></div>
-            </div>
-          </div>
-        `;
-
-      case 'sandbox':
-        return `
-          <div class="content-head">
-            <div>
-              <h1>Cloud Sandbox Terminal</h1>
-              <p>Run isolated web automation scripts in ephemeral sandboxes with live logs.</p>
-            </div>
-            <button class="btn primary small" id="btn-run-sandbox">${getIcon('play')} Run Code</button>
-          </div>
-
-          <div class="panel">
-            <div class="panel-body" style="padding: 0;">
-              <div class="code-box" style="border: none;">
-                <div class="code-box-header">
-                  <span>extract.py (Python 3.11 + Playwright)</span>
-                  <button class="btn quiet small" id="btn-reset-code">Reset Template</button>
-                </div>
-                <textarea class="textarea" id="sandbox-code-editor" style="border: none; border-radius: 0; min-height: 180px; font-family: var(--font-mono); font-size: 12px; background: transparent;">import asyncio
-from playwright.async_api import async_playwright
-
-async def main():
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
-        await page.goto("https://news.ycombinator.com")
-        title = await page.title()
-        print(f"Loaded page title: {title}")
-        await browser.close()
-
-asyncio.run(main())</textarea>
-              </div>
-            </div>
-          </div>
-
-          <div class="panel">
-            <div class="panel-header"><h3>Execution Log Output</h3></div>
-            <div class="panel-body" style="padding: 0;">
-              <div class="code-box" style="border: none;">
-                <pre id="sandbox-log-output"><code>$ ready for execution...</code></pre>
-              </div>
-            </div>
-          </div>
-        `;
-
-      case 'connectors':
-        return `
-          <div class="content-head">
-            <div>
-              <h1>Vercel & Neon Custom Connector</h1>
-              <p>Authenticate your API access tokens, inspect serverless Postgres projects, and sync credentials with 1 click.</p>
-            </div>
-            <button class="btn primary small" id="btn-test-connectors">${getIcon('refresh')} Test Credentials</button>
-          </div>
-
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px;">
-            <!-- Neon API Card -->
-            <div class="panel" style="margin-bottom: 0;">
-              <div class="panel-header">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                  ${getIcon('neon')}
-                  <b>Neon Serverless Postgres</b>
-                </div>
-                <span class="badge green">API V2</span>
-              </div>
-              <div class="panel-body">
-                <div class="form-group">
-                  <label>Neon API Access Token</label>
-                  <input class="input" type="password" id="neon-key-input" placeholder="neon_api_key_..." value="${esc(state.neonKey)}">
-                  <small style="color: var(--text-dim); font-size: 11px; margin-top: 4px;">Get token from console.neon.tech &gt; Account &gt; Developer Settings</small>
-                </div>
-                <button class="btn small" id="btn-save-neon-token">Save Token</button>
-              </div>
-            </div>
-
-            <!-- Vercel API Card -->
-            <div class="panel" style="margin-bottom: 0;">
-              <div class="panel-header">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                  ${getIcon('vercel')}
-                  <b>Vercel Platform</b>
-                </div>
-                <span class="badge indigo">REST API</span>
-              </div>
-              <div class="panel-body">
-                <div class="form-group">
-                  <label>Vercel API Access Token</label>
-                  <input class="input" type="password" id="vercel-token-input" placeholder="vercel_token_..." value="${esc(state.vercelToken)}">
-                  <small style="color: var(--text-dim); font-size: 11px; margin-top: 4px;">Get token from vercel.com/account/tokens</small>
-                </div>
-                <button class="btn small" id="btn-save-vercel-token">Save Token</button>
-              </div>
-            </div>
-          </div>
-
-          <!-- 1-Click Sync Section -->
-          <div class="panel">
-            <div class="panel-header">
-              <h3>1-Click Environment Sync</h3>
-              <span class="badge cyan">POSTGRES_URL INJECTION</span>
-            </div>
-            <div class="panel-body">
-              <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 18px;">
-                Directly retrieve your Neon database connection string and inject it into your Vercel project's environment variables (<code>POSTGRES_URL</code>, <code>DATABASE_URL</code>).
-              </p>
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 18px;">
-                <div class="form-group">
-                  <label>Neon Project ID</label>
-                  <input class="input" id="sync-neon-project-id" placeholder="e.g. bold-frost-123456" value="rapid-dawn-481920">
-                </div>
-                <div class="form-group">
-                  <label>Vercel Project Name</label>
-                  <input class="input" id="sync-vercel-project-name" placeholder="e.g. web-scrapping-cli" value="web-scrapping-cli">
-                </div>
-              </div>
-              <button class="btn primary" id="btn-run-sync-bridge">
-                ${getIcon('connector')} Sync Neon Connection String to Vercel
-              </button>
-            </div>
-          </div>
-        `;
-
-      case 'telemetry':
-        return `
-          <div class="content-head">
-            <div>
-              <h1>Telemetry Stream & Ledger</h1>
-              <p>Real-time audit log of every scraping job, MCP request, latency benchmark, and credit charge.</p>
-            </div>
-            <button class="btn small" id="btn-clear-telemetry">${getIcon('refresh')} Refresh Logs</button>
-          </div>
-
-          <div class="panel">
-            <div class="panel-body" style="padding: 0;">
-              <div class="table-wrap" style="border: none;">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Request ID</th>
-                      <th>Timestamp</th>
-                      <th>Tool / Action</th>
-                      <th>Target / Route</th>
-                      <th>Latency</th>
-                      <th>Cost</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${state.telemetryLogs.map(log => `
-                      <tr>
-                        <td><code>${esc(log.id)}</code></td>
-                        <td style="color: var(--text-dim); font-size: 12px;">${esc(log.time)}</td>
-                        <td><b>${esc(log.tool)}</b></td>
-                        <td style="color: var(--accent-cyan); font-size: 12px;">${esc(log.target)}</td>
-                        <td style="font-family: var(--font-mono);">${esc(log.latency)}</td>
-                        <td><span class="badge indigo">${esc(log.cost)}</span></td>
-                        <td><span class="badge green">200 OK</span></td>
-                      </tr>
-                    `).join('')}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        `;
-
-      default:
-        return `<p>Select a tool from the sidebar.</p>`;
-    }
-  }
-
-  function bindStudioEvents() {
-    // Tab switching
-    $$('.studio-sidebar .nav-item').forEach(item => {
-      item.onclick = () => {
-        state.activeStudioTool = item.dataset.tool;
-        renderStudio();
-      };
-    });
-
-    // Scraper preset
-    $('#btn-scraper-preset')?.addEventListener('click', () => {
-      $('#scraper-url').value = 'https://news.ycombinator.com';
-      $('#scraper-selector').value = '.titleline > a';
-      toast('Preset loaded', 'info');
-    });
-
-    // Run Scraper Action
-    $('#btn-run-scrape')?.addEventListener('click', async () => {
-      const url = $('#scraper-url').value;
-      const selector = $('#scraper-selector').value;
-      const engine = $('#scraper-engine').value;
-      const btn = $('#btn-run-scrape');
-      btn.disabled = true;
-      btn.innerHTML = `${getIcon('refresh')} Scraping...`;
-
-      setTimeout(() => {
-        const dummyResult = {
-          target: url,
-          selector: selector,
-          engine: engine,
-          status: 200,
-          extracted_items: [
-            { text: "Show HN: Internet Hands – Public Intelligence Fabric", link: "https://internet-hands.dev" },
-            { text: "FastAPI 0.115 released with enhanced Pydantic v2 support", link: "https://fastapi.tiangolo.com" },
-            { text: "Neon Postgres architecture: serverless compute and storage separation", link: "https://neon.tech" },
-            { text: "Model Context Protocol (MCP) specification updates", link: "https://modelcontextprotocol.io" }
-          ],
-          total_found: 4,
-          latency_ms: 240,
-          credits_used: 3
-        };
-
-        $('#scraper-result-output').innerHTML = `<code>${esc(JSON.stringify(dummyResult, null, 2))}</code>`;
-        btn.disabled = false;
-        btn.innerHTML = `${getIcon('play')} Extract Data`;
-        toast('Scrape completed successfully!', 'success');
-
-        // Add to telemetry
-        state.telemetryLogs.unshift({
-          id: `req_${Math.random().toString(36).substring(2, 8)}`,
-          time: new Date().toLocaleTimeString(),
-          tool: 'scraper.extract',
-          provider: engine,
-          target: url,
-          status: 200,
-          latency: '240ms',
-          cost: '3 credits'
-        });
-      }, 700);
-    });
-
-    // Run Crawler Action
-    $('#btn-run-crawl')?.addEventListener('click', () => {
-      const seedUrl = $('#crawl-url').value;
-      const container = $('#crawl-stream-container');
-      container.innerHTML = `<div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;"><span class="status-dot pulse"></span><span>Crawling ${esc(seedUrl)}...</span></div>`;
-
-      const dummyPages = [
-        `${seedUrl}`,
-        `${seedUrl}tutorial/`,
-        `${seedUrl}library/`,
-        `${seedUrl}reference/`,
-        `${seedUrl}whatsnew/3.12.html`
-      ];
-
-      dummyPages.forEach((p, idx) => {
-        setTimeout(() => {
-          const div = document.createElement('div');
-          div.className = 'step-row';
-          div.style.marginBottom = '8px';
-          div.innerHTML = `<span class="status-dot"></span><span style="font-family:var(--font-mono); font-size:12px;">${esc(p)}</span><span class="badge green">HTTP 200</span>`;
-          container.appendChild(div);
-          $('#crawl-page-count').textContent = `${idx + 1} Pages Discovered`;
-        }, (idx + 1) * 350);
-      });
-    });
-
-    // Run Search Action
-    $('#btn-run-search')?.addEventListener('click', () => {
-      const q = $('#search-query-input').value;
-      const container = $('#search-results-list');
-      container.innerHTML = `<p style="color:var(--text-muted); font-size:13px;">Querying Brave Search API for "${esc(q)}"...</p>`;
-
-      setTimeout(() => {
-        container.innerHTML = `
-          <div class="panel" style="padding: 20px;">
-            <a href="https://modelcontextprotocol.io" target="_blank" style="color: var(--accent-cyan); font-size: 16px; font-weight: 600;">Model Context Protocol Specification</a>
-            <p style="color: var(--text-muted); font-size: 13px; margin: 6px 0;">An open standard that enables developers to build secure, bidirectional bridges between data sources and AI models.</p>
-            <span class="badge indigo">modelcontextprotocol.io</span>
-          </div>
-          <div class="panel" style="padding: 20px;">
-            <a href="https://fastapi.tiangolo.com" target="_blank" style="color: var(--accent-cyan); font-size: 16px; font-weight: 600;">FastAPI Framework Documentation</a>
-            <p style="color: var(--text-muted); font-size: 13px; margin: 6px 0;">Modern, high-performance web framework for building APIs with Python 3.8+ based on standard Python type hints.</p>
-            <span class="badge indigo">fastapi.tiangolo.com</span>
-          </div>
-        `;
-        toast('Search completed', 'success');
-      }, 500);
-    });
-
-    // Run API Probe Action
-    $('#btn-run-probe')?.addEventListener('click', async () => {
-      const url = $('#probe-url').value;
-      const method = $('#probe-method').value;
-      try {
-        const res = await api(url, { method });
-        $('#probe-output').innerHTML = `<code>${esc(JSON.stringify(res, null, 2))}</code>`;
-        $('#probe-status-pill').textContent = '200 OK';
-        $('#probe-status-pill').className = 'badge green';
-        toast('Probe request succeeded', 'success');
-      } catch (err) {
-        $('#probe-output').innerHTML = `<code>Error: ${esc(err.message)}</code>`;
-        $('#probe-status-pill').textContent = 'Request Failed';
-        $('#probe-status-pill').className = 'badge red';
-        toast(err.message, 'error');
-      }
-    });
-
-    // Save Tokens
-    $('#btn-save-neon-token')?.addEventListener('click', () => {
-      const val = $('#neon-key-input').value;
-      state.neonKey = val;
-      localStorage.setItem('ih_neon_key', val);
-      toast('Neon API key saved locally', 'success');
-    });
-
-    $('#btn-save-vercel-token')?.addEventListener('click', () => {
-      const val = $('#vercel-token-input').value;
-      state.vercelToken = val;
-      localStorage.setItem('ih_vercel_token', val);
-      toast('Vercel API token saved locally', 'success');
-    });
-
-    // Test Connectors Action
-    $('#btn-test-connectors')?.addEventListener('click', async () => {
-      const btn = $('#btn-test-connectors');
-      btn.disabled = true;
-      btn.innerHTML = `${getIcon('refresh')} Checking...`;
-      try {
-        const res = await api('/v1/connectors/status', {
-          method: 'POST',
-          body: {
-            neon_api_key: state.neonKey || undefined,
-            vercel_token: state.vercelToken || undefined
-          }
-        });
-        toast('Connectors verified!', 'success');
-      } catch {
-        toast('Simulator: Connector credentials verified and ready', 'success');
-      } finally {
-        btn.disabled = false;
-        btn.innerHTML = `${getIcon('refresh')} Test Credentials`;
-      }
-    });
-
-    // Run Sync Bridge Action
-    $('#btn-run-sync-bridge')?.addEventListener('click', async () => {
-      const neonProject = $('#sync-neon-project-id').value;
-      const vercelProject = $('#sync-vercel-project-name').value;
-      const btn = $('#btn-run-sync-bridge');
-      btn.disabled = true;
-      btn.innerHTML = `${getIcon('refresh')} Syncing to Vercel...`;
-
-      setTimeout(() => {
-        btn.disabled = false;
-        btn.innerHTML = `${getIcon('connector')} Sync Neon Connection String to Vercel`;
-        toast(`Successfully synced Neon DB (${neonProject}) to Vercel project (${vercelProject})!`, 'success');
-      }, 1200);
-    });
-  }
-
-  // --- PAGE: Customer SaaS Dashboard (/dashboard) ---
-  function renderDashboard() {
-    const isAuth = !!state.me?.user?.email_verified;
-    if (!isAuth) {
-      // In demo/developer mode, allow viewing the dashboard or redirect to login
-    }
-
-    const html = `
-      ${renderHeader('dashboard')}
-      <div class="studio-shell">
-        <!-- Dashboard Sidebar -->
-        <aside class="studio-sidebar">
-          <div>
-            <div class="sidebar-group-title">SaaS Control Plane</div>
-            <div class="sidebar-nav">
-              <div class="nav-item ${state.activeTab === 'overview' ? 'active' : ''}" data-dash-tab="overview">
-                ${getIcon('scan')} Overview
-              </div>
-              <div class="nav-item ${state.activeTab === 'mcp' ? 'active' : ''}" data-dash-tab="mcp">
-                ${getIcon('api')} MCP Gateway
-              </div>
-              <div class="nav-item ${state.activeTab === 'keys' ? 'active' : ''}" data-dash-tab="keys">
-                ${getIcon('key')} API Keys
-              </div>
-              <div class="nav-item ${state.activeTab === 'monitors' ? 'active' : ''}" data-dash-tab="monitors">
-                ${getIcon('monitor')} Site Monitors
-              </div>
-              <div class="nav-item ${state.activeTab === 'billing' ? 'active' : ''}" data-dash-tab="billing">
-                ${getIcon('wallet')} Billing & Wallet
-              </div>
-              <div class="nav-item ${state.activeTab === 'security' ? 'active' : ''}" data-dash-tab="security">
-                ${getIcon('shield')} Security & 2FA
-              </div>
-            </div>
-          </div>
-        </aside>
-
-        <!-- Dashboard Main Workspace -->
-        <main class="studio-content">
-          ${renderDashboardContent(state.activeTab)}
-        </main>
-      </div>
-    `;
-
-    $('#app').innerHTML = html;
-    bindCommon();
-    bindDashboardEvents();
-  }
-
-  function renderDashboardContent(tab) {
-    const user = state.me?.user || { display_name: 'Developer', email: 'dev@internet-hands.local' };
-    const wallet = state.me?.wallet || { monthly_remaining: 2500, purchased_remaining: 10000 };
-
-    switch (tab) {
-      case 'overview':
-        return `
-          <div class="content-head">
-            <div>
-              <h1>Welcome, ${esc(user.display_name || user.email)}</h1>
-              <p>Your Internet Hands control plane, live MCP gateway, and public intelligence hub.</p>
-            </div>
-            <a class="btn primary small" data-link href="/studio">${getIcon('scraper')} Open Web Studio</a>
-          </div>
-
-          <div class="stats-row">
-            <div class="stat-box">
-              <span>Monthly Credits</span>
-              <b>${fmt(wallet.monthly_remaining)}</b>
-              <small style="color: var(--text-dim);">Refreshes in 14 days</small>
-            </div>
-            <div class="stat-box">
-              <span>Purchased Credits</span>
-              <b>${fmt(wallet.purchased_remaining)}</b>
-              <small style="color: var(--accent-cyan);">Never expires</small>
-            </div>
-            <div class="stat-box">
-              <span>Active Keys</span>
-              <b>3</b>
-              <small style="color: var(--text-dim);">Scoped bearer tokens</small>
-            </div>
-            <div class="stat-box">
-              <span>Active Monitors</span>
-              <b>5</b>
-              <small style="color: var(--success);">All healthy</small>
-            </div>
-          </div>
-
-          <div class="panel">
-            <div class="panel-header">
-              <h3>Permanent MCP Gateway Endpoint</h3>
-              <button class="btn small" data-copy="${location.origin}/mcp">${getIcon('copy')} Copy Endpoint</button>
-            </div>
-            <div class="panel-body">
-              <div class="code-box">
-                <pre><code>${location.origin}/mcp
-
-Authorization: Bearer ih_live_...
-Accept: text/event-stream</code></pre>
-              </div>
-            </div>
-          </div>
-        `;
-
-      case 'mcp':
-        return `
-          <div class="content-head">
-            <div>
-              <h1>Model Context Protocol (MCP) Gateway</h1>
-              <p>Connect Claude Desktop, ChatGPT, Grok, or custom agents to your permanent gateway.</p>
-            </div>
-            <button class="btn primary small" data-copy="${location.origin}/mcp">${getIcon('copy')} Copy MCP URL</button>
-          </div>
-
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-            <div class="panel">
-              <div class="panel-header"><b>Anthropic Claude Desktop</b></div>
-              <div class="panel-body">
-                <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 12px;">Add this entry to your <code>claude_desktop_config.json</code>:</p>
-                <div class="code-box">
-                  <pre><code>{
-  "mcpServers": {
-    "internet-hands": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-everything"],
-      "env": {
-        "IH_API_KEY": "ih_live_your_token_here"
-      }
-    }
-  }
-}</code></pre>
-                </div>
-              </div>
-            </div>
-
-            <div class="panel">
-              <div class="panel-header"><b>OpenAI ChatGPT (OAuth / Streamable)</b></div>
-              <div class="panel-body">
-                <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 12px;">Use the direct Streamable HTTP URL in custom GPT actions or remote MCP tools:</p>
-                <div class="code-box">
-                  <pre><code>Server URL: ${location.origin}/mcp
-Auth Type: Bearer Token / OAuth PKCE
-Scope: internet-hands:all</code></pre>
-                </div>
-              </div>
-            </div>
-          </div>
-        `;
-
-      case 'keys':
-        return `
-          <div class="content-head">
-            <div>
-              <h1>Scoped API Keys</h1>
-              <p>Generate isolated keys for servers, CI pipelines, and agent clients.</p>
-            </div>
-            <button class="btn primary small" id="btn-create-api-key">${getIcon('key')} Create API Key</button>
-          </div>
-
-          <div class="panel">
-            <div class="panel-body" style="padding: 0;">
-              <div class="table-wrap" style="border: none;">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Name / Label</th>
-                      <th>Key Prefix</th>
-                      <th>Scopes</th>
-                      <th>Created</th>
-                      <th>Status</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td><b>Production Agent</b></td>
-                      <td><code>ih_live_8f1a...</code></td>
-                      <td><span class="badge indigo">scraper</span> <span class="badge cyan">mcp</span></td>
-                      <td style="color: var(--text-dim); font-size: 12px;">2 days ago</td>
-                      <td><span class="badge green">ACTIVE</span></td>
-                      <td><button class="btn danger small">Revoke</button></td>
-                    </tr>
-                    <tr>
-                      <td><b>Vercel Edge Cron</b></td>
-                      <td><code>ih_live_3b7c...</code></td>
-                      <td><span class="badge cyan">connectors</span></td>
-                      <td style="color: var(--text-dim); font-size: 12px;">5 days ago</td>
-                      <td><span class="badge green">ACTIVE</span></td>
-                      <td><button class="btn danger small">Revoke</button></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        `;
-
-      case 'billing':
-        return `
-          <div class="content-head">
-            <div>
-              <h1>Billing & Wallet</h1>
-              <p>Manage subscription plans, Razorpay payment methods, and invoices.</p>
-            </div>
-            <button class="btn primary small" data-link href="/pricing">Change Plan</button>
-          </div>
-
-          <div class="stats-row">
-            <div class="stat-box">
-              <span>Current Plan</span>
-              <b style="color: var(--accent-cyan);">Pro Plan</b>
-              <small>₹1,499 / month</small>
-            </div>
-            <div class="stat-box">
-              <span>Credit Balance</span>
-              <b>12,500</b>
-              <small>Ready for work</small>
-            </div>
-          </div>
-        `;
-
-      case 'security':
-        return `
-          <div class="content-head">
-            <div>
-              <h1>Security & Authentication</h1>
-              <p>Two-factor authentication (TOTP), active sessions, and password recovery.</p>
-            </div>
-          </div>
-
-          <div class="panel">
-            <div class="panel-header"><b>Two-Factor Authentication (TOTP)</b></div>
-            <div class="panel-body">
-              <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px;">
-                Protect your control plane and API keys with standard authenticator apps (Google Authenticator, 1Password).
-              </p>
-              <button class="btn primary small" id="btn-setup-2fa">Setup 2FA Authenticator</button>
-            </div>
-          </div>
-        `;
-
-      default:
-        return `<p>Select a dashboard section.</p>`;
-    }
-  }
-
-  function bindDashboardEvents() {
-    $$('.studio-sidebar .nav-item').forEach(item => {
-      item.onclick = () => {
-        state.activeTab = item.dataset.dashTab;
-        renderDashboard();
-      };
-    });
-
-    $('#btn-create-api-key')?.addEventListener('click', () => {
-      const newKey = `ih_live_${Math.random().toString(36).substring(2, 12)}_${Math.random().toString(36).substring(2, 12)}`;
-      alert(`Your new API key is:\n\n${newKey}\n\nCopy this key now. It will not be shown again.`);
-      toast('New API key generated', 'success');
-    });
-
-    $('#btn-setup-2fa')?.addEventListener('click', () => {
-      alert('Scan QR code with your authenticator app:\n\notpauth://totp/InternetHands:user@example.com?secret=JBSWY3DPEHPK3PXP&issuer=InternetHands');
-      toast('2FA configuration initialized', 'info');
-    });
-  }
-
-  // --- PAGE: Auth (Sign In / Sign Up) ---
-  function renderAuth(mode = 'login') {
-    const isSignup = mode === 'signup';
-
-    const html = `
-      ${renderHeader()}
-      <div class="container" style="min-height: calc(100vh - 160px); display: flex; align-items: center; justify-content: center; padding: 40px 0;">
-        <div class="panel" style="width: min(440px, 100%); margin: 0; box-shadow: var(--shadow-lg);">
-          <div class="panel-header" style="text-align: center; justify-content: center; padding: 24px;">
-            <div>
-              <h2 style="font-size: 22px; margin-bottom: 6px;">${isSignup ? 'Create Your Account' : 'Welcome Back'}</h2>
-              <p style="color: var(--text-muted); font-size: 13px;">${isSignup ? 'Start with 2,500 free monthly credits' : 'Sign in to your control plane'}</p>
-            </div>
-          </div>
-          <div class="panel-body" style="padding: 28px;">
-            <a class="btn" href="/api/auth/github/start" style="width: 100%; margin-bottom: 20px; background: #161b22; border-color: #30363d; height: 46px;">
-              ${getIcon('github')} Continue with GitHub
-            </a>
-
-            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px; color: var(--text-dim); font-size: 11px;">
-              <div style="flex: 1; height: 1px; background: var(--border-subtle);"></div>
-              <span>OR EMAIL</span>
-              <div style="flex: 1; height: 1px; background: var(--border-subtle);"></div>
-            </div>
-
-            <form id="auth-form" class="form-group" style="gap: 14px;">
-              ${isSignup ? `
-                <div>
-                  <label>Display Name</label>
-                  <input class="input" name="display_name" placeholder="Alex Dev" required>
-                </div>
-              ` : ''}
-              <div>
-                <label>Email Address</label>
-                <input class="input" type="email" name="email" placeholder="you@company.com" required>
-              </div>
-              <div>
-                <label>Password</label>
-                <input class="input" type="password" name="password" placeholder="••••••••" minlength="8" required>
-              </div>
-              <button class="btn primary" type="submit" style="width: 100%; height: 46px; margin-top: 8px;">
-                ${isSignup ? 'Create Account' : 'Sign In'} ${getIcon('arrow')}
-              </button>
-            </form>
-
-            <div style="text-align: center; margin-top: 20px; font-size: 13px; color: var(--text-muted);">
-              ${isSignup ? `
-                Already registered? <a data-link href="/login" style="color: var(--accent-cyan); font-weight: 600;">Sign in</a>
-              ` : `
-                Don't have an account? <a data-link href="/signup" style="color: var(--accent-cyan); font-weight: 600;">Create one</a>
-              `}
-            </div>
+          <div class="ih-ledger">
+            <div class="ih-ledger-head"><span>LIVE RUN LEDGER</span><span>PROVIDER</span><span>STATE</span><span>LATENCY</span></div>
+            ${[
+              ['req_8ca5f2','web.search','ok','184 ms'],
+              ['req_63d1a0','browser.open','ok','1.2 s'],
+              ['req_a82e19','mesh.execute','ok','426 ms'],
+              ['req_1ed34b','extract.structured','ok','307 ms']
+            ].map(x=>`<div class="ih-ledger-row"><code>${x[0]}</code><span>${x[1]}</span><em>${statusDot()} ${x[2]}</em><b>${x[3]}</b></div>`).join('')}
           </div>
         </div>
-      </div>
-      ${renderFooter()}
-    `;
+      </section>
 
-    $('#app').innerHTML = html;
-    bindCommon();
+      <section class="ih-final">
+        <div class="container ih-final-inner">
+          <div><h2>Give the agent reach.<br>Keep the operation under control.</h2><p>One endpoint. Real internet capability. Runs you can actually inspect.</p></div>
+          <a class="btn primary large" data-link href="${state.me?.user?.email_verified ? '/dashboard' : '/signup'}">Launch Internet Hands ${icon('arrow')}</a>
+        </div>
+      </section>
+    </main>`);
+  };
 
-    $('#auth-form')?.addEventListener('submit', async e => {
+  function bindRunComposer() {
+    const form = $('#ih-run-form');
+    if (!form) return;
+    $$('[data-run-example]').forEach(b=>b.addEventListener('click',()=>{
+      const input = $('#ih-run-input');
+      input.value = b.dataset.runExample;
+      input.focus();
+    }));
+    form.addEventListener('submit',e=>{
       e.preventDefault();
-      const formData = Object.fromEntries(new FormData(e.currentTarget));
-      try {
-        const endpoint = isSignup ? '/api/auth/signup' : '/api/auth/login';
-        const res = await api(endpoint, { method: 'POST', body: formData });
-        toast('Authentication successful!', 'success');
-        state.me = res;
-        go('/dashboard');
-      } catch (err) {
-        toast(err.message, 'error');
+      const input = $('#ih-run-input');
+      const value = input.value.trim();
+      if(!value) return input.focus();
+      const brief = `mesh_route(${JSON.stringify(value)})`;
+      const target = $('#ih-preflight');
+      target.innerHTML = `<div class="ih-preflight-card">
+        <div><span>${statusDot()} RUN READY</span><h3>${esc(value)}</h3><p>The current web control plane does not expose direct execution yet. Run this intent through your connected MCP client or scoped API key; the request will appear in Runs automatically.</p></div>
+        <div class="ih-preflight-actions"><button class="btn primary" data-copy="${esc(brief)}">${icon('copy')} Copy MCP intent</button><a class="btn" data-link href="/dashboard/integrations">Open integrations</a></div>
+      </div>`;
+      bindCommon();
+      target.scrollIntoView({behavior:'smooth',block:'nearest'});
+    });
+  }
+
+  dashOverview = async function dashOverviewV2() {
+    const [d, usageData] = await Promise.all([
+      api('/api/dashboard'),
+      api('/api/usage?limit=8').catch(()=>({events:[]}))
+    ]);
+    const a=d.account||{},u=d.usage||{},events=usageData.events||[];
+    const credits=Number(a.monthly_credits||0)+Number(a.purchased_credits||0);
+    const health=Number(u.success_rate??100);
+    dashboardShell('overview',`
+      <section class="ih-command-head">
+        <div><span>COMMAND CENTER</span><h1>What should Internet Hands do?</h1><p>Describe the outcome. The execution fabric handles capability discovery, routing and metering behind the boundary.</p></div>
+        <div class="ih-command-health"><span>${statusDot()} Gateway live</span><b>${health.toFixed(1)}%</b><small>30-day success</small></div>
+      </section>
+
+      <section class="ih-run-composer">
+        <form id="ih-run-form">
+          <div class="ih-run-input-wrap">${icon('activity')}<textarea id="ih-run-input" rows="3" placeholder="Research a company, inspect a site, extract structured data, monitor a target…"></textarea><button class="btn primary" type="submit">Prepare run ${icon('arrow')}</button></div>
+          <div class="ih-run-hints"><span>Try</span><button type="button" data-run-example="Research this URL and return the key claims with evidence">Research a URL</button><button type="button" data-run-example="Inspect this site and map its public API surface">Map an API</button><button type="button" data-run-example="Extract the product catalog into structured data">Extract data</button></div>
+        </form>
+        <div id="ih-preflight"></div>
+      </section>
+
+      <section class="ih-command-stats">
+        <div><span>AVAILABLE CREDITS</span><b>${fmt(credits)}</b><small>${fmt(a.monthly_credits)} monthly · ${fmt(a.purchased_credits)} rollover</small></div>
+        <div><span>REQUESTS · 24H</span><b>${fmt(u.calls_24h)}</b><small>${fmt(u.calls_30d)} in 30 days</small></div>
+        <div><span>AVG LATENCY</span><b>${fmt(u.avg_latency_ms)}<em> ms</em></b><small>Metered execution</small></div>
+        <div><span>MONITOR SLOTS</span><b>${fmt(a.monitor_limit)}</b><small>Plan allowance</small></div>
+      </section>
+
+      <section class="ih-command-grid">
+        <article class="ih-runs-panel">
+          <header><div><span>RECENT RUNS</span><h2>Execution ledger</h2></div><a data-link href="/dashboard/usage">View all ${icon('arrow')}</a></header>
+          <div class="ih-run-list">
+            ${events.length ? events.map((e,i)=>`<button class="ih-run-row" data-run-index="${i}"><span>${statusDot(runStatus(e.status))}</span><div><b>${esc(runLabel(e))}</b><small>${esc(e.provider||'Provider pending')} · ${esc(when(e.created_at))}</small></div><code>${esc((e.request_id||'run').slice(0,16))}</code><em>${e.latency_ms==null?'—':`${fmt(e.latency_ms)} ms`}</em>${icon('arrow')}</button>`).join('') : `<div class="ih-empty-run"><span>${icon('activity')}</span><div><b>No runs yet</b><p>Connect an agent and execute your first internet task. Its real request trace will appear here.</p></div><a class="btn" data-link href="/dashboard/integrations">Connect client</a></div>`}
+          </div>
+        </article>
+        <aside class="ih-system-panel">
+          <header><span>SYSTEM</span><h2>Capability fabric</h2></header>
+          ${[
+            ['Web intelligence','Search · fetch · crawl','Online'],
+            ['Browser computers','Chromium sessions','Ready'],
+            ['Tool mesh','APIs · remote MCP','Ready'],
+            ['Monitoring','Web · API · MCP','Online']
+          ].map(x=>`<div class="ih-system-row"><span>${statusDot()}</span><div><b>${x[0]}</b><small>${x[1]}</small></div><em>${x[2]}</em></div>`).join('')}
+          <a class="ih-system-link" data-link href="/docs/capabilities">Inspect capabilities ${icon('arrow')}</a>
+        </aside>
+      </section>`);
+    bindRunComposer();
+    $$('[data-run-index]').forEach(b=>b.addEventListener('click',()=>openRunInspector(events[Number(b.dataset.runIndex)])));
+  };
+
+  dashUsage = async function dashRunsV2() {
+    const d=await api('/api/usage?limit=250'),events=d.events||[];
+    const credits=events.reduce((s,x)=>s+Number(x.credits_charged||0),0);
+    const success=events.length ? events.filter(x=>['ok','accepted'].includes(String(x.status).toLowerCase())).length/events.length*100 : 100;
+    const latency=events.map(x=>Number(x.latency_ms)).filter(Number.isFinite).sort((a,b)=>a-b);
+    const p95=latency.length ? latency[Math.min(latency.length-1,Math.floor(latency.length*.95))] : 0;
+    dashboardShell('usage',`
+      <section class="ih-runs-head"><div><span>RUNS</span><h1>Every internet operation, traceable.</h1><p>Requests, providers, status, credits and latency from the real metered execution ledger.</p></div><button class="btn primary" data-new-run-inline>${icon('activity')} New run</button></section>
+      <section class="ih-runs-summary"><div><span>RUNS LOADED</span><b>${fmt(events.length)}</b></div><div><span>SUCCESS</span><b>${success.toFixed(1)}%</b></div><div><span>CREDITS</span><b>${fmt(credits)}</b></div><div><span>P95 LATENCY</span><b>${fmt(p95)} <small>ms</small></b></div></section>
+      <section class="ih-run-table-wrap">
+        <div class="ih-run-table-head"><span>STATE</span><span>RUN</span><span>PROVIDER</span><span>CREDITS</span><span>LATENCY</span><span>TIME</span><span></span></div>
+        ${events.length ? events.map((e,i)=>`<button class="ih-run-table-row" data-run-index="${i}"><span>${statusDot(runStatus(e.status))}<b>${esc(e.status||'unknown')}</b></span><span><b>${esc(runLabel(e))}</b><code>${esc((e.request_id||'—').slice(0,22))}</code></span><span>${esc(e.provider||'—')}</span><span>${fmt(e.credits_charged||0)}</span><span>${e.latency_ms==null?'—':`${fmt(e.latency_ms)} ms`}</span><span>${esc(when(e.created_at))}</span><span>${icon('arrow')}</span></button>`).join('') : `<div class="ih-empty-run large"><span>${icon('activity')}</span><div><b>Your run ledger is empty</b><p>Requests executed through your connected clients appear here automatically.</p></div><a class="btn primary" data-link href="/dashboard/integrations">Connect a client</a></div>`}
+      </section>`);
+    $('[data-new-run-inline]')?.addEventListener('click',()=>go('/dashboard'));
+    $$('[data-run-index]').forEach(b=>b.addEventListener('click',()=>openRunInspector(events[Number(b.dataset.runIndex)])));
+  };
+
+})();
+
+
+/* === Extended authenticated surfaces ==================================== */
+/* Internet Hands extended product UI.
+ * Second-stage presentation layer for the remaining control-plane surfaces.
+ * Reuses the existing API/security/billing handlers instead of duplicating backend logic.
+ */
+(() => {
+  const dot = (tone='ok') => `<i class="ihx-dot ${tone}"></i>`;
+  const headline = (kicker, title, body, action='') => `<header class="ihx-page-head"><div><span>${kicker}</span><h1>${title}</h1><p>${body}</p></div>${action}</header>`;
+  const empty = (ico,title,body,action='') => `<div class="ihx-empty">${icon(ico)}<div><b>${title}</b><p>${body}</p></div>${action}</div>`;
+  const clientMark = (mark, brand) => `<span class="ihx-client-mark ${mark}">${platformMark(mark,brand)}</span>`;
+
+  authShell = function authShellV3(title, sub, content, story='Infrastructure for agents that need reach.') {
+    const isVerify = /verify|two-factor|email/i.test(title);
+    app.innerHTML = `<main class="auth-layout ihx-auth-layout">
+      <section class="auth-story ihx-auth-story">
+        <div class="ihx-auth-top">${brand()}<span>${dot()} CONTROL PLANE ONLINE</span></div>
+        <div class="ihx-auth-copy">
+          <span>INTERNET HANDS / SECURE ACCESS</span>
+          <h1>${esc(story)}</h1>
+          <p>Identity, permissions, execution and evidence stay inside one auditable boundary.</p>
+        </div>
+        <div class="ihx-auth-console">
+          <div class="ihx-auth-console-head"><span>${dot()} AUTHENTICATED EDGE</span><code>/mcp</code></div>
+          <div class="ihx-auth-route"><span>Agent</span><i></i><strong><img src="/assets/mark.svg" alt="">IH</strong><i></i><span>Internet</span></div>
+          <div class="ihx-auth-console-foot"><span>${icon('shield')} Verified identity</span><span>${icon('key')} Scoped access</span><span>${icon('activity')} Request ledger</span></div>
+        </div>
+      </section>
+      <section class="auth-main ihx-auth-main">
+        <div class="auth-card ihx-auth-card">
+          <div class="auth-mobile-brand">${brand()}</div>
+          <header><span class="ihx-auth-kicker">${isVerify?'SECURITY CHECK':'WORKSPACE ACCESS'}</span><h2>${title}</h2><p>${sub}</p></header>
+          ${content}
+          <footer class="ihx-auth-foot">${icon('shield')} Encrypted session · server-side verification · auditable access <span class="ihx-auth-legal"><a data-link href="/legal/terms">Terms</a><a data-link href="/legal/privacy">Privacy</a><a data-link href="/legal/acceptable-use">Acceptable use</a></span></footer>
+        </div>
+      </section>
+    </main>`;
+    bindCommon();
+  };
+
+  dashIntegrations = async function dashIntegrationsV3() {
+    const endpoint = `${location.origin}/mcp`;
+    const clients = [
+      {mark:'openai',brand:'OpenAI',name:'ChatGPT',mode:'OAuth MCP',desc:'Give ChatGPT a stable remote MCP endpoint with explicit scopes.',steps:['Copy the permanent endpoint.','Add it as a remote/custom MCP server.','Approve requested scopes and run a public-web test.']},
+      {mark:'anthropic',brand:'Anthropic',name:'Claude',mode:'OAuth MCP',desc:'Connect Claude through Streamable HTTP and browser authorization.',steps:['Copy the permanent endpoint.','Add it under Claude integrations.','Complete OAuth consent and test the connection.']},
+      {mark:'xai',brand:'xAI',name:'Grok',mode:'Scoped key',desc:'Use a server-held bearer key when an interactive OAuth flow is not available.',steps:['Create a scoped Internet Hands key.','Use the MCP endpoint as your tool gateway.','Send the key as a Bearer token.']},
+      {mark:'hermes',brand:'Nous Research',name:'Hermes Agent',mode:'MCP / key',desc:'Register the same gateway in self-hosted agent runtimes.',steps:['Choose OAuth for user sessions or a scoped key for automation.','Register the endpoint in Hermes.','Run capability discovery before execution.']},
+      {mark:'mcp',brand:'Model Context Protocol',name:'Generic MCP client',mode:'OAuth MCP',desc:'Any compatible Streamable HTTP client can use the same gateway.',steps:['Register the endpoint.','Follow protected-resource discovery.','Authorize scopes and test mesh_route.']},
+      {mark:'api',brand:'HTTP API',name:'Direct automation',mode:'Bearer key',desc:'Scripts, CI and servers can use scoped credentials directly.',steps:['Create an API key.','Send it through Authorization: Bearer.','Keep one key per integration for clean revocation.']}
+    ];
+    dashboardShell('integrations',`
+      ${headline('CONNECTION FABRIC','One gateway. Every client.','Connect the tools you already use without duplicating provider credentials or changing the endpoint.',`<button class="btn primary" data-copy="${esc(endpoint)}">${icon('copy')} Copy MCP endpoint</button>`)}
+      <section class="ihx-endpoint-hero">
+        <div><span>${dot()} PERMANENT ENDPOINT</span><h2>${esc(endpoint)}</h2><p>OAuth discovery, scoped access and metered execution live behind this address.</p></div>
+        <div class="ihx-endpoint-meta"><span><small>Transport</small><b>Streamable HTTP</b></span><span><small>Identity</small><b>OAuth / key</b></span><span><small>State</small><b>Operational</b></span></div>
+      </section>
+      <section class="ihx-connection-modes">
+        <article><span>${icon('shield')}</span><div><small>INTERACTIVE CLIENTS</small><h3>OAuth MCP</h3><p>Consent + PKCE + short-lived bearer tokens.</p></div><a data-link href="/docs/oauth">OAuth guide ${icon('arrow')}</a></article>
+        <article><span>${icon('key')}</span><div><small>AUTOMATION</small><h3>Scoped API keys</h3><p>Independent credentials for scripts, CI and servers.</p></div><a data-link href="/dashboard/api-keys">Manage keys ${icon('arrow')}</a></article>
+      </section>
+      <section class="ihx-catalog">
+        <header><div><span>CLIENT CATALOG</span><h2>Your existing stack, connected properly.</h2></div><p>No raw provider-name wall. Each integration keeps its identity, mode and exact setup path.</p></header>
+        <div class="ihx-client-grid">
+          ${clients.map((x,i)=>`<article class="ihx-client-card" data-client-card>
+            <button class="ihx-client-main" data-client-toggle aria-expanded="false">
+              ${clientMark(x.mark,x.brand)}
+              <span class="ihx-client-copy"><small>${esc(x.brand)}</small><b>${esc(x.name)}</b><p>${esc(x.desc)}</p></span>
+              <span class="ihx-client-mode">${esc(x.mode)}</span>${icon('arrow')}
+            </button>
+            <div class="ihx-client-detail" hidden>
+              <ol>${x.steps.map((step,n)=>`<li><i>${String(n+1).padStart(2,'0')}</i><span>${esc(step)}</span></li>`).join('')}</ol>
+              <div class="ihx-client-code"><code>${esc(x.mode.includes('key')||x.mode.includes('Bearer')?`Authorization: Bearer ih_live_…\nEndpoint: ${endpoint}`:endpoint)}</code><button data-copy="${esc(x.mode.includes('key')||x.mode.includes('Bearer')?`Authorization: Bearer ih_live_…\nEndpoint: ${endpoint}`:endpoint)}">${icon('copy')} Copy</button></div>
+            </div>
+          </article>`).join('')}
+        </div>
+      </section>`);
+    bindCommon();
+    $$('[data-client-toggle]').forEach(b=>b.addEventListener('click',()=>{
+      const card=b.closest('[data-client-card]'), detail=card.querySelector('.ihx-client-detail'), open=detail.hidden;
+      detail.hidden=!open; b.setAttribute('aria-expanded',String(open)); card.classList.toggle('open',open);
+    }));
+  };
+
+  dashKeys = async function dashKeysV3() {
+    const d=await api('/api/api-keys'), keys=d.keys||[], active=keys.filter(x=>!x.revoked_at).length;
+    dashboardShell('api-keys',`
+      ${headline('ACCESS CONTROL','API keys','Separate credentials by integration. Keep scopes narrow, rotate cleanly and never expose raw secrets twice.',`<button class="btn primary" id="create-key">${icon('key')} Create key</button>`)}
+      <section class="ihx-key-summary"><div><span>${icon('shield')}</span><small>ACTIVE KEYS</small><b>${fmt(active)}</b><p>${fmt(keys.length-active)} revoked</p></div><div><span>${icon('key')}</span><small>DEFAULT SCOPE</small><b>MCP</b><p>Read + execute</p></div><div><span>${icon('activity')}</span><small>SECRET POLICY</small><b>Once</b><p>Raw values never reappear</p></div></section>
+      <section class="ihx-security-banner">${icon('shield')}<div><b>Credentials are infrastructure.</b><p>Create one key per client or environment so compromise and rotation stay isolated.</p></div><a data-link href="/docs/keys">Read key policy ${icon('arrow')}</a></section>
+      <section class="ihx-key-inventory">
+        <header><div><span>KEY INVENTORY</span><h2>Scoped credentials</h2></div><small>${fmt(keys.length)} total</small></header>
+        ${keys.length?`<div class="ihx-key-table"><div class="ihx-key-table-head"><span>NAME</span><span>PREFIX</span><span>SCOPES</span><span>LAST USED</span><span>STATE</span><span></span></div>${keys.map(x=>`<div class="ihx-key-row"><span><b>${esc(x.name)}</b><small>${esc(x.environment)}</small></span><code>${esc(x.prefix)}…</code><span class="ihx-scope-list">${(x.scopes||[]).map(s=>`<em>${esc(s)}</em>`).join('')}</span><span>${esc(when(x.last_used_at))}</span><span class="ihx-state ${x.revoked_at?'off':'on'}">${dot(x.revoked_at?'warn':'ok')} ${x.revoked_at?'Revoked':'Active'}</span><button class="btn ${x.revoked_at?'':'danger'} small" data-revoke-key="${x.id}" ${x.revoked_at?'disabled':''}>${x.revoked_at?'Revoked':'Revoke'}</button></div>`).join('')}</div>`:empty('key','No API keys yet','Create a scoped credential for a script, server, CI job or non-OAuth client.','<button class="btn primary" id="empty-key">Create first key</button>')}
+      </section>`);
+    const open=()=>showKeyModal();
+    $('#create-key')?.addEventListener('click',open); $('#empty-key')?.addEventListener('click',open);
+    $$('[data-revoke-key]').forEach(b=>b.addEventListener('click',async()=>{if(!confirm('Revoke this key?'))return;await api(`/api/api-keys/${b.dataset.revokeKey}/revoke`,{method:'POST'});toast('Key revoked','success');dashKeys();}));
+  };
+
+  dashPlayground = async function dashPlaygroundV1() {
+    const [keyData, dashboard] = await Promise.all([api('/api/api-keys'), api('/api/dashboard')]);
+    const keys=(keyData.keys||[]).filter(x=>!x.revoked_at), account=dashboard.account||{};
+    const available=Number(account.monthly_credits||0)+Number(account.purchased_credits||0);
+    const html =
+      headline('METERED TESTING','Playground','Run the real crawler with a real API key. Every test spends credits and appears in Runs.','<a class="btn" data-link href="/dashboard/usage">'+icon('activity')+' View runs</a>') +
+      '<section class="ihp-key">' +
+        '<div class="ihp-key-copy">'+icon('key')+'<div><small>STEP 01 / API KEY</small><h2>Unlock the playground with an API key.</h2><p>Your signed-in session can configure the page, but execution requires a raw Internet Hands API key.</p></div></div>' +
+        '<div class="ihp-key-actions"><span class="ihx-state '+(keys.length?'on':'idle')+'">'+dot(keys.length?'ok':'warn')+' '+(keys.length?fmt(keys.length)+' active key'+(keys.length===1?'':'s'):'No active keys')+'</span><button class="btn primary" id="ihp-create-key">'+icon('key')+' Create playground key</button></div>' +
+        '<label class="ihp-secret">API key<div><input id="ihp-api-key" type="password" autocomplete="off" spellcheck="false" placeholder="ih_test_… or ih_live_…"><button type="button" id="ihp-show-key">Show</button></div><small>Raw keys are not stored in browser local storage. Existing key secrets cannot be revealed again.</small></label>' +
+        '<div id="ihp-key-created"></div>' +
+      '</section>' +
+      '<section class="ihp-main">' +
+        '<form id="ihp-form" class="ihp-form">' +
+          '<header><div><small>STEP 02 / CRAWL</small><h2>Web crawl test</h2><p>Public HTTP(S) only · robots respected · SSRF protected · bounded fan-out.</p></div><span class="ihp-cost">2 credits / run</span></header>' +
+          '<label>Target URL<input id="ihp-url" type="url" required placeholder="https://example.com"></label>' +
+          '<div class="ihp-budgets">' +
+            '<label>Pages<input id="ihp-pages" type="number" min="1" max="50" value="12"></label>' +
+            '<label>Depth<input id="ihp-depth" type="number" min="0" max="4" value="2"></label>' +
+            '<label>Concurrency<input id="ihp-concurrency" type="number" min="1" max="6" value="4"></label>' +
+            '<label>Seconds<input id="ihp-seconds" type="number" min="5" max="45" value="30"></label>' +
+          '</div>' +
+          '<div class="ihp-paths"><label>Include paths <small>comma-separated globs</small><input id="ihp-include" placeholder="/docs/*, /blog/*"></label><label>Exclude paths <small>comma-separated globs</small><input id="ihp-exclude" placeholder="/private/*, /account/*"></label></div>' +
+          '<div class="ihp-options"><label><input id="ihp-subdomains" type="checkbox"> Include subdomains</label><label><input id="ihp-query" type="checkbox"> Preserve query parameters</label><span>'+icon('shield')+' robots.txt always respected</span></div>' +
+          '<div class="ihp-presets"><span>Quick budget</span><button type="button" data-preset="5,1,2,15">5 pages</button><button type="button" data-preset="15,2,4,30">15 pages</button><button type="button" data-preset="30,3,5,40">30 pages</button></div>' +
+          '<button class="btn primary large ihp-run" type="submit">'+icon('activity')+' Run metered crawl</button>' +
+          '<p class="ihp-note">Available balance: <b>'+fmt(available)+'</b> credits. Validated executions use the same usage ledger as MCP calls.</p>' +
+        '</form>' +
+        '<aside class="ihp-boundary"><small>EXECUTION BOUNDARY</small><h3>Real test. Real accounting.</h3>' +
+          '<div>'+icon('shield')+'<p><b>Public targets only</b>Private, loopback, link-local and reserved addresses are rejected.</p></div>' +
+          '<div>'+icon('monitor')+'<p><b>Bounded crawling</b>Pages, depth, concurrency and time stop runaway jobs.</p></div>' +
+          '<div>'+icon('activity')+'<p><b>Usage-visible</b>Request ID, status, latency and credits appear in Runs.</p></div>' +
+          '<div>'+icon('key')+'<p><b>Key required</b>Cookie authentication alone cannot execute a playground crawl.</p></div>' +
+        '</aside>' +
+      '</section>' +
+      '<section id="ihp-result" class="ihp-result" hidden></section>';
+    dashboardShell('playground', html);
+
+    const keyInput=$('#ihp-api-key');
+    $('#ihp-show-key')?.addEventListener('click',e=>{keyInput.type=keyInput.type==='password'?'text':'password';e.currentTarget.textContent=keyInput.type==='password'?'Show':'Hide';});
+    $('#ihp-create-key')?.addEventListener('click',async e=>{
+      const button=e.currentTarget;busy(button,true,'Creating…');
+      try{
+        const created=await api('/api/api-keys',{method:'POST',body:{name:'Playground test key',environment:'test',scopes:['mcp:read','mcp:execute']}});
+        keyInput.value=created.secret||'';
+        $('#ihp-key-created').innerHTML='<div class="ihp-created">'+icon('check')+'<span><b>Test key created and loaded.</b><small>Copy it now if you want to reuse it after this page closes.</small><code>'+esc(created.secret||'')+'</code></span><button class="btn small" data-copy="'+esc(created.secret||'')+'">'+icon('copy')+' Copy</button></div>';
+        bindCommon();toast('Playground key created','success');
+      }catch(error){toast(error.message,'error');}
+      finally{busy(button,false);}
+    });
+
+    $('[data-preset]').forEach(button=>button.addEventListener('click',()=>{
+      const values=button.dataset.preset.split(',');
+      $('#ihp-pages').value=values[0];$('#ihp-depth').value=values[1];$('#ihp-concurrency').value=values[2];$('#ihp-seconds').value=values[3];
+    }));
+    const patterns=value=>String(value||'').split(',').map(x=>x.trim()).filter(Boolean);
+
+    $('#ihp-form')?.addEventListener('submit',async e=>{
+      e.preventDefault();
+      const secret=keyInput.value.trim();
+      if(!secret){toast('Create or paste an API key first','error');keyInput.focus();return;}
+      const button=$('.ihp-run',e.currentTarget), result=$('#ihp-result');
+      busy(button,true,'Crawling…');
+      result.hidden=false;
+      result.innerHTML='<div class="ihp-running">'+icon('activity')+'<span><b>Crawl in progress</b><small>Applying your page, depth, concurrency and time budgets…</small></span></div>';
+      const body={operation:'crawl',url:$('#ihp-url').value.trim(),max_pages:Number($('#ihp-pages').value),max_depth:Number($('#ihp-depth').value),concurrency:Number($('#ihp-concurrency').value),max_seconds:Number($('#ihp-seconds').value),include_paths:patterns($('#ihp-include').value),exclude_paths:patterns($('#ihp-exclude').value),include_subdomains:$('#ihp-subdomains').checked,preserve_query:$('#ihp-query').checked};
+      try{
+        const response=await fetch('/api/playground/run',{method:'POST',credentials:'include',cache:'no-store',headers:{'Content-Type':'application/json','Authorization':'Bearer '+secret},body:JSON.stringify(body)});
+        let data={};try{data=await response.json();}catch{}
+        if(!response.ok){const detail=data?.detail;throw new Error(typeof detail==='string'?detail:detail?.message||data?.error||('Request failed ('+response.status+')'));}
+        const summary=data.summary||{}, pages=data.result?.pages||[];
+        const rows=pages.map(page=>'<div class="ihp-row"><span class="ihx-state '+(page.error?'idle':'on')+'">'+dot(page.error?'warn':'ok')+' '+(page.error?'Error':esc(page.status_code||'OK'))+'</span><span>'+fmt(page.depth)+'</span><span><b>'+esc(page.url)+'</b>'+(page.error?'<small>'+esc(page.error)+'</small>':'')+'</span><span>'+fmt(page.links_found)+'</span><span>'+(page.elapsed_ms==null?'—':fmt(Math.round(page.elapsed_ms))+' ms')+'</span></div>').join('');
+        result.innerHTML='<header class="ihp-result-head"><div><span>'+dot()+' CRAWL COMPLETE</span><h2>'+esc(body.url)+'</h2><p>Request <code>'+esc(data.request_id)+'</code> · '+fmt(data.usage?.credits_charged||0)+' credits charged</p></div><a class="btn" data-link href="/dashboard/usage">Open in Runs '+icon('arrow')+'</a></header>' +
+          '<div class="ihp-stats"><div><small>PAGES</small><b>'+fmt(summary.pages)+'</b></div><div><small>SUCCESS</small><b>'+fmt(summary.successful)+'</b></div><div><small>DISCOVERED</small><b>'+fmt(summary.discovered_urls)+'</b></div><div><small>LINKS</small><b>'+fmt(summary.links_found)+'</b></div><div><small>DURATION</small><b>'+fmt(summary.duration_ms)+'<em> ms</em></b></div></div>' +
+          '<div class="ihp-table"><div class="ihp-table-head"><span>STATE</span><span>DEPTH</span><span>URL</span><span>LINKS</span><span>TIME</span></div>'+(rows||'<div class="notice">No pages returned.</div>')+'</div>' +
+          '<details class="ihp-raw"><summary>Raw crawl response</summary><pre><code>'+esc(JSON.stringify(data,null,2))+'</code></pre></details>';
+        bindCommon();result.scrollIntoView({behavior:'smooth',block:'start'});
+      }catch(error){result.innerHTML='<div class="ihp-error">'+icon('activity')+'<span><b>Crawl failed</b><p>'+esc(error.message)+'</p></span></div>';toast(error.message,'error');}
+      finally{busy(button,false);}
+    });
+  };
+
+  dashMonitors = async function dashMonitorsV3() {
+    const d=await api('/api/monitors'), items=d.monitors||[], enabled=items.filter(x=>x.enabled).length, healthy=items.filter(x=>x.last_status==='ok').length;
+    dashboardShell('monitors',`
+      ${headline('OBSERVE','Monitors','Turn important public targets into persistent signals instead of repeating the same checks manually.',`<button class="btn primary" id="new-monitor">${icon('monitor')} New monitor</button>`)}
+      <section class="ihx-monitor-summary"><div><small>ACTIVE</small><b>${fmt(enabled)}</b><p>of ${fmt(items.length)} monitors</p></div><div><small>HEALTHY</small><b>${fmt(healthy)}</b><p>latest successful checks</p></div><div><small>TEMPLATES</small><b>04</b><p>uptime · latency · JSON · content</p></div></section>
+      <section class="ihx-monitor-templates">
+        ${[['Uptime','HTTP status','monitor'],['Latency','Threshold','activity'],['JSON field','Value check','docs'],['Content','Change detection','overview']].map(x=>`<button data-template="${x[0]}">${icon(x[2])}<span><b>${x[0]}</b><small>${x[1]}</small></span>${icon('arrow')}</button>`).join('')}
+      </section>
+      <section class="ihx-monitor-board">
+        <header><div><span>WATCHLIST</span><h2>Persistent targets</h2></div><small>${fmt(items.length)} configured</small></header>
+        ${items.length?`<div class="ihx-monitor-list">${items.map(x=>`<article class="ihx-monitor-row"><span class="ihx-monitor-orb ${x.last_status==='ok'?'ok':''}"></span><div class="ihx-monitor-target"><b>${esc(x.name)}</b><small>${esc(x.type)} · ${esc(x.target)}</small></div><div><small>LAST CHECK</small><b>${esc(when(x.last_checked_at))}</b></div><span class="ihx-state ${x.last_status==='ok'?'on':'idle'}">${dot(x.last_status==='ok'?'ok':'warn')} ${esc(x.last_status||'Not run')}</span><button class="btn small" data-toggle="${x.id}" data-enabled="${x.enabled}">${x.enabled?'Pause':'Enable'}</button></article>`).join('')}</div>`:empty('monitor','Nothing is watching yet','Create a monitor from a template and Internet Hands will keep the target in view.','<button class="btn primary" id="empty-monitor">Create monitor</button>')}
+      </section>`);
+    const open=t=>showMonitorModal(t||'');
+    $('#new-monitor')?.addEventListener('click',()=>open('')); $('#empty-monitor')?.addEventListener('click',()=>open(''));
+    $$('[data-template]').forEach(b=>b.addEventListener('click',()=>open(b.dataset.template)));
+    $$('[data-toggle]').forEach(b=>b.addEventListener('click',async()=>{await api(`/api/monitors/${b.dataset.toggle}/toggle`,{method:'POST',body:{enabled:b.dataset.enabled!=='true'}});dashMonitors();}));
+  };
+
+  dashWallet = async function dashWalletV3() {
+    const [d,p]=await Promise.all([api('/api/wallet?limit=150'),getPlans()]), w=d.wallet||{}, ledger=d.ledger||[];
+    const available=Number(w.monthly_credits||0)+Number(w.purchased_credits||0)-Number(w.reserved_credits||0);
+    dashboardShell('wallet',`
+      ${headline('CAPACITY','Credits','See exactly how much execution capacity is available, reserved and persistent across billing cycles.')}
+      <section class="ihx-credit-hero"><div><span>${dot()} AVAILABLE NOW</span><b>${fmt(available)}</b><p>credits ready for execution</p></div><div class="ihx-credit-split"><span><small>MONTHLY</small><b>${fmt(w.monthly_credits)}</b><em>refreshes with plan</em></span><span><small>PURCHASED</small><b>${fmt(w.purchased_credits)}</b><em>rolls over</em></span><span><small>RESERVED</small><b>${fmt(w.reserved_credits)}</b><em>held by active work</em></span></div></section>
+      <section class="ihx-credit-packs"><header><div><span>ROLLOVER CAPACITY</span><h2>Add credits without changing plan.</h2></div><p>Purchased credits persist until used.</p></header><div>${(p.credit_packs||[]).map(x=>`<article><span>${esc(x.name)}</span><b>${fmt(x.credits)}</b><small>credits</small><em>${money(x.price_inr)}</em><button class="btn primary small" data-buy="${x.slug}">Purchase</button></article>`).join('')||'<div class="notice">Credit packs unavailable.</div>'}</div></section>
+      <section class="ihx-ledger-panel"><header><div><span>LEDGER</span><h2>Wallet activity</h2></div><small>${fmt(ledger.length)} entries loaded</small></header>${ledger.length?`<div class="ihx-ledger-table"><div class="ihx-ledger-table-head"><span>TIME</span><span>KIND</span><span>BUCKET</span><span>SOURCE</span><span>AMOUNT</span></div>${ledger.map(x=>`<div><span>${esc(when(x.created_at))}</span><span>${esc(x.kind)}</span><span>${esc(x.bucket)}</span><span>${esc(x.source)}</span><b class="${Number(x.amount)>=0?'positive':'negative'}">${Number(x.amount)>0?'+':''}${fmt(x.amount)}</b></div>`).join('')}</div>`:empty('wallet','No wallet activity yet','Grants, reservations and purchases will appear here.')}</section>`);
+    $$('[data-buy]').forEach(b=>b.addEventListener('click',()=>startCheckout('credits',b.dataset.buy)));
+  };
+
+  dashBilling = async function dashBillingV3() {
+    const [p,s,pay]=await Promise.all([getPlans(),api('/api/billing/status'),api('/api/billing/payments')]), a=state.me.account||{}, payments=pay.payments||[];
+    dashboardShell('billing',`
+      ${headline('COMMERCIAL','Billing & plans','Plan capacity, renewal state and payment history without hiding the operational limits behind marketing.',`<span class="ihx-provider-status">${dot(s.configured?'ok':'warn')} Razorpay ${s.configured?'ready':'pending'}</span>`)}
+      <section class="ihx-plan-current"><div><span>CURRENT PLAN</span><h2>${esc(a.plan_name||'Free')}</h2><p>${fmt(a.monthly_credits)} monthly credits · resets ${esc(when(a.current_period_end))}</p></div><div><span><small>API KEYS</small><b>${fmt(a.api_key_limit)}</b></span><span><small>MONITORS</small><b>${fmt(a.monitor_limit)}</b></span><span><small>RATE LIMIT</small><b>${fmt(a.rpm_limit)}<em> rpm</em></b></span></div></section>
+      <section class="ihx-plan-grid">${(p.plans||[]).map(plan=>`<article class="${plan.slug==='pro'?'featured':''}"><header><span>${esc(plan.name)}</span>${plan.slug==='pro'?'<em>RECOMMENDED</em>':''}</header><div class="ihx-plan-price">${money(plan.monthly_price_inr)}<small>/month</small></div><p>${fmt(plan.included_credits)} monthly credits</p><ul><li>${icon('check')} ${fmt(plan.rpm_limit)} requests / minute</li><li>${icon('check')} ${fmt(plan.api_key_limit)} API keys</li><li>${icon('check')} ${fmt(plan.monitor_limit)} monitors</li><li>${icon('check')} ${plan.browser_enabled?'Browser access':'Public data tools'}</li><li>${icon('check')} ${plan.sandbox_enabled?'Sandbox execution':'Core execution'}</li></ul>${plan.slug==='free'?'<span class="ihx-current-label">Base tier</span>':`<button class="btn ${plan.slug==='pro'?'primary':''}" data-plan="${plan.slug}">Choose ${esc(plan.name)}</button>`}</article>`).join('')}</section>
+      <section class="ihx-payment-panel"><header><div><span>PAYMENTS</span><h2>Captured purchase history</h2></div><small>${icon('shield')} server verified</small></header>${payments.length?`<div class="ihx-payment-table"><div class="ihx-payment-head"><span>CREATED</span><span>PURPOSE</span><span>AMOUNT</span><span>STATUS</span><span>REFERENCE</span></div>${payments.map(x=>`<div><span>${esc(when(x.created_at))}</span><span>${esc(x.purpose)}</span><b>${money(Number(x.amount_paise)/100)}</b><span class="ihx-state ${['paid','captured'].includes(x.status)?'on':'idle'}">${dot(['paid','captured'].includes(x.status)?'ok':'warn')} ${esc(x.status)}</span><code>${esc(x.order_id||'—')}</code></div>`).join('')}</div>`:empty('wallet','No purchases yet','Captured payments will appear here after server verification.')}</section>`);
+    $$('[data-plan]').forEach(b=>b.addEventListener('click',()=>startCheckout('subscription',b.dataset.plan)));
+  };
+
+  dashSettings = async function dashSettingsV3() {
+    const [s,sessions]=await Promise.all([api('/api/security/status'),api('/api/account/sessions')]), u=state.me.user, list=sessions.sessions||[];
+    dashboardShell('settings',`
+      ${headline('ACCOUNT','Settings & security','Identity, login protection and active sessions presented as one security surface.')}
+      <section class="ihx-settings-grid">
+        <article class="ihx-profile-panel"><header><div><span>PROFILE</span><h2>Workspace identity</h2></div><span class="ihx-state on">${dot()} Verified</span></header><form id="profile-form" class="form-stack"><label>Email<input value="${esc(u.email)}" disabled></label><label>Display name<input name="display_name" value="${esc(u.display_name||'')}" maxlength="80" required></label><div class="ihx-linked-account">${clientMark('github','GitHub')}<span><b>GitHub</b><small>${u.github_connected?'Connected to this identity':'Not connected'}</small></span><em>${u.github_connected?'Linked':'Optional'}</em></div><button class="btn">Save profile</button></form></article>
+        <article class="ihx-security-panel"><header><div><span>SECURITY POSTURE</span><h2>Protection status</h2></div><span class="ihx-state ${s.two_factor_enabled?'on':'idle'}">${dot(s.two_factor_enabled?'ok':'warn')} ${s.two_factor_enabled?'2FA enabled':s.two_factor_available?'2FA available':'Server configuration required'}</span></header><div class="ihx-security-rail"><div>${icon('check')}<span><b>Email verification</b><small>Privileged actions unlocked</small></span><em>On</em></div><div>${icon('shield')}<span><b>Authenticator 2FA</b><small>${s.two_factor_enabled?'Required after primary sign-in':'Add a second factor to reach full protection'}</small></span><button class="btn ${s.two_factor_enabled?'danger':'primary'} small" id="toggle-2fa">${s.two_factor_enabled?'Disable':'Set up'}</button></div>${s.two_factor_enabled?`<div>${icon('activity')}<span><b>Recovery codes</b><small>One-use emergency access</small></span><button class="btn small" id="regen">Regenerate</button></div>`:''}</div></article>
+        <article class="ihx-sessions-panel"><header><div><span>SESSIONS</span><h2>Active web sessions</h2></div><button class="btn danger small" id="revoke-all">Sign out everywhere</button></header><div>${list.map(x=>`<div class="ihx-session-row">${icon('activity')}<span><b>${x.current?'This session':'Web session'}</b><small>Created ${esc(when(x.created_at))} · expires ${esc(when(x.expires_at))}</small></span><em class="ihx-state ${x.current?'on':'idle'}">${dot(x.current?'ok':'warn')} ${x.current?'Current':'Active'}</em><button class="btn small" data-session="${x.id}">Revoke</button></div>`).join('')||'<div class="notice">No active sessions found.</div>'}</div></article>
+        <article class="ihx-password-panel"><header><div><span>PASSWORD</span><h2>Change primary credential</h2></div><p>Changing your password revokes existing sessions.</p></header><form id="password-form" class="ihx-password-form"><label>Current password<input type="password" name="current_password" required></label><label>New password<input type="password" name="new_password" minlength="8" required></label><button class="btn">Change and sign out</button></form></article>
+      </section>`);
+    $('#profile-form').onsubmit=async e=>{e.preventDefault();try{const r=await api('/api/account/profile',{method:'PATCH',body:Object.fromEntries(new FormData(e.currentTarget))});state.me.user=r.user;toast('Profile updated','success');}catch(error){toast(error.message,'error');}};
+    $('#toggle-2fa').onclick=()=>s.two_factor_enabled?showDisable2fa():showSetup2fa(); $('#regen')?.addEventListener('click',showRegenerate);
+    $$('[data-session]').forEach(b=>b.onclick=async()=>{const r=await api(`/api/account/sessions/${b.dataset.session}/revoke`,{method:'POST'});if(r.signed_out){state.me=null;go('/login');}else dashSettings();});
+    $('#revoke-all').onclick=async()=>{if(!confirm('Sign out every web session?'))return;await api('/api/account/sessions/revoke-all',{method:'POST'});state.me=null;go('/login');};
+    $('#password-form').onsubmit=async e=>{e.preventDefault();try{await api('/api/account/password',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))});state.me=null;toast('Password changed; sessions revoked','success');go('/login');}catch(error){toast(error.message,'error');}};
+  };
+
+  renderPricing = async function renderPricingV3() {
+    const data=await getPlans();
+    publicShell(`<main class="ihx-pricing-page"><section class="container ihx-pricing-hero"><span>PRICING / EXECUTION CAPACITY</span><h1>Pay for useful work.<br><em>See the limits before you hit them.</em></h1><p>Monthly capacity refreshes. Purchased credits roll over. Provider-heavy work spends according to the operation performed.</p></section><section class="container ihx-public-plan-grid">${(data.plans||[]).map(plan=>`<article class="${plan.slug==='pro'?'featured':''}"><header><b>${esc(plan.name)}</b>${plan.slug==='pro'?'<em>RECOMMENDED</em>':''}</header><div>${money(plan.monthly_price_inr)}<small>/month</small></div><p>${fmt(plan.included_credits)} monthly credits</p><ul><li>${fmt(plan.rpm_limit)} requests / minute</li><li>${fmt(plan.api_key_limit)} API keys</li><li>${fmt(plan.monitor_limit)} monitors</li><li>${plan.browser_enabled?'Browser execution':'Public data tools'}</li><li>${plan.sandbox_enabled?'Sandbox execution':'Core execution'}</li></ul><a class="btn ${plan.slug==='pro'?'primary':''}" data-link href="/signup${plan.slug==='free'?'':`?plan=${plan.slug}`}">${plan.slug==='free'?'Start free':`Choose ${esc(plan.name)}`}</a></article>`).join('')}</section><section class="container ihx-pricing-note"><div><span>CREDIT MODEL</span><h2>Meter the operation, not the mystery.</h2></div><p>Request IDs, provider routing, credit charges and latency are visible in Runs so usage is inspectable after execution.</p></section></main>`);
+  };
+
+})();
+
+
+/* === Command workspace shell ============================================ */
+/* Internet Hands Command OS
+ * Final visual shell. Keeps all existing route renderers and backend handlers,
+ * but replaces the dashboard chrome with an operations-first workspace.
+ */
+(() => {
+  Object.assign(paths, {
+    terminal: '<path d="M4 5h16v14H4z"/><path d="m7 9 3 3-3 3m5 0h5"/>',
+    billing: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/>',
+    user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+    chevron: '<path d="m9 6 6 6-6 6"/>',
+    external: '<path d="M14 3h7v7M10 14 21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/>'
+  });
+
+  const statusDot = () => '<i class="cos-live-dot" aria-hidden="true"></i>';
+  const hrefFor = slug => `/dashboard${slug === 'overview' ? '' : `/${slug}`}`;
+
+  brand = function commandBrand() {
+    return `<a class="brand ih-brand cos-brand ih-logo-only" data-link href="/" aria-label="Internet Hands home">
+      <img class="ih-brand-art" src="/assets/internet-hands-logo.webp" alt="Internet Hands">
+    </a>`;
+  };
+
+  const nav = [
+    ['Build', [
+      ['overview','terminal','Command'],
+      ['playground','activity','Playground'],
+      ['api-keys','key','API keys']
+    ]],
+    ['Observe', [
+      ['usage','activity','Runs'],
+      ['monitors','monitor','Monitors']
+    ]],
+    ['Connect', [
+      ['integrations','plug','Integrations']
+    ]],
+    ['Account', [
+      ['wallet','wallet','Credits'],
+      ['billing','billing','Billing'],
+      ['settings','settings','Settings']
+    ]]
+  ];
+
+  dashboardShell = function commandOsShell(active, content) {
+    const u = state.me?.user || {};
+    const current = nav.flatMap(x => x[1]).find(x => x[0] === active);
+    const title = current?.[2] || 'Command';
+    const initials = esc((u.display_name || u.email || 'I')[0].toUpperCase());
+
+    app.innerHTML = `<div class="cos-app">
+      <aside class="cos-sidebar ih-sidebar sidebar">
+        <div class="cos-sidebar-brand">${brand()}</div>
+
+        <a class="cos-launch ${active === 'overview' ? 'active' : ''}" data-link href="/dashboard">
+          <span>${icon('terminal')}</span><b>Run command</b><kbd>⌘ K</kbd>
+        </a>
+
+        <nav class="cos-nav">
+          ${nav.map(([group, items]) => `<div class="cos-nav-group">
+            <span>${group}</span>
+            ${items.map(([slug, ico, label]) => `<a class="${slug === active ? 'active' : ''}" data-link href="${hrefFor(slug)}">
+              <span class="cos-nav-icon">${icon(ico)}</span><b>${label}</b>${slug === active ? '<i></i>' : ''}
+            </a>`).join('')}
+          </div>`).join('')}
+        </nav>
+
+        <div class="cos-sidebar-bottom">
+          <a class="cos-gateway" data-link href="/status"><span>${statusDot()}</span><div><b>Gateway online</b><small>All systems operational</small></div>${icon('chevron')}</a>
+          <div class="cos-sidebar-links"><a data-link href="/docs">${icon('docs')} Docs</a><a href="https://github.com/sphangcho203-afk/Web-Scrapping-CLI" target="_blank" rel="noreferrer">${icon('external')} GitHub</a></div>
+        </div>
+      </aside>
+
+      <section class="cos-workspace workspace ih-workspace">
+        <header class="cos-topbar topbar ih-topbar">
+          <div class="cos-topbar-left">
+            <button class="cos-mobile-menu icon-btn" data-sidebar-toggle aria-label="Open navigation">${icon('menu')}</button>
+            <div class="cos-breadcrumb"><span>Internet Hands</span><i>/</i><b>${esc(title)}</b></div>
+          </div>
+          <div class="cos-topbar-right">
+            ${active === 'overview' ? '' : `<a class="cos-command-cta" data-link href="/dashboard">${icon('terminal')}<span>Run command</span><kbd>⌘ K</kbd></a>`}
+            <a class="cos-docs-link" data-link href="/docs">Docs</a>
+            <button class="cos-account" data-account-toggle aria-expanded="false"><i>${initials}</i><span><b>${esc(u.display_name || 'Account')}</b><small>${esc(u.email || '')}</small></span>${icon('chevron')}</button>
+          </div>
+          <div class="cos-account-menu" data-account-menu hidden>
+            <div><span class="cos-account-avatar">${initials}</span><span><b>${esc(u.display_name || 'Internet Hands')}</b><small>${esc(u.email || '')}</small></span></div>
+            <a data-link href="/dashboard/settings">${icon('settings')} Settings & security</a>
+            <a data-link href="/dashboard/billing">${icon('billing')} Billing & plans</a>
+            <a data-link href="/dashboard/wallet">${icon('wallet')} Credits</a>
+            <a data-link href="/docs">${icon('docs')} Documentation</a>
+            <button id="account-logout">Sign out</button>
+          </div>
+        </header>
+
+        <main class="cos-content content ih-content"><div class="ih-page-shell ih-route-${esc(active)}" data-dashboard-route="${esc(active)}">${content}</div></main>
+      </section>
+
+      <nav class="cos-mobile-bottom ih-mobile-bottom mobile-bottom">
+        ${[
+          ['overview','terminal','Command'],
+          ['playground','activity','Test'],
+          ['usage','activity','Runs'],
+          ['integrations','plug','Connect'],
+          ['more','more','More']
+        ].map(([slug, ico, label]) => `<a ${slug === 'more' ? 'data-more' : 'data-link'} href="${slug === 'more' ? '#' : hrefFor(slug)}" class="${slug === active ? 'active' : ''}">${icon(ico)}<span>${label}</span></a>`).join('')}
+      </nav>
+
+      <div class="cos-more-sheet more-sheet" data-more-sheet>
+        <div class="cos-sheet-handle"></div><b>Workspace</b>
+        <a data-link href="/dashboard/playground">${icon('activity')} Playground</a>
+        <a data-link href="/dashboard/api-keys">${icon('key')} API keys</a>
+        <a data-link href="/dashboard/monitors">${icon('monitor')} Monitors</a>
+        <a data-link href="/dashboard/wallet">${icon('wallet')} Credits</a>
+        <a data-link href="/dashboard/billing">${icon('billing')} Billing & plans</a>
+        <a data-link href="/dashboard/settings">${icon('settings')} Settings & security</a>
+        <a data-link href="/docs">${icon('docs')} Documentation</a>
+        <a data-link href="/status">${icon('activity')} System status</a>
+        <button id="mobile-logout">Sign out</button>
+      </div>
+      <div class="cos-sheet-backdrop sheet-backdrop" data-sheet-backdrop></div>
+    </div>`;
+
+    bindCommon();
+
+    const sidebar = $('.cos-sidebar');
+    const sheet = $('[data-more-sheet]');
+    const backdrop = $('[data-sheet-backdrop]');
+    $('[data-sidebar-toggle]')?.addEventListener('click', () => sidebar?.classList.toggle('open'));
+    $('[data-more]')?.addEventListener('click', e => {
+      e.preventDefault();
+      sheet?.classList.add('open');
+      backdrop?.classList.add('open');
+    });
+    backdrop?.addEventListener('click', () => {
+      sheet?.classList.remove('open');
+      backdrop?.classList.remove('open');
+      sidebar?.classList.remove('open');
+    });
+
+    const accountToggle = $('[data-account-toggle]');
+    const accountMenu = $('[data-account-menu]');
+    accountToggle?.addEventListener('click', e => {
+      e.stopPropagation();
+      if (!accountMenu) return;
+      const opening = accountMenu.hasAttribute('hidden');
+      if (opening) accountMenu.removeAttribute('hidden'); else accountMenu.setAttribute('hidden','');
+      accountToggle.setAttribute('aria-expanded', String(opening));
+    });
+
+    if (window.__ihAccountCloser) document.removeEventListener('click', window.__ihAccountCloser);
+    window.__ihAccountCloser = e => {
+      if (!accountMenu || accountMenu.hasAttribute('hidden')) return;
+      if (!accountMenu.contains(e.target) && !accountToggle?.contains(e.target)) {
+        accountMenu.setAttribute('hidden','');
+        accountToggle?.setAttribute('aria-expanded','false');
       }
-    });
-  }
+    };
+    document.addEventListener('click', window.__ihAccountCloser);
 
-  function setupAuthListeners() {
-    $('#btn-logout')?.addEventListener('click', async () => {
-      try {
-        await api('/api/auth/logout', { method: 'POST' });
-      } catch {}
+    const logout = async () => {
+      await api('/api/auth/logout', { method:'POST' });
       state.me = null;
-      toast('Signed out', 'info');
-      go('/');
-    });
-  }
+      go('/login');
+    };
+    $('#account-logout')?.addEventListener('click', logout);
+    $('#mobile-logout')?.addEventListener('click', logout);
 
-  // --- Main Dispatcher ---
-  async function renderApp() {
-    await hydrateSession();
-    const path = location.pathname;
-
-    if (path === '/' || path === '') {
-      renderHome();
-    } else if (path === '/pricing') {
-      renderPricing();
-    } else if (path === '/status') {
-      renderStatus();
-    } else if (path.startsWith('/studio')) {
-      renderStudio();
-    } else if (path.startsWith('/dashboard')) {
-      renderDashboard();
-    } else if (path === '/login') {
-      renderAuth('login');
-    } else if (path === '/signup') {
-      renderAuth('signup');
-    } else {
-      // Default to Studio
-      renderStudio();
-    }
-  }
-
-  // Global Checkout Helpers
-  window.handlePlanCheckout = (planSlug) => {
-    toast(`Plan selected: ${planSlug}. Initializing Razorpay checkout...`, 'info');
-    setTimeout(() => {
-      alert(`Razorpay Checkout Simulator:\n\nPlan: ${planSlug.toUpperCase()}\nOrder ID: order_mock_${Date.now()}\nAmount verified server-side.`);
-      toast('Subscription activated successfully!', 'success');
-    }, 600);
+    if (window.__ihCommandShortcut) document.removeEventListener('keydown', window.__ihCommandShortcut);
+    window.__ihCommandShortcut = e => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'k') return;
+      e.preventDefault();
+      if (location.pathname !== '/dashboard') return go('/dashboard');
+      $('#ih-run-input')?.focus();
+    };
+    document.addEventListener('keydown', window.__ihCommandShortcut);
   };
 
-  window.handlePackCheckout = (credits, price) => {
-    toast(`Buying ${credits} credits for ₹${price}...`, 'info');
-    setTimeout(() => {
-      alert(`Razorpay Payment Simulator:\n\nCredits: ${credits}\nAmount: ₹${price}\nPayment ID: pay_mock_${Date.now()}`);
-      toast('Credits added to your wallet!', 'success');
-    }, 600);
-  };
-
-  // Start application on DOM Ready
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', renderApp);
-  } else {
-    renderApp();
-  }
+  // Initial render happens once, after every canonical renderer and shell is installed.
+  renderRoute();
 })();

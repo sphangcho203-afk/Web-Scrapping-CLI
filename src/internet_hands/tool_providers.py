@@ -11,6 +11,18 @@ import httpx
 from .tool_mesh import ToolDescriptor
 
 _TERMINAL_APIFY = {"SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"}
+_READ_ONLY_HINTS = (
+    "GET",
+    "LIST",
+    "SEARCH",
+    "READ",
+    "DESCRIBE",
+    "INSPECT",
+    "WATCH",
+    "STATUS",
+    "HISTORY",
+)
+
 _MUTATING_HINTS = (
     "CREATE",
     "DELETE",
@@ -28,6 +40,11 @@ _MUTATING_HINTS = (
     "PURCHASE",
     "PAY",
     "CANCEL",
+    "EXECUTE",
+    "EXEC",
+    "RUN",
+    "CALL",
+    "TRIGGER",
 )
 
 
@@ -39,9 +56,11 @@ def _unwrap(payload: Any) -> Any:
 
 def _side_effecting(tool_id: str) -> bool:
     upper = tool_id.upper()
+    padded = f"_{upper}_"
+    if any(f"_{hint}_" in padded for hint in _READ_ONLY_HINTS):
+        return False
     return any(
-        f"_{hint}_" in f"_{upper}_" or upper.endswith(f"_{hint}")
-        for hint in _MUTATING_HINTS
+        f"_{hint}_" in padded or upper.endswith(f"_{hint}") for hint in _MUTATING_HINTS
     )
 
 

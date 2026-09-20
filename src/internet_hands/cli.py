@@ -11,7 +11,6 @@ from rich.console import Console
 from rich.table import Table
 
 from .browser import render_page
-from .connectors import NeonConnector, VercelConnector, VercelNeonBridge
 from .crawler import crawl as crawl_site
 from .endpoints import Capability, endpoint_catalog
 from .fetcher import (
@@ -44,10 +43,8 @@ from .storage import DEFAULT_DB, Store
 app = typer.Typer(no_args_is_help=True, help="Internet Hands — public internet intelligence.")
 watch_app = typer.Typer(no_args_is_help=True, help="Persistent web monitoring jobs.")
 intel_app = typer.Typer(no_args_is_help=True, help="Provider-backed public intelligence.")
-connector_app = typer.Typer(no_args_is_help=True, help="Vercel & Neon custom cloud connectors.")
 app.add_typer(watch_app, name="watch")
 app.add_typer(intel_app, name="intel")
-app.add_typer(connector_app, name="connector")
 console = Console()
 DEFAULT_STATE = Path(".internet-hands/state.json")
 DbPath = Annotated[Path, typer.Option("--db")]
@@ -374,92 +371,5 @@ def serve(
     uvicorn.run("internet_hands.api:app", host=host, port=port, reload=False)
 
 
-@app.command()
-def ui(
-    host: str = typer.Option("127.0.0.1", help="Host to bind Web Studio service."),
-    port: int = typer.Option(8788, min=1, max=65535, help="Port for Web Studio service."),
-    browser: bool = typer.Option(True, "--browser/--no-browser", help="Open browser automatically."),
-):
-    """Launch the Internet Hands Web Studio & Dashboard."""
-    import webbrowser
-    import uvicorn
-
-    url = f"http://{host}:{port}/"
-    console.print(f"[bold green]Starting Internet Hands Web Studio at[/bold green] [bold cyan]{url}[/bold cyan]")
-    if browser:
-        webbrowser.open(url)
-
-    uvicorn.run("app:app", host=host, port=port, reload=False)
-
-
-@app.command()
-def web(
-    host: str = typer.Option("127.0.0.1"),
-    port: int = typer.Option(8788, min=1, max=65535),
-    browser: bool = typer.Option(True, "--browser/--no-browser"),
-):
-    """Alias for 'ui' — launch the Internet Hands Web Studio."""
-    ui(host=host, port=port, browser=browser)
-
-
-@connector_app.command("status")
-def connector_status(
-    neon_key: str = typer.Option(None, "--neon-key", help="Neon API access token."),
-    vercel_token: str = typer.Option(None, "--vercel-token", help="Vercel API access token."),
-):
-    """Verify credentials and connectivity for Vercel and Neon."""
-    bridge = VercelNeonBridge(
-        neon=NeonConnector(api_key=neon_key),
-        vercel=VercelConnector(token=vercel_token),
-    )
-    res = asyncio.run(bridge.check_status())
-    _dump(res)
-
-
-@connector_app.command("neon-projects")
-def connector_neon_projects(
-    api_key: str = typer.Option(None, "--key", "-k", help="Neon API access token."),
-):
-    """List Neon serverless Postgres projects."""
-    neon = NeonConnector(api_key=api_key)
-    res = asyncio.run(neon.list_projects())
-    _dump(res)
-
-
-@connector_app.command("vercel-projects")
-def connector_vercel_projects(
-    token: str = typer.Option(None, "--token", "-t", help="Vercel API access token."),
-):
-    """List Vercel projects."""
-    vercel = VercelConnector(token=token)
-    res = asyncio.run(vercel.list_projects())
-    _dump(res)
-
-
-@connector_app.command("sync")
-def connector_sync(
-    neon_project: str = typer.Option(..., "--neon-project", help="Neon project ID"),
-    vercel_project: str = typer.Option(..., "--vercel-project", help="Vercel project ID or name"),
-    neon_key: str = typer.Option(None, "--neon-key", help="Neon API key"),
-    vercel_token: str = typer.Option(None, "--vercel-token", help="Vercel API token"),
-    db: str = typer.Option("neondb", help="Postgres database name"),
-    role: str = typer.Option("neondb_owner", help="Postgres role name"),
-):
-    """Sync Neon Postgres connection strings directly to Vercel project environment variables."""
-    bridge = VercelNeonBridge(
-        neon=NeonConnector(api_key=neon_key),
-        vercel=VercelConnector(token=vercel_token),
-    )
-    res = asyncio.run(bridge.sync_neon_to_vercel(
-        neon_project_id=neon_project,
-        vercel_project_id_or_name=vercel_project,
-        database_name=db,
-        role_name=role,
-    ))
-    _dump(res)
-
-
 if __name__ == "__main__":
     app()
-
-
