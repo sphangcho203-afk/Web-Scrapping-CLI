@@ -225,7 +225,7 @@ async function renderVerify(seed=null) {
   const pollVerification=async()=>{if(location.pathname!=='/verify-email')return;try{const latest=await api('/api/auth/me');if(latest.user.email_verified){state.me=latest;go('/verify-email?verified=1',true);return;}}catch{}setTimeout(pollVerification,3000);};
   setTimeout(pollVerification,3000);
 }
-function renderOnboarding(){authShell('Email verified','Choose the shortest route to your first successful request.',`<div class="success-orbit">${icon('check')}</div><div class="onboarding-grid"><a data-link href="/dashboard/integrations"><b>Connect an agent</b><small>ChatGPT, Claude, Grok or MCP</small>${icon('arrow')}</a><a data-link href="/dashboard/api-keys"><b>Create an API key</b><small>Scripts, servers and CI</small>${icon('arrow')}</a><a data-link href="/dashboard/monitors"><b>Create a monitor</b><small>Watch an endpoint</small>${icon('arrow')}</a><a data-link href="/docs/quickstart"><b>Open quickstart</b><small>Make the first request</small>${icon('arrow')}</a></div><a class="btn quiet onboarding-skip" data-link href="/dashboard">Go to mission control</a>`,'Identity confirmed. Now give your agent reach.');}
+function renderOnboarding(){authShell('Email verified','Choose the shortest route to your first successful request.',`<div class="success-orbit">${icon('check')}</div><div class="onboarding-grid"><a data-link href="/dashboard/connections"><b>Connect an agent</b><small>ChatGPT, Claude, Grok or MCP</small>${icon('arrow')}</a><a data-link href="/dashboard/api-keys"><b>Create an API key</b><small>Scripts, servers and CI</small>${icon('arrow')}</a><a data-link href="/dashboard/monitors"><b>Create a monitor</b><small>Watch an endpoint</small>${icon('arrow')}</a><a data-link href="/docs/quickstart"><b>Open quickstart</b><small>Make the first request</small>${icon('arrow')}</a></div><a class="btn quiet onboarding-skip" data-link href="/dashboard">Go to mission control</a>`,'Identity confirmed. Now give your agent reach.');}
 function renderRecovery(reset=false){
   const token=new URLSearchParams(location.search).get('token')||'';
   authShell(
@@ -267,7 +267,7 @@ async function ensureMe(){try{state.me=await api('/api/auth/me');if(!state.me.us
 const pageHead=(k,t,d,a='')=>`<header class="page-head ih-page-header"><div class="ih-page-heading"><span class="overline ih-eyebrow">${k}</span><h1 class="ih-title">${t}</h1><p class="ih-subtitle">${d}</p></div>${a?`<div class="ih-page-actions">${a}</div>`:''}</header>`;
 const stat=(l,v,n,t='')=>`<article class="stat-card ih-panel ih-metric-card ${t}"><span class="ih-metric-label">${l}</span><b class="ih-metric-value">${v}</b><small class="ih-muted">${n}</small></article>`;
 
-async function dashOverview(){const d=await api('/api/dashboard'),a=d.account||{},u=d.usage||{},series=d.series||[],max=Math.max(1,...series.map(x=>Number(x.calls)));dashboardShell('overview',`${pageHead('MISSION CONTROL',`Good ${new Date().getHours()<12?'morning':new Date().getHours()<18?'afternoon':'evening'}.`,'Your gateway, wallet, monitoring and security at a glance.',`<span class="badge success">${esc(a.plan_name||'Free')} plan</span>`)}<section class="stats-grid">${stat('Available credits',fmt(Number(a.monthly_credits||0)+Number(a.purchased_credits||0)),`${fmt(a.monthly_credits)} monthly · ${fmt(a.purchased_credits)} rollover`,'accent')}${stat('Requests · 24h',fmt(u.calls_24h),`${fmt(u.calls_30d)} in 30 days`)}${stat('Success · 30d',`${Number(u.success_rate??100).toFixed(1)}%`,'Accepted calls')}${stat('Average latency',`${fmt(u.avg_latency_ms)} ms`,'Metered work')}</section><section class="dashboard-grid"><article class="card chart-card"><header><div><span class="overline">REQUEST VOLUME</span><h2>Last 30 days</h2></div><a data-link href="/dashboard/usage">Open usage ${icon('arrow')}</a></header>${series.length?`<div class="bar-chart">${series.map(x=>`<i title="${esc(x.day)} · ${fmt(x.calls)}" style="height:${Math.max(3,Number(x.calls)/max*100)}%"></i>`).join('')}</div>`:`<div class="smart-empty compact">${icon('activity')}<span><b>No requests yet</b><p>Connect an agent. Your first request appears with latency and cost.</p></span><a class="btn small" data-link href="/dashboard/integrations">Connect</a></div>`}</article><article class="card health-card"><header><span><span class="overline">READINESS</span><h2>Account health</h2></span></header>${[['shield','Email verified','Privileged actions unlocked','Ready'],['key','API access','Scoped credentials','Review'],['monitor','Monitoring',`${fmt(a.monitor_limit)} slots`,'Open']].map(x=>`<div><i>${icon(x[0])}</i><span><b>${x[1]}</b><small>${x[2]}</small></span><em>${x[3]}</em></div>`).join('')}</article></section><article class="card quick-card"><header><span><span class="overline">QUICK ACTIONS</span><h2>Move the system</h2></span></header><div>${[['plug','Connect an agent','OAuth or direct key','integrations'],['key','Create API key','Scoped and shown once','api-keys'],['monitor','Add monitor','Web, API, MCP or gaming','monitors']].map(x=>`<a data-link href="/dashboard/${x[3]}">${icon(x[0])}<span><b>${x[1]}</b><small>${x[2]}</small></span>${icon('arrow')}</a>`).join('')}</div></article>`);}
+async function dashOverview(){const d=await api('/api/dashboard'),a=d.account||{},u=d.usage||{},series=d.series||[],max=Math.max(1,...series.map(x=>Number(x.calls)));dashboardShell('overview',`${pageHead('MISSION CONTROL',`Good ${new Date().getHours()<12?'morning':new Date().getHours()<18?'afternoon':'evening'}.`,'Your gateway, wallet, monitoring and security at a glance.',`<span class="badge success">${esc(a.plan_name||'Free')} plan</span>`)}<section class="stats-grid">${stat('Available credits',fmt(Number(a.monthly_credits||0)+Number(a.purchased_credits||0)),`${fmt(a.monthly_credits)} monthly · ${fmt(a.purchased_credits)} rollover`,'accent')}${stat('Requests · 24h',fmt(u.calls_24h),`${fmt(u.calls_30d)} in 30 days`)}${stat('Success · 30d',`${Number(u.success_rate??100).toFixed(1)}%`,'Accepted calls')}${stat('Average latency',`${fmt(u.avg_latency_ms)} ms`,'Metered work')}</section><section class="dashboard-grid"><article class="card chart-card"><header><div><span class="overline">REQUEST VOLUME</span><h2>Last 30 days</h2></div><a data-link href="/dashboard/usage">Open usage ${icon('arrow')}</a></header>${series.length?`<div class="bar-chart">${series.map(x=>`<i title="${esc(x.day)} · ${fmt(x.calls)}" style="height:${Math.max(3,Number(x.calls)/max*100)}%"></i>`).join('')}</div>`:`<div class="smart-empty compact">${icon('activity')}<span><b>No requests yet</b><p>Connect an agent. Your first request appears with latency and cost.</p></span><a class="btn small" data-link href="/dashboard/connections">Connect</a></div>`}</article><article class="card health-card"><header><span><span class="overline">READINESS</span><h2>Account health</h2></span></header>${[['shield','Email verified','Privileged actions unlocked','Ready'],['key','API access','Scoped credentials','Review'],['monitor','Monitoring',`${fmt(a.monitor_limit)} slots`,'Open']].map(x=>`<div><i>${icon(x[0])}</i><span><b>${x[1]}</b><small>${x[2]}</small></span><em>${x[3]}</em></div>`).join('')}</article></section><article class="card quick-card"><header><span><span class="overline">QUICK ACTIONS</span><h2>Move the system</h2></span></header><div>${[['plug','Connect an agent','OAuth or direct key','integrations'],['key','Create API key','Scoped and shown once','api-keys'],['monitor','Add monitor','Web, API, MCP or gaming','monitors']].map(x=>`<a data-link href="/dashboard/${x[3]}">${icon(x[0])}<span><b>${x[1]}</b><small>${x[2]}</small></span>${icon('arrow')}</a>`).join('')}</div></article>`);}
 async function dashUsage(){const d=await api('/api/usage?limit=250'),events=d.events||[],credits=events.reduce((s,x)=>s+Number(x.credits_charged||0),0),ok=events.length?events.filter(x=>['ok','accepted'].includes(x.status)).length/events.length*100:100,lat=events.map(x=>Number(x.latency_ms)).filter(Number.isFinite).sort((a,b)=>a-b),pct=p=>lat.length?lat[Math.min(lat.length-1,Math.floor(lat.length*p))]:0;dashboardShell('usage',`${pageHead('ANALYTICS','Runs & usage','Requests, credits, provider routing and traceable failures.')}<section class="stats-grid">${stat('Requests',fmt(events.length),'Loaded activity')}${stat('Credits',fmt(credits),'Consumed')}${stat('Success',`${ok.toFixed(1)}%`,'OK and accepted')}${stat('p95 latency',`${fmt(pct(.95))} ms`,`p50 ${fmt(pct(.5))} ms`)}</section><article class="card">${events.length?`<div class="table-wrap"><table><thead><tr><th>Time</th><th>Request</th><th>Tool</th><th>Provider</th><th>Status</th><th>Credits</th><th>Latency</th></tr></thead><tbody>${events.map(x=>`<tr><td>${when(x.created_at)}</td><td><code>${esc(x.request_id||'').slice(0,18)}</code></td><td>${esc(x.tool_ref||'—')}</td><td>${esc(x.provider||'—')}</td><td><span class="badge ${['ok','accepted'].includes(x.status)?'success':'danger'}">${esc(x.status)}</span></td><td>${fmt(x.credits_charged)}</td><td>${x.latency_ms==null?'—':`${fmt(x.latency_ms)} ms`}</td></tr>`).join('')}</tbody></table></div>`:`<div class="smart-empty">${icon('activity')}<span><b>Your request log is ready</b><p>Request ID, route, status, cost and latency will appear here.</p></span><a class="btn primary" data-link href="/docs/quickstart">Make first request</a></div>`}</article>`);}
 function modal(content,wide=false){const wrap=document.createElement('div');wrap.className='modal-backdrop';wrap.innerHTML=`<section class="modal ${wide?'wide':''}" role="dialog" aria-modal="true">${content}</section>`;document.body.appendChild(wrap);$$('[data-close]',wrap).forEach(b=>b.onclick=()=>wrap.remove());wrap.onclick=e=>{if(e.target===wrap)wrap.remove();};return wrap;}
 async function dashKeys(){const d=await api('/api/api-keys'),keys=d.keys||[];dashboardShell('api-keys',`${pageHead('ACCESS','API keys','Credentials for scripts, servers, CI and direct agents.','<button class="btn primary" id="create-key">Create key</button>')}<div class="security-note">${icon('shield')}<span><b>Secrets are shown once.</b><p>Give every integration its own revocable key.</p></span></div><article class="card">${keys.length?`<div class="table-wrap"><table><thead><tr><th>Name</th><th>Prefix</th><th>Scope</th><th>Created</th><th>Last used</th><th></th></tr></thead><tbody>${keys.map(x=>`<tr><td><b>${esc(x.name)}</b><small>${esc(x.environment)}</small></td><td><code>${esc(x.prefix)}…</code></td><td>${(x.scopes||[]).map(s=>`<span class="mini-tag">${esc(s)}</span>`).join(' ')}</td><td>${when(x.created_at)}</td><td>${when(x.last_used_at)}</td><td><button class="btn danger small" data-revoke-key="${x.id}" ${x.revoked_at?'disabled':''}>${x.revoked_at?'Revoked':'Revoke'}</button></td></tr>`).join('')}</tbody></table></div>`:`<div class="smart-empty">${icon('key')}<span><b>No API keys yet</b><p>Create one for a client that cannot use interactive OAuth.</p></span><button class="btn primary" id="empty-key">Create first key</button></div>`}</article>`);const open=()=>showKeyModal();$('#create-key').onclick=open;$('#empty-key')?.addEventListener('click',open);$$('[data-revoke-key]').forEach(b=>b.onclick=async()=>{if(!confirm('Revoke this key?'))return;await api(`/api/api-keys/${b.dataset.revokeKey}/revoke`,{method:'POST'});toast('Key revoked','success');dashKeys();});}
@@ -284,7 +284,7 @@ async function dashIntegrations(){
     {mark:'mcp',brand:'Model Context Protocol',name:'Generic MCP client',mode:'OAuth MCP',tone:'orange',steps:['Register the endpoint in any Streamable HTTP client.','Follow protected-resource discovery.','Authorize scopes and test the connection.']},
     {mark:'api',brand:'HTTP API',name:'Direct API',mode:'Bearer key',tone:'cyan',steps:['Create a scoped API key.','Send it in the Authorization header.','Call only the capabilities granted to that key.']}
   ];
-  dashboardShell('integrations',`${pageHead('CONNECT','Integrations','Connect leading AI clients to one permanent, policy-controlled endpoint.','<span class="badge success">Streamable HTTP · Ready</span>')}
+  dashboardShell('connections',`${pageHead('CONNECT','Integrations','Connect leading AI clients to one permanent, policy-controlled endpoint.','<span class="badge success">Streamable HTTP · Ready</span>')}
   <section class="connection-hero card">
     <div class="endpoint-copy"><span class="overline">YOUR PERMANENT MCP ENDPOINT</span><h2>${esc(endpoint)}</h2><p>Stable across every client. OAuth discovery and scoped direct access are already enabled.</p></div>
     <button class="btn primary endpoint-button" data-copy="${esc(endpoint)}">${icon('copy')} Copy endpoint</button>
@@ -579,7 +579,7 @@ function openRunInspector(event) {
       const target = $('#ih-preflight');
       target.innerHTML = `<div class="ih-preflight-card">
         <div><span>${statusDot()} RUN READY</span><h3>${esc(value)}</h3><p>The current web control plane does not expose direct execution yet. Run this intent through your connected MCP client or scoped API key; the request will appear in Runs automatically.</p></div>
-        <div class="ih-preflight-actions"><button class="btn primary" data-copy="${esc(brief)}">${icon('copy')} Copy MCP intent</button><a class="btn" data-link href="/dashboard/integrations">Open integrations</a></div>
+        <div class="ih-preflight-actions"><button class="btn primary" data-copy="${esc(brief)}">${icon('copy')} Copy MCP intent</button><a class="btn" data-link href="/dashboard/connections">Open integrations</a></div>
       </div>`;
       bindCommon();
       target.scrollIntoView({behavior:'smooth',block:'nearest'});
@@ -619,7 +619,7 @@ function openRunInspector(event) {
         <article class="ih-runs-panel">
           <header><div><span>RECENT RUNS</span><h2>Execution ledger</h2></div><a data-link href="/dashboard/usage">View all ${icon('arrow')}</a></header>
           <div class="ih-run-list">
-            ${events.length ? events.map((e,i)=>`<button class="ih-run-row" data-run-index="${i}"><span>${statusDot(runStatus(e.status))}</span><div><b>${esc(runLabel(e))}</b><small>${esc(e.provider||'Provider pending')} · ${esc(when(e.created_at))}</small></div><code>${esc((e.request_id||'run').slice(0,16))}</code><em>${e.latency_ms==null?'—':`${fmt(e.latency_ms)} ms`}</em>${icon('arrow')}</button>`).join('') : `<div class="ih-empty-run"><span>${icon('activity')}</span><div><b>No runs yet</b><p>Connect an agent and execute your first internet task. Its real request trace will appear here.</p></div><a class="btn" data-link href="/dashboard/integrations">Connect client</a></div>`}
+            ${events.length ? events.map((e,i)=>`<button class="ih-run-row" data-run-index="${i}"><span>${statusDot(runStatus(e.status))}</span><div><b>${esc(runLabel(e))}</b><small>${esc(e.provider||'Provider pending')} · ${esc(when(e.created_at))}</small></div><code>${esc((e.request_id||'run').slice(0,16))}</code><em>${e.latency_ms==null?'—':`${fmt(e.latency_ms)} ms`}</em>${icon('arrow')}</button>`).join('') : `<div class="ih-empty-run"><span>${icon('activity')}</span><div><b>No runs yet</b><p>Connect an agent and execute your first internet task. Its real request trace will appear here.</p></div><a class="btn" data-link href="/dashboard/connections">Connect client</a></div>`}
           </div>
         </article>
         <aside class="ih-system-panel">
@@ -648,7 +648,7 @@ function openRunInspector(event) {
       <section class="ih-runs-summary"><div><span>RUNS LOADED</span><b>${fmt(events.length)}</b></div><div><span>SUCCESS</span><b>${success.toFixed(1)}%</b></div><div><span>CREDITS</span><b>${fmt(credits)}</b></div><div><span>P95 LATENCY</span><b>${fmt(p95)} <small>ms</small></b></div></section>
       <section class="ih-run-table-wrap">
         <div class="ih-run-table-head"><span>STATE</span><span>RUN</span><span>PROVIDER</span><span>CREDITS</span><span>LATENCY</span><span>TIME</span><span></span></div>
-        ${events.length ? events.map((e,i)=>`<button class="ih-run-table-row" data-run-index="${i}"><span>${statusDot(runStatus(e.status))}<b>${esc(e.status||'unknown')}</b></span><span><b>${esc(runLabel(e))}</b><code>${esc((e.request_id||'—').slice(0,22))}</code></span><span>${esc(e.provider||'—')}</span><span>${fmt(e.credits_charged||0)}</span><span>${e.latency_ms==null?'—':`${fmt(e.latency_ms)} ms`}</span><span>${esc(when(e.created_at))}</span><span>${icon('arrow')}</span></button>`).join('') : `<div class="ih-empty-run large"><span>${icon('activity')}</span><div><b>Your run ledger is empty</b><p>Requests executed through your connected clients appear here automatically.</p></div><a class="btn primary" data-link href="/dashboard/integrations">Connect a client</a></div>`}
+        ${events.length ? events.map((e,i)=>`<button class="ih-run-table-row" data-run-index="${i}"><span>${statusDot(runStatus(e.status))}<b>${esc(e.status||'unknown')}</b></span><span><b>${esc(runLabel(e))}</b><code>${esc((e.request_id||'—').slice(0,22))}</code></span><span>${esc(e.provider||'—')}</span><span>${fmt(e.credits_charged||0)}</span><span>${e.latency_ms==null?'—':`${fmt(e.latency_ms)} ms`}</span><span>${esc(when(e.created_at))}</span><span>${icon('arrow')}</span></button>`).join('') : `<div class="ih-empty-run large"><span>${icon('activity')}</span><div><b>Your run ledger is empty</b><p>Requests executed through your connected clients appear here automatically.</p></div><a class="btn primary" data-link href="/dashboard/connections">Connect a client</a></div>`}
       </section>`);
     $('[data-new-run-inline]')?.addEventListener('click',()=>go('/dashboard'));
     $$('[data-run-index]').forEach(b=>b.addEventListener('click',()=>openRunInspector(events[Number(b.dataset.runIndex)])));
@@ -706,8 +706,8 @@ function openRunInspector(event) {
       {mark:'mcp',brand:'Model Context Protocol',name:'Generic MCP client',mode:'OAuth MCP',desc:'Any compatible Streamable HTTP client can use the same gateway.',steps:['Register the endpoint.','Follow protected-resource discovery.','Authorize scopes and test mesh_route.']},
       {mark:'api',brand:'HTTP API',name:'Direct automation',mode:'Bearer key',desc:'Scripts, CI and servers can use scoped credentials directly.',steps:['Create an API key.','Send it through Authorization: Bearer.','Keep one key per integration for clean revocation.']}
     ];
-    dashboardShell('integrations',`
-      ${headline('CONNECTION FABRIC','One gateway. Every client.','Connect the tools you already use without duplicating provider credentials or changing the endpoint.',`<button class="btn primary" data-copy="${esc(endpoint)}">${icon('copy')} Copy MCP endpoint</button>`)}
+    dashboardShell('connections',`
+      ${headline('CONNECTIONS','One gateway. Every client.','Connect the tools you already use without duplicating provider credentials or changing the endpoint.',`<button class="btn primary" data-copy="${esc(endpoint)}">${icon('copy')} Copy MCP endpoint</button>`)}
       <section class="ihx-endpoint-hero">
         <div><span>${dot()} PERMANENT ENDPOINT</span><h2>${esc(endpoint)}</h2><p>OAuth discovery, scoped access and metered execution live behind this address.</p></div>
         <div class="ihx-endpoint-meta"><span><small>Transport</small><b>Streamable HTTP</b></span><span><small>Identity</small><b>OAuth / key</b></span><span><small>State</small><b>Operational</b></span></div>
@@ -898,28 +898,28 @@ function openRunInspector(event) {
 
   const nav = [
     ['Build', [
-      ['overview','terminal','Command'],
+      ['overview','terminal','Overview'],
       ['playground','activity','Playground'],
-      ['api-keys','key','API keys']
+      ['api-keys','key','API Keys']
     ]],
     ['Observe', [
       ['usage','activity','Runs'],
       ['monitors','monitor','Monitors']
     ]],
     ['Connect', [
-      ['integrations','plug','Integrations']
+      ['connections','plug','Connections']
     ]],
-    ['Account', [
+    ['Manage', [
       ['wallet','wallet','Credits'],
-      ['billing','billing','Billing'],
-      ['settings','settings','Settings']
+      ['billing','billing','Billing & Plans'],
+      ['settings','settings','Settings & Security']
     ]]
   ];
 
   dashboardShell = function commandOsShell(active, content) {
     const u = state.me?.user || {};
     const current = nav.flatMap(x => x[1]).find(x => x[0] === active);
-    const title = current?.[2] || 'Command';
+    const title = current?.[2] || 'Overview';
     const initials = esc((u.display_name || u.email || 'I')[0].toUpperCase());
 
     app.innerHTML = `<div class="cos-app">
@@ -927,7 +927,7 @@ function openRunInspector(event) {
         <div class="cos-sidebar-brand">${brand()}</div>
 
         <a class="cos-launch ${active === 'overview' ? 'active' : ''}" data-link href="/dashboard">
-          <span>${icon('terminal')}</span><b>Run command</b><kbd>⌘ K</kbd>
+          <span>${icon('terminal')}</span><b>New run</b><kbd>⌘ K</kbd>
         </a>
 
         <nav class="cos-nav">
@@ -971,24 +971,26 @@ function openRunInspector(event) {
 
       <nav class="cos-mobile-bottom ih-mobile-bottom mobile-bottom">
         ${[
-          ['overview','terminal','Command'],
-          ['playground','activity','Test'],
+          ['overview','terminal','Overview'],
+          ['playground','activity','Playground'],
           ['usage','activity','Runs'],
-          ['integrations','plug','Connect'],
+          ['connections','plug','Connections'],
           ['more','more','More']
         ].map(([slug, ico, label]) => `<a ${slug === 'more' ? 'data-more' : 'data-link'} href="${slug === 'more' ? '#' : hrefFor(slug)}" class="${slug === active ? 'active' : ''}">${icon(ico)}<span>${label}</span></a>`).join('')}
       </nav>
 
-      <div class="cos-more-sheet more-sheet" data-more-sheet>
-        <div class="cos-sheet-handle"></div><b>Workspace</b>
-        <a data-link href="/dashboard/playground">${icon('activity')} Playground</a>
-        <a data-link href="/dashboard/api-keys">${icon('key')} API keys</a>
+      <div class="cos-more-sheet more-sheet" data-more-sheet aria-label="More navigation">
+        <div class="cos-sheet-handle"></div>
+        <div class="cos-sheet-title"><b>More</b><small>Workspace navigation</small></div>
+        <span class="cos-sheet-label">Build & observe</span>
+        <a data-link href="/dashboard/api-keys">${icon('key')} API Keys</a>
         <a data-link href="/dashboard/monitors">${icon('monitor')} Monitors</a>
+        <span class="cos-sheet-label">Account & product</span>
         <a data-link href="/dashboard/wallet">${icon('wallet')} Credits</a>
-        <a data-link href="/dashboard/billing">${icon('billing')} Billing & plans</a>
-        <a data-link href="/dashboard/settings">${icon('settings')} Settings & security</a>
+        <a data-link href="/dashboard/billing">${icon('billing')} Billing & Plans</a>
+        <a data-link href="/dashboard/settings">${icon('settings')} Settings & Security</a>
         <a data-link href="/docs">${icon('docs')} Documentation</a>
-        <a data-link href="/status">${icon('activity')} System status</a>
+        <a data-link href="/status">${icon('activity')} System Status</a>
         <button id="mobile-logout">Sign out</button>
       </div>
       <div class="cos-sheet-backdrop sheet-backdrop" data-sheet-backdrop></div>
@@ -999,37 +1001,77 @@ function openRunInspector(event) {
     const sidebar = $('.cos-sidebar');
     const sheet = $('[data-more-sheet]');
     const backdrop = $('[data-sheet-backdrop]');
-    $('[data-sidebar-toggle]')?.addEventListener('click', () => sidebar?.classList.toggle('open'));
-    $('[data-more]')?.addEventListener('click', e => {
-      e.preventDefault();
-      sheet?.classList.add('open');
-      backdrop?.classList.add('open');
-    });
-    backdrop?.addEventListener('click', () => {
-      sheet?.classList.remove('open');
-      backdrop?.classList.remove('open');
-      sidebar?.classList.remove('open');
-    });
-
     const accountToggle = $('[data-account-toggle]');
     const accountMenu = $('[data-account-menu]');
+    const sidebarToggle = $('[data-sidebar-toggle]');
+    const moreToggle = $('[data-more]');
+    const mobileShell = () => window.matchMedia('(max-width: 900px)').matches;
+
+    const accountOpen = () => Boolean(accountMenu && !accountMenu.hasAttribute('hidden'));
+    const syncOverlayState = () => {
+      const modalOpen = Boolean(sidebar?.classList.contains('open') || sheet?.classList.contains('open') || (mobileShell() && accountOpen()));
+      backdrop?.classList.toggle('open', modalOpen);
+      document.documentElement.classList.toggle('ih-overlay-open', modalOpen);
+      sidebarToggle?.setAttribute('aria-expanded', String(Boolean(sidebar?.classList.contains('open'))));
+      moreToggle?.setAttribute('aria-expanded', String(Boolean(sheet?.classList.contains('open'))));
+    };
+    const closeAccount = () => {
+      accountMenu?.setAttribute('hidden','');
+      accountToggle?.setAttribute('aria-expanded','false');
+    };
+    const closeOverlays = () => {
+      sidebar?.classList.remove('open');
+      sheet?.classList.remove('open');
+      closeAccount();
+      syncOverlayState();
+    };
+
+    sidebarToggle?.setAttribute('aria-expanded','false');
+    moreToggle?.setAttribute('aria-expanded','false');
+
+    sidebarToggle?.addEventListener('click', () => {
+      const opening = !sidebar?.classList.contains('open');
+      sheet?.classList.remove('open');
+      closeAccount();
+      sidebar?.classList.toggle('open', opening);
+      syncOverlayState();
+    });
+
+    moreToggle?.addEventListener('click', e => {
+      e.preventDefault();
+      const opening = !sheet?.classList.contains('open');
+      sidebar?.classList.remove('open');
+      closeAccount();
+      sheet?.classList.toggle('open', opening);
+      syncOverlayState();
+    });
+
     accountToggle?.addEventListener('click', e => {
       e.stopPropagation();
       if (!accountMenu) return;
       const opening = accountMenu.hasAttribute('hidden');
+      sidebar?.classList.remove('open');
+      sheet?.classList.remove('open');
       if (opening) accountMenu.removeAttribute('hidden'); else accountMenu.setAttribute('hidden','');
       accountToggle.setAttribute('aria-expanded', String(opening));
+      syncOverlayState();
     });
+
+    backdrop?.addEventListener('click', closeOverlays);
 
     if (window.__ihAccountCloser) document.removeEventListener('click', window.__ihAccountCloser);
     window.__ihAccountCloser = e => {
-      if (!accountMenu || accountMenu.hasAttribute('hidden')) return;
+      if (!accountOpen()) return;
       if (!accountMenu.contains(e.target) && !accountToggle?.contains(e.target)) {
-        accountMenu.setAttribute('hidden','');
-        accountToggle?.setAttribute('aria-expanded','false');
+        closeAccount();
+        syncOverlayState();
       }
     };
     document.addEventListener('click', window.__ihAccountCloser);
+
+    if (window.__ihShellEscape) document.removeEventListener('keydown', window.__ihShellEscape);
+    window.__ihShellEscape = e => { if (e.key === 'Escape') closeOverlays(); };
+    document.addEventListener('keydown', window.__ihShellEscape);
 
     const logout = async () => {
       await api('/api/auth/logout', { method:'POST' });
