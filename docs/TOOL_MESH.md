@@ -66,6 +66,18 @@ Agents do not need to know those refs for common tasks. Semantic packs expose na
 
 `mesh_capability_execute` runs a semantic read-only capability and may fall back to another provider when the preferred source is unavailable.
 
+## Phone intelligence provider
+
+`phoneintel` is a first-party read-only provider for phone-number metadata. Its raw tool is:
+
+```text
+phoneintel:lookup
+```
+
+The direct MCP convenience tool is `phone_number_lookup`, and the stable semantic capability is `phone.number.lookup`.
+
+The provider always has a local libphonenumber fallback and can optionally enrich results through configured Veriphone, Abstract Phone Validation, Numverify/APILayer, and Twilio Lookup credentials. Third-party responses are filtered through a telecom-only allowlist, so private subscriber/SIM-owner identity fields are not exposed.
+
 ## Apify provider
 
 The Apify adapter treats public Store Actors as discoverable tools. Store search works without credentials. Executing an Actor requires `APIFY_TOKEN`.
