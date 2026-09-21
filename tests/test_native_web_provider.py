@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
 
 from internet_hands.native_web_provider import NativeWebToolProvider
