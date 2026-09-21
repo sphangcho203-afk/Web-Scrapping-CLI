@@ -746,6 +746,17 @@ def settle_measured_cost(
                 latency_ms=latency_ms,
             )
 
+        prefix = ref.split(":", 1)[0] if ":" in ref else ""
+        economics = RAW_PROVIDER_SURCHARGES.get(prefix)
+        if economics is not None:
+            _, surcharge = economics
+            try:
+                calls = max(0, int(provider_calls.get(prefix) or 0))
+            except (TypeError, ValueError):
+                calls = 0
+            actual = 2 + surcharge * calls
+            return min(reserved, actual)
+
     if tool_name == "mesh_capability_execute":
         capability = str(args.get("capability") or "").strip()
         nested_args = (
