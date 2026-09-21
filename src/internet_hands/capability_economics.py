@@ -5,7 +5,6 @@ import math
 from dataclasses import asdict, dataclass
 from typing import Any
 
-
 PLAN_ORDER = {
     "free": 0,
     "builder": 10,
