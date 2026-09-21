@@ -60,7 +60,7 @@ quote
   -> privilege check
   -> reserve estimated credits
   -> execute
-  -> settle actual credits
+  -> settle measured/quoted credits
   -> release unused reservation
   -> persist usage receipt
 ```
@@ -141,6 +141,8 @@ Usage events keep:
 - request ID.
 
 The MCP HTTP response exposes `X-Credits-Reserved` before execution completes. Final settled cost is authoritative in the usage ledger.
+
+The settlement API already accepts an explicit `actual_credits` value. Current MCP calls settle the quoted reservation by default because provider/runtime unit reporting is the next implementation slice; tools that later report lower measured usage can release the unused reservation without changing the wallet contract.
 
 ## Design rule for new capabilities
 
