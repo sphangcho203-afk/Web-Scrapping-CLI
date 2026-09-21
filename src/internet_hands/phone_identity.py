@@ -302,15 +302,17 @@ class VonageVerifyProvider:
         workflow: list[dict[str, Any]] = [{"channel": channel, "to": to}]
         if channel == "sms" and os.getenv("VONAGE_VERIFY_VOICE_FALLBACK", "1") != "0":
             workflow.append({"channel": "voice", "to": to})
+        request_body: dict[str, Any] = {
+            "brand": self.brand,
+            "code_length": 6,
+            "workflow": workflow,
+        }
+        if os.getenv("VONAGE_VERIFY_FRAUD_CHECK", "0") == "1":
+            request_body["fraud_check"] = True
         payload = await self._request(
             "POST",
             "/",
-            json={
-                "brand": self.brand,
-                "code_length": 6,
-                "fraud_check": True,
-                "workflow": workflow,
-            },
+            json=request_body,
         )
         request_id = str(payload.get("request_id") or "").strip()
         if not request_id:
