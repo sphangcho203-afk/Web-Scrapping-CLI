@@ -324,3 +324,27 @@ def test_caller_lookup_has_same_price_through_semantic_route() -> None:
     )
     assert semantic.allowed is True
     assert semantic.credits == direct.credits
+
+
+def test_caller_evidence_breadth_scales_with_plan() -> None:
+    builder = estimate_call(
+        "phone_caller_lookup",
+        {
+            "number": "+14155552671",
+            "public_search": True,
+            "max_results": 20,
+        },
+        "builder",
+    )
+    pro = estimate_call(
+        "phone_caller_lookup",
+        {
+            "number": "+14155552671",
+            "public_search": True,
+            "max_results": 20,
+        },
+        "pro",
+    )
+    assert builder.allowed is False
+    assert "at most 15" in (builder.reason or "")
+    assert pro.allowed is True
