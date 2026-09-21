@@ -27,7 +27,7 @@ def test_resolution_snapshot_rejects_private_address(monkeypatch):
     monkeypatch.setattr(
         socket,
         "getaddrinfo",
-        lambda host, port: [
+        lambda host, port, **_kwargs: [
             (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.5", port)),
         ],
     )
