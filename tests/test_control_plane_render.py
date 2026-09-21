@@ -81,7 +81,7 @@ def test_initial_control_plane_render(frontend_url, mode):
             "/dashboard/wallet": ".ih-route-wallet",
             "/dashboard/billing": ".ih-route-billing",
             "/dashboard/settings": ".ih-route-settings",
-            "/dashboard/integrations": ".ih-route-integrations",
+            "/dashboard/integrations": ".ih-route-connections",
         }
         for route, selector in routes.items():
             page.goto(frontend_url + route)
