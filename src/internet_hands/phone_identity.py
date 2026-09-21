@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import os
 import secrets
+import time
 from dataclasses import asdict, dataclass
 from typing import Any, Protocol
 
@@ -225,6 +228,131 @@ class TwilioVerifyProvider:
             approved=approved,
             status=status or ("approved" if approved else "pending"),
             metadata={"valid": payload.get("valid")},
+        )
+
+
+class SmsGateVerifyProvider:
+    """Self-hosted OTP transport using SMS Gateway for Android-compatible REST APIs."""
+
+    name = "smsgate"
+
+    def __init__(self, client: httpx.AsyncClient | None = None) -> None:
+        self.send_url = os.getenv("SMSGATE_SEND_URL", "").strip()
+        self.username = os.getenv("SMSGATE_USERNAME", "").strip()
+        self.password = os.getenv("SMSGATE_PASSWORD", "").strip()
+        self.signing_secret = (
+            os.getenv("INTERNET_HANDS_OTP_SIGNING_SECRET", "").strip()
+            or os.getenv("INTERNET_HANDS_ENCRYPTION_KEY", "").strip()
+        )
+        self._client = client
+
+    def configured(self) -> bool:
+        return bool(
+            self.send_url
+            and self.username
+            and self.password
+            and self.signing_secret
+        )
+
+    def _proof(self, phone_e164: str, code: str, expires_at: int, nonce: str) -> str:
+        message = f"{phone_e164}|{code}|{expires_at}|{nonce}".encode("utf-8")
+        return hmac.new(
+            self.signing_secret.encode("utf-8"),
+            message,
+            hashlib.sha256,
+        ).hexdigest()
+
+    async def start(self, phone_e164: str, *, channel: str = "sms") -> VerificationStart:
+        if channel != "sms":
+            raise ValueError("self-hosted SMS gateway verification supports SMS only")
+        if not self.configured():
+            raise PhoneVerificationError("self-hosted SMS gateway is not configured")
+
+        digits = max(4, min(int(os.getenv("SMSGATE_OTP_LENGTH", "6")), 9))
+        code = f"{secrets.randbelow(10**digits):0{digits}d}"
+        ttl = max(60, min(int(os.getenv("SMSGATE_OTP_TTL_SECONDS", "600")), 1800))
+        expires_at = int(time.time()) + ttl
+        nonce = secrets.token_urlsafe(12)
+        proof = self._proof(phone_e164, code, expires_at, nonce)
+        request_id = f"{expires_at}.{nonce}.{proof}"
+        template = os.getenv(
+            "SMSGATE_OTP_MESSAGE",
+            "Your Internet Hands verification code is {code}. It expires shortly.",
+        )
+        message = template.replace("{code}", code)
+
+        payload: dict[str, Any] = {
+            "textMessage": {"text": message},
+            "phoneNumbers": [phone_e164],
+        }
+        device_id = os.getenv("SMSGATE_DEVICE_ID", "").strip()
+        if device_id:
+            payload["deviceId"] = device_id
+        sim_number = os.getenv("SMSGATE_SIM_NUMBER", "").strip()
+        if sim_number:
+            try:
+                payload["simNumber"] = int(sim_number)
+            except ValueError as exc:
+                raise PhoneVerificationError("SMSGATE_SIM_NUMBER must be an integer") from exc
+
+        owns_client = self._client is None
+        client = self._client or httpx.AsyncClient(timeout=20.0)
+        try:
+            try:
+                response = await client.post(
+                    self.send_url,
+                    json=payload,
+                    auth=(self.username, self.password),
+                    headers={"Accept": "application/json"},
+                )
+            except httpx.HTTPError as exc:
+                raise PhoneVerificationTransportError(
+                    f"self-hosted SMS gateway transport failed: {type(exc).__name__}"
+                ) from exc
+            if response.is_error:
+                if 400 <= response.status_code < 500:
+                    raise PhoneVerificationRejected(
+                        f"self-hosted SMS gateway rejected request: HTTP {response.status_code}"
+                    )
+                raise PhoneVerificationTransportError(
+                    f"self-hosted SMS gateway failed with HTTP {response.status_code}"
+                )
+        finally:
+            if owns_client:
+                await client.aclose()
+
+        return VerificationStart(
+            provider=self.name,
+            request_id=request_id,
+            channel="sms",
+            status="pending",
+            metadata={"expires_in": ttl, "transport": "android_sms_gateway"},
+        )
+
+    async def check(
+        self, phone_e164: str, request_id: str, code: str
+    ) -> VerificationCheck:
+        try:
+            expiry_raw, nonce, expected = request_id.split(".", 2)
+            expires_at = int(expiry_raw)
+        except (TypeError, ValueError) as exc:
+            raise PhoneVerificationRejected("self-hosted OTP challenge is invalid") from exc
+        if int(time.time()) > expires_at:
+            return VerificationCheck(
+                provider=self.name,
+                request_id=request_id,
+                approved=False,
+                status="expired",
+                metadata={},
+            )
+        actual = self._proof(phone_e164, code, expires_at, nonce)
+        approved = hmac.compare_digest(actual, expected)
+        return VerificationCheck(
+            provider=self.name,
+            request_id=request_id,
+            approved=approved,
+            status="approved" if approved else "pending",
+            metadata={"transport": "android_sms_gateway"},
         )
 
 
@@ -455,10 +583,11 @@ def verification_providers() -> list[PhoneVerificationProvider]:
         "twilio": TwilioVerifyProvider(),
         "vonage": VonageVerifyProvider(),
         "msg91": Msg91VerifyProvider(),
+        "smsgate": SmsGateVerifyProvider(),
     }
     preferred = [
         item.strip().lower()
-        for item in os.getenv("PHONE_VERIFY_PROVIDERS", "twilio,vonage,msg91").split(",")
+        for item in os.getenv("PHONE_VERIFY_PROVIDERS", "twilio,vonage,msg91,smsgate").split(",")
         if item.strip()
     ]
     ordered = [providers[name] for name in preferred if name in providers]
@@ -473,7 +602,7 @@ def select_verification_provider() -> PhoneVerificationProvider:
         if provider.configured():
             return provider
     raise PhoneVerificationError(
-        "no phone verification provider is configured; configure Twilio Verify, Vonage Verify, or MSG91"
+        "no phone verification provider is configured; configure Twilio Verify, Vonage Verify, MSG91, or a self-hosted SMS gateway"
     )
 
 
