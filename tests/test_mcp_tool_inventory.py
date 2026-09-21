@@ -30,7 +30,7 @@ EXPECTED = {
         "mesh_describe_many", "mesh_execute", "mesh_batch_execute", "mesh_job_status",
         "mesh_results", "mesh_capabilities", "mesh_capability_resolve",
         "mesh_capability_execute", "gaming_capabilities", "gaming_intel",
-        "gaming_profile_plan", "gaming_profile",
+        "gaming_profile_plan", "gaming_profile", "phone_number_lookup",
     },
     "src/internet_hands/account_mcp.py": {
         "account_me", "account_usage", "account_wallet", "account_limits",
@@ -57,13 +57,13 @@ def _decorated_tools(path: Path) -> set[str]:
     return tools
 
 
-def test_first_party_mcp_inventory_is_exactly_54_tools() -> None:
+def test_first_party_mcp_inventory_is_exactly_55_tools() -> None:
     actual: set[str] = set()
     for relative_path, expected in EXPECTED.items():
         found = _decorated_tools(ROOT / relative_path)
         assert found == expected, relative_path
         actual.update(found)
-    assert len(actual) == 54
+    assert len(actual) == 55
 
 
 def test_production_app_imports_all_registration_modules() -> None:
@@ -76,12 +76,12 @@ def test_production_app_imports_all_registration_modules() -> None:
 
 
 @pytest.mark.asyncio
-async def test_runtime_mcp_server_lists_all_54_callable_tools_with_schemas() -> None:
+async def test_runtime_mcp_server_lists_all_55_callable_tools_with_schemas() -> None:
     tools = await sandbox_mcp.list_tools()
     names = {tool.name for tool in tools}
     expected = set().union(*EXPECTED.values())
 
     assert names == expected
-    assert len(tools) == 54
+    assert len(tools) == 55
     assert all(isinstance(tool.input_schema, dict) for tool in tools)
     assert all(tool.name and tool.description for tool in tools)
