@@ -7,6 +7,7 @@ from internet_hands.policy import PolicyError, resolve_public_http_url, validate
 
 
 def test_resolution_snapshot_accepts_public_addresses(monkeypatch):
+    policy._DNS_CACHE.clear()
     monkeypatch.setattr(
         socket,
         "getaddrinfo",
@@ -22,6 +23,7 @@ def test_resolution_snapshot_accepts_public_addresses(monkeypatch):
 
 
 def test_resolution_snapshot_rejects_private_address(monkeypatch):
+    policy._DNS_CACHE.clear()
     monkeypatch.setattr(
         socket,
         "getaddrinfo",
