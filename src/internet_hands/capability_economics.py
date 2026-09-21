@@ -310,9 +310,21 @@ def _caller_cost(
             }
         )
         try:
-            max_results = max(1, min(int(arguments.get("max_results", 8)), 20))
+            requested_results = max(1, min(int(arguments.get("max_results", 8)), 20))
         except (TypeError, ValueError):
-            max_results = 8
+            requested_results = 8
+        plan_result_limit = min(20, max(5, plan.max_depth * 5))
+        if requested_results > plan_result_limit:
+            return (
+                total,
+                highest_class,
+                breakdown,
+                (
+                    f"{plan.slug} allows at most {plan_result_limit} public caller "
+                    "evidence results per lookup"
+                ),
+            )
+        max_results = requested_results
         result_units = math.ceil(max_results / 5)
         total += result_units
         breakdown.append(
