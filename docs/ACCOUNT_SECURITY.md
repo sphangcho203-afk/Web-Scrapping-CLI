@@ -55,10 +55,10 @@ the Internet Hands email is verified.
 
 Phone verification proves that the signed-in user controls a submitted phone number. Internet Hands does **not** expose a reverse-subscriber lookup or a "person behind the SIM" feature.
 
-Numbers are parsed and normalized locally with libphonenumber metadata before an external OTP is attempted. The provider layer currently supports Twilio Verify v2 and Vonage Verify v2, with provider order controlled by:
+Numbers are parsed and normalized locally with libphonenumber metadata before an external OTP is attempted. The provider layer currently supports Twilio Verify v2, Vonage Verify v2, and MSG91 SendOTP v5, with provider order controlled by:
 
 ```text
-PHONE_VERIFY_PROVIDERS=twilio,vonage
+PHONE_VERIFY_PROVIDERS=twilio,vonage,msg91
 ```
 
 Twilio configuration:
@@ -105,6 +105,22 @@ DELETE /api/auth/phone
 ```
 
 Resends are rate-limited, pending verifications expire, incorrect-code attempts are bounded, and a verified phone number cannot be attached to two Internet Hands accounts at the same time.
+
+### Free/open intelligence layer
+
+Internet Hands enriches the account owner's verified number locally with libphonenumber before any external lookup. This includes original carrier-range metadata, offline geographic description, time zones, number type, multiple standardized formats, region validity, and an SMS-capability heuristic.
+
+Optional external enrichers can then add current provider metadata:
+
+```text
+PHONE_INTEL_PROVIDERS=local,veriphone,abstract,numverify,twilio
+VERIPHONE_API_KEY=
+ABSTRACT_PHONE_API_KEY=
+NUMVERIFY_API_KEY=
+```
+
+The external providers are optional. Missing keys never block verification, and provider failures are recorded as enrichment errors rather than invalidating ownership proof. Carrier data from libphonenumber is labeled as the **original numbering-range carrier**, because number portability can make it stale.
+
 
 ## Transactional messages
 
