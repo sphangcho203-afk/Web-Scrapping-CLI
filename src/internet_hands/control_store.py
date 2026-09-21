@@ -980,6 +980,7 @@ class ControlStore:
         latency_ms: int,
         output_bytes: int,
         actual_credits: int | None = None,
+        execution_usage: dict[str, Any] | None = None,
     ) -> int:
         self.ensure_schema()
         with self._connect() as conn:
@@ -997,19 +998,28 @@ class ControlStore:
                 if not event:
                     return 0
 
+                metadata = dict(event.get("metadata") or {})
+                if execution_usage is not None:
+                    metadata["measured_usage"] = execution_usage
+
                 if event["status"] != "reserved":
                     cur.execute(
                         """
                         UPDATE ih_usage_events
-                        SET status=%s,latency_ms=%s,output_bytes=%s
+                        SET status=%s,latency_ms=%s,output_bytes=%s,metadata=%s::jsonb
                         WHERE request_id=%s
                         """,
-                        (status, latency_ms, output_bytes, request_id),
+                        (
+                            status,
+                            latency_ms,
+                            output_bytes,
+                            json.dumps(metadata),
+                            request_id,
+                        ),
                     )
                     conn.commit()
                     return int(event["credits_charged"] or 0)
 
-                metadata = dict(event.get("metadata") or {})
                 reservation = dict(metadata.get("reservation") or {})
                 reserved = max(0, int(reservation.get("credits") or 0))
                 actual = reserved if actual_credits is None else max(0, int(actual_credits))
@@ -1063,6 +1073,7 @@ class ControlStore:
                     "tool": metadata.get("tool"),
                     "plan": metadata.get("plan"),
                     "pricing": metadata.get("pricing") or {},
+                    "measured_usage": metadata.get("measured_usage") or {},
                     "reservation": {
                         "reserved": reserved,
                         "settled": actual,
@@ -1179,12 +1190,16 @@ class ControlStore:
         status: str,
         latency_ms: int,
         output_bytes: int,
+        actual_credits: int | None = None,
+        execution_usage: dict[str, Any] | None = None,
     ) -> None:
         self.settle_tool_call(
             request_id,
             status=status,
             latency_ms=latency_ms,
             output_bytes=output_bytes,
+            actual_credits=actual_credits,
+            execution_usage=execution_usage,
         )
 
     def usage_summary(self, user_id: str) -> dict[str, Any]:
