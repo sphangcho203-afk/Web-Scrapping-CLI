@@ -882,6 +882,7 @@ class ControlStore:
                             {
                                 "auth_source": identity.source,
                                 "arguments_present": bool(arguments),
+                                "tool": tool_name,
                                 "plan": identity.plan_slug,
                                 "reservation": {
                                     "credits": reserved,
@@ -997,20 +998,7 @@ class ControlStore:
                         "released": reserved - actual,
                     },
                 }
-                tool_name = str(
-                    (
-                        metadata.get("pricing")
-                        or {}
-                    ).get("tool")
-                    or ""
-                )
-                if not tool_name:
-                    cur.execute(
-                        "SELECT tool_ref FROM ih_usage_events WHERE request_id=%s",
-                        (request_id,),
-                    )
-                    row = cur.fetchone()
-                    tool_name = str(row["tool_ref"] or "") if row else ""
+                tool_name = str(metadata.get("tool") or "")
                 ledger_metadata["tool"] = tool_name
 
                 if from_monthly:
