@@ -25,8 +25,17 @@ MAX_TIMEOUT_SECONDS = 20.0
 GITHUB_OIDC_ISSUER = "https://token.actions.githubusercontent.com"
 GITHUB_OIDC_AUDIENCE = "internet-hands-monitor-scheduler"
 GITHUB_SCHEDULER_SUBJECT = (
-    "repo:sphangcho203-afk/Web-Scrapping-CLI:ref:refs/heads/rebuild/cognitive-ui-v1"
+    "repo:sphangcho203-afk/Web-Scrapping-CLI:ref:refs/heads/main"
 )
+
+
+def _scheduler_subjects() -> set[str]:
+    configured = {
+        item.strip()
+        for item in os.getenv("INTERNET_HANDS_GITHUB_SCHEDULER_SUBJECTS", "").split(",")
+        if item.strip()
+    }
+    return {GITHUB_SCHEDULER_SUBJECT, *configured}
 GITHUB_JWKS_URL = f"{GITHUB_OIDC_ISSUER}/.well-known/jwks"
 
 
@@ -56,7 +65,7 @@ async def _github_oidc_authorized(token: str) -> None:
     if (
         claims.get("iss") != GITHUB_OIDC_ISSUER
         or claims.get("aud") != GITHUB_OIDC_AUDIENCE
-        or claims.get("sub") != GITHUB_SCHEDULER_SUBJECT
+        or claims.get("sub") not in _scheduler_subjects()
         or int(claims.get("exp", 0)) < now
         or int(claims.get("nbf", 0)) > now + 30
     ):
