@@ -735,6 +735,19 @@ def _connected_capabilities() -> list[Capability]:
                     passthrough_arguments=False,
                     note="Ephemeral isolated Higgsfield Linux sandbox.",
                 ),
+                CapabilityCandidate(
+                    provider="nativesandbox",
+                    ref="nativesandbox:exec",
+                    priority=50,
+                    argument_map={
+                        "command": "command",
+                        "timeout_seconds": "timeout_seconds",
+                        "background": "background",
+                        "restart": "restart",
+                    },
+                    passthrough_arguments=False,
+                    note="First-party Vercel Sandbox fallback selected only during preflight.",
+                ),
             ),
         ),
     ]
