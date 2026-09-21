@@ -4,6 +4,7 @@ import pytest
 
 from internet_hands.phone_identity import (
     Msg91VerifyProvider,
+    SmsGateVerifyProvider,
     TwilioVerifyProvider,
     _local_phone_intelligence,
     VonageVerifyProvider,
@@ -131,3 +132,38 @@ async def test_msg91_send_and_verify(monkeypatch: pytest.MonkeyPatch) -> None:
     assert checked.approved is True
     assert calls[0][2]["mobile"] == "919876543210"
     assert calls[1][2]["otp"] == "123456"
+
+
+@pytest.mark.asyncio
+async def test_self_hosted_smsgate_otp_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = SmsGateVerifyProvider()
+    provider.send_url = "https://gateway.example/3rdparty/v1/messages"
+    provider.username = "user"
+    provider.password = "pass"
+    provider.signing_secret = "a-very-long-test-secret"
+
+    sent: dict[str, object] = {}
+
+    class Response:
+        is_error = False
+        status_code = 202
+
+    class FakeClient:
+        async def post(self, url, *, json, auth, headers):
+            sent["url"] = url
+            sent["json"] = json
+            sent["auth"] = auth
+            return Response()
+
+    provider._client = FakeClient()
+    monkeypatch.setattr("internet_hands.phone_identity.secrets.randbelow", lambda _: 123456)
+
+    started = await provider.start("+14155552671", channel="sms")
+    checked = await provider.check("+14155552671", started.request_id, "123456")
+    rejected = await provider.check("+14155552671", started.request_id, "654321")
+
+    assert checked.approved is True
+    assert rejected.approved is False
+    assert sent["auth"] == ("user", "pass")
+    assert sent["json"]["phoneNumbers"] == ["+14155552671"]
+    assert "123456" in sent["json"]["textMessage"]["text"]
