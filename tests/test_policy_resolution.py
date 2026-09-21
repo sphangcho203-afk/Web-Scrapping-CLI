@@ -7,10 +7,11 @@ from internet_hands.policy import PolicyError, resolve_public_http_url, validate
 
 
 def test_resolution_snapshot_accepts_public_addresses(monkeypatch):
+    policy._DNS_CACHE.clear()
     monkeypatch.setattr(
         socket,
         "getaddrinfo",
-        lambda host, port: [
+        lambda host, port, **_kwargs: [
             (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", port)),
             (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("1.1.1.1", port)),
         ],
@@ -22,10 +23,11 @@ def test_resolution_snapshot_accepts_public_addresses(monkeypatch):
 
 
 def test_resolution_snapshot_rejects_private_address(monkeypatch):
+    policy._DNS_CACHE.clear()
     monkeypatch.setattr(
         socket,
         "getaddrinfo",
-        lambda host, port: [
+        lambda host, port, **_kwargs: [
             (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.5", port)),
         ],
     )

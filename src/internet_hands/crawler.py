@@ -120,7 +120,7 @@ async def crawl(
                 ),
                 links,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- per-page failures are returned as crawl data
             return CrawlPage(url=url, depth=depth, error=f"{type(exc).__name__}: {exc}"), []
 
     while queue and len(pages) < max_pages:
@@ -182,6 +182,6 @@ async def _robots_for(seed_url: str) -> RobotFileParser:
     try:
         result = await fetch_url(robots_url, max_bytes=512_000, include_body=True)
         parser.parse((result.body_text or "").splitlines())
-    except Exception:
+    except Exception:  # noqa: BLE001 -- unavailable robots.txt defaults to an empty policy
         parser.parse([])
     return parser

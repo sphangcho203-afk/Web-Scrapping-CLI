@@ -110,7 +110,8 @@ class CapabilityRegistry:
                 resolved.append(
                     {
                         "candidate": candidate.to_dict(),
-                        "available": bool(status.get("executable", True)),
+                        "available": bool(status.get("executable", True))
+                        and (descriptor.get("metadata") or {}).get("configured", True) is not False,
                         "ref": ref,
                         "tool": descriptor,
                     }

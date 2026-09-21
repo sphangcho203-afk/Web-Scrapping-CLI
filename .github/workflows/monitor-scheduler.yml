@@ -38,4 +38,15 @@ jobs:
           curl --fail --silent --show-error \
             --retry 2 --retry-all-errors --max-time 45 \
             -H "Authorization: Bearer ${OIDC_TOKEN}" \
-            "https://web-scrapping-cli-git-rebuild-cognitive-ui-v1-stand-still.vercel.app/api/internal/monitors/tick"
+            "https://web-scrapping-cli.vercel.app/api/internal/monitors/tick"
+
+      - name: Check Internet Hands system health
+        env:
+          OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            --retry 2 --retry-all-errors --max-time 60 \
+            -H "Authorization: Bearer ${OIDC_TOKEN}" \
+            "https://web-scrapping-cli.vercel.app/api/internal/system/health"

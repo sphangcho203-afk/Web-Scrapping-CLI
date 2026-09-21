@@ -26,8 +26,9 @@ def test_page_fetch_prefers_firecrawl_then_apify() -> None:
     assert [candidate.ref for candidate in capability.candidates] == [
         "firecrawl:scrape",
         "apify:apify/web-fetch",
+        "nativeweb:fetch",
     ]
-    assert [candidate.priority for candidate in capability.candidates] == [5, 20]
+    assert [candidate.priority for candidate in capability.candidates] == [5, 20, 40]
 
 
 def test_research_prefers_firecrawl_agent_and_maps_query_to_prompt() -> None:

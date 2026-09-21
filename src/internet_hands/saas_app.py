@@ -18,6 +18,7 @@ from .playground_api import router as playground_router
 from .security_api import router as security_router
 from .security_hardening import router as security_hardening_router
 from .site import router as site_router
+from .system_health import router as system_health_router
 from .usage_api import router as usage_router
 
 
@@ -46,6 +47,7 @@ app.include_router(security_router)
 app.include_router(hardening_router)
 app.include_router(monitor_executor_router)
 app.include_router(monitor_lifecycle_router)
+app.include_router(system_health_router)
 app.include_router(control_router)
 app.include_router(usage_router)
 app.include_router(playground_router)

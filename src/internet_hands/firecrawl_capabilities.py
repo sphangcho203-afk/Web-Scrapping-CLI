@@ -28,6 +28,12 @@ def build_firecrawl_capabilities() -> list[Capability]:
                     priority=20,
                     note="Apify fallback for resilient public-page fetching.",
                 ),
+                CapabilityCandidate(
+                    provider="nativeweb",
+                    ref="nativeweb:fetch",
+                    priority=40,
+                    note="First-party bounded HTTP fallback with SSRF-safe redirects.",
+                ),
             ),
         ),
         Capability(
@@ -43,6 +49,12 @@ def build_firecrawl_capabilities() -> list[Capability]:
                     provider="firecrawl",
                     ref="firecrawl:search",
                     priority=5,
+                ),
+                CapabilityCandidate(
+                    provider="nativeweb",
+                    ref="nativeweb:search",
+                    priority=30,
+                    note="Brave-backed first-party search fallback when configured.",
                 ),
             ),
         ),
@@ -81,6 +93,12 @@ def build_firecrawl_capabilities() -> list[Capability]:
                     ref="firecrawl:map",
                     priority=5,
                 ),
+                CapabilityCandidate(
+                    provider="nativeweb",
+                    ref="nativeweb:map",
+                    priority=30,
+                    note="First-party bounded link-discovery fallback.",
+                ),
             ),
         ),
         Capability(
@@ -95,6 +113,12 @@ def build_firecrawl_capabilities() -> list[Capability]:
                     ref="firecrawl:crawl",
                     priority=5,
                 ),
+                CapabilityCandidate(
+                    provider="nativeweb",
+                    ref="nativeweb:crawl",
+                    priority=30,
+                    note="First-party bounded robots-aware crawler fallback.",
+                ),
             ),
         ),
         Capability(
@@ -108,6 +132,12 @@ def build_firecrawl_capabilities() -> list[Capability]:
                     provider="firecrawl",
                     ref="firecrawl:batch-scrape",
                     priority=5,
+                ),
+                CapabilityCandidate(
+                    provider="nativeweb",
+                    ref="nativeweb:batch-fetch",
+                    priority=30,
+                    note="First-party bounded concurrent fetch fallback.",
                 ),
             ),
         ),

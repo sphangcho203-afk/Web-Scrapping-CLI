@@ -9,7 +9,7 @@ def test_cognitive_foundation_is_loaded_and_served() -> None:
     index = (WEB / "index.html").read_text(encoding="utf-8")
     site = SITE.read_text(encoding="utf-8")
 
-    assert '<link rel="stylesheet" href="/assets/cognitive-foundation.css">' in index
+    assert '<link rel="stylesheet" href="/assets/cognitive-foundation.css' in index
     assert '"cognitive-foundation.css": "text/css"' in site
 
 
@@ -59,11 +59,11 @@ def test_authenticated_routes_share_cognitive_page_contract() -> None:
 def test_navigation_matches_product_information_architecture() -> None:
     shell = (WEB / "app.js").read_text(encoding="utf-8")
 
-    for group in ("Build", "Observe", "Connect", "Account"):
-        assert f"['{group}', [" in shell
+    for group in ("Workspace", "Commercial", "Account"):
+        assert f"['{group}',[" in shell
 
-    assert "['Operate', [" not in shell
-    assert "['Manage', [" not in shell
+    assert "['Operate',[" not in shell
+    assert "['Manage',[" not in shell
 
 
 def test_foundation_removes_known_fake_controls_and_scores() -> None:
