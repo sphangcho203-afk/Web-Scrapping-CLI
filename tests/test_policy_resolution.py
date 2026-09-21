@@ -10,7 +10,7 @@ def test_resolution_snapshot_accepts_public_addresses(monkeypatch):
     monkeypatch.setattr(
         socket,
         "getaddrinfo",
-        lambda host, port: [
+        lambda host, port, **_kwargs: [
             (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", port)),
             (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("1.1.1.1", port)),
         ],
