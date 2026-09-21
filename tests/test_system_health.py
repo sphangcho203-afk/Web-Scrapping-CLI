@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+from fastapi.responses import JSONResponse
 
 from internet_hands import system_health
 
@@ -69,3 +70,29 @@ async def test_system_health_reports_provider_and_fallback_coverage(monkeypatch)
     assert result["summary"]["multi_provider_capabilities"] == 1
     assert result["fallbacks"]["native_web_provider"] == "nativeweb"
     assert result["fallbacks"]["single_provider_capabilities"] == ["vendor.only"]
+
+
+
+@pytest.mark.asyncio
+async def test_strict_health_returns_503_when_degraded(monkeypatch):
+    async def authorized(_authorization):
+        return None
+
+    async def list_tools():
+        return [
+            SimpleNamespace(name=f"tool_{index}", input_schema={}, description="tool")
+            for index in range(53)
+        ]
+
+    monkeypatch.setattr(system_health, "_scheduler_authorized", authorized)
+    monkeypatch.setattr(system_health, "get_tool_mesh", lambda: _Mesh())
+    monkeypatch.setattr(system_health, "get_capability_registry", lambda: _Registry())
+    monkeypatch.setattr(
+        system_health,
+        "sandbox_mcp",
+        SimpleNamespace(list_tools=list_tools),
+    )
+
+    result = await system_health.system_health("Bearer test", deep=False, strict=True)
+    assert isinstance(result, JSONResponse)
+    assert result.status_code == 503

@@ -4,6 +4,7 @@ import asyncio
 from typing import Any
 
 from fastapi import APIRouter, Header, Query
+from fastapi.responses import JSONResponse
 
 from .mcp_server import sandbox_mcp
 from .monitor_executor import _scheduler_authorized
@@ -63,7 +64,8 @@ async def _deep_capability_health(limit: int = 100) -> list[dict[str, Any]]:
 async def system_health(
     authorization: str | None = Header(default=None),
     deep: bool = Query(default=False),
-) -> dict[str, Any]:
+    strict: bool = Query(default=False),
+) -> Any:
     """Operational health for provider routing and semantic capability coverage."""
     await _scheduler_authorized(authorization)
 
@@ -144,4 +146,6 @@ async def system_health(
         if unavailable:
             result["status"] = "degraded"
 
+    if strict and result["status"] != "healthy":
+        return JSONResponse(status_code=503, content=result)
     return result
