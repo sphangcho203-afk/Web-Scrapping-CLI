@@ -8,6 +8,7 @@ import httpx
 import phonenumbers
 from phonenumbers import PhoneNumberFormat, PhoneNumberType, carrier, geocoder, timezone
 
+from .execution_meter import record_provider_call
 from .tool_mesh import ToolDescriptor
 
 
@@ -148,6 +149,7 @@ def _safe_external_record(provider: str, payload: dict[str, Any]) -> dict[str, A
 async def _lookup_veriphone(
     client: httpx.AsyncClient, phone_e164: str, api_key: str
 ) -> dict[str, Any]:
+    record_provider_call("veriphone")
     response = await client.get(
         "https://api.veriphone.io/v3/verify",
         params={
@@ -180,6 +182,7 @@ async def _lookup_veriphone(
 async def _lookup_abstract(
     client: httpx.AsyncClient, phone_e164: str, api_key: str
 ) -> dict[str, Any]:
+    record_provider_call("abstract")
     response = await client.get(
         "https://phonevalidation.abstractapi.com/v1/",
         params={"api_key": api_key, "phone": phone_e164},
@@ -210,6 +213,7 @@ async def _lookup_abstract(
 async def _lookup_numverify(
     client: httpx.AsyncClient, phone_e164: str, api_key: str
 ) -> dict[str, Any]:
+    record_provider_call("numverify")
     response = await client.get(
         "https://api.apilayer.com/number_verification/validate",
         params={"number": phone_e164},
@@ -256,6 +260,7 @@ async def _lookup_twilio(
         fields.append("sim_swap")
     auth = (api_key, api_secret) if api_key and api_secret else (account_sid, auth_token)
 
+    record_provider_call("twilio")
     response = await client.get(
         f"https://lookups.twilio.com/v2/PhoneNumbers/{phone_e164}",
         params={"Fields": ",".join(fields)},
