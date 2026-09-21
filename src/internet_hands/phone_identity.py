@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import base64
 import os
+import secrets
 from dataclasses import asdict, dataclass
 from typing import Any, Protocol
 
 import httpx
 import phonenumbers
-from phonenumbers import PhoneNumberFormat, PhoneNumberType
+from phonenumbers import PhoneNumberFormat, PhoneNumberType, carrier, geocoder, timezone
 
 
 class PhoneVerificationError(RuntimeError):
@@ -227,6 +228,110 @@ class TwilioVerifyProvider:
         )
 
 
+class Msg91VerifyProvider:
+    name = "msg91"
+
+    def __init__(self, client: httpx.AsyncClient | None = None) -> None:
+        self.auth_key = os.getenv("MSG91_AUTH_KEY", "").strip()
+        self.template_id = os.getenv("MSG91_TEMPLATE_ID", "").strip()
+        self._client = client
+
+    def configured(self) -> bool:
+        return bool(self.auth_key and self.template_id)
+
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, str],
+    ) -> dict[str, Any]:
+        owns_client = self._client is None
+        client = self._client or httpx.AsyncClient(timeout=20.0)
+        try:
+            try:
+                response = await client.request(
+                    method,
+                    f"https://control.msg91.com/api/v5/otp{path}",
+                    params=params,
+                    headers={"authkey": self.auth_key, "Accept": "application/json"},
+                )
+            except httpx.HTTPError as exc:
+                raise PhoneVerificationTransportError(
+                    f"MSG91 transport failed: {type(exc).__name__}"
+                ) from exc
+            try:
+                parsed = response.json()
+                payload = parsed if isinstance(parsed, dict) else {}
+            except ValueError:
+                payload = {}
+            if response.is_error or str(payload.get("type") or "").lower() == "error":
+                message = str(
+                    payload.get("message")
+                    or payload.get("error")
+                    or f"HTTP {response.status_code}"
+                )
+                if 400 <= response.status_code < 500 or response.status_code == 200:
+                    raise PhoneVerificationRejected(
+                        f"MSG91 rejected request: {message[:300]}"
+                    )
+                raise PhoneVerificationTransportError(
+                    f"MSG91 failed with HTTP {response.status_code}"
+                )
+            return payload
+        finally:
+            if owns_client:
+                await client.aclose()
+
+    async def start(self, phone_e164: str, *, channel: str = "sms") -> VerificationStart:
+        if channel != "sms":
+            raise ValueError("MSG91 direct Verify currently supports sms in Internet Hands")
+        if not self.configured():
+            raise PhoneVerificationError("MSG91 credentials are not configured")
+        params = {
+            "template_id": self.template_id,
+            "mobile": phone_e164.lstrip("+"),
+            "otp_length": os.getenv("MSG91_OTP_LENGTH", "6").strip() or "6",
+            "otp_expiry": os.getenv("MSG91_OTP_EXPIRY_MINUTES", "10").strip() or "10",
+        }
+        payload = await self._request("POST", "", params=params)
+        request_id = str(
+            payload.get("request_id")
+            or payload.get("reqId")
+            or f"msg91_{secrets.token_urlsafe(12)}"
+        )
+        return VerificationStart(
+            provider=self.name,
+            request_id=request_id,
+            channel=channel,
+            status="pending",
+            metadata={"provider_message": payload.get("message")},
+        )
+
+    async def check(
+        self, phone_e164: str, request_id: str, code: str
+    ) -> VerificationCheck:
+        del request_id
+        payload = await self._request(
+            "GET",
+            "/verify",
+            params={"otp": code, "mobile": phone_e164.lstrip("+")},
+        )
+        message = str(payload.get("message") or "").strip().lower()
+        approved = (
+            str(payload.get("type") or "").lower() == "success"
+            or message in {"otp verified success", "number_verified_successfully"}
+            or "verified success" in message
+        )
+        return VerificationCheck(
+            provider=self.name,
+            request_id="",
+            approved=approved,
+            status="approved" if approved else "pending",
+            metadata={"provider_message": payload.get("message")},
+        )
+
+
 class VonageVerifyProvider:
     name = "vonage"
 
@@ -349,10 +454,11 @@ def verification_providers() -> list[PhoneVerificationProvider]:
     providers: dict[str, PhoneVerificationProvider] = {
         "twilio": TwilioVerifyProvider(),
         "vonage": VonageVerifyProvider(),
+        "msg91": Msg91VerifyProvider(),
     }
     preferred = [
         item.strip().lower()
-        for item in os.getenv("PHONE_VERIFY_PROVIDERS", "twilio,vonage").split(",")
+        for item in os.getenv("PHONE_VERIFY_PROVIDERS", "twilio,vonage,msg91").split(",")
         if item.strip()
     ]
     ordered = [providers[name] for name in preferred if name in providers]
@@ -367,72 +473,255 @@ def select_verification_provider() -> PhoneVerificationProvider:
         if provider.configured():
             return provider
     raise PhoneVerificationError(
-        "no phone verification provider is configured; configure Twilio Verify or Vonage Verify"
+        "no phone verification provider is configured; configure Twilio Verify, Vonage Verify, or MSG91"
     )
 
 
-async def lookup_phone_intelligence(phone_e164: str) -> dict[str, Any]:
-    """Return non-identifying telecom intelligence for the account's verified number only."""
+def _local_phone_intelligence(phone_e164: str) -> dict[str, Any]:
     normalized = normalize_phone(phone_e164)
-    result: dict[str, Any] = {
+    parsed = phonenumbers.parse(normalized.e164, None)
+    region = normalized.region_code
+    original_carrier = carrier.name_for_number(parsed, "en") or None
+    location = geocoder.description_for_number(parsed, "en") or None
+    timezones = list(timezone.time_zones_for_number(parsed))
+    sms_capable = normalized.number_type in {"mobile", "fixed_line_or_mobile"}
+    flags: list[str] = []
+    if normalized.number_type == "voip":
+        flags.append("voip")
+    if normalized.number_type == "premium_rate":
+        flags.append("premium_rate")
+    if normalized.number_type == "personal_number":
+        flags.append("personal_number")
+    if normalized.number_type == "unknown":
+        flags.append("unknown_type")
+    if not sms_capable:
+        flags.append("sms_capability_not_guaranteed")
+
+    return {
         "source": "libphonenumber",
+        "provider": "libphonenumber",
+        "providers_used": ["libphonenumber"],
         "phone": normalized.to_dict(),
+        "valid_for_region": bool(
+            region and phonenumbers.is_valid_number_for_region(parsed, region)
+        ),
         "line_type": normalized.number_type,
-        "carrier": None,
+        "carrier": original_carrier,
+        "original_carrier": original_carrier,
+        "carrier_source": "libphonenumber_original_range" if original_carrier else None,
+        "location_description": location,
+        "timezones": timezones,
+        "formats": {
+            "e164": phonenumbers.format_number(parsed, PhoneNumberFormat.E164),
+            "international": phonenumbers.format_number(
+                parsed, PhoneNumberFormat.INTERNATIONAL
+            ),
+            "national": phonenumbers.format_number(parsed, PhoneNumberFormat.NATIONAL),
+            "rfc3966": phonenumbers.format_number(parsed, PhoneNumberFormat.RFC3966),
+        },
+        "sms_capable_heuristic": sms_capable,
+        "delivery_flags": flags,
         "sim_swap": None,
-        "provider": None,
+        "external": {},
+        "provider_errors": [],
     }
 
+
+def _merge_external(
+    result: dict[str, Any],
+    provider: str,
+    data: dict[str, Any],
+) -> None:
+    result.setdefault("external", {})[provider] = data
+    result.setdefault("providers_used", []).append(provider)
+    if data.get("carrier"):
+        result["carrier"] = data["carrier"]
+        result["carrier_source"] = provider
+    if data.get("line_type"):
+        result["line_type"] = data["line_type"]
+    if data.get("location") and not result.get("location_description"):
+        result["location_description"] = data["location"]
+    if data.get("sim_swap") is not None:
+        result["sim_swap"] = data["sim_swap"]
+    if data.get("mobile_country_code"):
+        result["mobile_country_code"] = data["mobile_country_code"]
+    if data.get("mobile_network_code"):
+        result["mobile_network_code"] = data["mobile_network_code"]
+    result["provider"] = provider
+
+
+async def _lookup_veriphone(
+    client: httpx.AsyncClient, phone_e164: str, api_key: str
+) -> dict[str, Any]:
+    response = await client.get(
+        "https://api.veriphone.io/v3/verify",
+        params={
+            "phone": phone_e164,
+            "mode": os.getenv("VERIPHONE_MODE", "static").strip() or "static",
+            "record": "false",
+        },
+        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+    )
+    if response.is_error:
+        raise PhoneVerificationError(f"Veriphone HTTP {response.status_code}")
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise PhoneVerificationError("Veriphone returned an invalid response")
+    return {
+        "valid": payload.get("phone_valid", payload.get("valid")),
+        "carrier": payload.get("carrier"),
+        "line_type": payload.get("phone_type") or payload.get("line_type"),
+        "location": payload.get("phone_region") or payload.get("location"),
+        "country_code": payload.get("country_code"),
+        "e164": payload.get("e164") or payload.get("international_number"),
+        "mode": payload.get("mode") or os.getenv("VERIPHONE_MODE", "static"),
+    }
+
+
+async def _lookup_abstract(
+    client: httpx.AsyncClient, phone_e164: str, api_key: str
+) -> dict[str, Any]:
+    response = await client.get(
+        "https://phonevalidation.abstractapi.com/v1/",
+        params={"api_key": api_key, "phone": phone_e164},
+        headers={"Accept": "application/json"},
+    )
+    if response.is_error:
+        raise PhoneVerificationError(f"Abstract Phone Validation HTTP {response.status_code}")
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise PhoneVerificationError("Abstract Phone Validation returned an invalid response")
+    return {
+        "valid": payload.get("valid"),
+        "carrier": payload.get("carrier"),
+        "line_type": payload.get("line_type"),
+        "location": payload.get("registered_location"),
+        "country_code": payload.get("country_code"),
+        "e164": payload.get("international_format"),
+        "risk_score": payload.get("risk_score"),
+    }
+
+
+async def _lookup_numverify(
+    client: httpx.AsyncClient, phone_e164: str, api_key: str
+) -> dict[str, Any]:
+    response = await client.get(
+        "https://api.apilayer.com/number_verification/validate",
+        params={"number": phone_e164},
+        headers={"apikey": api_key, "Accept": "application/json"},
+    )
+    if response.is_error:
+        raise PhoneVerificationError(f"Numverify HTTP {response.status_code}")
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise PhoneVerificationError("Numverify returned an invalid response")
+    return {
+        "valid": payload.get("valid"),
+        "carrier": payload.get("carrier"),
+        "line_type": payload.get("line_type"),
+        "location": payload.get("location"),
+        "country_code": payload.get("country_code"),
+        "e164": payload.get("international_format"),
+        "quota": {
+            "monthly_limit": response.headers.get("x-ratelimit-limit-month"),
+            "monthly_remaining": response.headers.get("x-ratelimit-remaining-month"),
+            "daily_limit": response.headers.get("x-ratelimit-limit-day"),
+            "daily_remaining": response.headers.get("x-ratelimit-remaining-day"),
+        },
+    }
+
+
+async def _lookup_twilio(
+    client: httpx.AsyncClient, phone_e164: str
+) -> dict[str, Any] | None:
     account_sid = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
     auth_token = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
     api_key = os.getenv("TWILIO_API_KEY", "").strip()
     api_secret = os.getenv("TWILIO_API_SECRET", "").strip()
     if not ((account_sid and auth_token) or (api_key and api_secret)):
-        return result
+        return None
 
     fields = ["line_type_intelligence"]
     if os.getenv("TWILIO_LOOKUP_SIM_SWAP", "0") == "1":
         fields.append("sim_swap")
     auth = (api_key, api_secret) if api_key and api_secret else (account_sid, auth_token)
-
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        try:
-            response = await client.get(
-                f"https://lookups.twilio.com/v2/PhoneNumbers/{phone_e164}",
-                params={"Fields": ",".join(fields)},
-                auth=auth,
-                headers={"Accept": "application/json"},
-            )
-            if response.is_error:
-                result["provider_error"] = f"Twilio Lookup HTTP {response.status_code}"
-                return result
-            payload = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
-            result["provider_error"] = f"Twilio Lookup unavailable: {type(exc).__name__}"
-            return result
-
+    response = await client.get(
+        f"https://lookups.twilio.com/v2/PhoneNumbers/{phone_e164}",
+        params={"Fields": ",".join(fields)},
+        auth=auth,
+        headers={"Accept": "application/json"},
+    )
+    if response.is_error:
+        raise PhoneVerificationError(f"Twilio Lookup HTTP {response.status_code}")
+    payload = response.json()
     if not isinstance(payload, dict):
-        return result
+        raise PhoneVerificationError("Twilio Lookup returned an invalid response")
 
+    data: dict[str, Any] = {}
     line = payload.get("line_type_intelligence")
     if isinstance(line, dict):
-        result["line_type"] = line.get("type") or result["line_type"]
-        result["carrier"] = line.get("carrier_name")
-        result["mobile_country_code"] = line.get("mobile_country_code")
-        result["mobile_network_code"] = line.get("mobile_network_code")
-        result["provider"] = "twilio_lookup"
-
+        data.update(
+            {
+                "line_type": line.get("type"),
+                "carrier": line.get("carrier_name"),
+                "mobile_country_code": line.get("mobile_country_code"),
+                "mobile_network_code": line.get("mobile_network_code"),
+            }
+        )
     sim_swap = payload.get("sim_swap")
     if isinstance(sim_swap, dict):
-        # Keep only anti-fraud fields; never expose subscriber-name identity data.
         last_swap = sim_swap.get("last_sim_swap")
-        result["sim_swap"] = {
+        data["sim_swap"] = {
             "last_sim_swap": last_swap if isinstance(last_swap, dict) else None,
             "carrier_name": sim_swap.get("carrier_name"),
             "mobile_country_code": sim_swap.get("mobile_country_code"),
             "mobile_network_code": sim_swap.get("mobile_network_code"),
             "error_code": sim_swap.get("error_code"),
         }
-        result["provider"] = "twilio_lookup"
+    return data
+
+
+async def lookup_phone_intelligence(phone_e164: str) -> dict[str, Any]:
+    """Return telecom metadata for the signed-in account owner's verified number."""
+    result = _local_phone_intelligence(phone_e164)
+    configured = [
+        item.strip().lower()
+        for item in os.getenv(
+            "PHONE_INTEL_PROVIDERS",
+            "local,veriphone,abstract,numverify,twilio",
+        ).split(",")
+        if item.strip()
+    ]
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        for provider in configured:
+            if provider == "local":
+                continue
+            try:
+                data: dict[str, Any] | None = None
+                if provider == "veriphone":
+                    key = os.getenv("VERIPHONE_API_KEY", "").strip()
+                    if key:
+                        data = await _lookup_veriphone(client, phone_e164, key)
+                elif provider == "abstract":
+                    key = os.getenv("ABSTRACT_PHONE_API_KEY", "").strip()
+                    if key:
+                        data = await _lookup_abstract(client, phone_e164, key)
+                elif provider == "numverify":
+                    key = (
+                        os.getenv("NUMVERIFY_API_KEY", "").strip()
+                        or os.getenv("APILAYER_API_KEY", "").strip()
+                    )
+                    if key:
+                        data = await _lookup_numverify(client, phone_e164, key)
+                elif provider == "twilio":
+                    data = await _lookup_twilio(client, phone_e164)
+
+                if data:
+                    _merge_external(result, provider, data)
+            except (httpx.HTTPError, ValueError, PhoneVerificationError) as exc:
+                result.setdefault("provider_errors", []).append(
+                    {"provider": provider, "error": str(exc)[:300]}
+                )
 
     return result
