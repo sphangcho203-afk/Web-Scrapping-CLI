@@ -11,8 +11,6 @@ from .phone_identity import (
     PhoneVerificationError,
     PhoneVerificationRejected,
     PhoneVerificationTransportError,
-    TwilioVerifyProvider,
-    VonageVerifyProvider,
     lookup_phone_intelligence,
     mask_phone,
     normalize_phone,
