@@ -255,7 +255,7 @@ class SmsGateVerifyProvider:
         )
 
     def _proof(self, phone_e164: str, code: str, expires_at: int, nonce: str) -> str:
-        message = f"{phone_e164}|{code}|{expires_at}|{nonce}".encode("utf-8")
+        message = f"{phone_e164}|{code}|{expires_at}|{nonce}".encode()
         return hmac.new(
             self.signing_secret.encode("utf-8"),
             message,
