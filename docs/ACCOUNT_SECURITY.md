@@ -58,7 +58,7 @@ Phone verification proves that the signed-in user controls a submitted phone num
 Numbers are parsed and normalized locally with libphonenumber metadata before an external OTP is attempted. The provider layer currently supports Twilio Verify v2, Vonage Verify v2, and MSG91 SendOTP v5, with provider order controlled by:
 
 ```text
-PHONE_VERIFY_PROVIDERS=twilio,vonage,msg91
+PHONE_VERIFY_PROVIDERS=twilio,vonage,msg91,smsgate
 ```
 
 Twilio configuration:
@@ -105,6 +105,21 @@ DELETE /api/auth/phone
 ```
 
 Resends are rate-limited, pending verifications expire, incorrect-code attempts are bounded, and a verified phone number cannot be attached to two Internet Hands accounts at the same time.
+
+### Self-hosted Android SMS transport
+
+Internet Hands can also use the open-source SMS Gateway for Android ecosystem as the delivery transport. In this mode Internet Hands generates a short-lived OTP, sends it through the configured Android/SIM gateway, and verifies the submitted code with a server-secret keyed HMAC. The OTP is never stored as plaintext.
+
+```text
+SMSGATE_SEND_URL=https://your-gateway/3rdparty/v1/messages
+SMSGATE_USERNAME=
+SMSGATE_PASSWORD=
+INTERNET_HANDS_OTP_SIGNING_SECRET=<long random secret>
+SMSGATE_DEVICE_ID=
+SMSGATE_SIM_NUMBER=
+```
+
+This removes the hosted OTP-vendor dependency, but normal carrier/SIM messaging charges and telecom rules still apply. A local-only Android gateway must be reachable from the Internet Hands server; otherwise use a private/cloud-accessible gateway.
 
 ### Free/open intelligence layer
 
