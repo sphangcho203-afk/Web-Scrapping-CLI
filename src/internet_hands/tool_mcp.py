@@ -58,7 +58,7 @@ def get_capability_registry() -> CapabilityRegistry:
 async def phone_number_lookup(
     number: str,
     region: str | None = None,
-    external: bool = True,
+    external: bool = False,
     providers: list[str] | None = None,
 ) -> dict[str, Any]:
     """Inspect telecom metadata and risk signals for a phone number without identifying a private subscriber."""
