@@ -5,6 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter, Header, Query
 
+from .mcp_server import sandbox_mcp
 from .monitor_executor import _scheduler_authorized
 from .tool_mcp import get_capability_registry, get_tool_mesh
 
@@ -12,9 +13,13 @@ router = APIRouter()
 
 
 def _provider_available(status: dict[str, Any]) -> bool:
+    return bool(status.get("executable"))
+
+
+def _provider_discoverable(status: dict[str, Any]) -> bool:
     return bool(
-        status.get("executable")
-        or status.get("searchable")
+        status.get("searchable")
+        or status.get("executable")
         or status.get("configured")
     )
 
@@ -69,9 +74,16 @@ async def system_health(
         name: {
             **status,
             "available": _provider_available(status),
+            "execution_ready": _provider_available(status),
+            "discoverable": _provider_discoverable(status),
         }
         for name, status in providers.items()
     }
+
+    registered_tools = await sandbox_mcp.list_tools()
+    registered_names = sorted(tool.name for tool in registered_tools)
+    schema_complete = all(isinstance(tool.input_schema, dict) for tool in registered_tools)
+    mcp_surface_ok = len(registered_names) == 54 and len(set(registered_names)) == 54 and schema_complete
 
     capabilities = list(registry.capabilities.values())
     provider_coverage: dict[str, list[str]] = {}
@@ -84,12 +96,25 @@ async def system_health(
 
     result: dict[str, Any] = {
         "status": "healthy"
-        if any(row["available"] for row in provider_rows.values())
+        if mcp_surface_ok and any(row["execution_ready"] for row in provider_rows.values())
         else "degraded",
         "providers": provider_rows,
+        "mcp": {
+            "registered_tools": len(registered_names),
+            "expected_tools": 54,
+            "unique_tools": len(set(registered_names)),
+            "schema_complete": schema_complete,
+            "surface_ok": mcp_surface_ok,
+            "tools": registered_names,
+        },
         "summary": {
             "provider_count": len(provider_rows),
-            "available_providers": sum(1 for row in provider_rows.values() if row["available"]),
+            "available_providers": sum(
+                1 for row in provider_rows.values() if row["execution_ready"]
+            ),
+            "discoverable_providers": sum(
+                1 for row in provider_rows.values() if row["discoverable"]
+            ),
             "semantic_capabilities": len(capabilities),
             "single_provider_capabilities": len(single_provider),
             "multi_provider_capabilities": len(capabilities) - len(single_provider),
