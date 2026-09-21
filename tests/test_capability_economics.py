@@ -28,15 +28,15 @@ def test_phone_lookup_is_cheap_locally_for_free_plan() -> None:
     assert estimate.provider_class == "local"
 
 
-def test_free_plan_does_not_silently_spend_on_external_phone_sources() -> None:
+def test_external_phone_sources_require_explicit_provider_selection() -> None:
     estimate = estimate_call(
         "phone_number_lookup",
         {"number": "+14155552671", "external": True},
         "free",
     )
-    assert estimate.allowed is True
+    assert estimate.allowed is False
     assert estimate.credits == 2
-    assert estimate.provider_class == "local"
+    assert "explicit provider list" in (estimate.reason or "")
 
 
 def test_builder_can_use_free_tier_phone_enrichment() -> None:
@@ -123,7 +123,7 @@ def test_batch_limits_scale_with_subscription() -> None:
     )
     assert free.allowed is False
     assert scale.allowed is True
-    assert scale.credits == 42
+    assert scale.credits == 82
 
 
 def test_runtime_pricing_accounts_for_requested_time() -> None:
@@ -140,3 +140,81 @@ def test_higher_plans_expand_privileges_not_privacy_boundaries() -> None:
     # Economics/access is plan-aware. Privacy/output policy is intentionally not
     # represented as a purchasable entitlement in this module.
     assert "privacy" not in plan_privileges("scale").to_dict()
+
+
+def test_builder_browser_is_allowed_and_runtime_metered() -> None:
+    estimate = estimate_call(
+        "sandbox_browser_open",
+        {"timeout_ms": 120_000},
+        "builder",
+    )
+    assert estimate.allowed is True
+    assert estimate.credits == 10
+
+
+def test_nested_phone_lookup_through_mesh_execute_keeps_same_price() -> None:
+    direct = estimate_call(
+        "phone_number_lookup",
+        {
+            "number": "+14155552671",
+            "external": True,
+            "providers": ["veriphone", "abstract"],
+        },
+        "builder",
+    )
+    nested = estimate_call(
+        "mesh_execute",
+        {
+            "ref": "phoneintel:lookup",
+            "arguments": {
+                "number": "+14155552671",
+                "external": True,
+                "providers": ["veriphone", "abstract"],
+            },
+        },
+        "builder",
+    )
+    assert direct.allowed is True
+    assert nested.allowed is True
+    assert nested.credits == direct.credits
+
+
+def test_semantic_phone_lookup_keeps_same_price() -> None:
+    direct = estimate_call(
+        "phone_number_lookup",
+        {
+            "number": "+14155552671",
+            "external": True,
+            "providers": ["twilio"],
+        },
+        "pro",
+    )
+    semantic = estimate_call(
+        "mesh_capability_execute",
+        {
+            "capability": "phone.number.lookup",
+            "arguments": {
+                "number": "+14155552671",
+                "external": True,
+                "providers": ["twilio"],
+            },
+        },
+        "pro",
+    )
+    assert semantic.allowed is True
+    assert semantic.credits == direct.credits
+
+
+def test_batch_pricing_sums_nested_provider_costs() -> None:
+    estimate = estimate_call(
+        "mesh_batch_execute",
+        {
+            "calls": [
+                {"ref": "nativeweb:fetch", "arguments": {"url": "https://example.com"}},
+                {"ref": "firecrawl:scrape", "arguments": {"url": "https://example.com"}},
+            ]
+        },
+        "pro",
+    )
+    assert estimate.allowed is True
+    assert estimate.credits == 11
