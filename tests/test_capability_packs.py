@@ -315,3 +315,110 @@ def test_default_capabilities_include_connected_plane() -> None:
         "target",
         "message",
     ]
+
+
+
+class UnavailableSideEffectProvider(SideEffectProvider):
+    async def status(self) -> dict[str, Any]:
+        return {"configured": False, "searchable": False, "executable": False}
+
+    async def describe(self, tool_id: str) -> ToolDescriptor:
+        raise AssertionError(f"unavailable provider should not be described: {tool_id}")
+
+
+class CountingSideEffectProvider(SideEffectProvider):
+    def __init__(self, name: str, *, fail: bool = False) -> None:
+        super().__init__(name)
+        self.fail = fail
+        self.execute_calls = 0
+
+    async def execute(
+        self,
+        tool_id: str,
+        arguments: dict[str, Any],
+        *,
+        account: str | None = None,
+        wait_seconds: int = 30,
+        timeout_seconds: int = 60,
+        options: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        self.execute_calls += 1
+        if self.fail:
+            raise RuntimeError("execution outcome unknown")
+        return await super().execute(
+            tool_id,
+            arguments,
+            account=account,
+            wait_seconds=wait_seconds,
+            timeout_seconds=timeout_seconds,
+            options=options,
+        )
+
+
+@pytest.mark.asyncio
+async def test_write_capability_can_fallback_during_preflight_only() -> None:
+    unavailable = UnavailableSideEffectProvider("primary")
+    fallback = CountingSideEffectProvider("fallback")
+    mesh = ToolMesh([unavailable, fallback])
+    registry = CapabilityRegistry(
+        mesh,
+        [
+            Capability(
+                id="code.execute",
+                name="Execute",
+                description="Execute",
+                pack="connected",
+                tags=("code",),
+                read_only=False,
+                candidates=(
+                    CapabilityCandidate(provider="primary", ref="primary:exec", priority=10),
+                    CapabilityCandidate(provider="fallback", ref="fallback:exec", priority=20),
+                ),
+            )
+        ],
+    )
+
+    result = await registry.execute(
+        "code.execute",
+        {"command": "printf ok"},
+        allow_side_effects=True,
+    )
+
+    assert result["selected"] == "fallback:exec"
+    assert result["attempts"][0]["status"] == "skipped"
+    assert fallback.execute_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_write_capability_never_falls_back_after_execution_starts() -> None:
+    primary = CountingSideEffectProvider("primary", fail=True)
+    fallback = CountingSideEffectProvider("fallback")
+    mesh = ToolMesh([primary, fallback])
+    registry = CapabilityRegistry(
+        mesh,
+        [
+            Capability(
+                id="messaging.send",
+                name="Send",
+                description="Send",
+                pack="connected",
+                tags=("messaging",),
+                read_only=False,
+                candidates=(
+                    CapabilityCandidate(provider="primary", ref="primary:send", priority=10),
+                    CapabilityCandidate(provider="fallback", ref="fallback:send", priority=20),
+                ),
+            )
+        ],
+    )
+
+    result = await registry.execute(
+        "messaging.send",
+        {"message": "hello"},
+        allow_side_effects=True,
+    )
+
+    assert result["selected"] is None
+    assert primary.execute_calls == 1
+    assert fallback.execute_calls == 0
+    assert result["attempts"][0]["status"] == "failed"
