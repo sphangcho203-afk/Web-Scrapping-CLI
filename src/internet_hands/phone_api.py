@@ -149,28 +149,59 @@ async def phone_start(request: Request):
             str(body.get("phone") or ""),
             default_region=str(body.get("region") or "").strip() or None,
         )
-        provider = _choose_provider(body.get("provider"))
         requested_channel = str(body.get("channel") or "sms")
-        provider_channel = _provider_channel(provider.name, requested_channel)
-    except (ValueError, PhoneVerificationError) as exc:
+    except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    # Do not automatically hop to a second sender after this point. Once an OTP
-    # request reaches a provider, retrying another provider could send duplicate codes.
-    try:
-        started = await provider.start(normalized.e164, channel=provider_channel)
-    except PhoneVerificationRejected as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except PhoneVerificationTransportError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                f"{provider.name} verification transport failed; the send outcome may be "
-                "unknown, so Internet Hands did not retry through another provider"
-            ),
-        ) from exc
-    except PhoneVerificationError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    requested_provider = str(body.get("provider") or "").strip().lower()
+    providers = verification_providers()
+    if requested_provider:
+        providers = [provider for provider in providers if provider.name == requested_provider]
+        if not providers:
+            raise HTTPException(status_code=400, detail="unsupported phone verification provider")
+
+    started = None
+    provider = None
+    rejections: list[str] = []
+    for candidate in providers:
+        if not candidate.configured():
+            continue
+        try:
+            provider_channel = _provider_channel(candidate.name, requested_channel)
+            started = await candidate.start(normalized.e164, channel=provider_channel)
+            provider = candidate
+            break
+        except PhoneVerificationRejected as exc:
+            # Provider explicitly rejected before accepting the verification request.
+            # This is the only send failure class where trying another provider is safe.
+            rejections.append(f"{candidate.name}: {exc}")
+            if requested_provider:
+                break
+            continue
+        except ValueError as exc:
+            rejections.append(f"{candidate.name}: {exc}")
+            if requested_provider:
+                break
+            continue
+        except PhoneVerificationTransportError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    f"{candidate.name} verification transport failed; the send outcome may be "
+                    "unknown, so Internet Hands did not retry through another provider"
+                ),
+            ) from exc
+        except PhoneVerificationError as exc:
+            rejections.append(f"{candidate.name}: {exc}")
+            if requested_provider:
+                break
+            continue
+
+    if started is None or provider is None:
+        detail = "; ".join(rejections[-3:]) or (
+            "no phone verification provider is configured; configure Twilio Verify or Vonage Verify"
+        )
+        raise HTTPException(status_code=503, detail=detail)
 
     record = phone_store.begin_verification(
         user_id=user["id"],
