@@ -85,7 +85,7 @@ async def system_health(
     registered_tools = await sandbox_mcp.list_tools()
     registered_names = sorted(tool.name for tool in registered_tools)
     schema_complete = all(isinstance(tool.input_schema, dict) for tool in registered_tools)
-    mcp_surface_ok = len(registered_names) == 55 and len(set(registered_names)) == 55 and schema_complete
+    mcp_surface_ok = len(registered_names) == 56 and len(set(registered_names)) == 56 and schema_complete
 
     capabilities = list(registry.capabilities.values())
     provider_coverage: dict[str, list[str]] = {}
@@ -103,7 +103,7 @@ async def system_health(
         "providers": provider_rows,
         "mcp": {
             "registered_tools": len(registered_names),
-            "expected_tools": 55,
+            "expected_tools": 56,
             "unique_tools": len(set(registered_names)),
             "schema_complete": schema_complete,
             "surface_ok": mcp_surface_ok,

@@ -63,7 +63,7 @@ class _FakeStore:
         self.charged: list[dict[str, Any]] = []
         self.finished: list[dict[str, Any]] = []
 
-    def charge_tool_call(self, **kwargs: Any) -> int:
+    def reserve_tool_call(self, **kwargs: Any) -> int:
         self.charged.append(kwargs)
         return 3
 
@@ -93,6 +93,7 @@ async def test_customer_tool_call_is_metered(monkeypatch: pytest.MonkeyPatch) ->
     assert status == 200
     assert response_body == b'{"ok":true}'
     assert headers["x-request-id"].startswith("req_")
+    assert headers["x-credits-reserved"] == "3"
     assert len(store.charged) == 1
     assert store.charged[0]["tool_name"] == "gaming_profile"
     assert store.charged[0]["arguments"] == {"game": "mlbb"}

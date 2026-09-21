@@ -72,7 +72,7 @@
     const window = usageWindow();
     const data = await api(`/api/usage/intelligence?window=${encodeURIComponent(window)}&recent_limit=8`);
     const t=data.totals||{}, a=data.account||{}, recent=data.recent_runs||[], failures=data.recent_failures||[];
-    const credits=Number(a.monthly_credits||0)+Number(a.purchased_credits||0);
+    const credits=Number(a.monthly_credits||0)+Number(a.purchased_credits||0)-Number(a.reserved_credits||0);
     dashboardShell('overview',`
       <section class="ih-command-head"><div><span>COMMAND CENTER</span><h1>Operational intelligence, from real runs.</h1><p>Requests, reliability, latency and credit burn come directly from the metering ledger.</p></div><div class="ih-command-health"><span>${statusDot(t.success_rate==null?'':'ok')} ${t.success_rate==null?'Awaiting telemetry':'Telemetry live'}</span><b>${t.success_rate==null?'—':`${Number(t.success_rate).toFixed(1)}%`}</b><small>${esc(window)} success</small></div></section>
       ${windows(window)}

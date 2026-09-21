@@ -4,6 +4,7 @@ import asyncio
 from functools import lru_cache
 from typing import Any
 
+from .caller_intelligence import CallerIntelligenceProvider
 from .capability_packs import CapabilityRegistry, build_default_capabilities
 from .catalog_providers import build_catalog_providers
 from .composio_bridge import ComposioBridgeProvider
@@ -29,6 +30,7 @@ def get_tool_mesh() -> ToolMesh:
         [
             *[provider for provider in build_default_providers() if provider.name != "composio"],
             ComposioBridgeProvider(),
+            CallerIntelligenceProvider(),
             FirecrawlToolProvider(),
             NativeWebToolProvider(),
             NativeSandboxToolProvider(),
@@ -55,10 +57,33 @@ def get_capability_registry() -> CapabilityRegistry:
 
 
 @sandbox_mcp.tool()
+async def phone_caller_lookup(
+    number: str,
+    region: str | None = None,
+    public_search: bool = True,
+    max_results: int = 8,
+    telecom_external: bool = False,
+    telecom_providers: list[str] | None = None,
+) -> dict[str, Any]:
+    """Combine telecom metadata with bounded public-web evidence for an unknown caller."""
+    return await get_tool_mesh().execute(
+        "callerintel:lookup",
+        {
+            "number": number,
+            "region": region,
+            "public_search": public_search,
+            "max_results": max_results,
+            "telecom_external": telecom_external,
+            "telecom_providers": telecom_providers,
+        },
+    )
+
+
+@sandbox_mcp.tool()
 async def phone_number_lookup(
     number: str,
     region: str | None = None,
-    external: bool = True,
+    external: bool = False,
     providers: list[str] | None = None,
 ) -> dict[str, Any]:
     """Inspect telecom metadata and risk signals for a phone number without identifying a private subscriber."""
