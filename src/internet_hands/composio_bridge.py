@@ -212,15 +212,20 @@ class ComposioBridgeProvider(ComposioToolProvider):
     ) -> ToolDescriptor:
         toolkit = self._toolkit_slug(descriptor)
         candidates = self._active_for_toolkit(connections, toolkit) if toolkit else []
+        routing_allowed = (
+            not descriptor.requires_auth
+            or any(self._connection_allowed(item) for item in candidates)
+        )
         descriptor.metadata = {
             **descriptor.metadata,
             "connected": bool(candidates) or not descriptor.requires_auth,
             "connected_account_count": len(candidates),
+            "configured": routing_allowed,
             "account_routing": (
                 "not_required"
                 if not descriptor.requires_auth
                 else "configured"
-                if any(self._connection_allowed(item) for item in candidates)
+                if routing_allowed
                 else "locked"
             ),
         }
