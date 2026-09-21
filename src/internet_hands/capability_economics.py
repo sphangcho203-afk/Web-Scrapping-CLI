@@ -103,6 +103,13 @@ TOOL_ECONOMICS: tuple[ToolEconomics, ...] = (
     ToolEconomics("mesh_capabilities", "discovery", 1, provider_class="local"),
     ToolEconomics("mesh_capability_resolve", "discovery", 1, provider_class="local"),
     ToolEconomics("phone_number_lookup", "phone_intelligence", 2, provider_class="local"),
+    ToolEconomics(
+        "phone_caller_lookup",
+        "caller_intelligence",
+        4,
+        minimum_plan="builder",
+        provider_class="free_tier",
+    ),
     ToolEconomics("gaming_capabilities", "gaming", 1, provider_class="local"),
     ToolEconomics("gaming_profile_plan", "gaming", 1, provider_class="public"),
     ToolEconomics("gaming_profile", "gaming", 5, provider_class="public"),
@@ -148,6 +155,7 @@ PHONE_PROVIDER_ECONOMICS: dict[str, tuple[str, int]] = {
 RAW_PROVIDER_SURCHARGES: dict[str, tuple[str, int]] = {
     "nativeweb": ("local", 0),
     "phoneintel": ("local", 0),
+    "callerintel": ("free_tier", 4),
     "publicapi": ("public", 1),
     "openapi": ("public", 1),
     "mcp": ("public", 2),
@@ -275,6 +283,72 @@ def _phone_cost(
     return total, highest_class, breakdown, None
 
 
+def _caller_cost(
+    plan: PlanPrivileges,
+    arguments: dict[str, Any],
+) -> tuple[int, str, list[dict[str, Any]], str | None]:
+    total = 4
+    highest_class = "local"
+    breakdown: list[dict[str, Any]] = [{"kind": "base", "credits": 4}]
+
+    public_search = bool(arguments.get("public_search", True))
+    if public_search:
+        if not _provider_allowed(plan, "free_tier"):
+            return (
+                total,
+                "free_tier",
+                breakdown,
+                "public caller attribution requires free_tier provider access",
+            )
+        total += 4
+        highest_class = "free_tier"
+        breakdown.append(
+            {
+                "kind": "public_search",
+                "provider_class": "free_tier",
+                "credits": 4,
+            }
+        )
+        try:
+            max_results = max(1, min(int(arguments.get("max_results", 8)), 20))
+        except (TypeError, ValueError):
+            max_results = 8
+        result_units = math.ceil(max_results / 5)
+        total += result_units
+        breakdown.append(
+            {
+                "kind": "result_budget",
+                "units": result_units,
+                "max_results": max_results,
+                "credits": result_units,
+            }
+        )
+
+    if bool(arguments.get("telecom_external", False)):
+        providers = arguments.get("telecom_providers")
+        phone_arguments = {
+            "external": True,
+            "providers": providers,
+        }
+        phone_total, phone_class, phone_breakdown, reason = _phone_cost(
+            plan,
+            phone_arguments,
+        )
+        if reason:
+            return total, phone_class, breakdown, reason
+        surcharge = max(0, phone_total - 2)
+        total += surcharge
+        breakdown.extend(
+            item
+            for item in phone_breakdown
+            if item.get("kind") == "provider"
+        )
+        if PROVIDER_CLASS_ORDER[phone_class] > PROVIDER_CLASS_ORDER[highest_class]:
+            highest_class = phone_class
+
+    return total, highest_class, breakdown, None
+
+
 def estimate_call(
     tool_name: str,
     arguments: dict[str, Any] | None,
@@ -343,6 +417,21 @@ def estimate_call(
             limits=plan.to_dict(),
         )
 
+    if tool_name == "phone_caller_lookup":
+        credits, provider_class, caller_breakdown, reason = _caller_cost(plan, args)
+        return CostEstimate(
+            allowed=reason is None,
+            plan=plan.slug,
+            tool_name=tool_name,
+            category=rule.category,
+            credits=credits,
+            minimum_plan=rule.minimum_plan,
+            provider_class=provider_class,
+            reason=reason,
+            breakdown=tuple(caller_breakdown),
+            limits=plan.to_dict(),
+        )
+
     cost = rule.base_credits
     provider_class = rule.provider_class
 
@@ -364,6 +453,28 @@ def estimate_call(
                 plan=plan.slug,
                 tool_name=tool_name,
                 category="phone_intelligence",
+                credits=nested.credits,
+                minimum_plan=nested.minimum_plan,
+                provider_class=nested.provider_class,
+                reason=nested.reason,
+                breakdown=(
+                    {"kind": "routed_tool", "ref": ref, "credits": 0},
+                    *nested.breakdown,
+                ),
+                limits=plan.to_dict(),
+            )
+
+        if ref == "callerintel:lookup":
+            nested = estimate_call(
+                "phone_caller_lookup",
+                nested_arguments,
+                plan.slug,
+            )
+            return CostEstimate(
+                allowed=nested.allowed,
+                plan=plan.slug,
+                tool_name=tool_name,
+                category="caller_intelligence",
                 credits=nested.credits,
                 minimum_plan=nested.minimum_plan,
                 provider_class=nested.provider_class,
@@ -470,6 +581,28 @@ def estimate_call(
             if isinstance(args.get("arguments"), dict)
             else {}
         )
+        if capability == "phone.caller.lookup":
+            nested = estimate_call("phone_caller_lookup", nested_arguments, plan.slug)
+            return CostEstimate(
+                allowed=nested.allowed,
+                plan=plan.slug,
+                tool_name=tool_name,
+                category="caller_intelligence",
+                credits=nested.credits,
+                minimum_plan=nested.minimum_plan,
+                provider_class=nested.provider_class,
+                reason=nested.reason,
+                breakdown=(
+                    {
+                        "kind": "semantic_capability",
+                        "capability": capability,
+                        "credits": 0,
+                    },
+                    *nested.breakdown,
+                ),
+                limits=plan.to_dict(),
+            )
+
         if capability == "phone.number.lookup":
             nested = estimate_call("phone_number_lookup", nested_arguments, plan.slug)
             return CostEstimate(
