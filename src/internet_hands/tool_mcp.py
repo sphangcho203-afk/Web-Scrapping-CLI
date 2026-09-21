@@ -15,6 +15,7 @@ from .gaming_extra_providers import build_extra_gaming_providers
 from .gaming_profiles import build_gaming_profile_plan
 from .gaming_providers import build_gaming_providers
 from .mcp_server import sandbox_mcp
+from .native_web_provider import NativeWebToolProvider
 from .remote_mcp_provider import build_remote_mcp_provider
 from .tool_mesh import ToolMesh
 from .tool_providers import build_default_providers
@@ -27,6 +28,7 @@ def get_tool_mesh() -> ToolMesh:
             *[provider for provider in build_default_providers() if provider.name != "composio"],
             ComposioBridgeProvider(),
             FirecrawlToolProvider(),
+            NativeWebToolProvider(),
             *build_catalog_providers(),
             *build_gaming_providers(),
             *build_extra_gaming_providers(),
