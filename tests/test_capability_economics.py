@@ -218,3 +218,109 @@ def test_batch_pricing_sums_nested_provider_costs() -> None:
     )
     assert estimate.allowed is True
     assert estimate.credits == 11
+
+
+def test_caller_lookup_requires_builder_or_higher() -> None:
+    free = estimate_call(
+        "phone_caller_lookup",
+        {"number": "+14155552671"},
+        "free",
+    )
+    builder = estimate_call(
+        "phone_caller_lookup",
+        {"number": "+14155552671"},
+        "builder",
+    )
+    assert free.allowed is False
+    assert builder.allowed is True
+
+
+def test_caller_lookup_price_tracks_public_search_budget() -> None:
+    no_search = estimate_call(
+        "phone_caller_lookup",
+        {
+            "number": "+14155552671",
+            "public_search": False,
+        },
+        "builder",
+    )
+    search = estimate_call(
+        "phone_caller_lookup",
+        {
+            "number": "+14155552671",
+            "public_search": True,
+            "max_results": 8,
+        },
+        "builder",
+    )
+    assert no_search.credits == 4
+    assert search.credits == 10
+
+
+def test_caller_lookup_can_add_paid_telecom_intelligence_on_pro() -> None:
+    estimate = estimate_call(
+        "phone_caller_lookup",
+        {
+            "number": "+14155552671",
+            "public_search": True,
+            "max_results": 8,
+            "telecom_external": True,
+            "telecom_providers": ["twilio"],
+        },
+        "pro",
+    )
+    assert estimate.allowed is True
+    assert estimate.credits == 18
+    assert estimate.provider_class == "metered"
+
+
+def test_caller_lookup_has_same_price_through_raw_mesh_route() -> None:
+    direct = estimate_call(
+        "phone_caller_lookup",
+        {
+            "number": "+14155552671",
+            "public_search": True,
+            "max_results": 5,
+        },
+        "builder",
+    )
+    routed = estimate_call(
+        "mesh_execute",
+        {
+            "ref": "callerintel:lookup",
+            "arguments": {
+                "number": "+14155552671",
+                "public_search": True,
+                "max_results": 5,
+            },
+        },
+        "builder",
+    )
+    assert routed.allowed is True
+    assert routed.credits == direct.credits
+
+
+def test_caller_lookup_has_same_price_through_semantic_route() -> None:
+    direct = estimate_call(
+        "phone_caller_lookup",
+        {
+            "number": "+14155552671",
+            "public_search": True,
+            "max_results": 5,
+        },
+        "builder",
+    )
+    semantic = estimate_call(
+        "mesh_capability_execute",
+        {
+            "capability": "phone.caller.lookup",
+            "arguments": {
+                "number": "+14155552671",
+                "public_search": True,
+                "max_results": 5,
+            },
+        },
+        "builder",
+    )
+    assert semantic.allowed is True
+    assert semantic.credits == direct.credits
