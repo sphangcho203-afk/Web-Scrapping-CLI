@@ -503,7 +503,7 @@ class PhoneIntelligenceProvider:
         data = await lookup_phone_intelligence(
             number,
             default_region=region,
-            external=bool(arguments.get("external", True)),
+            external=bool(arguments.get("external", False)),
             providers=providers,
         )
         return {
