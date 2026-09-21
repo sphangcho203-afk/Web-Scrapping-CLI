@@ -12,7 +12,7 @@ from urllib.parse import unquote, urljoin, urlsplit
 import httpx
 
 from .models import ApiEnvelope, DownloadInfo, FetchResult, HealthResult, LinkResult
-from .policy import resolve_public_http_url, validate_public_ip
+from .policy import resolve_public_http_url, validate_public_http_url, validate_public_ip
 
 DEFAULT_UA = "InternetHands/0.2 (+https://github.com/sphangcho203-afk/Web-Scrapping-CLI)"
 REDIRECT_CODES = {301, 302, 303, 307, 308}
