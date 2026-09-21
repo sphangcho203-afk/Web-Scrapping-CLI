@@ -2,19 +2,24 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from internet_hands import saas_app
+from internet_hands import phone_api
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_phone_routes_are_mounted_on_production_app() -> None:
-    paths = {getattr(route, "path", None) for route in saas_app.app.routes}
-    assert "/api/auth/phone/providers" in paths
-    assert "/api/auth/phone/status" in paths
-    assert "/api/auth/phone/start" in paths
-    assert "/api/auth/phone/confirm" in paths
-    assert "/api/auth/phone/intelligence" in paths
-    assert "/api/auth/phone" in paths
+    paths = {getattr(route, "path", None) for route in phone_api.router.routes}
+    assert paths == {
+        "/api/auth/phone/providers",
+        "/api/auth/phone/status",
+        "/api/auth/phone/start",
+        "/api/auth/phone/confirm",
+        "/api/auth/phone/intelligence",
+        "/api/auth/phone",
+    }
+    source = (ROOT / "src/internet_hands/saas_app.py").read_text(encoding="utf-8")
+    assert "from .phone_api import router as phone_router" in source
+    assert "app.include_router(phone_router)" in source
 
 
 def test_phone_identity_does_not_implement_reverse_subscriber_lookup() -> None:
