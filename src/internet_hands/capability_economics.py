@@ -112,7 +112,7 @@ TOOL_ECONOMICS: tuple[ToolEconomics, ...] = (
         "browser",
         4,
         minimum_plan="builder",
-        provider_class="metered",
+        provider_class="public",
         unit_field="timeout_ms",
         unit_size=60_000,
         credits_per_unit=3,
