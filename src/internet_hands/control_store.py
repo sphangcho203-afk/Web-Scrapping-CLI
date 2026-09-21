@@ -13,7 +13,7 @@ import psycopg
 from psycopg.errors import UniqueViolation
 from psycopg.rows import dict_row
 
-from .capability_economics import estimate_call
+from .capability_economics import estimate_call, plan_privileges
 
 SCHEMA_SQL = r"""
 CREATE TABLE IF NOT EXISTS ih_users (
@@ -590,7 +590,10 @@ class ControlStore:
         self.ensure_schema()
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute("SELECT * FROM ih_plans WHERE active=true ORDER BY monthly_price_inr")
-            return [dict(row) for row in cur.fetchall()]
+            rows = [dict(row) for row in cur.fetchall()]
+        for row in rows:
+            row["capability_privileges"] = plan_privileges(str(row["slug"])).to_dict()
+        return rows
 
     def list_credit_packs(self) -> list[dict[str, Any]]:
         self.ensure_schema()
@@ -623,7 +626,11 @@ class ControlStore:
             row = cur.fetchone()
             if not row:
                 raise ControlError("account_not_found", "account not found", 404)
-            return dict(row)
+            account = dict(row)
+            account["capability_privileges"] = plan_privileges(
+                str(account.get("plan_slug") or "free")
+            ).to_dict()
+            return account
 
     def create_api_key(
         self,
@@ -798,6 +805,69 @@ class ControlStore:
             )
         return int(estimate.credits)
 
+    def release_stale_reservations(
+        self,
+        user_id: str,
+        *,
+        older_than_minutes: int = 60,
+    ) -> dict[str, int]:
+        """Release abandoned reservations left behind by crashed request workers."""
+        self.ensure_schema()
+        cutoff_minutes = max(15, min(int(older_than_minutes), 24 * 60))
+        released = 0
+        count = 0
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT request_id,metadata
+                    FROM ih_usage_events
+                    WHERE user_id=%s
+                      AND status='reserved'
+                      AND created_at < now() - (%s * interval '1 minute')
+                    FOR UPDATE
+                    """,
+                    (user_id, cutoff_minutes),
+                )
+                rows = cur.fetchall()
+                for row in rows:
+                    metadata = dict(row.get("metadata") or {})
+                    reservation = dict(metadata.get("reservation") or {})
+                    credits = max(0, int(reservation.get("credits") or 0))
+                    reservation.update(
+                        {
+                            "state": "abandoned",
+                            "reserved": credits,
+                            "settled": 0,
+                            "released": credits,
+                        }
+                    )
+                    metadata["reservation"] = reservation
+                    cur.execute(
+                        """
+                        UPDATE ih_usage_events
+                        SET status='abandoned',credits_charged=0,metadata=%s::jsonb
+                        WHERE request_id=%s AND status='reserved'
+                        """,
+                        (json.dumps(metadata), row["request_id"]),
+                    )
+                    if cur.rowcount:
+                        released += credits
+                        count += 1
+
+                if released:
+                    cur.execute(
+                        """
+                        UPDATE ih_wallets
+                        SET reserved_credits=GREATEST(reserved_credits-%s,0),
+                            updated_at=now()
+                        WHERE user_id=%s
+                        """,
+                        (released, user_id),
+                    )
+            conn.commit()
+        return {"reservations_released": count, "credits_released": released}
+
     def reserve_tool_call(
         self,
         *,
@@ -808,6 +878,7 @@ class ControlStore:
         input_bytes: int,
     ) -> int:
         self.ensure_schema()
+        self.release_stale_reservations(identity.user_id)
         quote = self.quote_tool_call(
             identity=identity,
             tool_name=tool_name,
