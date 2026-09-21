@@ -292,7 +292,7 @@ async def phone_confirm(request: Request):
                 "checked_at": datetime.now(UTC).isoformat(),
             },
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 -- enrichment must never invalidate ownership proof
         intelligence = None
 
     return {
