@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import ast
+from pathlib import Path
 
 import pytest
-from pathlib import Path
 
 from internet_hands import saas_app
 from internet_hands.mcp_server import sandbox_mcp
