@@ -151,6 +151,8 @@ class CapabilityRegistry:
 
         attempts: list[dict[str, Any]] = []
         started = time.time()
+        statuses = await self.mesh.provider_status()
+
         for candidate in candidates:
             if not self._candidate_matches(arguments, candidate):
                 attempts.append(
@@ -162,12 +164,66 @@ class CapabilityRegistry:
                     }
                 )
                 continue
+
+            provider_status = statuses.get(candidate.provider, {})
+            provider_ready = bool(provider_status.get("executable"))
+            dry_run_ready = bool(
+                provider_status.get("searchable")
+                or provider_status.get("executable")
+                or provider_status.get("configured")
+            )
+            if not provider_ready and not (dry_run and dry_run_ready):
+                attempts.append(
+                    {
+                        "provider": candidate.provider,
+                        "ref": candidate.ref,
+                        "status": "skipped",
+                        "error": "provider is not executable",
+                    }
+                )
+                continue
+
+            # Resolution and schema inspection are preflight-only operations. It is safe
+            # to try a later provider when this stage fails, even for write capabilities.
             try:
                 ref = await self._resolve_candidate(candidate)
                 descriptor = await self.mesh.describe(ref)
-                if descriptor.get("side_effecting") and capability.read_only:
-                    raise PermissionError("read-only capability resolved to a side-effecting tool")
-                mapped = self._map_arguments(arguments, candidate)
+            except Exception as exc:  # noqa: BLE001 - provider preflight boundary
+                attempts.append(
+                    {
+                        "provider": candidate.provider,
+                        "ref": candidate.ref,
+                        "status": "preflight_failed",
+                        "error": str(exc),
+                    }
+                )
+                continue
+
+            if descriptor.get("side_effecting") and capability.read_only:
+                attempts.append(
+                    {
+                        "provider": candidate.provider,
+                        "ref": ref,
+                        "status": "preflight_failed",
+                        "error": "read-only capability resolved to a side-effecting tool",
+                    }
+                )
+                continue
+
+            configured = (descriptor.get("metadata") or {}).get("configured", True)
+            if configured is False and not dry_run:
+                attempts.append(
+                    {
+                        "provider": candidate.provider,
+                        "ref": ref,
+                        "status": "skipped",
+                        "error": "tool is not configured",
+                    }
+                )
+                continue
+
+            mapped = self._map_arguments(arguments, candidate)
+            try:
                 execution = await self.mesh.execute(
                     ref,
                     mapped,
@@ -176,35 +232,30 @@ class CapabilityRegistry:
                     timeout_seconds=timeout_seconds,
                     dry_run=dry_run,
                 )
-                attempts.append(
-                    {
-                        "provider": candidate.provider,
-                        "ref": ref,
-                        "status": execution.get("status"),
-                        "error": execution.get("error"),
-                    }
-                )
-                if execution.get("status") != "failed":
-                    return {
-                        "capability": capability_id,
-                        "selected": ref,
-                        "attempts": attempts,
-                        "execution": execution,
-                        "duration_ms": max(0, int((time.time() - started) * 1000)),
-                    }
-                if not capability.read_only or descriptor.get("side_effecting"):
-                    break
-            except Exception as exc:  # noqa: BLE001 - read-only provider fallback boundary
-                attempts.append(
-                    {
-                        "provider": candidate.provider,
-                        "ref": candidate.ref,
-                        "status": "failed",
-                        "error": str(exc),
-                    }
-                )
-                if not capability.read_only:
-                    break
+            except Exception as exc:  # noqa: BLE001 - provider execution boundary
+                execution = {"status": "failed", "error": str(exc)}
+
+            attempts.append(
+                {
+                    "provider": candidate.provider,
+                    "ref": ref,
+                    "status": execution.get("status"),
+                    "error": execution.get("error"),
+                }
+            )
+            if execution.get("status") != "failed":
+                return {
+                    "capability": capability_id,
+                    "selected": ref,
+                    "attempts": attempts,
+                    "execution": execution,
+                    "duration_ms": max(0, int((time.time() - started) * 1000)),
+                }
+
+            # After a side-effecting execution has actually started we fail closed.
+            # Retrying another backend could duplicate an action whose outcome is unknown.
+            if not capability.read_only or descriptor.get("side_effecting"):
+                break
 
         return {
             "capability": capability_id,
@@ -734,6 +785,19 @@ def _connected_capabilities() -> list[Capability]:
                     },
                     passthrough_arguments=False,
                     note="Ephemeral isolated Higgsfield Linux sandbox.",
+                ),
+                CapabilityCandidate(
+                    provider="nativesandbox",
+                    ref="nativesandbox:exec",
+                    priority=50,
+                    argument_map={
+                        "command": "command",
+                        "timeout_seconds": "timeout_seconds",
+                        "background": "background",
+                        "restart": "restart",
+                    },
+                    passthrough_arguments=False,
+                    note="First-party Vercel Sandbox fallback selected only during preflight.",
                 ),
             ),
         ),

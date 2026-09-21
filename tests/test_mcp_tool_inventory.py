@@ -3,7 +3,10 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
 from internet_hands import saas_app
+from internet_hands.mcp_server import sandbox_mcp
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -70,3 +73,15 @@ def test_production_app_imports_all_registration_modules() -> None:
     assert "browser_mcp" in fleet
     assert "tool_mcp" in fleet
     assert saas_app.app.title == "Internet Hands"
+
+
+@pytest.mark.asyncio
+async def test_runtime_mcp_server_lists_all_54_callable_tools_with_schemas() -> None:
+    tools = await sandbox_mcp.list_tools()
+    names = {tool.name for tool in tools}
+    expected = set().union(*EXPECTED.values())
+
+    assert names == expected
+    assert len(tools) == 54
+    assert all(isinstance(tool.input_schema, dict) for tool in tools)
+    assert all(tool.name and tool.description for tool in tools)
