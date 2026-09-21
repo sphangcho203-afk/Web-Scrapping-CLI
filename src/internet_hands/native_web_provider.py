@@ -66,6 +66,7 @@ class NativeWebToolProvider:
                 tags=["web", "search", "brave", "native", "fallback"],
                 requires_auth=True,
                 side_effecting=False,
+                metadata={"configured": bool(os.getenv("BRAVE_SEARCH_API_KEY"))},
             ),
             "map": ToolDescriptor(
                 ref="nativeweb:map",
