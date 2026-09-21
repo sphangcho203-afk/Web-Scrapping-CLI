@@ -69,7 +69,7 @@ def _choose_provider(requested: str | None = None):
         if provider.configured():
             return provider
     raise PhoneVerificationError(
-        "no phone verification provider is configured; configure Twilio Verify, Vonage Verify, or MSG91"
+        "no phone verification provider is configured; configure Twilio Verify, Vonage Verify, MSG91, or a self-hosted SMS gateway"
     )
 
 
@@ -83,9 +83,9 @@ def _provider_channel(provider_name: str, requested: str) -> str:
         if channel == "whatsapp":
             raise ValueError("whatsapp verification requires the Twilio provider")
         return channel
-    if provider_name == "msg91":
+    if provider_name in {"msg91", "smsgate"}:
         if channel != "sms":
-            raise ValueError("MSG91 direct verification currently supports SMS")
+            raise ValueError(f"{provider_name} verification currently supports SMS only")
         return channel
     return channel
 
