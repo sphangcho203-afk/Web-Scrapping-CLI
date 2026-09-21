@@ -798,7 +798,7 @@ class ControlStore:
             )
         return int(estimate.credits)
 
-    def charge_tool_call(
+    def reserve_tool_call(
         self,
         *,
         identity: AuthIdentity,
@@ -813,12 +813,13 @@ class ControlStore:
             tool_name=tool_name,
             arguments=arguments,
         )
-        cost = int(quote["credits"])
+        reserved = int(quote["credits"])
         provider = None
         if arguments:
             ref = str(arguments.get("ref") or "")
             if ":" in ref:
                 provider = ref.split(":", 1)[0]
+
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -827,73 +828,47 @@ class ControlStore:
                 )
                 if int(cur.fetchone()["n"]) >= identity.rpm_limit:
                     raise ControlError("rate_limited", "rate limit exceeded", 429)
-                if cost:
-                    cur.execute(
-                        "SELECT monthly_credits,purchased_credits FROM ih_wallets WHERE user_id=%s FOR UPDATE",
-                        (identity.user_id,),
+
+                cur.execute(
+                    """
+                    SELECT monthly_credits,purchased_credits,reserved_credits
+                    FROM ih_wallets WHERE user_id=%s FOR UPDATE
+                    """,
+                    (identity.user_id,),
+                )
+                wallet = cur.fetchone()
+                if not wallet:
+                    raise ControlError("wallet_missing", "wallet not found", 500)
+
+                total = int(wallet["monthly_credits"]) + int(wallet["purchased_credits"])
+                already_reserved = int(wallet["reserved_credits"])
+                available = total - already_reserved
+                if available < reserved:
+                    raise ControlError(
+                        "insufficient_credits",
+                        (
+                            f"this call requires {reserved} reserved credits but only "
+                            f"{max(0, available)} are currently available"
+                        ),
+                        402,
                     )
-                    wallet = cur.fetchone()
-                    if not wallet:
-                        raise ControlError("wallet_missing", "wallet not found", 500)
-                    monthly = int(wallet["monthly_credits"])
-                    purchased = int(wallet["purchased_credits"])
-                    if monthly + purchased < cost:
-                        raise ControlError(
-                            "insufficient_credits",
-                            f"this call requires {cost} credits but the wallet has {monthly + purchased}",
-                            402,
-                        )
-                    from_monthly = min(monthly, cost)
-                    from_purchased = cost - from_monthly
+
+                if reserved:
                     cur.execute(
                         """
-                        UPDATE ih_wallets SET monthly_credits=monthly_credits-%s,
-                            purchased_credits=purchased_credits-%s,updated_at=now()
+                        UPDATE ih_wallets
+                        SET reserved_credits=reserved_credits+%s,updated_at=now()
                         WHERE user_id=%s
                         """,
-                        (from_monthly, from_purchased, identity.user_id),
+                        (reserved, identity.user_id),
                     )
-                    ledger_metadata = {
-                        "tool": tool_name,
-                        "plan": identity.plan_slug,
-                        "category": quote["category"],
-                        "provider_class": quote["provider_class"],
-                        "pricing_breakdown": quote["breakdown"],
-                    }
-                    if from_monthly:
-                        cur.execute(
-                            """
-                            INSERT INTO ih_credit_ledger(id,user_id,amount,bucket,kind,source,reference_id,metadata)
-                            VALUES (%s,%s,%s,'monthly','usage','mcp',%s,%s::jsonb)
-                            """,
-                            (
-                                self._new_id("led"),
-                                identity.user_id,
-                                -from_monthly,
-                                request_id,
-                                json.dumps(ledger_metadata),
-                            ),
-                        )
-                    if from_purchased:
-                        cur.execute(
-                            """
-                            INSERT INTO ih_credit_ledger(id,user_id,amount,bucket,kind,source,reference_id,metadata)
-                            VALUES (%s,%s,%s,'purchased','usage','mcp',%s,%s::jsonb)
-                            """,
-                            (
-                                self._new_id("led"),
-                                identity.user_id,
-                                -from_purchased,
-                                request_id,
-                                json.dumps(ledger_metadata),
-                            ),
-                        )
+
                 cur.execute(
                     """
                     INSERT INTO ih_usage_events(
                         id,user_id,api_key_id,request_id,tool_ref,provider,status,
                         credits_charged,input_bytes,metadata
-                    ) VALUES (%s,%s,%s,%s,%s,%s,'accepted',%s,%s,%s::jsonb)
+                    ) VALUES (%s,%s,%s,%s,%s,%s,'reserved',0,%s,%s::jsonb)
                     """,
                     (
                         self._new_id("use"),
@@ -902,13 +877,16 @@ class ControlStore:
                         request_id,
                         tool_name,
                         provider,
-                        cost,
                         input_bytes,
                         json.dumps(
                             {
                                 "auth_source": identity.source,
                                 "arguments_present": bool(arguments),
                                 "plan": identity.plan_slug,
+                                "reservation": {
+                                    "credits": reserved,
+                                    "state": "reserved",
+                                },
                                 "pricing": {
                                     "category": quote["category"],
                                     "provider_class": quote["provider_class"],
@@ -920,16 +898,235 @@ class ControlStore:
                     ),
                 )
             conn.commit()
-        return cost
+        return reserved
 
-    def finish_usage(self, request_id: str, *, status: str, latency_ms: int, output_bytes: int) -> None:
+    def settle_tool_call(
+        self,
+        request_id: str,
+        *,
+        status: str,
+        latency_ms: int,
+        output_bytes: int,
+        actual_credits: int | None = None,
+    ) -> int:
         self.ensure_schema()
-        with self._connect() as conn, conn.cursor() as cur:
-            cur.execute(
-                "UPDATE ih_usage_events SET status=%s,latency_ms=%s,output_bytes=%s WHERE request_id=%s",
-                (status, latency_ms, output_bytes, request_id),
-            )
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT user_id,status,credits_charged,metadata
+                    FROM ih_usage_events
+                    WHERE request_id=%s
+                    FOR UPDATE
+                    """,
+                    (request_id,),
+                )
+                event = cur.fetchone()
+                if not event:
+                    return 0
+
+                if event["status"] != "reserved":
+                    cur.execute(
+                        """
+                        UPDATE ih_usage_events
+                        SET status=%s,latency_ms=%s,output_bytes=%s
+                        WHERE request_id=%s
+                        """,
+                        (status, latency_ms, output_bytes, request_id),
+                    )
+                    conn.commit()
+                    return int(event["credits_charged"] or 0)
+
+                metadata = dict(event.get("metadata") or {})
+                reservation = dict(metadata.get("reservation") or {})
+                reserved = max(0, int(reservation.get("credits") or 0))
+                actual = reserved if actual_credits is None else max(0, int(actual_credits))
+                if actual > reserved:
+                    raise ControlError(
+                        "reservation_exceeded",
+                        (
+                            f"actual cost {actual} exceeds reserved amount {reserved}; "
+                            "the estimator must reserve the maximum possible charge"
+                        ),
+                        500,
+                    )
+
+                cur.execute(
+                    """
+                    SELECT monthly_credits,purchased_credits,reserved_credits
+                    FROM ih_wallets
+                    WHERE user_id=%s
+                    FOR UPDATE
+                    """,
+                    (event["user_id"],),
+                )
+                wallet = cur.fetchone()
+                if not wallet:
+                    raise ControlError("wallet_missing", "wallet not found", 500)
+
+                monthly = int(wallet["monthly_credits"])
+                purchased = int(wallet["purchased_credits"])
+                from_monthly = min(monthly, actual)
+                from_purchased = actual - from_monthly
+                if from_purchased > purchased:
+                    raise ControlError(
+                        "wallet_invariant",
+                        "reserved credits can no longer be settled from the wallet",
+                        500,
+                    )
+
+                cur.execute(
+                    """
+                    UPDATE ih_wallets
+                    SET monthly_credits=monthly_credits-%s,
+                        purchased_credits=purchased_credits-%s,
+                        reserved_credits=GREATEST(reserved_credits-%s,0),
+                        updated_at=now()
+                    WHERE user_id=%s
+                    """,
+                    (from_monthly, from_purchased, reserved, event["user_id"]),
+                )
+
+                ledger_metadata = {
+                    "tool": metadata.get("tool"),
+                    "plan": metadata.get("plan"),
+                    "pricing": metadata.get("pricing") or {},
+                    "reservation": {
+                        "reserved": reserved,
+                        "settled": actual,
+                        "released": reserved - actual,
+                    },
+                }
+                tool_name = str(
+                    (
+                        metadata.get("pricing")
+                        or {}
+                    ).get("tool")
+                    or ""
+                )
+                if not tool_name:
+                    cur.execute(
+                        "SELECT tool_ref FROM ih_usage_events WHERE request_id=%s",
+                        (request_id,),
+                    )
+                    row = cur.fetchone()
+                    tool_name = str(row["tool_ref"] or "") if row else ""
+                ledger_metadata["tool"] = tool_name
+
+                if from_monthly:
+                    cur.execute(
+                        """
+                        INSERT INTO ih_credit_ledger(
+                            id,user_id,amount,bucket,kind,source,reference_id,metadata
+                        ) VALUES (%s,%s,%s,'monthly','usage','mcp',%s,%s::jsonb)
+                        """,
+                        (
+                            self._new_id("led"),
+                            event["user_id"],
+                            -from_monthly,
+                            request_id,
+                            json.dumps(ledger_metadata),
+                        ),
+                    )
+                if from_purchased:
+                    cur.execute(
+                        """
+                        INSERT INTO ih_credit_ledger(
+                            id,user_id,amount,bucket,kind,source,reference_id,metadata
+                        ) VALUES (%s,%s,%s,'purchased','usage','mcp',%s,%s::jsonb)
+                        """,
+                        (
+                            self._new_id("led"),
+                            event["user_id"],
+                            -from_purchased,
+                            request_id,
+                            json.dumps(ledger_metadata),
+                        ),
+                    )
+
+                reservation.update(
+                    {
+                        "state": "settled",
+                        "reserved": reserved,
+                        "settled": actual,
+                        "released": reserved - actual,
+                    }
+                )
+                metadata["reservation"] = reservation
+                cur.execute(
+                    """
+                    UPDATE ih_usage_events
+                    SET status=%s,credits_charged=%s,latency_ms=%s,output_bytes=%s,
+                        metadata=%s::jsonb
+                    WHERE request_id=%s
+                    """,
+                    (
+                        status,
+                        actual,
+                        latency_ms,
+                        output_bytes,
+                        json.dumps(metadata),
+                        request_id,
+                    ),
+                )
             conn.commit()
+        return actual
+
+    def release_tool_reservation(
+        self,
+        request_id: str,
+        *,
+        status: str = "cancelled",
+        latency_ms: int = 0,
+        output_bytes: int = 0,
+    ) -> int:
+        return self.settle_tool_call(
+            request_id,
+            status=status,
+            latency_ms=latency_ms,
+            output_bytes=output_bytes,
+            actual_credits=0,
+        )
+
+    def charge_tool_call(
+        self,
+        *,
+        identity: AuthIdentity,
+        request_id: str,
+        tool_name: str,
+        arguments: dict[str, Any] | None,
+        input_bytes: int,
+    ) -> int:
+        """Compatibility path: reserve and immediately settle the quoted cost."""
+        reserved = self.reserve_tool_call(
+            identity=identity,
+            request_id=request_id,
+            tool_name=tool_name,
+            arguments=arguments,
+            input_bytes=input_bytes,
+        )
+        return self.settle_tool_call(
+            request_id,
+            status="accepted",
+            latency_ms=0,
+            output_bytes=0,
+            actual_credits=reserved,
+        )
+
+    def finish_usage(
+        self,
+        request_id: str,
+        *,
+        status: str,
+        latency_ms: int,
+        output_bytes: int,
+    ) -> None:
+        self.settle_tool_call(
+            request_id,
+            status=status,
+            latency_ms=latency_ms,
+            output_bytes=output_bytes,
+        )
 
     def usage_summary(self, user_id: str) -> dict[str, Any]:
         self.ensure_schema()
