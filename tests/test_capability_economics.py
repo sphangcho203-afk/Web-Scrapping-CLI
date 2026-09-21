@@ -444,3 +444,55 @@ def test_measured_sandbox_runtime_can_release_timeout_headroom() -> None:
         latency_ms=12_000,
     )
     assert settled == 8
+
+
+
+def test_measured_raw_provider_refunds_surcharge_when_not_executed() -> None:
+    settled = settle_measured_cost(
+        "mesh_execute",
+        {
+            "ref": "apify:actor",
+            "arguments": {"query": "example"},
+        },
+        "pro",
+        reserved_credits=12,
+        execution_usage={"counters": {}, "provider_calls": {}},
+        latency_ms=25,
+    )
+    assert settled == 2
+
+
+def test_measured_raw_provider_keeps_surcharge_when_executed() -> None:
+    settled = settle_measured_cost(
+        "mesh_execute",
+        {
+            "ref": "apify:actor",
+            "arguments": {"query": "example"},
+        },
+        "pro",
+        reserved_credits=12,
+        execution_usage={
+            "counters": {},
+            "provider_calls": {"apify": 1},
+        },
+        latency_ms=500,
+    )
+    assert settled == 12
+
+
+def test_measured_firecrawl_provider_settles_to_its_actual_route() -> None:
+    settled = settle_measured_cost(
+        "mesh_execute",
+        {
+            "ref": "firecrawl:scrape",
+            "arguments": {"url": "https://example.com"},
+        },
+        "pro",
+        reserved_credits=7,
+        execution_usage={
+            "counters": {},
+            "provider_calls": {"firecrawl": 1},
+        },
+        latency_ms=500,
+    )
+    assert settled == 7
