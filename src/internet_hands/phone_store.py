@@ -162,28 +162,6 @@ class PhoneIdentityStore:
                 )
                 cur.execute(
                     """
-                    INSERT INTO ih_phone_identities(
-                        user_id,phone_e164,country_code,region_code,number_type,
-                        verified_at,verification_provider,carrier_name,line_type,
-                        risk_metadata,updated_at
-                    )
-                    VALUES (%s,%s,%s,%s,%s,NULL,NULL,NULL,NULL,'{}'::jsonb,now())
-                    ON CONFLICT (user_id) DO UPDATE SET
-                        phone_e164=EXCLUDED.phone_e164,
-                        country_code=EXCLUDED.country_code,
-                        region_code=EXCLUDED.region_code,
-                        number_type=EXCLUDED.number_type,
-                        verified_at=NULL,
-                        verification_provider=NULL,
-                        carrier_name=NULL,
-                        line_type=NULL,
-                        risk_metadata='{}'::jsonb,
-                        updated_at=now()
-                    """,
-                    (user_id, phone_e164, country_code, region_code, number_type),
-                )
-                cur.execute(
-                    """
                     INSERT INTO ih_phone_verifications(
                         id,user_id,phone_e164,provider,provider_request_id,
                         channel,status,attempts,expires_at,metadata
@@ -321,13 +299,41 @@ class PhoneIdentityStore:
                     """,
                     (now, json.dumps(metadata or {}), verification_id),
                 )
+                verification_metadata = row.get("metadata") or {}
+                normalized = (
+                    verification_metadata.get("normalized")
+                    if isinstance(verification_metadata, dict)
+                    else {}
+                ) or {}
                 cur.execute(
                     """
-                    UPDATE ih_phone_identities
-                    SET verified_at=%s,verification_provider=%s,updated_at=now()
-                    WHERE user_id=%s AND phone_e164=%s
+                    INSERT INTO ih_phone_identities(
+                        user_id,phone_e164,country_code,region_code,number_type,
+                        verified_at,verification_provider,carrier_name,line_type,
+                        risk_metadata,updated_at
+                    )
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,NULL,NULL,'{}'::jsonb,now())
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        phone_e164=EXCLUDED.phone_e164,
+                        country_code=EXCLUDED.country_code,
+                        region_code=EXCLUDED.region_code,
+                        number_type=EXCLUDED.number_type,
+                        verified_at=EXCLUDED.verified_at,
+                        verification_provider=EXCLUDED.verification_provider,
+                        carrier_name=NULL,
+                        line_type=NULL,
+                        risk_metadata='{}'::jsonb,
+                        updated_at=now()
                     """,
-                    (now, provider, user_id, row["phone_e164"]),
+                    (
+                        user_id,
+                        row["phone_e164"],
+                        normalized.get("country_code"),
+                        normalized.get("region_code"),
+                        normalized.get("number_type"),
+                        now,
+                        provider,
+                    ),
                 )
             conn.commit()
             return {**dict(row), "status": "verified", "completed_at": now}
