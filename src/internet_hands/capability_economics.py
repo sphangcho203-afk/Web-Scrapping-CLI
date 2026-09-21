@@ -230,13 +230,13 @@ def _phone_cost(
     # No explicit provider list means the runtime must choose a plan-bounded provider
     # set before execution. We intentionally do not guess shared paid-provider spend here.
     if not providers:
-        if plan.max_external_sources == 0:
+        if not external:
             return 2, "local", breakdown, None
         return (
             2,
-            plan.max_provider_class,
+            "local",
             breakdown,
-            "provider_selection_required",
+            "external phone intelligence requires an explicit provider list",
         )
 
     if len(providers) > plan.max_external_sources:
@@ -329,7 +329,7 @@ def estimate_call(
 
     if tool_name == "phone_number_lookup":
         credits, provider_class, phone_breakdown, reason = _phone_cost(plan, args)
-        allowed = reason is None or reason == "provider_selection_required"
+        allowed = reason is None
         return CostEstimate(
             allowed=allowed,
             plan=plan.slug,
@@ -348,6 +348,33 @@ def estimate_call(
 
     if tool_name == "mesh_execute":
         ref = str(args.get("ref") or args.get("tool") or "").strip().lower()
+        nested_arguments = (
+            dict(args.get("arguments") or {})
+            if isinstance(args.get("arguments"), dict)
+            else {}
+        )
+        if ref == "phoneintel:lookup":
+            nested = estimate_call(
+                "phone_number_lookup",
+                nested_arguments,
+                plan.slug,
+            )
+            return CostEstimate(
+                allowed=nested.allowed,
+                plan=plan.slug,
+                tool_name=tool_name,
+                category="phone_intelligence",
+                credits=nested.credits,
+                minimum_plan=nested.minimum_plan,
+                provider_class=nested.provider_class,
+                reason=nested.reason,
+                breakdown=(
+                    {"kind": "routed_tool", "ref": ref, "credits": 0},
+                    *nested.breakdown,
+                ),
+                limits=plan.to_dict(),
+            )
+
         prefix = ref.split(":", 1)[0] if ":" in ref else ""
         if prefix in RAW_PROVIDER_SURCHARGES:
             raw_class, surcharge = RAW_PROVIDER_SURCHARGES[prefix]
@@ -392,10 +419,78 @@ def estimate_call(
                 tuple(breakdown),
                 plan.to_dict(),
             )
-        if count:
-            surcharge = count
-            cost += surcharge
-            breakdown.append({"kind": "batch_calls", "units": count, "credits": surcharge})
+        if isinstance(calls, list):
+            for index, call in enumerate(calls):
+                if not isinstance(call, dict):
+                    return CostEstimate(
+                        False,
+                        plan.slug,
+                        tool_name,
+                        rule.category,
+                        cost,
+                        rule.minimum_plan,
+                        provider_class,
+                        f"batch call {index} is not an object",
+                        tuple(breakdown),
+                        plan.to_dict(),
+                    )
+                nested = estimate_call("mesh_execute", call, plan.slug)
+                if not nested.allowed:
+                    return CostEstimate(
+                        False,
+                        plan.slug,
+                        tool_name,
+                        rule.category,
+                        cost,
+                        rule.minimum_plan,
+                        nested.provider_class,
+                        f"batch call {index}: {nested.reason}",
+                        tuple(breakdown),
+                        plan.to_dict(),
+                    )
+                cost += nested.credits
+                breakdown.append(
+                    {
+                        "kind": "batch_call",
+                        "index": index,
+                        "credits": nested.credits,
+                        "provider_class": nested.provider_class,
+                    }
+                )
+                if (
+                    PROVIDER_CLASS_ORDER[nested.provider_class]
+                    > PROVIDER_CLASS_ORDER[provider_class]
+                ):
+                    provider_class = nested.provider_class
+
+    if tool_name == "mesh_capability_execute":
+        capability = str(args.get("capability") or "").strip()
+        nested_arguments = (
+            dict(args.get("arguments") or {})
+            if isinstance(args.get("arguments"), dict)
+            else {}
+        )
+        if capability == "phone.number.lookup":
+            nested = estimate_call("phone_number_lookup", nested_arguments, plan.slug)
+            return CostEstimate(
+                allowed=nested.allowed,
+                plan=plan.slug,
+                tool_name=tool_name,
+                category="phone_intelligence",
+                credits=nested.credits,
+                minimum_plan=nested.minimum_plan,
+                provider_class=nested.provider_class,
+                reason=nested.reason,
+                breakdown=(
+                    {
+                        "kind": "semantic_capability",
+                        "capability": capability,
+                        "credits": 0,
+                    },
+                    *nested.breakdown,
+                ),
+                limits=plan.to_dict(),
+            )
 
     units = _bounded_units(rule, args)
     if units:
