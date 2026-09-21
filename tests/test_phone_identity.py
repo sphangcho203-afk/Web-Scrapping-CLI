@@ -3,7 +3,9 @@ from __future__ import annotations
 import pytest
 
 from internet_hands.phone_identity import (
+    Msg91VerifyProvider,
     TwilioVerifyProvider,
+    _local_phone_intelligence,
     VonageVerifyProvider,
     mask_phone,
     normalize_phone,
@@ -95,3 +97,37 @@ def test_provider_selection_falls_back_only_before_send(monkeypatch: pytest.Monk
 
     provider = select_verification_provider()
     assert provider.name == "vonage"
+
+
+def test_local_intelligence_is_free_and_rich() -> None:
+    data = _local_phone_intelligence("+14155552671")
+    assert data["provider"] == "libphonenumber"
+    assert "libphonenumber" in data["providers_used"]
+    assert data["formats"]["e164"] == "+14155552671"
+    assert isinstance(data["timezones"], list)
+    assert "sms_capable_heuristic" in data
+    assert "original_carrier" in data
+
+
+@pytest.mark.asyncio
+async def test_msg91_send_and_verify(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = Msg91VerifyProvider()
+    provider.auth_key = "auth"
+    provider.template_id = "template"
+
+    calls: list[tuple[str, str, dict[str, str]]] = []
+
+    async def fake_request(method: str, path: str, *, params: dict[str, str]):
+        calls.append((method, path, params))
+        if path == "/verify":
+            return {"type": "success", "message": "OTP verified success"}
+        return {"type": "success", "message": "OTP sent"}
+
+    monkeypatch.setattr(provider, "_request", fake_request)
+    started = await provider.start("+919876543210", channel="sms")
+    checked = await provider.check("+919876543210", started.request_id, "123456")
+
+    assert started.provider == "msg91"
+    assert checked.approved is True
+    assert calls[0][2]["mobile"] == "919876543210"
+    assert calls[1][2]["otp"] == "123456"
