@@ -36,7 +36,7 @@ def test_playground_usage_is_priced_and_registered() -> None:
 
 def test_playground_dashboard_surface() -> None:
     app = Path("web/app.js").read_text(encoding="utf-8")
-    assert "/dashboard/playground" in app
+    assert "dashboardShell('playground'" in app
     assert "Create API key" in app
     assert "/api/playground/run" in app
     assert "Run metered crawl" in app
