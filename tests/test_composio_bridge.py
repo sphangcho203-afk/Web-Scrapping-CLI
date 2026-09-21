@@ -52,6 +52,7 @@ async def test_connected_only_filters_unconnected_toolkits() -> None:
         tools = await provider.search("anything", limit=10)
         assert [tool.ref for tool in tools] == ["composio:GITHUB_GET_REPO"]
         assert tools[0].metadata["connected"] is True
+        assert tools[0].metadata["configured"] is False
         assert tools[0].metadata["account_routing"] == "locked"
         assert "connected_account_aliases" not in tools[0].metadata
 
@@ -76,6 +77,31 @@ async def test_execution_is_locked_without_account_policy() -> None:
         )
         with pytest.raises(PermissionError, match="routing is locked"):
             await provider.execute("GITHUB_CREATE_ISSUE", {"title": "x"})
+
+
+@pytest.mark.asyncio
+async def test_allowlisted_connection_is_reported_configured() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/connected_accounts"):
+            return httpx.Response(
+                200,
+                json={"items": [_connection("ca_work", "github", "work")]},
+            )
+        if request.url.path.endswith("/tools/GITHUB_CREATE_ISSUE"):
+            return httpx.Response(200, json=_tool("GITHUB_CREATE_ISSUE"))
+        raise AssertionError(str(request.url))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = ComposioBridgeProvider(
+            api_key="key",
+            base_url="https://composio.test/api/v3.1",
+            client=client,
+            allowed_accounts={"work"},
+        )
+        descriptor = await provider.describe("GITHUB_CREATE_ISSUE")
+        assert descriptor.metadata["connected"] is True
+        assert descriptor.metadata["configured"] is True
+        assert descriptor.metadata["account_routing"] == "configured"
 
 
 @pytest.mark.asyncio
