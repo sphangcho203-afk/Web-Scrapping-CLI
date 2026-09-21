@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from typing import Any
@@ -7,6 +8,8 @@ from typing import Any
 from .sandbox_manager import SandboxManager
 from .tool_mesh import ToolDescriptor
 from .vercel_sandbox import VercelSandboxProvider
+
+logger = logging.getLogger(__name__)
 
 
 class NativeSandboxToolProvider:
@@ -160,10 +163,10 @@ class NativeSandboxToolProvider:
         finally:
             try:
                 await manager.delete(sandbox_name)
-            except Exception:
+            except Exception as exc:  # noqa: BLE001 - best-effort cleanup boundary
                 # Command outcome is more important than cleanup telemetry. The sandbox
                 # timeout remains a hard upper bound if deletion is temporarily unavailable.
-                pass
+                logger.warning("native sandbox cleanup failed for %s: %s", sandbox_name, exc)
 
     async def job_status(self, job_id: str, *, wait_seconds: int = 0) -> dict[str, Any]:
         del job_id, wait_seconds
