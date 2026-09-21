@@ -204,5 +204,5 @@ async def playground_run(request: Request):
         elapsed = max(0, int((time.monotonic() - started) * 1000))
         try:
             store.finish_usage(request_id, status=status, latency_ms=elapsed, output_bytes=output_bytes)
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 -- metering cleanup must not mask response
             pass
