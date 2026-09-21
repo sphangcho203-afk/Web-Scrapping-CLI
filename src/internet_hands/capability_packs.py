@@ -620,6 +620,56 @@ def _phone_capabilities() -> list[Capability]:
     ]
 
 
+def _caller_capabilities() -> list[Capability]:
+    return [
+        Capability(
+            id="phone.caller.lookup",
+            name="Unknown caller public intelligence",
+            description=(
+                "Combine phone-network metadata with bounded exact-number public-web "
+                "evidence for an unknown caller without exposing private subscriber records."
+            ),
+            pack="phone",
+            tags=("phone", "caller", "unknown-call", "osint", "public-web"),
+            input_schema={
+                "type": "object",
+                "required": ["number"],
+                "properties": {
+                    "number": {"type": "string"},
+                    "region": {"type": "string"},
+                    "public_search": {"type": "boolean"},
+                    "max_results": {"type": "integer", "minimum": 1, "maximum": 20},
+                    "telecom_external": {"type": "boolean"},
+                    "telecom_providers": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["veriphone", "abstract", "numverify", "twilio"],
+                        },
+                    },
+                },
+            },
+            candidates=(
+                CapabilityCandidate(
+                    provider="callerintel",
+                    ref="callerintel:lookup",
+                    priority=10,
+                    argument_map={
+                        "number": "number",
+                        "region": "region",
+                        "public_search": "public_search",
+                        "max_results": "max_results",
+                        "telecom_external": "telecom_external",
+                        "telecom_providers": "telecom_providers",
+                    },
+                    passthrough_arguments=False,
+                    note="First-party bounded public caller-attribution provider.",
+                ),
+            ),
+        ),
+    ]
+
+
 def _connected_capabilities() -> list[Capability]:
     return [
         Capability(
@@ -852,4 +902,4 @@ def _connected_capabilities() -> list[Capability]:
 
 
 def build_default_capabilities() -> list[Capability]:
-    return [*_apify_capabilities(), *_mlbb_capabilities(), *_phone_capabilities(), *_connected_capabilities()]
+    return [*_apify_capabilities(), *_mlbb_capabilities(), *_phone_capabilities(), *_caller_capabilities(), *_connected_capabilities()]
