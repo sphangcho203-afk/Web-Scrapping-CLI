@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime
 from typing import Any
 
@@ -68,7 +69,7 @@ def _choose_provider(requested: str | None = None):
         if provider.configured():
             return provider
     raise PhoneVerificationError(
-        "no phone verification provider is configured; configure Twilio Verify or Vonage Verify"
+        "no phone verification provider is configured; configure Twilio Verify, Vonage Verify, MSG91, or a self-hosted SMS gateway"
     )
 
 
@@ -82,7 +83,33 @@ def _provider_channel(provider_name: str, requested: str) -> str:
         if channel == "whatsapp":
             raise ValueError("whatsapp verification requires the Twilio provider")
         return channel
+    if provider_name in {"msg91", "smsgate"}:
+        if channel != "sms":
+            raise ValueError(f"{provider_name} verification currently supports SMS only")
+        return channel
     return channel
+
+
+def _intelligence_metadata(intelligence: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "source": intelligence.get("source"),
+        "provider": intelligence.get("provider"),
+        "providers_used": intelligence.get("providers_used") or [],
+        "original_carrier": intelligence.get("original_carrier"),
+        "carrier_source": intelligence.get("carrier_source"),
+        "location_description": intelligence.get("location_description"),
+        "timezones": intelligence.get("timezones") or [],
+        "formats": intelligence.get("formats") or {},
+        "valid_for_region": intelligence.get("valid_for_region"),
+        "sms_capable_heuristic": intelligence.get("sms_capable_heuristic"),
+        "delivery_flags": intelligence.get("delivery_flags") or [],
+        "sim_swap": intelligence.get("sim_swap"),
+        "mobile_country_code": intelligence.get("mobile_country_code"),
+        "mobile_network_code": intelligence.get("mobile_network_code"),
+        "external": intelligence.get("external") or {},
+        "provider_errors": intelligence.get("provider_errors") or [],
+        "checked_at": datetime.now(UTC).isoformat(),
+    }
 
 
 @router.get("/api/auth/phone/providers")
@@ -98,11 +125,49 @@ async def phone_provider_status(request: Request):
                     ["sms", "voice", "whatsapp"]
                     if provider.name == "twilio"
                     else ["sms", "voice"]
+                    if provider.name == "vonage"
+                    else ["sms"]
                 ),
             }
         )
+    intelligence = [
+        {"provider": "libphonenumber", "configured": True, "cost": "free_offline"},
+        {
+            "provider": "veriphone",
+            "configured": bool(os.getenv("VERIPHONE_API_KEY", "").strip()),
+            "cost": "free_tier_or_paid",
+        },
+        {
+            "provider": "abstract",
+            "configured": bool(os.getenv("ABSTRACT_PHONE_API_KEY", "").strip()),
+            "cost": "free_tier_or_paid",
+        },
+        {
+            "provider": "numverify",
+            "configured": bool(
+                os.getenv("NUMVERIFY_API_KEY", "").strip()
+                or os.getenv("APILAYER_API_KEY", "").strip()
+            ),
+            "cost": "free_tier_or_paid",
+        },
+        {
+            "provider": "twilio_lookup",
+            "configured": bool(
+                (
+                    os.getenv("TWILIO_ACCOUNT_SID", "").strip()
+                    and os.getenv("TWILIO_AUTH_TOKEN", "").strip()
+                )
+                or (
+                    os.getenv("TWILIO_API_KEY", "").strip()
+                    and os.getenv("TWILIO_API_SECRET", "").strip()
+                )
+            ),
+            "cost": "paid_or_account_entitlement",
+        },
+    ]
     return {
         "providers": rows,
+        "intelligence_providers": intelligence,
         "local_validation": "libphonenumber",
         "subscriber_identity_lookup": False,
         "policy": (
@@ -313,15 +378,7 @@ async def phone_confirm(request: Request):
             user["id"],
             carrier_name=intelligence.get("carrier"),
             line_type=intelligence.get("line_type"),
-            risk_metadata={
-                "source": intelligence.get("source"),
-                "provider": intelligence.get("provider"),
-                "sim_swap": intelligence.get("sim_swap"),
-                "mobile_country_code": intelligence.get("mobile_country_code"),
-                "mobile_network_code": intelligence.get("mobile_network_code"),
-                "provider_error": intelligence.get("provider_error"),
-                "checked_at": datetime.now(UTC).isoformat(),
-            },
+            risk_metadata=_intelligence_metadata(intelligence),
         )
     except Exception:  # noqa: BLE001 -- enrichment must never invalidate ownership proof
         intelligence = None
