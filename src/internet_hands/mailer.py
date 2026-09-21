@@ -29,11 +29,11 @@ def _bool_env(name: str, default: bool) -> bool:
 
 
 def smtp_configured() -> bool:
-    return bool(os.getenv("SMTP_HOST") and _from_email())
+    return bool(os.getenv("SMTP_HOST") and _smtp_from_email())
 
 
 def resend_configured() -> bool:
-    return bool(os.getenv("RESEND_API_KEY") and _from_email())
+    return bool(os.getenv("RESEND_API_KEY") and _resend_from_email())
 
 
 def mail_provider() -> str | None:
@@ -51,18 +51,18 @@ def mail_provider() -> str | None:
     return None
 
 
-def _from_email() -> str | None:
-    return (
-        os.getenv("SMTP_FROM_EMAIL")
-        or os.getenv("INTERNET_HANDS_FROM_EMAIL")
-        or os.getenv("RESEND_FROM_EMAIL")
-    )
+def _smtp_from_email() -> str | None:
+    return os.getenv("SMTP_FROM_EMAIL") or os.getenv("INTERNET_HANDS_FROM_EMAIL")
 
 
-def _from_header() -> str:
-    email = _from_email()
+def _resend_from_email() -> str | None:
+    return os.getenv("RESEND_FROM_EMAIL") or os.getenv("INTERNET_HANDS_FROM_EMAIL")
+
+
+def _from_header(provider: str) -> str:
+    email = _smtp_from_email() if provider == "smtp" else _resend_from_email()
     if not email:
-        raise MailError("transactional email sender is not configured")
+        raise MailError(f"{provider} sender address is not configured")
     name = os.getenv("SMTP_FROM_NAME") or "Internet Hands"
     return formataddr((name, email))
 
@@ -82,12 +82,12 @@ def _send_smtp_sync(*, to: str, subject: str, text: str, html: str) -> MailResul
     username = os.getenv("SMTP_USERNAME")
     password = os.getenv("SMTP_PASSWORD")
 
-    sender_email = _from_email()
+    sender_email = _smtp_from_email()
     if not sender_email:
         raise MailError("SMTP sender address is not configured")
 
     message = EmailMessage()
-    message["From"] = _from_header()
+    message["From"] = _from_header("smtp")
     message["To"] = to
     message["Subject"] = subject
     message["Message-ID"] = make_msgid(domain=sender_email.split("@")[-1])
@@ -130,7 +130,7 @@ async def _send_resend(*, to: str, subject: str, text: str, html: str) -> MailRe
     if not api_key:
         raise MailError("RESEND_API_KEY is not configured")
     payload = {
-        "from": _from_header(),
+        "from": _from_header("resend"),
         "to": [to],
         "subject": subject,
         "text": text,
@@ -146,7 +146,16 @@ async def _send_resend(*, to: str, subject: str, text: str, html: str) -> MailRe
     except httpx.HTTPError as exc:
         raise MailError(f"Resend delivery failed: {exc}") from exc
     if not response.is_success:
-        raise MailError(f"Resend delivery failed with HTTP {response.status_code}")
+        detail = ""
+        try:
+            body = response.json()
+            if isinstance(body, dict):
+                detail = str(body.get("message") or body.get("error") or body.get("name") or "")
+        except ValueError:
+            detail = response.text
+        detail = " ".join(detail.split())[:300]
+        suffix = f": {detail}" if detail else ""
+        raise MailError(f"Resend delivery failed with HTTP {response.status_code}{suffix}")
     body = response.json()
     return MailResult(provider="resend", message_id=str(body.get("id") or "") or None)
 
@@ -185,11 +194,15 @@ async def send_mail(*, to: str, subject: str, text: str, html: str) -> MailResul
             return await _send_resend(to=to, subject=subject, text=text, html=html)
         except MailError as exc:
             if smtp_error is not None:
-                raise MailError("transactional email failed through SMTP and Resend fallback") from exc
+                raise MailError(
+                    f"SMTP failed ({smtp_error}); Resend fallback failed ({exc})"
+                ) from exc
             raise
 
     if resend_error is not None and smtp_error is not None:
-        raise MailError("transactional email failed through Resend and SMTP fallback") from smtp_error
+        raise MailError(
+            f"Resend failed ({resend_error}); SMTP fallback failed ({smtp_error})"
+        ) from smtp_error
     if resend_error is not None:
         raise resend_error
     if smtp_error is not None:
