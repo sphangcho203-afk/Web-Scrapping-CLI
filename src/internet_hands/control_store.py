@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import fnmatch
 import json
 import os
 import secrets
@@ -14,6 +13,7 @@ import psycopg
 from psycopg.errors import UniqueViolation
 from psycopg.rows import dict_row
 
+from .capability_economics import estimate_call
 
 SCHEMA_SQL = r"""
 CREATE TABLE IF NOT EXISTS ih_users (
@@ -765,27 +765,38 @@ class ControlStore:
             row = cur.fetchone()
             return self._identity_from_key_row(dict(row), "oauth") if row else None
 
-    def tool_cost(self, tool_name: str, arguments: dict[str, Any] | None = None) -> int:
-        self.ensure_schema()
-        with self._connect() as conn, conn.cursor() as cur:
-            cur.execute("SELECT pattern,base_credits FROM ih_tool_costs WHERE active=true")
-            rows = cur.fetchall()
-        matches = [(r["pattern"], int(r["base_credits"])) for r in rows if fnmatch.fnmatch(tool_name, r["pattern"])]
-        if matches:
-            matches.sort(key=lambda item: len(item[0].replace("*", "")), reverse=True)
-            cost = matches[0][1]
-        else:
-            cost = 1
-        args = arguments or {}
-        if tool_name == "mesh_execute":
-            ref = str(args.get("ref") or args.get("tool") or "").lower()
-            if ref.startswith("firecrawl:"):
-                cost = max(cost, 5)
-            elif ref.startswith("apify:"):
-                cost = max(cost, 10)
-            elif ref.startswith("mcp:"):
-                cost = max(cost, 2)
-        return cost
+    def quote_tool_call(
+        self,
+        *,
+        identity: AuthIdentity,
+        tool_name: str,
+        arguments: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        estimate = estimate_call(tool_name, arguments, identity.plan_slug)
+        quote = estimate.to_dict()
+        if not estimate.allowed:
+            raise ControlError(
+                "plan_restricted",
+                estimate.reason or "tool is unavailable on the current plan",
+                403,
+            )
+        return quote
+
+    def tool_cost(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        plan_slug: str = "free",
+    ) -> int:
+        estimate = estimate_call(tool_name, arguments, plan_slug)
+        if not estimate.allowed:
+            raise ControlError(
+                "plan_restricted",
+                estimate.reason or "tool is unavailable on the current plan",
+                403,
+            )
+        return int(estimate.credits)
 
     def charge_tool_call(
         self,
@@ -797,7 +808,12 @@ class ControlStore:
         input_bytes: int,
     ) -> int:
         self.ensure_schema()
-        cost = self.tool_cost(tool_name, arguments)
+        quote = self.quote_tool_call(
+            identity=identity,
+            tool_name=tool_name,
+            arguments=arguments,
+        )
+        cost = int(quote["credits"])
         provider = None
         if arguments:
             ref = str(arguments.get("ref") or "")
@@ -822,7 +838,11 @@ class ControlStore:
                     monthly = int(wallet["monthly_credits"])
                     purchased = int(wallet["purchased_credits"])
                     if monthly + purchased < cost:
-                        raise ControlError("insufficient_credits", "not enough credits for this call", 402)
+                        raise ControlError(
+                            "insufficient_credits",
+                            f"this call requires {cost} credits but the wallet has {monthly + purchased}",
+                            402,
+                        )
                     from_monthly = min(monthly, cost)
                     from_purchased = cost - from_monthly
                     cur.execute(
@@ -833,6 +853,13 @@ class ControlStore:
                         """,
                         (from_monthly, from_purchased, identity.user_id),
                     )
+                    ledger_metadata = {
+                        "tool": tool_name,
+                        "plan": identity.plan_slug,
+                        "category": quote["category"],
+                        "provider_class": quote["provider_class"],
+                        "pricing_breakdown": quote["breakdown"],
+                    }
                     if from_monthly:
                         cur.execute(
                             """
@@ -840,8 +867,11 @@ class ControlStore:
                             VALUES (%s,%s,%s,'monthly','usage','mcp',%s,%s::jsonb)
                             """,
                             (
-                                self._new_id("led"), identity.user_id, -from_monthly, request_id,
-                                json.dumps({"tool": tool_name}),
+                                self._new_id("led"),
+                                identity.user_id,
+                                -from_monthly,
+                                request_id,
+                                json.dumps(ledger_metadata),
                             ),
                         )
                     if from_purchased:
@@ -851,8 +881,11 @@ class ControlStore:
                             VALUES (%s,%s,%s,'purchased','usage','mcp',%s,%s::jsonb)
                             """,
                             (
-                                self._new_id("led"), identity.user_id, -from_purchased, request_id,
-                                json.dumps({"tool": tool_name}),
+                                self._new_id("led"),
+                                identity.user_id,
+                                -from_purchased,
+                                request_id,
+                                json.dumps(ledger_metadata),
                             ),
                         )
                 cur.execute(
@@ -863,9 +896,27 @@ class ControlStore:
                     ) VALUES (%s,%s,%s,%s,%s,%s,'accepted',%s,%s,%s::jsonb)
                     """,
                     (
-                        self._new_id("use"), identity.user_id, identity.api_key_id, request_id,
-                        tool_name, provider, cost, input_bytes,
-                        json.dumps({"auth_source": identity.source, "arguments_present": bool(arguments)}),
+                        self._new_id("use"),
+                        identity.user_id,
+                        identity.api_key_id,
+                        request_id,
+                        tool_name,
+                        provider,
+                        cost,
+                        input_bytes,
+                        json.dumps(
+                            {
+                                "auth_source": identity.source,
+                                "arguments_present": bool(arguments),
+                                "plan": identity.plan_slug,
+                                "pricing": {
+                                    "category": quote["category"],
+                                    "provider_class": quote["provider_class"],
+                                    "minimum_plan": quote["minimum_plan"],
+                                    "breakdown": quote["breakdown"],
+                                },
+                            }
+                        ),
                     ),
                 )
             conn.commit()
