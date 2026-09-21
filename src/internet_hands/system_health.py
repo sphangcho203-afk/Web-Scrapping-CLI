@@ -65,7 +65,7 @@ async def system_health(
     authorization: str | None = Header(default=None),
     deep: bool = Query(default=False),
     strict: bool = Query(default=False),
-) -> dict[str, Any] | JSONResponse:
+) -> Any:
     """Operational health for provider routing and semantic capability coverage."""
     await _scheduler_authorized(authorization)
 
