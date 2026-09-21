@@ -81,6 +81,7 @@ def test_resend_provider_is_preferred_by_default(monkeypatch) -> None:
     monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
     monkeypatch.setenv("SMTP_FROM_EMAIL", "noreply@example.com")
     monkeypatch.setenv("RESEND_API_KEY", "resend-test")
+    monkeypatch.setenv("RESEND_FROM_EMAIL", "noreply@example.com")
     monkeypatch.delenv("MAIL_PROVIDER", raising=False)
     assert smtp_configured() is True
     assert mail_provider() == "resend"
@@ -90,6 +91,7 @@ def test_smtp_provider_can_be_selected_explicitly(monkeypatch) -> None:
     monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
     monkeypatch.setenv("SMTP_FROM_EMAIL", "noreply@example.com")
     monkeypatch.setenv("RESEND_API_KEY", "resend-test")
+    monkeypatch.setenv("RESEND_FROM_EMAIL", "noreply@example.com")
     monkeypatch.setenv("MAIL_PROVIDER", "smtp")
     assert mail_provider() == "smtp"
 
