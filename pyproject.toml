@@ -22,6 +22,7 @@ dependencies = [
   "mcp>=2.2,<3",
   "cryptography>=43,<47",
   "qrcode>=8.2,<9",
+  "phonenumbers>=9.0,<10",
 ]
 
 [project.optional-dependencies]
