@@ -676,3 +676,135 @@ def estimate_call(
         breakdown=tuple(breakdown),
         limits=plan.to_dict(),
     )
+
+
+
+def _measured_provider_surcharge(
+    provider_calls: dict[str, Any],
+) -> int:
+    total = 0
+    for provider, raw_count in provider_calls.items():
+        economics = PHONE_PROVIDER_ECONOMICS.get(str(provider).lower())
+        if economics is None:
+            continue
+        _, surcharge = economics
+        try:
+            count = max(0, int(raw_count))
+        except (TypeError, ValueError):
+            count = 0
+        total += surcharge * count
+    return total
+
+
+def settle_measured_cost(
+    tool_name: str,
+    arguments: dict[str, Any] | None,
+    plan_slug: str,
+    *,
+    reserved_credits: int,
+    execution_usage: dict[str, Any] | None = None,
+    latency_ms: int = 0,
+) -> int:
+    """Calculate a bounded post-run charge from measured work.
+
+    The reservation remains the hard upper bound. Tools without measured pricing
+    support keep their quoted reservation until they expose reliable work units.
+    """
+    reserved = max(0, int(reserved_credits))
+    args = arguments or {}
+    usage = execution_usage or {}
+    counters = usage.get("counters") or {}
+    provider_calls = usage.get("provider_calls") or {}
+    if not isinstance(counters, dict):
+        counters = {}
+    if not isinstance(provider_calls, dict):
+        provider_calls = {}
+
+    if tool_name == "mesh_execute":
+        ref = str(args.get("ref") or args.get("tool") or "").strip().lower()
+        nested_args = (
+            dict(args.get("arguments") or {})
+            if isinstance(args.get("arguments"), dict)
+            else {}
+        )
+        if ref == "phoneintel:lookup":
+            return settle_measured_cost(
+                "phone_number_lookup",
+                nested_args,
+                plan_slug,
+                reserved_credits=reserved,
+                execution_usage=usage,
+                latency_ms=latency_ms,
+            )
+        if ref == "callerintel:lookup":
+            return settle_measured_cost(
+                "phone_caller_lookup",
+                nested_args,
+                plan_slug,
+                reserved_credits=reserved,
+                execution_usage=usage,
+                latency_ms=latency_ms,
+            )
+
+    if tool_name == "mesh_capability_execute":
+        capability = str(args.get("capability") or "").strip()
+        nested_args = (
+            dict(args.get("arguments") or {})
+            if isinstance(args.get("arguments"), dict)
+            else {}
+        )
+        if capability == "phone.number.lookup":
+            return settle_measured_cost(
+                "phone_number_lookup",
+                nested_args,
+                plan_slug,
+                reserved_credits=reserved,
+                execution_usage=usage,
+                latency_ms=latency_ms,
+            )
+        if capability == "phone.caller.lookup":
+            return settle_measured_cost(
+                "phone_caller_lookup",
+                nested_args,
+                plan_slug,
+                reserved_credits=reserved,
+                execution_usage=usage,
+                latency_ms=latency_ms,
+            )
+
+    if tool_name == "phone_number_lookup":
+        actual = 2 + _measured_provider_surcharge(provider_calls)
+        return min(reserved, actual)
+
+    if tool_name == "phone_caller_lookup":
+        actual = 4
+        try:
+            search_calls = max(0, int(counters.get("public_search_call") or 0))
+        except (TypeError, ValueError):
+            search_calls = 0
+        try:
+            result_count = max(0, int(counters.get("public_search_result") or 0))
+        except (TypeError, ValueError):
+            result_count = 0
+
+        if search_calls:
+            actual += 4 * search_calls
+            actual += math.ceil(result_count / 5) if result_count else 0
+        actual += _measured_provider_surcharge(provider_calls)
+        return min(reserved, actual)
+
+    rule = _rule_for(tool_name)
+    if (
+        rule.category in {"browser", "sandbox"}
+        and rule.unit_field
+        and args.get(rule.unit_field) is not None
+        and rule.credits_per_unit > 0
+    ):
+        elapsed = max(0, int(latency_ms))
+        units = max(1, math.ceil(elapsed / max(1, rule.unit_size)))
+        if rule.max_units is not None:
+            units = min(units, rule.max_units)
+        actual = rule.base_credits + units * rule.credits_per_unit
+        return min(reserved, actual)
+
+    return reserved
