@@ -14,7 +14,6 @@ from .mcp_server import sandbox_mcp
 from .monitor_executor import router as monitor_executor_router
 from .monitor_lifecycle import router as monitor_lifecycle_router
 from .oauth_compat import router as oauth_compat_router
-from .phone_api import router as phone_router
 from .playground_api import router as playground_router
 from .security_api import router as security_router
 from .security_hardening import router as security_hardening_router
@@ -34,8 +33,7 @@ app = FastAPI(
     version="0.7.0",
     description=(
         "Internet Hands SaaS control plane, permanent MCP gateway, transactional email, "
-        "email and phone ownership verification, TOTP 2FA, billing, usage metering, "
-        "monitors, and capability fabric."
+        "email verification, TOTP 2FA, billing, usage metering, monitors, and capability fabric."
     ),
     lifespan=lifespan,
     docs_url=None,
@@ -46,7 +44,6 @@ app = FastAPI(
 app.include_router(oauth_compat_router)
 app.include_router(security_hardening_router)
 app.include_router(security_router)
-app.include_router(phone_router)
 app.include_router(hardening_router)
 app.include_router(monitor_executor_router)
 app.include_router(monitor_lifecycle_router)

@@ -17,6 +17,7 @@ from .gaming_providers import build_gaming_providers
 from .mcp_server import sandbox_mcp
 from .native_sandbox_provider import NativeSandboxToolProvider
 from .native_web_provider import NativeWebToolProvider
+from .phone_intelligence import PhoneIntelligenceProvider
 from .remote_mcp_provider import build_remote_mcp_provider
 from .tool_mesh import ToolMesh
 from .tool_providers import build_default_providers
@@ -31,6 +32,7 @@ def get_tool_mesh() -> ToolMesh:
             FirecrawlToolProvider(),
             NativeWebToolProvider(),
             NativeSandboxToolProvider(),
+            PhoneIntelligenceProvider(),
             *build_catalog_providers(),
             *build_gaming_providers(),
             *build_extra_gaming_providers(),
@@ -50,6 +52,26 @@ def get_capability_registry() -> CapabilityRegistry:
             *build_extra_gaming_capabilities(),
         ],
     )
+
+
+@sandbox_mcp.tool()
+async def phone_number_lookup(
+    number: str,
+    region: str | None = None,
+    external: bool = True,
+    providers: list[str] | None = None,
+) -> dict[str, Any]:
+    """Inspect telecom metadata and risk signals for a phone number without identifying a private subscriber."""
+    result = await get_tool_mesh().execute(
+        "phoneintel:lookup",
+        {
+            "number": number,
+            "region": region,
+            "external": external,
+            "providers": providers,
+        },
+    )
+    return result
 
 
 @sandbox_mcp.tool()

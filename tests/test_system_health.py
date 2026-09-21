@@ -49,7 +49,7 @@ async def test_system_health_reports_provider_and_fallback_coverage(monkeypatch)
     async def list_tools():
         return [
             SimpleNamespace(name=f"tool_{index}", input_schema={}, description="tool")
-            for index in range(54)
+            for index in range(55)
         ]
 
     monkeypatch.setattr(system_health, "_scheduler_authorized", authorized)
@@ -64,7 +64,7 @@ async def test_system_health_reports_provider_and_fallback_coverage(monkeypatch)
     result = await system_health.system_health("Bearer test", deep=False)
     assert result["status"] == "healthy"
     assert result["summary"]["provider_count"] == 2
-    assert result["mcp"]["registered_tools"] == 54
+    assert result["mcp"]["registered_tools"] == 55
     assert result["mcp"]["surface_ok"] is True
     assert result["summary"]["semantic_capabilities"] == 2
     assert result["summary"]["multi_provider_capabilities"] == 1
@@ -81,7 +81,7 @@ async def test_strict_health_returns_503_when_degraded(monkeypatch):
     async def list_tools():
         return [
             SimpleNamespace(name=f"tool_{index}", input_schema={}, description="tool")
-            for index in range(53)
+            for index in range(54)
         ]
 
     monkeypatch.setattr(system_health, "_scheduler_authorized", authorized)

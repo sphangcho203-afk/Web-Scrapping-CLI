@@ -1,6 +1,6 @@
 # Internet Hands account security
 
-Internet Hands v0.7 includes transactional email, email verification, phone ownership verification, login notifications, payment confirmations, and optional TOTP two-factor authentication.
+Internet Hands v0.7 includes transactional email, email verification, login notifications, payment confirmations, and optional TOTP two-factor authentication.
 
 ## Transactional email
 
@@ -50,92 +50,6 @@ Signup returns a provisional web session and sends the user to `/verify-email`.
 Password and GitHub login do the same for any account that is still pending.
 Creating API keys, monitors, billing orders, and OAuth grants is blocked until
 the Internet Hands email is verified.
-
-## Phone ownership verification
-
-Phone verification proves that the signed-in user controls a submitted phone number. Internet Hands does **not** expose a reverse-subscriber lookup or a "person behind the SIM" feature.
-
-Numbers are parsed and normalized locally with libphonenumber metadata before an external OTP is attempted. The provider layer currently supports Twilio Verify v2, Vonage Verify v2, and MSG91 SendOTP v5, with provider order controlled by:
-
-```text
-PHONE_VERIFY_PROVIDERS=twilio,vonage,msg91,smsgate
-```
-
-Twilio configuration:
-
-```text
-TWILIO_ACCOUNT_SID=
-TWILIO_AUTH_TOKEN=
-# or TWILIO_API_KEY / TWILIO_API_SECRET
-TWILIO_VERIFY_SERVICE_SID=
-TWILIO_LOOKUP_SIM_SWAP=0
-```
-
-Vonage fallback configuration:
-
-```text
-VONAGE_API_KEY=
-VONAGE_API_SECRET=
-VONAGE_VERIFY_BRAND=Internet Hands
-VONAGE_VERIFY_VOICE_FALLBACK=1
-VONAGE_VERIFY_FRAUD_CHECK=0
-```
-
-The default flow is:
-
-1. normalize and validate the number;
-2. select the first configured verification provider;
-3. send an OTP by SMS or voice (WhatsApp is available with Twilio);
-4. persist only the provider request ID and verification state;
-5. confirm the user-entered code with the same provider;
-6. mark the number verified only after provider approval;
-7. optionally enrich the **verified account owner's own number** with carrier, line-type and eligible SIM-swap anti-fraud data.
-
-Automatic provider failover stops once an OTP send is attempted because retrying a second provider can create duplicate messages when the first provider's outcome is ambiguous.
-
-Phone endpoints:
-
-```text
-GET    /api/auth/phone/providers
-GET    /api/auth/phone/status
-POST   /api/auth/phone/start
-POST   /api/auth/phone/confirm
-POST   /api/auth/phone/intelligence
-DELETE /api/auth/phone
-```
-
-Resends are rate-limited, pending verifications expire, incorrect-code attempts are bounded, and a verified phone number cannot be attached to two Internet Hands accounts at the same time.
-
-### Self-hosted Android SMS transport
-
-Internet Hands can also use the open-source SMS Gateway for Android ecosystem as the delivery transport. In this mode Internet Hands generates a short-lived OTP, sends it through the configured Android/SIM gateway, and verifies the submitted code with a server-secret keyed HMAC. The OTP is never stored as plaintext.
-
-```text
-SMSGATE_SEND_URL=https://your-gateway/3rdparty/v1/messages
-SMSGATE_USERNAME=
-SMSGATE_PASSWORD=
-INTERNET_HANDS_OTP_SIGNING_SECRET=<long random secret>
-SMSGATE_DEVICE_ID=
-SMSGATE_SIM_NUMBER=
-```
-
-This removes the hosted OTP-vendor dependency, but normal carrier/SIM messaging charges and telecom rules still apply. A local-only Android gateway must be reachable from the Internet Hands server; otherwise use a private/cloud-accessible gateway.
-
-### Free/open intelligence layer
-
-Internet Hands enriches the account owner's verified number locally with libphonenumber before any external lookup. This includes original carrier-range metadata, offline geographic description, time zones, number type, multiple standardized formats, region validity, and an SMS-capability heuristic.
-
-Optional external enrichers can then add current provider metadata:
-
-```text
-PHONE_INTEL_PROVIDERS=local,veriphone,abstract,numverify,twilio
-VERIPHONE_API_KEY=
-ABSTRACT_PHONE_API_KEY=
-NUMVERIFY_API_KEY=
-```
-
-The external providers are optional. Missing keys never block verification, and provider failures are recorded as enrichment errors rather than invalidating ownership proof. Carrier data from libphonenumber is labeled as the **original numbering-range carrier**, because number portability can make it stale.
-
 
 ## Transactional messages
 

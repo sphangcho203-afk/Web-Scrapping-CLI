@@ -573,6 +573,53 @@ def _mlbb_capabilities() -> list[Capability]:
 
 
 
+def _phone_capabilities() -> list[Capability]:
+    return [
+        Capability(
+            id="phone.number.lookup",
+            name="Phone number intelligence",
+            description=(
+                "Inspect a phone number for validity, country/region, carrier, line type, "
+                "formatting, time zones, MCC/MNC and configured telecom risk signals "
+                "without identifying a private subscriber."
+            ),
+            pack="phone",
+            tags=("phone", "telecom", "carrier", "line-type", "sim-swap", "lookup"),
+            input_schema={
+                "type": "object",
+                "required": ["number"],
+                "properties": {
+                    "number": {"type": "string"},
+                    "region": {"type": "string"},
+                    "external": {"type": "boolean"},
+                    "providers": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["veriphone", "abstract", "numverify", "twilio"],
+                        },
+                    },
+                },
+            },
+            candidates=(
+                CapabilityCandidate(
+                    provider="phoneintel",
+                    ref="phoneintel:lookup",
+                    priority=10,
+                    argument_map={
+                        "number": "number",
+                        "region": "region",
+                        "external": "external",
+                        "providers": "providers",
+                    },
+                    passthrough_arguments=False,
+                    note="First-party phone intelligence provider with local libphonenumber fallback.",
+                ),
+            ),
+        ),
+    ]
+
+
 def _connected_capabilities() -> list[Capability]:
     return [
         Capability(
@@ -805,4 +852,4 @@ def _connected_capabilities() -> list[Capability]:
 
 
 def build_default_capabilities() -> list[Capability]:
-    return [*_apify_capabilities(), *_mlbb_capabilities(), *_connected_capabilities()]
+    return [*_apify_capabilities(), *_mlbb_capabilities(), *_phone_capabilities(), *_connected_capabilities()]
