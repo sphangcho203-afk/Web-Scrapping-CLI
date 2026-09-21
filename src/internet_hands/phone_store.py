@@ -8,7 +8,6 @@ from typing import Any
 
 from .control_store import ControlError, ControlStore
 
-
 PHONE_SECURITY_SCHEMA_SQL = r"""
 CREATE TABLE IF NOT EXISTS ih_phone_identities (
     user_id text PRIMARY KEY REFERENCES ih_users(id) ON DELETE CASCADE,
