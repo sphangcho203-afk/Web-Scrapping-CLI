@@ -101,6 +101,7 @@ async def test_smtp_failure_falls_back_to_resend(monkeypatch) -> None:
     monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
     monkeypatch.setenv("SMTP_FROM_EMAIL", "noreply@example.com")
     monkeypatch.setenv("RESEND_API_KEY", "resend-test")
+    monkeypatch.setenv("RESEND_FROM_EMAIL", "noreply@example.com")
     monkeypatch.setenv("MAIL_PROVIDER", "smtp")
 
     def fail_smtp(**_kwargs):
