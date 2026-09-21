@@ -2,6 +2,7 @@
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -14,11 +15,12 @@ playwright = pytest.importorskip("playwright.sync_api")
 def frontend_url():
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
-            if self.path == "/assets/app.js":
+            path = urlsplit(self.path).path
+            if path == "/assets/app.js":
                 body = _browser_runtime().body
                 content_type = "application/javascript"
-            elif self.path.startswith("/assets/"):
-                asset = WEB_ROOT / self.path.rsplit("/", 1)[-1]
+            elif path.startswith("/assets/"):
+                asset = WEB_ROOT / path.rsplit("/", 1)[-1]
                 body = asset.read_bytes()
                 content_type = "text/css" if asset.suffix == ".css" else "image/svg+xml"
             else:
