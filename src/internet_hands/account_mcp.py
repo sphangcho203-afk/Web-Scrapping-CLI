@@ -50,6 +50,7 @@ def account_limits() -> dict[str, Any]:
         "monitor_limit": account.get("monitor_limit"),
         "browser_enabled": account.get("browser_enabled"),
         "sandbox_enabled": account.get("sandbox_enabled"),
+        "capability_privileges": account.get("capability_privileges") or {},
     }
 
 
