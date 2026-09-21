@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from internet_hands import site
 
 
