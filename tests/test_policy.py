@@ -2,8 +2,13 @@ import errno
 
 import pytest
 
-import internet_hands.policy as policy
-from internet_hands.policy import PolicyError, ResolutionUnavailable, resolve_public_http_url, validate_public_http_url
+from internet_hands import policy
+from internet_hands.policy import (
+    PolicyError,
+    ResolutionUnavailable,
+    resolve_public_http_url,
+    validate_public_http_url,
+)
 
 
 def test_blocks_non_http_scheme():
