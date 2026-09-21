@@ -117,12 +117,12 @@ class MCPGatewayASGI:
 
         started = time.monotonic()
         token = None
-        credits_charged: int | None = None
+        credits_reserved: int | None = None
         if identity:
             token = current_auth.set(identity)
             if tool_name:
                 try:
-                    credits_charged = self.store.charge_tool_call(
+                    credits_reserved = self.store.reserve_tool_call(
                         identity=identity,
                         request_id=request_id,
                         tool_name=tool_name,
@@ -148,9 +148,9 @@ class MCPGatewayASGI:
                 status_code = int(message.get("status", 200))
                 headers_out = list(message.get("headers") or [])
                 headers_out.append((b"x-request-id", request_id.encode()))
-                if credits_charged is not None:
+                if credits_reserved is not None:
                     headers_out.append(
-                        (b"x-credits-charged", str(credits_charged).encode())
+                        (b"x-credits-reserved", str(credits_reserved).encode())
                     )
                 message = dict(message)
                 message["headers"] = headers_out
