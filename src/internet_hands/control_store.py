@@ -506,7 +506,7 @@ class ControlStore:
                     """,
                     (user_id, user_id),
                 )
-            except Exception:
+            except psycopg.Error:
                 conn.rollback()
                 return None
             row = cur.fetchone()
@@ -519,7 +519,7 @@ class ControlStore:
             cur.execute("SELECT 1 FROM ih_api_keys WHERE key_hash=%s LIMIT 1", (key_hash,))
             return cur.fetchone() is not None
 
-    def adopt_legacy_api_key(self, legacy: "ControlStore", key_hash: str) -> bool:
+    def adopt_legacy_api_key(self, legacy: ControlStore, key_hash: str) -> bool:
         """Copy one verified legacy key after first successful use.
 
         The raw key never moves between databases; only its existing one-way
