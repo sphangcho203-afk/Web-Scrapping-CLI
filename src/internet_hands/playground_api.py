@@ -175,7 +175,7 @@ async def _firecrawl_fallback(evidence: list[dict[str, Any]], *, limit: int = 3)
             markdown = str(data.get("markdown") or data.get("content") or "").strip() if isinstance(data, dict) else ""
             if len(markdown) >= 280:
                 replacement = dict(item)
-                replacement.update({"text": markdown[:12000], "error": None, "source": "firecrawl", "fallback": True})
+                replacement.update({"text": markdown[:12000], "error": None, "source": "firecrawl", "fallback": True, "discovery_source": item.get("discovery_source")})
                 metadata = data.get("metadata") if isinstance(data, dict) else None
                 if isinstance(metadata, dict) and metadata.get("title"):
                     replacement["title"] = str(metadata["title"])
@@ -203,11 +203,84 @@ def _synthesize_evidence(query: str, evidence: list[dict[str, Any]]) -> dict[str
     return {"query": query, "method": "extractive", "findings": findings, "sources": [{"citation": i, "url": x.get("url"), "title": x.get("title") or x.get("url"), "score": x.get("relevance_score")} for i,x in enumerate(ranked[:6], start=1)]}
 
 
+async def _discover_search_sources(query: str, *, count: int, timeout: float) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    try:
+        search_payload = await brave_search(query, kind=SearchKind.WEB, count=min(max(count, 1), 20))
+        raw_response = search_payload.get("response") or {}
+        web_results = ((raw_response.get("web") or {}).get("results") or []) if isinstance(raw_response, dict) else []
+        sources = [
+            {
+                "url": str(item.get("url") or "").strip(),
+                "title": str(item.get("title") or ""),
+                "description": str(item.get("description") or ""),
+                "age": item.get("age"),
+                "source": "brave",
+            }
+            for item in web_results
+            if isinstance(item, dict) and str(item.get("url") or "").strip()
+        ]
+        return sources, {"provider": "brave", "fallback": False}
+    except Exception as brave_exc:  # noqa: BLE001 -- Firecrawl is the bounded search fallback
+        provider = FirecrawlToolProvider()
+        if not provider.api_key:
+            raise RuntimeError(
+                f"web search unavailable: Brave failed ({type(brave_exc).__name__}) and Firecrawl is not configured"
+            ) from brave_exc
+        result = await provider.execute(
+            "search",
+            {
+                "query": query,
+                "limit": min(max(count, 1), 20),
+                "scrapeOptions": {"formats": ["markdown"], "onlyMainContent": True},
+            },
+            timeout_seconds=max(5, min(int(timeout), 30)),
+        )
+        data = result.get("data") or {}
+        web_results = data.get("web") or [] if isinstance(data, dict) else []
+        sources = []
+        for item in web_results:
+            if not isinstance(item, dict):
+                continue
+            url = str(item.get("url") or "").strip()
+            if not url:
+                continue
+            sources.append(
+                {
+                    "url": url,
+                    "title": str(item.get("title") or ""),
+                    "description": str(item.get("description") or ""),
+                    "age": item.get("age"),
+                    "source": "firecrawl_search",
+                    "prefetched_text": str(item.get("markdown") or "").strip()[:12000],
+                }
+            )
+        return sources, {
+            "provider": "firecrawl",
+            "fallback": True,
+            "fallback_from": "brave",
+            "fallback_reason": type(brave_exc).__name__,
+            "credits_used": (result.get("metadata") or {}).get("credits_used"),
+        }
+
+
 async def _research_evidence(sources: list[dict[str, Any]], *, limit: int, timeout: float) -> list[dict[str, Any]]:
     semaphore = asyncio.Semaphore(min(4, max(1, limit)))
     async def one(source: dict[str, Any]) -> dict[str, Any]:
         async with semaphore:
             url = source["url"]
+            prefetched = str(source.get("prefetched_text") or "").strip()
+            if len(prefetched) >= 280:
+                return {
+                    "url": url,
+                    "title": source.get("title") or "",
+                    "description": source.get("description") or "",
+                    "text": prefetched[:12000],
+                    "status_code": 200,
+                    "content_type": "text/markdown",
+                    "source": "firecrawl_search",
+                    "discovery_source": source.get("source") or "firecrawl_search",
+                    "search_rank": source.get("rank"),
+                }
             try:
                 fetched = await fetch_url(url, timeout=timeout, max_bytes=1_000_000)
                 document = extract_document(fetched)
@@ -215,10 +288,16 @@ async def _research_evidence(sources: list[dict[str, Any]], *, limit: int, timeo
                 return {
                     "url": url, "title": str(getattr(document, "title", "") or source.get("title") or ""),
                     "description": source.get("description") or "", "text": text[:12000],
-                    "status_code": fetched.status_code, "content_type": fetched.content_type, "source": source.get("source") or "web", "search_rank": source.get("rank"),
+                    "status_code": fetched.status_code, "content_type": fetched.content_type,
+                    "source": "native", "discovery_source": source.get("source") or "web",
+                    "search_rank": source.get("rank"),
                 }
             except Exception as exc:  # noqa: BLE001 -- evidence failures remain source-local
-                return {"url": url, "title": source.get("title") or "", "description": source.get("description") or "", "text": "", "error": f"{type(exc).__name__}: {exc}", "source": source.get("source") or "web", "search_rank": source.get("rank")}
+                return {
+                    "url": url, "title": source.get("title") or "", "description": source.get("description") or "",
+                    "text": "", "error": f"{type(exc).__name__}: {exc}", "source": "native",
+                    "discovery_source": source.get("source") or "web", "search_rank": source.get("rank"),
+                }
     return await asyncio.gather(*(one(source) for source in sources[:limit]))
 
 
@@ -291,13 +370,12 @@ async def playground_run(request: Request):
     try:
         search_payload: dict[str, Any] | None = None
         search_sources: list[dict[str, Any]] = []
+        search_meta: dict[str, Any] = {"provider": None, "fallback": False}
         if operation in {"search", "research", "auto"} and query:
-            search_payload = await brave_search(query, kind=SearchKind.WEB, count=min(max_pages, 20))
-            raw_response = search_payload.get("response") or {}
-            web_results = ((raw_response.get("web") or {}).get("results") or []) if isinstance(raw_response, dict) else []
-            for item in web_results:
-                if not isinstance(item, dict):
-                    continue
+            raw_sources, search_meta = await _discover_search_sources(
+                query, count=min(max_pages, 20), timeout=min(float(max_seconds), 30.0)
+            )
+            for item in raw_sources:
                 candidate = str(item.get("url") or "").strip()
                 if not candidate:
                     continue
@@ -305,13 +383,7 @@ async def playground_run(request: Request):
                     validate_public_http_url(candidate)
                 except (PolicyError, ResolutionUnavailable):
                     continue
-                search_sources.append({
-                    "url": candidate,
-                    "title": str(item.get("title") or ""),
-                    "description": str(item.get("description") or ""),
-                    "age": item.get("age"),
-                    "source": "brave",
-                })
+                search_sources.append(item)
             deduped: list[dict[str, Any]] = []
             seen_sources: set[str] = set()
             for source in search_sources:
@@ -324,7 +396,7 @@ async def playground_run(request: Request):
                 deduped.append(source)
             search_sources = deduped
             if operation == "search":
-                payload = {"pages": [], "search_results": search_sources, "evidence": [], "discovered_urls": len(search_sources), "skipped_urls": 0, "duration_ms": 0, "truncated": False}
+                payload = {"pages": [], "search_results": search_sources, "search": search_meta, "evidence": [], "discovered_urls": len(search_sources), "skipped_urls": 0, "duration_ms": 0, "truncated": False}
             elif not url and search_sources:
                 url = search_sources[0]["url"]
             elif not url:
@@ -359,6 +431,7 @@ async def playground_run(request: Request):
             )
             payload = result.model_dump(mode="json")
             payload["search_results"] = search_sources
+            payload["search"] = search_meta
             payload["evidence"] = evidence
             payload["synthesis"] = synthesis
             payload["fallback"] = fallback
@@ -374,6 +447,7 @@ async def playground_run(request: Request):
             "duration_ms": int(payload.get("duration_ms") or 0),
             "truncated": bool(payload.get("truncated")),
             "search_results": len(payload.get("search_results") or []),
+            "search_provider": (payload.get("search") or {}).get("provider"),
             "evidence_sources": len(payload.get("evidence") or []),
             "evidence_successful": sum(1 for item in (payload.get("evidence") or []) if item.get("text") and not item.get("error")),
             "fallback_attempted": int((payload.get("fallback") or {}).get("attempted") or 0),
