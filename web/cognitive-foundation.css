@@ -45,6 +45,7 @@
 .game-detail>header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px}
 .game-actions{display:flex;gap:9px;flex-wrap:wrap}
 .game-run-button{display:inline-flex;align-items:center;gap:7px;margin-top:15px;padding:10px 14px;border:1px solid #4c749c;border-radius:9px;background:#172a40;color:#cde7ff;cursor:pointer;font:inherit;font-size:13px;font-weight:650}
+.game-more-capabilities{margin:22px 0}.game-more-capabilities summary{display:flex;align-items:center;gap:9px;cursor:pointer;color:#b5cce5;font-size:14px;padding:14px 16px;border:1px solid #3d526a;border-radius:10px;background:#192638}.game-more-capabilities summary svg{width:15px;height:15px}.game-more-capabilities .game-capabilities{margin-top:16px}
 .game-run-button:hover,.game-run-button:focus-visible{background:#214260;outline-color:#9bd8ff}
 .game-run-button svg{width:15px;height:15px}
 .game-tool-runner{margin:20px 0 75px;padding:clamp(17px,3vw,26px);border:1px solid #456382;border-radius:16px;background:#131f30;color:#f0f6ff}

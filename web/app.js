@@ -388,6 +388,17 @@ async function dashGames(){
       const {game}=await api('/api/games/'+encodeURIComponent(id));
       if(run!==selectedRun)return;
       detail.innerHTML=`<header><div><span class="overline">${esc(game.game_id)}</span><h2>${esc(game.name)}</h2><p>${fmt(game.capability_count)} registered capabilities · ${fmt(game.provider_ready_count)} ready. Some public services still require their own keys.</p></div><div class="game-actions"><a class="btn primary" data-link href="/dashboard/playground?query=${encodeURIComponent(game.name+' latest patch and competitive meta')}">Research this game ${icon('arrow')}</a><a class="btn" data-link href="/dashboard/repositories?query=${encodeURIComponent(game.name+' public api tools')}">Find open-source tools</a></div></header><div class="game-capabilities">${(game.capabilities||[]).map(cap=>`<article><span class="game-cap-status ${cap.provider_ready?'ready':''}">${cap.provider_ready?(cap.providers.includes('gamecore')?(cap.id.startsWith('league.reference')?'Public data · no key':'Runs locally'):'Provider configured'):cap.availability==='key_required'?'Provider key required':cap.availability==='discovery_required'?'Find tool on request':'Provider unavailable'}</span><h3>${esc(cap.name)}</h3><p>${esc(cap.description)}</p><small>${esc(cap.providers.join(' · '))}</small>${cap.provider_ready&&cap.providers.includes('gamecore')?`<button type="button" class="game-run-button" data-game-tool="${esc(cap.id)}">Run tool ${icon('arrow')}</button>`:''}</article>`).join('')}</div><div id="game-tool-panel" aria-live="polite"></div>`;
+      const cards=$$('.game-capabilities > article',detail),grid=$('.game-capabilities',detail);
+      const ready=cards.filter(card=>card.querySelector('.game-cap-status.ready'));
+      const other=cards.filter(card=>!card.querySelector('.game-cap-status.ready'));
+      ready.forEach(card=>grid.appendChild(card));
+      if(other.length){
+        const disclosure=document.createElement('details');
+        disclosure.className='game-more-capabilities';
+        disclosure.innerHTML=`<summary>${fmt(other.length)} more capabilities · provider key or discovery needed ${icon('arrow')}</summary><div class="game-capabilities"></div>`;
+        other.forEach(card=>disclosure.querySelector('.game-capabilities').appendChild(card));
+        grid.after(disclosure);
+      }
       $$('[data-game-tool]',detail).forEach(button=>button.onclick=()=>showTool(game,button.dataset.gameTool));
     }catch(error){detail.innerHTML=`<p class="game-empty">${esc(error.message)}</p>`;}
   }
