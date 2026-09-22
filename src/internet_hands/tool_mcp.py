@@ -57,6 +57,31 @@ def get_capability_registry() -> CapabilityRegistry:
 
 
 @sandbox_mcp.tool()
+async def phone_caller_investigate(
+    number: str,
+    region: str | None = None,
+    max_search_results: int = 10,
+    max_pages: int = 4,
+    concurrency: int = 3,
+    telecom_external: bool = False,
+    telecom_providers: list[str] | None = None,
+) -> dict[str, Any]:
+    """Corroborate an unknown caller against bounded public pages and independent sources."""
+    return await get_tool_mesh().execute(
+        "callerintel:investigate",
+        {
+            "number": number,
+            "region": region,
+            "max_search_results": max_search_results,
+            "max_pages": max_pages,
+            "concurrency": concurrency,
+            "telecom_external": telecom_external,
+            "telecom_providers": telecom_providers,
+        },
+    )
+
+
+@sandbox_mcp.tool()
 async def phone_caller_lookup(
     number: str,
     region: str | None = None,
