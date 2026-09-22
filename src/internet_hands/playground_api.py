@@ -226,12 +226,12 @@ async def _discover_search_sources(query: str, *, count: int, timeout: float) ->
             raise RuntimeError(
                 f"web search unavailable: Brave failed ({type(brave_exc).__name__}) and Firecrawl is not configured"
             ) from brave_exc
+        search_limit = min(max(count, 1), 10)
         result = await provider.execute(
             "search",
             {
                 "query": query,
-                "limit": min(max(count, 1), 20),
-                "scrapeOptions": {"formats": ["markdown"], "onlyMainContent": True},
+                "limit": search_limit,
             },
             timeout_seconds=max(5, min(int(timeout), 30)),
         )
@@ -260,6 +260,8 @@ async def _discover_search_sources(query: str, *, count: int, timeout: float) ->
             "fallback_from": "brave",
             "fallback_reason": type(brave_exc).__name__,
             "credits_used": (result.get("metadata") or {}).get("credits_used"),
+            "result_limit": search_limit,
+            "mode": "discovery_only",
         }
 
 
