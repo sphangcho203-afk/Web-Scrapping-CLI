@@ -339,7 +339,12 @@ class ControlStore:
     def _connect(self):
         if not self.dsn:
             raise ControlError("control_plane_unavailable", "control database is not configured", 503)
-        return psycopg.connect(self.dsn, row_factory=dict_row)
+        options: dict[str, Any] = {"row_factory": dict_row}
+        # Supabase's transaction pooler must not receive named prepared
+        # statements because a later transaction can land on another backend.
+        if "pooler.supabase.com" in self.dsn:
+            options["prepare_threshold"] = None
+        return psycopg.connect(self.dsn, **options)
 
     def ensure_schema(self) -> None:
         if self._schema_ready:
@@ -486,6 +491,86 @@ class ControlStore:
             )
             row = cur.fetchone()
             return dict(row) if row else None
+
+    def auth_user_id_for_legacy(self, user_id: str) -> str | None:
+        """Return the linked Supabase Auth UUID for one Internet Hands identity."""
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    SELECT id::text AS auth_user_id
+                    FROM profiles
+                    WHERE legacy_user_id=%s OR id::text=%s
+                    LIMIT 1
+                    """,
+                    (user_id, user_id),
+                )
+            except Exception:
+                conn.rollback()
+                return None
+            row = cur.fetchone()
+            return str(row["auth_user_id"]) if row else None
+
+    def has_api_key_hash(self, key_hash: str) -> bool:
+        """Detect an already-adopted key, including revoked keys."""
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM ih_api_keys WHERE key_hash=%s LIMIT 1", (key_hash,))
+            return cur.fetchone() is not None
+
+    def adopt_legacy_api_key(self, legacy: "ControlStore", key_hash: str) -> bool:
+        """Copy one verified legacy key after first successful use.
+
+        The raw key never moves between databases; only its existing one-way
+        hash and metadata are copied inside the server process.
+        """
+        self.ensure_schema()
+        legacy.ensure_schema()
+        with legacy._connect() as source, source.cursor() as source_cur:
+            source_cur.execute(
+                """
+                SELECT id,user_id,name,prefix,key_hash,scopes,environment,
+                       last_used_at,expires_at,revoked_at,created_at
+                FROM ih_api_keys
+                WHERE key_hash=%s AND revoked_at IS NULL
+                  AND (expires_at IS NULL OR expires_at>now())
+                LIMIT 1
+                """,
+                (key_hash,),
+            )
+            row = source_cur.fetchone()
+        if not row:
+            return False
+        owner = self.get_user(str(row["user_id"]))
+        if not owner:
+            return False
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO ih_api_keys(
+                    id,user_id,name,prefix,key_hash,scopes,environment,
+                    last_used_at,expires_at,revoked_at,created_at
+                ) VALUES (%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s,%s)
+                ON CONFLICT (key_hash) DO NOTHING
+                """,
+                (
+                    row["id"],
+                    row["user_id"],
+                    row["name"],
+                    row["prefix"],
+                    row["key_hash"],
+                    json.dumps(row.get("scopes") or []),
+                    row["environment"],
+                    row.get("last_used_at"),
+                    row.get("expires_at"),
+                    row.get("revoked_at"),
+                    row.get("created_at"),
+                ),
+            )
+            changed = cur.rowcount == 1
+            conn.commit()
+            return changed
 
     def upsert_github_user(
         self, *, github_id: str, email: str, display_name: str | None, avatar_url: str | None
@@ -1668,6 +1753,23 @@ class ControlStore:
                 (user_id, max(1, min(limit, 500))),
             )
             return [dict(r) for r in cur.fetchall()]
+
+    def password_reset_user(self, token_hash: str) -> dict[str, Any] | None:
+        """Resolve a still-valid compatibility reset without consuming it."""
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT u.id,u.email,u.display_name,u.email_verified
+                FROM ih_password_resets r
+                JOIN ih_users u ON u.id=r.user_id
+                WHERE r.token_hash=%s AND r.used_at IS NULL AND r.expires_at>now()
+                LIMIT 1
+                """,
+                (token_hash,),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
 
     def create_password_reset(self, user_id: str, token_hash: str) -> None:
         self.ensure_schema()
