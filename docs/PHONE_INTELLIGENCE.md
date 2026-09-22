@@ -124,3 +124,54 @@ The public evidence surface intentionally returns only bounded metadata such as 
 The result uses footprint labels such as `none`, `single_source`, `multiple_sources` and `broad`. These describe the amount of indexed public evidence; they are **not** a claim that the number belongs to a particular person.
 
 A later deep-investigation capability can fetch and corroborate selected public pages before making a sourced public attribution.
+
+
+## Deep public corroboration
+
+Direct MCP tool:
+
+```text
+phone_caller_investigate
+```
+
+Raw Tool Mesh reference:
+
+```text
+callerintel:investigate
+```
+
+Semantic capability:
+
+```text
+phone.caller.investigate
+```
+
+This is the next depth above `phone.caller.lookup`. It performs the exact-number public search, selects a bounded set of independent domains, fetches those public pages through Internet Hands' SSRF-safe fetch layer, and verifies whether the normalized number actually appears in each fetched page.
+
+The returned evidence contains bounded metadata only:
+
+- page title;
+- final public URL and host;
+- source classification;
+- HTTP/content metadata;
+- whether the number was actually confirmed on the fetched page;
+- content hash and capture timestamp.
+
+Raw page bodies are never returned by this capability.
+
+Corroboration levels are deliberately evidence-oriented:
+
+- `insufficient_public_evidence`;
+- `single_source_public_association`;
+- `multi_source_public_association`;
+- `corroborated_public_association`.
+
+These labels describe public-page correlation, not legal or telecom ownership.
+
+Current plan depth:
+
+- Builder: basic caller lookup only;
+- Pro: investigator, up to 6 selected public pages;
+- Scale: investigator, up to 12 selected public pages.
+
+Actual billing settles from the search and page fetches that really ran, so unused reserved page budget is released.

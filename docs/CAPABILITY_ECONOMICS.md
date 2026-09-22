@@ -168,3 +168,31 @@ Every substantial new capability should define, before production rollout:
 9. telemetry required to calculate actual cost.
 
 This keeps new tools from creating independent billing and entitlement logic.
+
+
+## Caller investigation economics
+
+`phone.caller.investigate` is a Pro+ capability because it performs multiple bounded public-page fetches after discovery.
+
+The reservation contains:
+
+```text
+investigation base
++ public search budget
++ search result budget
++ maximum selected-page fetch budget
++ optional telecom provider budget
+```
+
+Measured settlement uses:
+
+```text
+actual public search calls
++ actual search results returned
++ actual public pages fetched
++ external telecom providers actually attempted
+```
+
+For example, a Pro request reserving four corroboration pages can release part of that reservation if only two independent pages are actually selected and fetched.
+
+Plan depth changes work capacity only. It never changes the output privacy policy.

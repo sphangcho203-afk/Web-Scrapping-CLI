@@ -667,6 +667,58 @@ def _caller_capabilities() -> list[Capability]:
                 ),
             ),
         ),
+        Capability(
+            id="phone.caller.investigate",
+            name="Unknown caller public corroboration",
+            description=(
+                "Fetch a bounded set of public pages surfaced by an exact-number search, "
+                "verify that the number actually appears on them, and score independent "
+                "public corroboration without returning raw page bodies."
+            ),
+            pack="phone",
+            tags=("phone", "caller", "investigate", "corroborate", "osint", "public-web"),
+            input_schema={
+                "type": "object",
+                "required": ["number"],
+                "properties": {
+                    "number": {"type": "string"},
+                    "region": {"type": "string"},
+                    "max_search_results": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 20,
+                    },
+                    "max_pages": {"type": "integer", "minimum": 1, "maximum": 12},
+                    "concurrency": {"type": "integer", "minimum": 1, "maximum": 5},
+                    "telecom_external": {"type": "boolean"},
+                    "telecom_providers": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["veriphone", "abstract", "numverify", "twilio"],
+                        },
+                    },
+                },
+            },
+            candidates=(
+                CapabilityCandidate(
+                    provider="callerintel",
+                    ref="callerintel:investigate",
+                    priority=10,
+                    argument_map={
+                        "number": "number",
+                        "region": "region",
+                        "max_search_results": "max_search_results",
+                        "max_pages": "max_pages",
+                        "concurrency": "concurrency",
+                        "telecom_external": "telecom_external",
+                        "telecom_providers": "telecom_providers",
+                    },
+                    passthrough_arguments=False,
+                    note="First-party bounded public-page corroboration provider.",
+                ),
+            ),
+        ),
     ]
 
 
