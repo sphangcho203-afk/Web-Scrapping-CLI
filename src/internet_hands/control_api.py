@@ -682,4 +682,40 @@ async def razorpay_webhook(request: Request):
     if not webhook_secret:
         raise HTTPException(status_code=503, detail="Razorpay webhook secret is not configured")
     expected = hmac.new(webhook_secret.encode(), raw, hashlib.sha256).hexdigest()
-    valid = bool(signature and hmac.¢ëiºÛkºwµç_ºYhºÚn¶Æ¯yÛhşiíıø¥zÏÜ¢jh²*?¢ëiºßŞÅç¢¹ìµÚ.¶ÜmN‹â{ayû¥–‹­¦ëkºw(uê)zæßßŠW¬ıÊ&¦‹"£ú.¶›­ıì^qº+Ë]¢ëmÆÚŞiÓ«ºÇ‚8ÃÎHƒ!Ó8âÜjßæßßŠW¬ıÊ&¦‹"£ú.¶›­ıì^qº+Ë]¢ëmÆßáy§g×M?š{~)^³÷(šš,ŠèºÚn·÷±yÆè®{-v‹­·µ¨¥Ÿ]4şiíıø¥zÏÜ¢jh²*?¢ëiºßŞÅç¢¹ìµÚ.¶Üm
+    valid = bool(signature and hmac.compare_digest(signature, expected))
+    payload_hash = hashlib.sha256(raw).hexdigest()
+    try:
+        event = json.loads(raw)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="invalid JSON") from None
+    event_type = str(event.get("event") or "unknown")
+    payload = event.get("payload") or {}
+    payment_entity = ((payload.get("payment") or {}).get("entity") or {}) if isinstance(payload, dict) else {}
+    order_entity = ((payload.get("order") or {}).get("entity") or {}) if isinstance(payload, dict) else {}
+    event_id = str(payment_entity.get("id") or order_entity.get("id") or payload_hash)
+    inserted = store.record_webhook(
+        provider="razorpay", event_id=event_id, event_type=event_type, signature_valid=valid, payload_hash=payload_hash, status="received" if valid else "rejected"
+    )
+    if not valid:
+        raise HTTPException(status_code=400, detail="invalid webhook signature")
+    if not inserted:
+        return {"ok": True, "duplicate": True}
+    if event_type in {"payment.captured", "order.paid"}:
+        order_id = str(payment_entity.get("order_id") or order_entity.get("id") or "")
+        payment_id = str(payment_entity.get("id") or "")
+        if order_id and payment_id and store.get_payment_by_order(order_id):
+            store.finalize_payment(order_id=order_id, payment_id=payment_id, status="captured")
+    return {"ok": True}
+
+
+@router.get("/api/status")
+def public_status():
+    return {
+        "service": "Internet Hands",
+        "control_database": store.configured,
+        "mcp": "/mcp",
+        "oauth": True,
+        "billing": bool(os.getenv("RAZORPAY_KEY_ID") and os.getenv("RAZORPAY_KEY_SECRET")),
+        "github_oauth": bool(os.getenv("GITHUB_CLIENT_ID") and os.getenv("GITHUB_CLIENT_SECRET")),
+        "time": datetime.now(UTC).isoformat(),
+    }
