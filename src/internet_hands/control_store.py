@@ -702,6 +702,16 @@ class ControlStore:
                 cur.execute("DELETE FROM ih_sessions WHERE user_id=%s", (user_id,))
             conn.commit()
 
+    def clear_password_hash(self, user_id: str) -> None:
+        """Remove a compatibility password hash after Supabase has adopted it."""
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE ih_users SET password_hash=NULL,updated_at=now() WHERE id=%s",
+                (user_id,),
+            )
+            conn.commit()
+
     def list_plans(self) -> list[dict[str, Any]]:
         self.ensure_schema()
         with self._connect() as conn, conn.cursor() as cur:
