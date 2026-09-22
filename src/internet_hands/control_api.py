@@ -29,6 +29,12 @@ from .remote_mcp_provider import AUTH_TYPES, TRANSPORTS, parse_curl_connection
 
 router = APIRouter()
 store = ControlStore()
+_legacy_dsn = os.getenv("INTERNET_HANDS_POSTGRES_DSN")
+legacy_store = (
+    ControlStore(_legacy_dsn)
+    if _legacy_dsn and _legacy_dsn != store.dsn
+    else None
+)
 SESSION_COOKIE = "ih_session"
 GITHUB_STATE_COOKIE = "ih_github_state"
 DEFAULT_SCOPES = ["mcp:read", "mcp:execute"]
@@ -46,10 +52,26 @@ def _session_user(request: Request) -> dict[str, Any] | None:
     raw = request.cookies.get(SESSION_COOKIE)
     if not raw:
         return None
+    token_hash = sha256_text(raw)
     try:
-        return store.session_user(sha256_text(raw))
+        current = store.session_user(token_hash)
     except ControlError:
-        return None
+        current = None
+    if current:
+        return current
+
+    # Existing browsers keep working until their identity is adopted into
+    # Supabase Auth. Once linked, legacy sessions are intentionally rejected.
+    if legacy_store:
+        try:
+            legacy_user = legacy_store.session_user(token_hash)
+        except ControlError:
+            legacy_user = None
+        if legacy_user:
+            primary = store.get_user_by_email(str(legacy_user["email"]))
+            if primary and not store.auth_user_id_for_legacy(str(primary["id"])):
+                return primary
+    return None
 
 
 def _require_user(request: Request) -> dict[str, Any]:
@@ -321,10 +343,16 @@ async def login(request: Request):
 def logout(request: Request):
     raw = request.cookies.get(SESSION_COOKIE)
     if raw:
+        token_hash = sha256_text(raw)
         try:
-            store.delete_session(sha256_text(raw))
+            store.delete_session(token_hash)
         except ControlError:
             pass
+        if legacy_store:
+            try:
+                legacy_store.delete_session(token_hash)
+            except ControlError:
+                pass
     response = JSONResponse({"ok": True})
     response.delete_cookie(SESSION_COOKIE, path="/")
     return response
@@ -338,6 +366,7 @@ def auth_me(request: Request):
         "user": user,
         "account": store.account_snapshot(user["id"]) if verified else None,
         "verification_required": not verified,
+        "verification_mode": "supabase_link" if not verified else None,
     }
 
 

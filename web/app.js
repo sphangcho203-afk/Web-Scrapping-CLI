@@ -234,23 +234,35 @@ async function renderVerify(seed=null) {
     try { state.me = await api('/api/auth/me'); }
     catch { return go('/login?verify=session_required',true); }
   }
-  if (state.me.user.email_verified) return renderOnboarding(); const email=state.me.user.email.replace(/^(.{2}).*(@.*)$/,'$1••••$2'), params=new URLSearchParams(location.search), deliveryFailed=params.get('delivery')==='failed', fromSignin=params.get('context')==='signin';
-  const verificationMessage=deliveryFailed?`This account still requires verification, but the email could not be sent. Use Resend code for ${esc(email)}.`:fromSignin?`This account wasn't verified, so we sent a six-digit code to ${esc(email)}. Enter it below to continue.`:`We sent a link and six-digit code to ${esc(email)}.`;
-  authShell('Verify your email',verificationMessage,`<div class="verify-mark">${icon('activity')}</div>${deliveryFailed?'<div class="notice warning">Delivery failed. No active account, credits, or subscription will be created until verification succeeds.</div>':''}<form id="verify-form" class="form-stack"><label>Verification code<input class="code-input" required name="code" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" autocomplete="one-time-code" placeholder="000000"></label><button class="btn primary large">Verify account ${icon('arrow')}</button></form><div class="verify-actions"><button id="resend">Resend code <span></span></button><button id="other-account">Use another account</button></div><div class="notice">The newest code replaces older codes and expires after 15 minutes.</div>`,'One small gate before the internet opens up.');
-  $('#verify-form').onsubmit=async e=>{e.preventDefault();const button=$('button',e.currentTarget);busy(button,true,'Checking…');try{await api('/api/auth/email-verification/confirm',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))});state.me=null;go('/verify-email?verified=1');}catch(error){toast(error.message,'error');busy(button,false);}};
-  let seconds=0;const tick=()=>{const b=$('#resend');$('span',b).textContent=seconds?`(${seconds}s)`:'';b.disabled=seconds>0;if(seconds-->0)setTimeout(tick,1000);};
-  $('#resend').onclick=async()=>{try{const result=await api('/api/auth/email-verification/send',{method:'POST'});if(!result.sent)throw new Error('Verification email could not be sent. Try again shortly.');seconds=60;tick();toast('New verification email sent','success');}catch(error){toast(error.message,'error');}};
+  if (state.me.user.email_verified) return renderOnboarding();
+  const email=state.me.user.email.replace(/^(.{2}).*(@.*)$/,'$1••••$2');
+  const params=new URLSearchParams(location.search);
+  const deliveryFailed=params.get('delivery')==='failed';
+  const fromSignin=params.get('context')==='signin';
+  const verificationMessage=deliveryFailed
+    ? `Supabase could not send the confirmation email just now. Retry for ${esc(email)}.`
+    : fromSignin
+      ? `This account still needs email confirmation. Open the newest Supabase verification email sent to ${esc(email)}.`
+      : `Supabase sent a secure confirmation link to ${esc(email)}. Open it in this browser or any browser, then this page will unlock automatically.`;
+  authShell('Verify your email',verificationMessage,`<div class="verify-mark">${icon('mail')}</div><div class="notice">Email verification is now handled by Supabase Auth. Confirmation links are single-use; request a new one if the previous link expired.</div><div class="verify-actions"><button id="resend">Resend verification email <span></span></button><button id="other-account">Use another account</button></div>`,'One small gate before the internet opens up.');
+  let seconds=0;
+  const tick=()=>{const b=$('#resend');$('span',b).textContent=seconds?`(${seconds}s)`:'';b.disabled=seconds>0;if(seconds-->0)setTimeout(tick,1000);};
+  $('#resend').onclick=async()=>{try{const result=await api('/api/auth/email-verification/send',{method:'POST'});if(!result.sent&&!result.already_verified)throw new Error('Verification email could not be sent. Try again shortly.');if(result.already_verified){state.me=null;return go('/verify-email?verified=1',true);}seconds=60;tick();toast('New verification email sent','success');}catch(error){toast(error.message,'error');}};
   $('#other-account').onclick=async()=>{await api('/api/auth/logout',{method:'POST'});state.me=null;go('/login');};
   const pollVerification=async()=>{if(location.pathname!=='/verify-email')return;try{const latest=await api('/api/auth/me');if(latest.user.email_verified){state.me=latest;go('/verify-email?verified=1',true);return;}}catch{}setTimeout(pollVerification,3000);};
-  setTimeout(pollVerification,3000);
+  setTimeout(pollVerification,1500);
 }
 function renderOnboarding(){authShell('Email verified','Choose the shortest route to your first successful request.',`<div class="success-orbit">${icon('check')}</div><div class="onboarding-grid"><a data-link href="/dashboard/connections"><b>Connect an agent</b><small>ChatGPT, Claude, Grok or MCP</small>${icon('arrow')}</a><a data-link href="/dashboard/api-keys"><b>Create an API key</b><small>Scripts, servers and CI</small>${icon('arrow')}</a><a data-link href="/dashboard/monitors"><b>Create a monitor</b><small>Watch an endpoint</small>${icon('arrow')}</a><a data-link href="/docs/quickstart"><b>Open quickstart</b><small>Make the first request</small>${icon('arrow')}</a></div><a class="btn quiet onboarding-skip" data-link href="/dashboard">Go to mission control</a>`,'Identity confirmed. Now give your agent reach.');}
 function renderRecovery(reset=false){
-  const token=new URLSearchParams(location.search).get('token')||'';
+  const query=new URLSearchParams(location.search);
+  const fragment=new URLSearchParams(location.hash.replace(/^#/,''));
+  const token=query.get('token')||'';
+  const accessToken=fragment.get('access_token')||'';
+  const hasResetCredential=Boolean(token||accessToken);
   authShell(
     reset?'Choose a new password':'Reset your password',
-    reset?'A successful reset signs every web session out.':'Enter the email connected to your account. We will send a secure reset link.',
-    `<form id="recovery-form" class="form-stack">${reset?'<label>New password<input required minlength="8" type="password" name="password" autocomplete="new-password"></label><label>Confirm password<input required minlength="8" type="password" name="confirm" autocomplete="new-password"></label>':'<label>Account email<input required type="email" name="email" autocomplete="email" placeholder="you@example.com"></label>'}<button class="btn primary large" ${reset&&!token?'disabled':''}>${reset?'Update password':'Send reset link'} ${icon('arrow')}</button></form>${reset&&!token?'<div class="notice warning">This reset link is missing its security token. Request a new one.</div>':''}<p class="auth-foot"><a data-link href="/login">Back to sign in</a></p>`
+    reset?'A successful reset signs every web session out.':'Enter the email connected to your account. Supabase Auth will send the recovery link after the account has migrated.',
+    `<form id="recovery-form" class="form-stack">${reset?'<label>New password<input required minlength="8" type="password" name="password" autocomplete="new-password"></label><label>Confirm password<input required minlength="8" type="password" name="confirm" autocomplete="new-password"></label>':'<label>Account email<input required type="email" name="email" autocomplete="email" placeholder="you@example.com"></label>'}<button class="btn primary large" ${reset&&!hasResetCredential?'disabled':''}>${reset?'Update password':'Send reset link'} ${icon('arrow')}</button></form>${reset&&!hasResetCredential?'<div class="notice warning">This reset link is missing its recovery credential. Request a new one.</div>':''}<p class="auth-foot"><a data-link href="/login">Back to sign in</a></p>`
   );
   $('#recovery-form').onsubmit=async e=>{
     e.preventDefault();
@@ -260,17 +272,18 @@ function renderRecovery(reset=false){
     try{
       const result=await api(reset?'/api/auth/password-reset/confirm':'/api/auth/password-reset/request',{
         method:'POST',
-        body:reset?{token,password:values.password}:values
+        body:reset?{token,access_token:accessToken,password:values.password}:values
       });
       if(reset){
+        history.replaceState({},'', '/login');
         toast('Password updated. Sign in with your new password.','success');
-        go('/login');
+        go('/login',true);
         return;
       }
       authShell(
         'Check your inbox',
         result.message,
-        `<div class="verify-mark">${icon('activity')}</div><div class="notice">The reset link expires after 30 minutes. Only the newest link will work.</div><a class="btn primary large" data-link href="/login">Back to sign in ${icon('arrow')}</a>`,
+        `<div class="verify-mark">${icon('activity')}</div><div class="notice">Migrated accounts receive a Supabase recovery link. Legacy accounts are securely adopted into Supabase when that reset completes.</div><a class="btn primary large" data-link href="/login">Back to sign in ${icon('arrow')}</a>`,
         'Recover access without weakening account security.'
       );
     }catch(error){
