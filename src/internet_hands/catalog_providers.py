@@ -502,7 +502,7 @@ class OpenApiToolProvider:
                         input_schema=self._input_schema(path_item, operation),
                         output_schema={},
                         tags=[source.name, *tags],
-                        requires_auth=bool(operation.get("security") or spec.get("security")),
+                        requires_auth=bool(operation["security"] if "security" in operation else spec.get("security")),
                         side_effecting=False,
                         metadata={
                             "source": source.name,
@@ -600,6 +600,8 @@ class OpenApiToolProvider:
             headers=headers,
             timeout=max(1.0, min(float(timeout_seconds), 120.0)),
         )
+        if len(response.content) > 2_000_000:
+            raise ValueError("OpenAPI response exceeds the 2 MB read-only limit")
         try:
             data: Any = response.json()
         except ValueError:

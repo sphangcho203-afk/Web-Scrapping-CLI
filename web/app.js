@@ -387,7 +387,7 @@ async function dashGames(){
     try{
       const {game}=await api('/api/games/'+encodeURIComponent(id));
       if(run!==selectedRun)return;
-      detail.innerHTML=`<header><div><span class="overline">${esc(game.game_id)}</span><h2>${esc(game.name)}</h2><p>${fmt(game.capability_count)} registered capabilities · ${fmt(game.provider_ready_count)} ready. Some public services still require their own keys.</p></div><div class="game-actions"><a class="btn primary" data-link href="/dashboard/playground?query=${encodeURIComponent(game.name+' latest patch and competitive meta')}">Research this game ${icon('arrow')}</a><a class="btn" data-link href="/dashboard/repositories?query=${encodeURIComponent(game.name+' public api tools')}">Find open-source tools</a></div></header><div class="game-capabilities">${(game.capabilities||[]).map(cap=>`<article><span class="game-cap-status ${cap.provider_ready?'ready':''}">${cap.provider_ready?(cap.providers.includes('gamecore')?(cap.id.startsWith('league.reference')?'Public data · no key':'Runs locally'):'Provider configured'):cap.availability==='key_required'?'Provider key required':cap.availability==='discovery_required'?'Find tool on request':'Provider unavailable'}</span><h3>${esc(cap.name)}</h3><p>${esc(cap.description)}</p><small>${esc(cap.providers.join(' · '))}</small>${cap.provider_ready&&cap.providers.includes('gamecore')?`<button type="button" class="game-run-button" data-game-tool="${esc(cap.id)}">Run tool ${icon('arrow')}</button>`:''}</article>`).join('')}</div><div id="game-tool-panel" aria-live="polite"></div>`;
+      detail.innerHTML=`<header><div><span class="overline">${esc(game.game_id)}</span><h2>${esc(game.name)}</h2><p>${fmt(game.capability_count)} registered capabilities · ${fmt(game.provider_ready_count)} directly connected. Discover public operations and run them below.</p></div><div class="game-actions"><a class="btn primary" data-link href="/dashboard/playground?query=${encodeURIComponent(game.name+' latest patch and competitive meta')}">Research this game ${icon('arrow')}</a><a class="btn" data-link href="/dashboard/repositories?query=${encodeURIComponent(game.name+' public api tools')}">Find open-source tools</a></div></header><div class="game-capabilities">${(game.capabilities||[]).map(cap=>`<article><span class="game-cap-status ${cap.provider_ready?'ready':''}">${cap.provider_ready?(cap.providers.includes('gamecore')?(cap.id.startsWith('league.reference')?'Public data · no key':'Runs locally'):'Provider configured'):cap.availability==='key_required'?'Provider key required':cap.availability==='discovery_required'?'Discover public operations':'Provider unavailable'}</span><h3>${esc(cap.name)}</h3><p>${esc(cap.description)}</p><small>${esc(cap.providers.join(' · '))}</small>${cap.providers.includes('gamecore')&&cap.provider_ready?`<button type="button" class="game-run-button" data-game-tool="${esc(cap.id)}">Run tool ${icon('arrow')}</button>`:cap.availability==='ready'||cap.availability==='discovery_required'?`<button type="button" class="game-run-button" data-game-discover="${esc(cap.id)}">${cap.provider_ready?'Run tool':'Find operations'} ${icon('arrow')}</button>`:''}</article>`).join('')}</div><div id="game-tool-panel" aria-live="polite"></div>`;
       const cards=$$('.game-capabilities > article',detail),grid=$('.game-capabilities',detail);
       const ready=cards.filter(card=>card.querySelector('.game-cap-status.ready'));
       const other=cards.filter(card=>!card.querySelector('.game-cap-status.ready'));
@@ -395,12 +395,43 @@ async function dashGames(){
       if(other.length){
         const disclosure=document.createElement('details');
         disclosure.className='game-more-capabilities';
-        disclosure.innerHTML=`<summary>${fmt(other.length)} more capabilities · provider key or discovery needed ${icon('arrow')}</summary><div class="game-capabilities"></div>`;
+        disclosure.innerHTML=`<summary>${fmt(other.length)} more capabilities · discover operations or connect providers ${icon('arrow')}</summary><div class="game-capabilities"></div>`;
         other.forEach(card=>disclosure.querySelector('.game-capabilities').appendChild(card));
         grid.after(disclosure);
       }
       $$('[data-game-tool]',detail).forEach(button=>button.onclick=()=>showTool(game,button.dataset.gameTool));
+      $$('[data-game-discover]',detail).forEach(button=>button.onclick=()=>showDiscoveredTool(game,button.dataset.gameDiscover));
     }catch(error){detail.innerHTML=`<p class="game-empty">${esc(error.message)}</p>`;}
+  }
+  async function showDiscoveredTool(game,capability){
+    const panel=$('#game-tool-panel',detail),cap=(game.capabilities||[]).find(c=>c.id===capability);
+    panel.innerHTML=`<section class="game-tool-runner"><header><div><span class="overline">DISCOVER READ-ONLY OPERATIONS</span><h3>${esc(cap?.name||capability)}</h3><p>Checking current provider operations and required inputs…</p></div><button type="button" class="game-tool-close" aria-label="Close tool">×</button></header><div id="game-tool-options"></div></section>`;
+    panel.querySelector('.game-tool-close').onclick=()=>panel.replaceChildren();
+    panel.scrollIntoView({behavior:'smooth',block:'nearest'});
+    try{
+      const response=await api('/api/games/'+encodeURIComponent(game.game_id)+'/tools/'+encodeURIComponent(capability));
+      if(!panel.isConnected)return;
+      const tools=response.tools||[],box=$('#game-tool-options',panel);
+      if(!tools.length){box.innerHTML=`<p class="game-empty">${esc((response.reasons||[]).join(' · ')||'No public read-only operation is available right now.')}</p>`;return;}
+      box.innerHTML=`<label>Published operation<select id="game-operation">${tools.map((tool,index)=>`<option value="${index}">${esc(tool.name)} · ${esc(tool.metadata?.method||'GET')} ${esc(tool.metadata?.path||'')}</option>`).join('')}</select></label><div id="game-operation-form"></div>`;
+      const selector=$('#game-operation',box);
+      function renderOperation(){
+        const tool=tools[Number(selector.value)],properties=tool.input_schema?.properties||{},required=tool.input_schema?.required||[];
+        const fields=Object.entries(properties).filter(([key,schema])=>schema['x-in']!=='header'&&!['authorization','cookie','proxy-authorization','x-api-key'].includes(key.toLowerCase()));
+        $('#game-operation-form',box).innerHTML=`<p>${esc(tool.description||'Read public data from the selected provider.')}</p><small>${esc(tool.provider)} · ${esc(tool.metadata?.server||tool.metadata?.base_url||'')} · ${esc(tool.metadata?.path||'')}${tool.metadata?.source==='rone-mlbb'?' · Rone Arena community API':''}</small>${keys.length?`<form id="game-discovered-form">${fields.map(([name,schema])=>`<label>${esc(name)}${required.includes(name)?' *':''}${schema.enum?`<select name="${esc(name)}">${schema.enum.map(value=>`<option value="${esc(value)}">${esc(value)}</option>`).join('')}</select>`:`<input name="${esc(name)}" ${required.includes(name)?'required':''} ${['integer','number'].includes(schema.type)?'type="number"':'type="text"'} ${schema.type==='integer'?'step="1"':''} maxlength="512" placeholder="${esc(schema.description||name)}">`}</label>`).join('')}<label>Internet Hands API key<select name="api_key_id">${keys.map(key=>`<option value="${esc(key.id)}">${esc(key.name)} · ${esc(key.prefix)}…</option>`).join('')}</select></label><button class="btn primary" type="submit">Run read-only operation ${icon('arrow')}</button></form>`:`<p>Create an Internet Hands API key to run this operation.</p><a data-link class="btn primary" href="/dashboard/api-keys">Create API key</a>`}<div id="game-discovered-output" aria-live="polite"></div>`;
+        const form=$('#game-discovered-form',box);if(!form)return;
+        form.onsubmit=async event=>{
+          event.preventDefault();const output=$('#game-discovered-output',box),submit=form.querySelector('button[type="submit"]'),arguments_={};
+          for(const [name,schema] of fields){const input=form.elements.namedItem(name);if(!input||input.value==='')continue;arguments_[name]=schema.type==='integer'?Number.parseInt(input.value,10):schema.type==='number'?Number(input.value):schema.type==='boolean'?input.value==='true':input.value;}
+          output.innerHTML='<p class="game-empty">Running…</p>';submit.disabled=true;
+          try{const result=await api('/api/games/'+encodeURIComponent(game.game_id)+'/tools/'+encodeURIComponent(capability),{method:'POST',body:{ref:tool.ref,arguments:arguments_,api_key_id:form.elements.api_key_id.value}});
+            output.innerHTML=`<div class="game-tool-output"><small>${esc(result.ref)} · ${fmt(result.usage?.credits_charged)} credits${tool.metadata?.source==='rone-mlbb'?' · Data: <a href="https://arena.rone.dev" target="_blank" rel="noopener noreferrer">Rone Arena</a>':''}</small><pre>${esc(JSON.stringify(result.result,null,2))}</pre></div>`;
+          }catch(error){output.innerHTML=`<p class="game-empty">${esc(error.message)}</p>`;}
+          finally{submit.disabled=false;}
+        };
+      }
+      selector.onchange=renderOperation;renderOperation();
+    }catch(error){const box=$('#game-tool-options',panel);if(box)box.innerHTML=`<p class="game-empty">${esc(error.message)}</p>`;}
   }
   function showTool(game,capability){
     const panel=$('#game-tool-panel',detail),match=capability==='game.matches.analyze';
