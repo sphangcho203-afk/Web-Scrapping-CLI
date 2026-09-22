@@ -32,6 +32,25 @@
   --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
+/* Game capability catalog */
+.game-catalog{display:grid;gap:20px;min-width:0}
+.game-filter{display:grid;gap:8px;max-width:420px;font-size:13px;font-weight:600;color:var(--text-secondary,#aab4c5)}
+.game-filter input{width:100%;min-height:44px;padding:10px 14px;border:1px solid #344258;border-radius:12px;background:#111a2a;color:#f5f7fb;font:inherit}
+.game-filter input:focus-visible,.game-tile:focus-visible{outline:2px solid #78aaff;outline-offset:2px}
+.game-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));gap:12px}
+.game-tile{display:grid;grid-template-columns:1fr auto;gap:7px;align-items:center;text-align:left;padding:18px;background:#152033;border:1px solid #35455b;border-radius:14px;color:#f5f7fb;cursor:pointer}
+.game-tile:hover{border-color:#87aeec;background:#1b2940}
+.game-tile strong{font-size:16px}.game-tile span{grid-column:1;font-size:12px;color:#aebed2}.game-tile svg{grid-column:2;grid-row:1/3;width:18px;height:18px}
+.game-detail{min-width:0;border:1px solid #35455b;border-radius:16px;padding:22px;background:#111b2b}
+.game-detail>header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+.game-detail h2{margin:4px 0 6px;font-size:clamp(22px,3vw,30px);color:#f5f7fb}
+.game-detail header p,.game-empty{margin:0;color:#aebed2}
+.game-capabilities{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:12px}
+.game-capabilities article{padding:18px;border:1px solid #344258;border-radius:12px;background:#18243a}
+.game-capabilities h3{margin:11px 0 7px;font-size:16px;color:#f5f7fb}.game-capabilities p{margin:0 0 12px;color:#b8c6d9;line-height:1.5;font-size:13px}.game-capabilities small{color:#94a9c3}
+.game-cap-status{font-size:11px;color:#ffbe87}.game-cap-status.ready{color:#8de3bb}
+@media(max-width:600px){.game-detail{padding:16px}.game-detail>header>.btn{width:100%;justify-content:center}}
+
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; background: var(--bg); }
 body { margin: 0; min-width: 320px; background: var(--bg); color: var(--text); font-family: var(--sans); -webkit-font-smoothing: antialiased; }

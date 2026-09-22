@@ -369,7 +369,27 @@ function renderLegalDocument(slug){
 }
 function renderLegal(){const path=location.pathname.replace(/\/+$/,'')||'/';const alias=LEGAL_ALIASES[path];if(alias)return renderLegalDocument(alias);if(path==='/legal')return renderLegalHub();const slug=path.startsWith('/legal/')?decodeURIComponent(path.slice(7)):'';return slug?renderLegalDocument(slug):renderLegalHub()}
 
-async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
+async function dashGames(){
+  const data=await api('/api/games');
+  const games=data.games||[];
+  dashboardShell('games',`${pageHead('GAME INTELLIGENCE','Games & public data','Explore the capabilities currently registered for each game. Provider readiness is checked live.')}<section class="game-catalog"><label class="game-filter">Find a game<input id="game-search" type="search" placeholder="Search games" autocomplete="off"></label><div id="game-list" class="game-list"></div><div id="game-detail" class="game-detail" aria-live="polite"></div></section>`);
+  const list=$('#game-list'),detail=$('#game-detail'),filter=$('#game-search');
+  const draw=()=>{
+    const q=filter.value.trim().toLowerCase();
+    const matches=games.filter(g=>g.name.toLowerCase().includes(q)||g.game_id.includes(q));
+    list.innerHTML=matches.length?matches.map(g=>`<button class="game-tile" type="button" data-game="${esc(g.game_id)}"><strong>${esc(g.name)}</strong><span>${fmt(g.capability_count)} capabilities · ${fmt(g.provider_ready_count)} with a connected provider</span>${icon('arrow')}</button>`).join(''):'<p class="game-empty">No registered game matches that search.</p>';
+    $$('[data-game]',list).forEach(button=>button.onclick=()=>select(button.dataset.game));
+  };
+  async function select(id){
+    detail.innerHTML='<p class="game-empty">Loading capabilities…</p>';
+    try{
+      const {game}=await api('/api/games/'+encodeURIComponent(id));
+      detail.innerHTML=`<header><div><span class="overline">${esc(game.game_id)}</span><h2>${esc(game.name)}</h2><p>${fmt(game.capability_count)} declared capabilities · ${fmt(game.provider_ready_count)} with a connected provider. Individual tools may require credentials.</p></div><a class="btn primary" data-link href="/dashboard/playground?query=${encodeURIComponent(game.name+' latest patch and competitive meta')}">Research this game ${icon('arrow')}</a></header><div class="game-capabilities">${(game.capabilities||[]).map(cap=>`<article><span class="game-cap-status ${cap.provider_ready?'ready':''}">${cap.provider_ready?'Provider connected':'Provider unavailable'}</span><h3>${esc(cap.name)}</h3><p>${esc(cap.description)}</p><small>${esc(cap.providers.join(' · '))}</small></article>`).join('')}</div>`;
+    }catch(error){detail.innerHTML=`<p class="game-empty">${esc(error.message)}</p>`;}
+  }
+  filter.oninput=draw;draw();if(games.length)select(games[0].game_id);
+}
+async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,games:dashGames,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
 async function renderRoute(){clearTransientUi();window.scrollTo(0,0);const p=location.pathname;try{if(p==='/'||p==='/pricing'||p==='/status'||p.startsWith('/docs')||p.startsWith('/legal')||LEGAL_ALIASES[p])await hydrateOptionalSession();if(p.startsWith('/dashboard'))return await renderDashboard();if(p==='/verify-email')return await renderVerify();if(p==='/login')return renderAuth('login');if(p==='/signup')return renderAuth('signup');if(p==='/forgot-password')return renderRecovery();if(p==='/reset-password')return renderRecovery(true);if(p.startsWith('/legal')||LEGAL_ALIASES[p])return renderLegal();if(p.startsWith('/docs'))return renderDocs();if(p==='/pricing')return await renderPricing();if(p==='/status')return await renderStatus();return await renderHome();}catch(error){console.error(error);if(error.status===401)return go('/login',true);app.innerHTML=`<main class="fatal"><div>${brand()}<span class="eyebrow">REQUEST FAILED</span><h1>The control plane did not answer cleanly.</h1><p>${esc(error.message)}</p><button class="btn primary" onclick="location.reload()">Try again</button></div></main>`;}}
 document.addEventListener('click',e=>{
   if(e.defaultPrevented)return;
@@ -827,6 +847,7 @@ function openRunInspector(event) {
     dashboardShell('playground',html);
 
     const form=$('#ihp-form'), queryInput=$('#research-query'), submit=$('#ihp-submit'), results=$('#ihp-results');
+    queryInput.value=(new URLSearchParams(location.search).get('query')||'').slice(0,1000);
     const deep=$('#ihp-deep');
     const isUrl=value=>/^https?:\/\/[^\s]+$/i.test(String(value||'').trim());
     const domainOf=value=>{try{return new URL(value).hostname.replace(/^www\./,'')}catch{return ''}};
@@ -1056,6 +1077,7 @@ function openRunInspector(event) {
     ['Build', [
       ['overview','terminal','Overview'],
       ['playground','activity','Playground'],
+      ['games','activity','Game Intelligence'],
       ['api-keys','key','API Keys']
     ]],
     ['Observe', [
@@ -1144,6 +1166,7 @@ function openRunInspector(event) {
         <div class="cos-sheet-title"><b>More</b><small>Workspace navigation</small></div>
         <span class="cos-sheet-label">Build & observe</span>
         <a data-link href="/dashboard/api-keys">${icon('key')} API Keys</a>
+        <a data-link href="/dashboard/games">${icon('activity')} Game Intelligence</a>
         <a data-link href="/dashboard/monitors">${icon('monitor')} Monitors</a>
         <span class="cos-sheet-label">Account & product</span>
         <a data-link href="/dashboard/wallet">${icon('wallet')} Credits</a>
