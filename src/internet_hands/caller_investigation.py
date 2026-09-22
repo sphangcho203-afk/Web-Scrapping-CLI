@@ -11,7 +11,6 @@ from .execution_meter import record_provider_call, record_usage
 from .fetcher import fetch_url
 from .tool_mesh import ToolDescriptor
 
-
 _SEPARATORS = re.compile(r"\s+(?:\||-|—|–|·)\s+")
 _PHONE_CHUNK = re.compile(r"\+?\d[\d\s().-]{6,}\d")
 _GENERIC_LABELS = {
