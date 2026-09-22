@@ -39,17 +39,14 @@ from .control_api import (
 from .control_store import ControlError, random_token
 from .mailer import MailError, mail_provider, send_mail
 from .security_store import SecurityStore
-from .supabase_auth import (
-    SupabaseAuthError,
-    admin_create_user as supabase_admin_create_user,
-    admin_update_user as supabase_admin_update_user,
-    resend_signup as supabase_resend_signup,
-    sign_in as supabase_sign_in,
-    sign_up as supabase_sign_up,
-    update_password_with_access_token as supabase_update_password,
-    user_from_access_token as supabase_user_from_access_token,
-    verify_signup_otp as supabase_verify_signup_otp,
-)
+from .supabase_auth import SupabaseAuthError
+from .supabase_auth import admin_create_user as supabase_admin_create_user
+from .supabase_auth import admin_update_user as supabase_admin_update_user
+from .supabase_auth import resend_signup as supabase_resend_signup
+from .supabase_auth import sign_in as supabase_sign_in
+from .supabase_auth import sign_up as supabase_sign_up
+from .supabase_auth import update_password_with_access_token as supabase_update_password
+from .supabase_auth import verify_signup_otp as supabase_verify_signup_otp
 from .totp import (
     decrypt_secret,
     encrypt_secret,
