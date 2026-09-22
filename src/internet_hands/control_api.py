@@ -482,7 +482,6 @@ async def create_connection_endpoint(request: Request):
         validate_public_http_url(endpoint_url)
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
     headers = body.get("headers") if isinstance(body.get("headers"), dict) else {}
     secret_config: dict[str, Any] = {"headers": {str(k): str(v) for k, v in headers.items() if str(k).strip()}}
     secret = str(body.get("secret") or body.get("token") or body.get("api_key") or "")
@@ -493,15 +492,8 @@ async def create_connection_endpoint(request: Request):
         secret_config["headers"][header_name] = secret
     elif auth_type in {"api_key", "bearer", "headers", "oauth"} and not secret_config["headers"]:
         raise HTTPException(status_code=400, detail="this authentication type requires credential headers")
-
-    config = {
-        "header_names": list(secret_config["headers"]),
-        "oauth": body.get("oauth") if auth_type == "oauth" and isinstance(body.get("oauth"), dict) else None,
-    }
-    return {"connection": store.create_connection(
-        user_id=user["id"], name=name, endpoint_url=endpoint_url, transport=transport,
-        auth_type=auth_type, config=config, secret_config=secret_config,
-    )}
+    config = {"header_names": list(secret_config["headers"]), "oauth": body.get("oauth") if auth_type == "oauth" and isinstance(body.get("oauth"), dict) else None}
+    return {"connection": store.create_connection(user_id=user["id"], name=name, endpoint_url=endpoint_url, transport=transport, auth_type=auth_type, config=config, secret_config=secret_config)}
 
 
 @router.delete("/api/connections/{connection_id}")
