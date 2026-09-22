@@ -741,4 +741,263 @@ class ControlStore:
             if not row:
                 return None
             cur.execute("UPDATE ih_api_keys SET last_used_at=now() WHERE id=%s", (key_id,))
-            conn.com¢ëiºÛkºwµç_ºYhºÚn¶Æ¯yÛhþiíýø¥zÏÜ¢jh²*?¢ëiºßÞÅç¢êìµÚ.¶ÜmN‹â{ayû¥–‹­¦ëkºw(uê)zæžßßŠW¬ýÊ&¦‹"£ú.¶›­ýì^qú.®Ë]¢ëmÆÚÞiÓ«ºÇ‚8ÃÎHƒ!Ó8âÜjßæžßßŠW¬ýÊ&¦‹"£ú.¶›­ýì^qú.®Ë]¢ëmÆßáy§g×M?š{~)^³÷(šš,ŠèºÚn·÷±yÇèº»-v‹­·µ¨¥Ÿ]4þiíýø¥zÏÜ¢jh²*?¢ëiºßÞÅç¢êìµÚ.¶Üm
+            conn.commit()
+            return self._identity_from_key_row(dict(row), "api_key")
+
+
+    def authenticate_api_key(self, key_hash: str) -> AuthIdentity | None:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT k.user_id,k.id AS api_key_id,k.scopes,p.slug AS plan_slug,p.rpm_limit
+                FROM ih_api_keys k
+                LEFT JOIN LATERAL (
+                    SELECT plan_slug FROM ih_subscriptions s
+                    WHERE s.user_id=k.user_id AND s.status='active'
+                    ORDER BY s.created_at DESC LIMIT 1
+                ) s ON true
+                JOIN ih_plans p ON p.slug=COALESCE(s.plan_slug,'free')
+                WHERE k.key_hash=%s AND k.revoked_at IS NULL
+                  AND (k.expires_at IS NULL OR k.expires_at>now())
+                """,
+                (key_hash,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            cur.execute("UPDATE ih_api_keys SET last_used_at=now() WHERE id=%s", (row["api_key_id"],))
+            conn.commit()
+            return self._identity_from_key_row(dict(row), "api_key")
+
+    def authenticate_access_token(self, token_hash: str) -> AuthIdentity | None:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT t.user_id,t.api_key_id,t.scopes,p.slug AS plan_slug,p.rpm_limit
+                FROM ih_oauth_tokens t
+                LEFT JOIN LATERAL (
+                    SELECT plan_slug FROM ih_subscriptions s
+                    WHERE s.user_id=t.user_id AND s.status='active'
+                    ORDER BY s.created_at DESC LIMIT 1
+                ) s ON true
+                JOIN ih_plans p ON p.slug=COALESCE(s.plan_slug,'free')
+                WHERE t.access_token_hash=%s AND t.revoked_at IS NULL AND t.access_expires_at>now()
+                """,
+                (token_hash,),
+            )
+            row = cur.fetchone()
+            return self._identity_from_key_row(dict(row), "oauth") if row else None
+
+    def quote_tool_call(
+        self,
+        *,
+        identity: AuthIdentity,
+        tool_name: str,
+        arguments: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        estimate = estimate_call(tool_name, arguments, identity.plan_slug)
+        quote = estimate.to_dict()
+        if not estimate.allowed:
+            raise ControlError(
+                "plan_restricted",
+                estimate.reason or "tool is unavailable on the current plan",
+                403,
+            )
+        return quote
+
+    def tool_cost(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        plan_slug: str = "free",
+    ) -> int:
+        estimate = estimate_call(tool_name, arguments, plan_slug)
+        if not estimate.allowed:
+            raise ControlError(
+                "plan_restricted",
+                estimate.reason or "tool is unavailable on the current plan",
+                403,
+            )
+        return int(estimate.credits)
+
+    def release_stale_reservations(
+        self,
+        user_id: str,
+        *,
+        older_than_minutes: int = 60,
+    ) -> dict[str, int]:
+        """Release abandoned reservations left behind by crashed request workers."""
+        self.ensure_schema()
+        cutoff_minutes = max(15, min(int(older_than_minutes), 24 * 60))
+        released = 0
+        count = 0
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT request_id,metadata
+                    FROM ih_usage_events
+                    WHERE user_id=%s
+                      AND status='reserved'
+                      AND created_at < now() - (%s * interval '1 minute')
+                    FOR UPDATE
+                    """,
+                    (user_id, cutoff_minutes),
+                )
+                rows = cur.fetchall()
+                for row in rows:
+                    metadata = dict(row.get("metadata") or {})
+                    reservation = dict(metadata.get("reservation") or {})
+                    credits = max(0, int(reservation.get("credits") or 0))
+                    reservation.update(
+                        {
+                            "state": "abandoned",
+                            "reserved": credits,
+                            "settled": 0,
+                            "released": credits,
+                        }
+                    )
+                    metadata["reservation"] = reservation
+                    cur.execute(
+                        """
+                        UPDATE ih_usage_events
+                        SET status='abandoned',credits_charged=0,metadata=%s::jsonb
+                        WHERE request_id=%s AND status='reserved'
+                        """,
+                        (json.dumps(metadata), row["request_id"]),
+                    )
+                    if cur.rowcount:
+                        released += credits
+                        count += 1
+
+                if released:
+                    cur.execute(
+                        """
+                        UPDATE ih_wallets
+                        SET reserved_credits=GREATEST(reserved_credits-%s,0),
+                            updated_at=now()
+                        WHERE user_id=%s
+                        """,
+                        (released, user_id),
+                    )
+            conn.commit()
+        return {"reservations_released": count, "credits_released": released}
+
+    def reserve_tool_call(
+        self,
+        *,
+        identity: AuthIdentity,
+        request_id: str,
+        tool_name: str,
+        arguments: dict[str, Any] | None,
+        input_bytes: int,
+    ) -> int:
+        self.ensure_schema()
+        self.release_stale_reservations(identity.user_id)
+        quote = self.quote_tool_call(
+            identity=identity,
+            tool_name=tool_name,
+            arguments=arguments,
+        )
+        reserved = int(quote["credits"])
+        provider = None
+        if arguments:
+            ref = str(arguments.get("ref") or "")
+            if ":" in ref:
+                provider = ref.split(":", 1)[0]
+
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT count(*) AS n FROM ih_usage_events WHERE user_id=%s AND created_at>now()-interval '1 minute'",
+                    (identity.user_id,),
+                )
+                if int(cur.fetchone()["n"]) >= identity.rpm_limit:
+                    raise ControlError("rate_limited", "rate limit exceeded", 429)
+
+                cur.execute(
+                    """
+                    SELECT monthly_credits,purchased_credits,reserved_credits
+                    FROM ih_wallets WHERE user_id=%s FOR UPDATE
+                    """,
+                    (identity.user_id,),
+                )
+                wallet = cur.fetchone()
+                if not wallet:
+                    raise ControlError("wallet_missing", "wallet not found", 500)
+
+                total = int(wallet["monthly_credits"]) + int(wallet["purchased_credits"])
+                already_reserved = int(wallet["reserved_credits"])
+                available = total - already_reserved
+                if available < reserved:
+                    raise ControlError(
+                        "insufficient_credits",
+                        (
+                            f"this call requires {reserved} reserved credits but only "
+                            f"{max(0, available)} are currently available"
+                        ),
+                        402,
+                    )
+
+                if reserved:
+                    cur.execute(
+                        """
+                        UPDATE ih_wallets
+                        SET reserved_credits=reserved_credits+%s,updated_at=now()
+                        WHERE user_id=%s
+                        """,
+                        (reserved, identity.user_id),
+                    )
+
+                cur.execute(
+                    """
+                    INSERT INTO ih_usage_events(
+                        id,user_id,api_key_id,request_id,tool_ref,provider,status,
+                        credits_charged,input_bytes,metadata
+                    ) VALUES (%s,%s,%s,%s,%s,%s,'reserved',0,%s,%s::jsonb)
+                    """,
+                    (
+                        self._new_id("use"),
+                        identity.user_id,
+                        identity.api_key_id,
+                        request_id,
+                        tool_name,
+                        provider,
+                        input_bytes,
+                        json.dumps(
+                            {
+                                "auth_source": identity.source,
+                                "arguments_present": bool(arguments),
+                                "tool": tool_name,
+                                "plan": identity.plan_slug,
+                                "reservation": {
+                                    "credits": reserved,
+                                    "state": "reserved",
+                                },
+                                "pricing": {
+                                    "category": quote["category"],
+                                    "provider_class": quote["provider_class"],
+                                    "minimum_plan": quote["minimum_plan"],
+                                    "breakdown": quote["breakdown"],
+                                },
+                            }
+                        ),
+                    ),
+                )
+            conn.commit()
+        return reserved
+
+    def settle_tool_call(
+        self,
+        request_id: str,
+        *,
+        status: str,
+        latency_ms: int,
+        output_bytes: int,
+        actual_credits:
+... (output truncated, full output saved to: /mnt/files/.composio/output/exec_once_stdout.txt)
+To view the full output, run code: open('/mnt/files/.composio/output/exec_once_stdout.txt').read()
+Or use COMPOSIO_BASH_TOOL: 'cat /mnt/files/.composio/output/exec_once_stdout.txt' / 'head -n 100 /mnt/files/.composio/output/exec_once_stdout.txt' / 'tail -n 100 /mnt/files/.composio/output/exec_once_stdout.txt'
