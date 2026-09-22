@@ -1,1 +1,744 @@
-{"data":{"results":"","stdout":"from __future__ import annotations\n\nimport json\nimport os\nimport secrets\nimport threading\nimport uuid\nfrom dataclasses import dataclass\nfrom datetime import UTC, datetime, timedelta\nfrom typing import Any\n\nimport psycopg\nfrom psycopg.errors import UniqueViolation\nfrom psycopg.rows import dict_row\n\nfrom .capability_economics import estimate_call, plan_privileges\n\nSCHEMA_SQL = r\"\"\"\nCREATE TABLE IF NOT EXISTS ih_users (\n    id text PRIMARY KEY,\n    email text NOT NULL,\n    password_hash text,\n    github_id text UNIQUE,\n    display_name text,\n    avatar_url text,\n    email_verified boolean NOT NULL DEFAULT false,\n    created_at timestamptz NOT NULL DEFAULT now(),\n    updated_at timestamptz NOT NULL DEFAULT now()\n);\nCREATE UNIQUE INDEX IF NOT EXISTS ih_users_email_lower_idx ON ih_users ((lower(email)));\n\nCREATE TABLE IF NOT EXISTS ih_sessions (\n    id text PRIMARY KEY,\n    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,\n    token_hash text NOT NULL UNIQUE,\n    expires_at timestamptz NOT NULL,\n    created_at timestamptz NOT NULL DEFAULT now()\n);\nCREATE INDEX IF NOT EXISTS ih_sessions_user_idx ON ih_sessions(user_id);\n\nCREATE TABLE IF NOT EXISTS ih_plans (\n    slug text PRIMARY KEY,\n    name text NOT NULL,\n    monthly_price_inr integer NOT NULL,\n    included_credits integer NOT NULL,\n    rpm_limit integer NOT NULL,\n    concurrent_limit integer NOT NULL,\n    api_key_limit integer NOT NULL,\n    monitor_limit integer NOT NULL,\n    browser_enabled boolean NOT NULL DEFAULT false,\n    sandbox_enabled boolean NOT NULL DEFAULT false,\n    priority integer NOT NULL DEFAULT 0,\n    metadata jsonb NOT NULL DEFAULT '{}'::jsonb,\n    active boolean NOT NULL DEFAULT true\n);\n\nCREATE TABLE IF NOT EXISTS ih_subscriptions (\n    id text PRIMARY KEY,\n    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,\n    plan_slug text NOT NULL REFERENCES ih_plans(slug),\n    status text NOT NULL,\n    current_period_start timestamptz NOT NULL,\n    current_period_end timestamptz NOT NULL,\n    provider text,\n    provider_subscription_id text,\n    cancel_at_period_end boolean NOT NULL DEFAULT false,\n    created_at timestamptz NOT NULL DEFAULT now(),\n    updated_at timestamptz NOT NULL DEFAULT now()\n);\nCREATE INDEX IF NOT EXISTS ih_subscriptions_user_idx ON ih_subscriptions(user_id, status);\n\nCREATE TABLE IF NOT EXISTS ih_wallets (\n    user_id text PRIMARY KEY REFERENCES ih_users(id) ON DELETE CASCADE,\n    monthly_credits integer NOT NULL DEFAULT 0,\n    purchased_credits integer NOT NULL DEFAULT 0,\n    reserved_credits integer NOT NULL DEFAULT 0,\n    updated_at timestamptz NOT NULL DEFAULT now()\n);\n\nCREATE TABLE IF NOT EXISTS ih_credit_ledger (\n    id text PRIMARY KEY,\n    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,\n    amount integer NOT NULL,\n    bucket text NOT NULL,\n    kind text NOT NULL,\n    source text NOT NULL,\n    reference_id text,\n    metadata jsonb NOT NULL DEFAULT '{}'::jsonb,\n    created_at timestamptz NOT NULL DEFAULT now()\n);\nCREATE INDEX IF NOT EXISTS ih_credit_ledger_user_idx ON ih_credit_ledger(user_id, created_at DESC);\n\nCREATE TABLE IF NOT EXISTS ih_api_keys (\n    id text PRIMARY KEY,\n    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,\n    name text NOT NULL,\n    prefix text NOT NULL,\n    key_hash text NOT NULL UNIQUE,\n    scopes jsonb NOT NULL DEFAULT '[]'::jsonb,\n    environment text NOT NULL DEFAULT 'live',\n    last_used_at timestamptz,\n    expires_at timestamptz,\n    revoked_at timestamptz,\n    created_at timestamptz NOT NULL DEFAULT now()\n);\nCREATE INDEX IF NOT EXISTS ih_api_keys_user_idx ON ih_api_keys(user_id, created_at DESC);\n\nCREATE TABLE IF NOT EXISTS ih_connections (\n    id text PRIMARY KEY,\n    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,\n    name text NOT NULL,\n    kind text NOT NULL DEFAULT 'mcp',\n    endpoint_url text NOT NULL,\n    transport text NOT NULL DEFAULT 'streamable_http',\n    auth_type text NOT NULL DEFAULT 'none',\n    config jsonb NOT NULL DEFAULT '{}'::jsonb,\n    secret_config jsonb NOT NULL DEFAULT '{}'::jsonb,\n    enabled boolean NOT NULL DEFAULT true,\n    last_status text,\n    last_checked_at timestamptz,\n    created_at timestamptz NOT NULL DEFAULT now(),\n    updated_at timestamptz NOT NULL DEFAULT now()\n);\nCREATE INDEX IF NOT EXISTS ih_connections_user_idx ON ih_connections(user_id, created_at DESC);\n\nCREATE TABLE IF NOT EXISTS ih_usage_events (\n    id text PRIMARY KEY,\n    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,\n    api_key_id text REFERENCES ih_api_keys(id) ON DELETE SET NULL,\n    request_id text NOT NULL UNIQUE,\n    tool_ref text,\n    capability text,\n    provider text,\n    status text NOT NULL,\n    credits_charged integer NOT NULL DEFAULT 0,\n    latency_ms integer,\n    input_bytes integer NOT NULL DEFAULT 0,\n    output_bytes integer NOT NULL DEFAULT 0,\n    metadata jsonb NOT NULL DEFAULT '{}'::jsonb,\n    created_at timestamptz NOT NULL DEFAULT now()\n);\nCREATE INDEX IF NOT EXISTS ih_usage_user_time_idx ON ih_usage_events(user_id, created_at DESC);\nCREATE INDEX IF NOT EXISTS ih_usage_key_time_idx ON ih_usage_events(api_key_id, created_at DESC);\n\nCREATE TABLE IF NOT EXISTS ih_monitors (\n    id text PRIMARY KEY,\n    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,\n    name text NOT NULL,\n    type text NOT NULL,\n    target text NOT NULL,\n    interval_minutes integer NOT NULL,\n    enabled boolean NOT NULL DEFAULT true,\n    last_status text,\n    last_checked_at timestamptz,\n    next_check_at timestamptz,\n    config jsonb NOT NULL DEFAULT '{}'::jsonb,\n    created_at timestamptz NOT NULL DEFAULT now(),\n    updated_at timestamptz NOT NULL DEFAULT now()\n);\nCREATE INDEX IF NOT EXISTS ih_monitors_user_idx ON ih_monitors(user_id, created_at DESC);\n\nCREATE TABLE IF NOT EXISTS ih_monitor_runs (\n    id text PRIMARY KEY,\n    monitor_id text NOT NULL REFERENCES ih_monitors(id) ON DELETE CASCADE,\n    status text NOT NULL,\n    latency_ms integer,\n    http_status integer,\n    summary text,\n    diff jsonb,\n    credits_charged integer NOT NULL DEFAULT 0,\n    created_at timestamptz NOT NULL DEFAULT now()\n);\nCREATE INDEX IF NOT EXISTS ih_monitor_runs_monitor_idx ON ih_monitor_runs(monitor_id, created_at DESC);\n\nCREATE TABLE IF NOT EXISTS ih_credit_packs (\n    slug text PRIMARY KEY,\n    name text NOT NULL,\n    price_inr integer NOT NULL,\n    credits integer NOT NULL,\n    active boolean NOT NULL DEFAULT true\n);\n\nCREATE TABLE IF NOT EXISTS ih_payments (\n    id text PRIMARY KEY,\n    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,\n    provider text NOT NULL DEFAULT 'razorpay',\n    order_id text UNIQUE,\n    payment_id text UNIQUE,\n    amount_paise integer NOT NULL,\n    currency text NOT NULL DEFAULT 'INR',\n    status text NOT NULL,\n    purpose text NOT NULL,\n    plan_slug text REFERENCES ih_plans(slug),\n    credit_pack_slug text REFERENCES ih_credit_packs(slug),\n    metadata jsonb NOT NULL DEFAULT '{}'::jsonb,\n    created_at timestamptz NOT NULL DEFAULT now(),\n    paid_at timestamptz\n);\nCREATE INDEX IF NOT EXISTS ih_payments_user_idx ON ih_payments(user_id, created_at DESC);\n\nCREATE TABLE IF NOT EXISTS ih_oauth_authorization_codes (\n    id text PRIMARY KEY,\n    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,\n    api_key_id text NOT NULL REFERENCES ih_api_keys(id) ON DELETE CASCADE,\n    client_id text NOT NULL,\n    redirect_uri text NOT NULL,\n    code_hash text NOT NULL UNIQUE,\n    code_challenge text NOT NULL,\n    scopes jsonb NOT NULL DEFAULT '[]'::jsonb,\n    expires_at timestamptz NOT NULL,\n    used_at timestamptz,\n    created_at timestamptz NOT NULL DEFAULT now()\n);\n\nCREATE TABLE IF NOT EXISTS ih_oauth_tokens (\n    id text PRIMARY KEY,\n    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,\n    api_key_id text NOT NULL REFERENCES ih_api_keys(id) ON DELETE CASCADE,\n    client_id text NOT NULL,\n    access_token_hash text NOT NULL UNIQUE,\n    refresh_token_hash text NOT NULL UNIQUE,\n    scopes jsonb NOT NULL DEFAULT '[]'::jsonb,\n    access_expires_at timestamptz NOT NULL,\n    refresh_expires_at timestamptz NOT NULL,\n    revoked_at timestamptz,\n    created_at timestamptz NOT NULL DEFAULT now()\n);\nCREATE INDEX IF NOT EXISTS ih_oauth_tokens_user_idx ON ih_oauth_tokens(user_id, created_at DESC);\n\nCREATE TABLE IF NOT EXISTS ih_webhook_events (\n    id text PRIMARY KEY,\n    provider text NOT NULL,\n    event_id text NOT NULL,\n    event_type text NOT NULL,\n    signature_valid boolean NOT NULL,\n    payload_hash text NOT NULL,\n    status text NOT NULL,\n    processed_at timestamptz NOT NULL DEFAULT now(),\n    UNIQUE(provider, event_id)\n);\n\nCREATE TABLE IF NOT EXISTS ih_password_resets (\n    id text PRIMARY KEY,\n    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,\n    token_hash text NOT NULL UNIQUE,\n    expires_at timestamptz NOT NULL,\n    used_at timestamptz,\n    created_at timestamptz NOT NULL DEFAULT now()\n);\n\nCREATE TABLE IF NOT EXISTS ih_tool_costs (\n    pattern text PRIMARY KEY,\n    base_credits integer NOT NULL,\n    metadata jsonb NOT NULL DEFAULT '{}'::jsonb,\n    active boolean NOT NULL DEFAULT true\n);\n\"\"\"\n\nPLAN_ROWS = [\n    (\"free\", \"Free\", 0, 2500, 10, 1, 1, 1, False, False, 0),\n    (\"builder\", \"Builder\", 499, 25000, 60, 4, 5, 10, True, False, 10),\n    (\"pro\", \"Pro\", 1499, 150000, 240, 10, 20, 50, True, True, 20),\n    (\"scale\", \"Scale\", 4999, 750000, 600, 20, 100, 250, True, True, 30),\n]\n\nCREDIT_PACK_ROWS = [\n    (\"starter-5k\", \"5K credits\", 99, 5000),\n    (\"builder-25k\", \"25K credits\", 399, 25000),\n    (\"pro-75k\", \"75K credits\", 999, 75000),\n    (\"scale-250k\", \"250K credits\", 2499, 250000),\n]\n\nTOOL_COST_ROWS = [\n    (\"account_*\", 0, {\"category\": \"account\"}),\n    (\"monitors_list\", 0, {\"category\": \"account\"}),\n    (\"monitor_get\", 0, {\"category\": \"account\"}),\n    (\"mesh_providers\", 1, {\"category\": \"discovery\"}),\n    (\"mesh_search\", 1, {\"category\": \"discovery\"}),\n    (\"mesh_describe*\", 1, {\"category\": \"discovery\"}),\n    (\"mesh_capabilities\", 1, {\"category\": \"discovery\"}),\n    (\"gaming_capabilities\", 1, {\"category\": \"gaming\"}),\n    (\"gaming_profile_plan\", 1, {\"category\": \"gaming\"}),\n    (\"gaming_profile\", 5, {\"category\": \"gaming\"}),\n    (\"gaming_intel\", 2, {\"category\": \"gaming\"}),\n    (\"sandbox_browser_*\", 2, {\"category\": \"browser\", \"per_minute\": 5}),\n    (\"sandbox_*\", 2, {\"category\": \"sandbox\", \"per_minute\": 10}),\n    (\"mesh_execute\", 3, {\"category\": \"provider\"}),\n    (\"mesh_batch_execute\", 10, {\"category\": \"provider\"}),\n    (\"mesh_job_status\", 1, {\"category\": \"provider\"}),\n    (\"mesh_results\", 1, {\"category\": \"provider\"}),\n    (\"playground:crawl\", 2, {\"category\": \"playground\"}),\n    (\"*\", 1, {\"category\": \"default\"}),\n]\n\n\nclass ControlError(RuntimeError):\n    def __init__(self, code: str, detail: str, status_code: int = 400) -> None:\n        super().__init__(detail)\n        self.code = code\n        self.detail = detail\n        self.status_code = status_code\n\n\n@dataclass(slots=True)\nclass AuthIdentity:\n    user_id: str\n    api_key_id: str | None\n    scopes: list[str]\n    plan_slug: str\n    rpm_limit: int\n    source: str\n\n\nclass ControlStore:\n    def __init__(self, dsn: str | None = None) -> None:\n        self.dsn = dsn or os.getenv(\"INTERNET_HANDS_CONTROL_POSTGRES_DSN\") or os.getenv(\n            \"INTERNET_HANDS_POSTGRES_DSN\"\n        )\n        self._schema_ready = False\n        self._schema_lock = threading.Lock()\n\n    @property\n    def configured(self) -> bool:\n        return bool(self.dsn)\n\n    def _connect(self):\n        if not self.dsn:\n            raise ControlError(\"control_plane_unavailable\", \"control database is not configured\", 503)\n        return psycopg.connect(self.dsn, row_factory=dict_row)\n\n    def ensure_schema(self) -> None:\n        if self._schema_ready:\n            return\n        with self._schema_lock:\n            if self._schema_ready:\n                return\n            with self._connect() as conn:\n                with conn.cursor() as cur:\n                    cur.execute(SCHEMA_SQL)\n                    for row in PLAN_ROWS:\n                        cur.execute(\n                            \"\"\"\n                            INSERT INTO ih_plans(\n                                slug,name,monthly_price_inr,included_credits,rpm_limit,\n                                concurrent_limit,api_key_limit,monitor_limit,browser_enabled,\n                                sandbox_enabled,priority\n                            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)\n                            ON CONFLICT (slug) DO UPDATE SET\n                                name=EXCLUDED.name,\n                                monthly_price_inr=EXCLUDED.monthly_price_inr,\n                                included_credits=EXCLUDED.included_credits,\n                                rpm_limit=EXCLUDED.rpm_limit,\n                                concurrent_limit=EXCLUDED.concurrent_limit,\n                                api_key_limit=EXCLUDED.api_key_limit,\n                                monitor_limit=EXCLUDED.monitor_limit,\n                                browser_enabled=EXCLUDED.browser_enabled,\n                                sandbox_enabled=EXCLUDED.sandbox_enabled,\n                                priority=EXCLUDED.priority\n                            \"\"\",\n                            row,\n                        )\n                    for row in CREDIT_PACK_ROWS:\n                        cur.execute(\n                            \"\"\"\n                            INSERT INTO ih_credit_packs(slug,name,price_inr,credits)\n                            VALUES (%s,%s,%s,%s)\n                            ON CONFLICT (slug) DO UPDATE SET\n                                name=EXCLUDED.name, price_inr=EXCLUDED.price_inr,\n                                credits=EXCLUDED.credits, active=true\n                            \"\"\",\n                            row,\n                        )\n                    for pattern, base, metadata in TOOL_COST_ROWS:\n                        cur.execute(\n                            \"\"\"\n                            INSERT INTO ih_tool_costs(pattern,base_credits,metadata)\n                            VALUES (%s,%s,%s::jsonb)\n                            ON CONFLICT (pattern) DO UPDATE SET\n                                base_credits=EXCLUDED.base_credits,\n                                metadata=EXCLUDED.metadata,\n                                active=true\n                            \"\"\",\n                            (pattern, base, json.dumps(metadata)),\n                        )\n                conn.commit()\n            self._schema_ready = True\n\n    def _new_id(self, prefix: str) -> str:\n        return f\"{prefix}_{uuid.uuid4().hex}\"\n\n    def create_user(self, *, email: str, password_hash: str, display_name: str | None) -> dict[str, Any]:\n        self.ensure_schema()\n        user_id = self._new_id(\"usr\")\n        try:\n            with self._connect() as conn:\n                with conn.cursor() as cur:\n                    cur.execute(\n                        \"\"\"\n                        INSERT INTO ih_users(id,email,password_hash,display_name)\n                        VALUES (%s,%s,%s,%s)\n                        RETURNING id,email,display_name,avatar_url,created_at\n                        \"\"\",\n                        (user_id, email.strip().lower(), password_hash, display_name),\n                    )\n                    user = cur.fetchone()\n                conn.commit()\n                assert user is not None\n                return dict(user)\n        except UniqueViolation as exc:\n            raise ControlError(\"email_in_use\", \"an account with this email already exists\", 409) from exc\n\n    def _activate_free_account(self, cur: Any, user_id: str) -> None:\n        \"\"\"Provision account resources once, inside the caller's transaction.\"\"\"\n        now = datetime.now(UTC)\n        cur.execute(\n            \"\"\"\n            INSERT INTO ih_wallets(user_id,monthly_credits)\n            VALUES (%s,2500)\n            ON CONFLICT (user_id) DO NOTHING\n            \"\"\",\n            (user_id,),\n        )\n        cur.execute(\n            \"\"\"\n            INSERT INTO ih_credit_ledger(\n                id,user_id,amount,bucket,kind,source,reference_id\n            )\n            SELECT %s,%s,2500,'monthly','grant','signup','free'\n            WHERE NOT EXISTS (\n                SELECT 1 FROM ih_credit_ledger\n                WHERE user_id=%s AND kind='grant' AND source='signup'\n            )\n            \"\"\",\n            (self._new_id(\"led\"), user_id, user_id),\n        )\n        cur.execute(\n            \"\"\"\n            INSERT INTO ih_subscriptions(\n                id,user_id,plan_slug,status,current_period_start,current_period_end,provider\n            )\n            SELECT %s,%s,'free','active',%s,%s,'internal'\n            WHERE NOT EXISTS (\n                SELECT 1 FROM ih_subscriptions\n                WHERE user_id=%s AND status='active'\n            )\n            \"\"\",\n            (self._new_id(\"sub\"), user_id, now, now + timedelta(days=30), user_id),\n        )\n\n    def activate_free_account(self, user_id: str) -> None:\n        self.ensure_schema()\n        with self._connect() as conn, conn.cursor() as cur:\n            self._activate_free_account(cur, user_id)\n            conn.commit()\n\n    def get_user_by_email(self, email: str) -> dict[str, Any] | None:\n        self.ensure_schema()\n        with self._connect() as conn, conn.cursor() as cur:\n            cur.execute(\"SELECT * FROM ih_users WHERE lower(email)=lower(%s)\", (email.strip(),))\n            row = cur.fetchone()\n            return dict(row) if row else None\n\n    def get_user(self, user_id: str) -> dict[str, Any] | None:\n        self.ensure_schema()\n        with self._connect() as conn, conn.cursor() as cur:\n            cur.execute(\n                \"\"\"\n                SELECT id,email,display_name,avatar_url,email_verified,created_at,\n                       (github_id IS NOT NULL) AS github_connected\n                FROM ih_users WHERE id=%s\n                \"\"\",\n                (user_id,),\n            )\n            row = cur.fetchone()\n            return dict(row) if row else None\n\n    def upsert_github_user(\n        self, *, github_id: str, email: str, display_name: str | None, avatar_url: str | None\n    ) -> dict[str, Any]:\n        self.ensure_schema()\n        with self._connect() as conn:\n            with conn.cursor() as cur:\n                cur.execute(\"SELECT * FROM ih_users WHERE github_id=%s\", (github_id,))\n                existing = cur.fetchone()\n                if existing:\n                    cur.execute(\n                        \"UPDATE ih_users SET display_name=COALESCE(%s,display_name), avatar_url=COALESCE(%s,avatar_url), updated_at=now() WHERE id=%s RETURNING *\",\n                        (display_name, avatar_url, existing[\"id\"]),\n                    )\n                    row = cur.fetchone()\n                    conn.commit()\n                    assert row is not None\n                    return dict(row)\n                cur.execute(\"SELECT * FROM ih_users WHERE lower(email)=lower(%s)\", (email,))\n                by_email = cur.fetchone()\n                if by_email:\n                    cur.execute(\n                        \"UPDATE ih_users SET github_id=%s, display_name=COALESCE(%s,display_name), avatar_url=COALESCE(%s,avatar_url), updated_at=now() WHERE id=%s RETURNING *\",\n                        (github_id, display_name, avatar_url, by_email[\"id\"]),\n                    )\n                    row = cur.fetchone()\n                    conn.commit()\n                    assert row is not None\n                    return dict(row)\n                user_id = self._new_id(\"usr\")\n                cur.execute(\n                    \"\"\"\n                    INSERT INTO ih_users(id,email,github_id,display_name,avatar_url,email_verified)\n                    VALUES (%s,%s,%s,%s,%s,false) RETURNING *\n                    \"\"\",\n                    (user_id, email.lower(), github_id, display_name, avatar_url),\n                )\n                row = cur.fetchone()\n            conn.commit()\n            assert row is not None\n            return dict(row)\n\n    def create_session(self, *, user_id: str, token_hash: str, ttl_days: int = 30) -> None:\n        self.ensure_schema()\n        with self._connect() as conn, conn.cursor() as cur:\n            cur.execute(\n                \"INSERT INTO ih_sessions(id,user_id,token_hash,expires_at) VALUES (%s,%s,%s,%s)\",\n                (self._new_id(\"ses\"), user_id, token_hash, datetime.now(UTC) + timedelta(days=ttl_days)),\n            )\n            conn.commit()\n\n    def session_user(self, token_hash: str) -> dict[str, Any] | None:\n        self.ensure_schema()\n        with self._connect() as conn, conn.cursor() as cur:\n            cur.execute(\n                \"\"\"\n                SELECT u.id,u.email,u.display_name,u.avatar_url,u.email_verified,u.created_at,\n                       (u.github_id IS NOT NULL) AS github_connected\n                FROM ih_sessions s JOIN ih_users u ON u.id=s.user_id\n                WHERE s.token_hash=%s AND s.expires_at>now()\n                \"\"\",\n                (token_hash,),\n            )\n            row = cur.fetchone()\n            return dict(row) if row else None\n\n    def delete_session(self, token_hash: str) -> None:\n        self.ensure_schema()\n        with self._connect() as conn, conn.cursor() as cur:\n            cur.execute(\"DELETE FROM ih_sessions WHERE token_hash=%s\", (token_hash,))\n            conn.commit()\n\n    def list_sessions(self, user_id: str, current_token_hash: str) -> list[dict[str, Any]]:\n        self.ensure_schema()\n        with self._connect() as conn, conn.cursor() as cur:\n            cur.execute(\n                \"\"\"\n                SELECT id,created_at,expires_at,(token_hash=%s) AS current\n                FROM ih_sessions\n                WHERE user_id=%s AND expires_at>now()\n                ORDER BY created_at DESC\n                \"\"\",\n                (current_token_hash, user_id),\n            )\n            return [dict(row) for row in cur.fetchall()]\n\n    def revoke_session(self, user_id: str, session_id: str) -> bool:\n        self.ensure_schema()\n        with self._connect() as conn, conn.cursor() as cur:\n            cur.execute(\"DELETE FROM ih_sessions WHERE id=%s AND user_id=%s\", (session_id, user_id))\n            changed = cur.rowcount == 1\n            conn.commit()\n            return changed\n\n    def revoke_all_sessions(self, user_id: str) -> None:\n        self.ensure_schema()\n        with self._connect() as conn, conn.cursor() as cur:\n            cur.execute(\"DELETE FROM ih_sessions WHERE user_id=%s\", (user_id,))\n            conn.commit()\n\n    def update_display_name(self, user_id: str, display_name: str) -> dict[str, Any]:\n        self.ensure_schema()\n        with self._connect() as conn, conn.cursor() as cur:\n            cur.execute(\n                \"\"\"\n                UPDATE ih_users SET display_name=%s,updated_at=now()\n                WHERE id=%s\n                RETURNING id,email,display_name,avatar_url,email_verified,created_at,\n                          (github_id IS NOT NULL) AS github_connected\n                \"\"\",\n                (display_name, user_id),\n            )\n            row = cur.fetchone()\n            conn.commit()\n            if not row:\n                raise ControlError(\"account_not_found\", \"account not found\", 404)\n            return dict(row)\n\n    def update_password_and_revoke_sessions(self, user_id: str, password_hash: str) -> None:\n        self.ensure_schema()\n        with self._connect() as conn:\n            with conn.cursor() as cur:\n                cur.execute(\n                    \"UPDATE ih_users SET password_hash=%s,updated_at=now() WHERE id=%s\",\n                    (password_hash, user_id),\n                )\n                if cur.rowcount != 1:\n                    raise ControlError(\"account_not_found\", \"account not found\", 404)\n                cur.execute(\"DELETE FROM ih_sessions WHERE user_id=%s\", (user_id,))\n            conn.commit()\n\n    def list_plans(self) -> list[dict[str, Any]]:\n        self.ensure_schema()\n        with self._connect() as conn, conn.cursor() as cur:\n            cur.execute(\"SELECT * FROM ih_plans WHERE active=true ORDER BY monthly_price_inr\")\n            rows = [dict(row) for row in cur.fetchall()]\n        for row in rows:\n            row[\"capability_privileges\"] = plan_privileges(str(row[\"slug\"])).to_dict()\n        return rows\n\n    def list_credit_packs(self) -> list[dict[str, Any]]:\n        self.ensure_schema()\n        with self._connect() as conn, conn.cursor() as cur:\n            cur.execute(\"SELECT * FROM ih_credit_packs WHERE active=true ORDER BY price_inr\")\n            return [dict(row) for row in cur.fetchall()]\n\n    def account_snapshot(self, user_id: str) -> dict[str, Any]:\n        self.ensure_schema()\n        with self._connect() as conn, conn.cursor() as cur:\n            cur.execute(\n                \"\"\"\n                SELECT u.id,u.email,u.display_name,u.avatar_url,\n                       w.monthly_credits,w.purchased_credits,w.reserved_credits,\n                       p.slug AS plan_slug,p.name AS plan_name,p.rpm_limit,p.concurrent_limit,\n                       p.api_key_limit,p.monitor_limit,p.browser_enabled,p.sandbox_enabled,\n                       s.current_period_end,s.cancel_at_period_end\n                FROM ih_users u\n                JOIN ih_wallets w ON w.user_id=u.id\n                LEFT JOIN LATERAL (\n                    SELECT * FROM ih_subscriptions sx\n                    WHERE sx.user_id=u.id AND sx.status='active'\n                    ORDER BY sx.created_at DESC LIMIT 1\n                ) s ON true\n                LEFT JOIN ih_plans p ON p.slug=COALESCE(s.plan_slug,'free')\n                WHERE u.id=%s\n                \"\"\",\n                (user_id,),\n            )\n            row = cur.fetchone()\n            if not row:\n                raise ControlError(\"account_not_found\", \"account not found\", 404)\n            account = dict(row)\n            account[\"capability_privileges\"] = plan_privileges(\n                str(account.get(\"plan_slug\") or \"free\")\n            ).to_dict()\n            return account\n\n    def create_api_key(\n        self,\n        *,\n        user_id: str,\n        name: str,\n        prefix: str,\n        key_hash: str,\n        scopes: list[str],\n        environment: str,\n    ) -> dict[str, Any]:\n        self.ensure_schema()\n        account = self.account_snapshot(user_id)\n        with self._connect() as conn:\n            with conn.cursor() as cur:\n                cur.execute(\n                    \"SELECT count(*) AS n FROM ih_api_keys WHERE user_id=%s AND revoked_at IS NULL\",\n                    (user_id,),\n                )\n                count = int(cur.fetchone()[\"n\"])\n                if count >= int(account[\"api_key_limit\"]):\n                    raise ControlError(\"api_key_limit\", \"API key limit reached for current plan\", 403)\n                key_id = self._new_id(\"key\")\n                cur.execute(\n                    \"\"\"\n                    INSERT INTO ih_api_keys(id,user_id,name,prefix,key_hash,scopes,environment)\n                    VALUES (%s,%s,%s,%s,%s,%s::jsonb,%s)\n                    RETURNING id,name,prefix,scopes,environment,last_used_at,expires_at,revoked_at,created_at\n                    \"\"\",\n                    (key_id, user_id, name, prefix, key_hash, json.dumps(scopes), environment),\n                )\n                row = cur.fetchone()\n            conn.commit()\n            assert row is not None\n            return dict(row)\n\n    def list_api_keys(self, user_id: str) -> list[dict[str, Any]]:\n        self.ensure_schema()\n        with self._connect() as conn, conn.cursor() as cur:\n            cur.execute(\n                \"\"\"\n                SELECT id,name,prefix,scopes,environment,last_used_at,expires_at,revoked_at,created_at\n                FROM ih_api_keys WHERE user_id=%s ORDER BY created_at DESC\n                \"\"\",\n                (user_id,),\n            )\n            return [dict(row) for row in cur.fetchall()]\n\n    def revoke_api_key(self, user_id: str, key_id: str) -> bool:\n        self.ensure_schema()\n        with self._connect() as conn, conn.cursor() as cur:\n            cur.execute(\n                \"UPDATE ih_api_keys SET revoked_at=now() WHERE id=%s AND user_id=%s AND revoked_at IS NULL\",\n                (key_id, user_id),\n            )\n            changed = cur.rowcount > 0\n            conn.commit()\n            return changed\n\n    def _identity_from_key_row(self, row: dict[str, Any], source: str) -> AuthIdentity:\n        return AuthIdentity(\n            user_id=row[\"user_id\"],\n            api_key_id=row[\"api_key_id\"],\n            scopes=list(row.get(\"scopes\") or []),\n            plan_slug=row[\"plan_slug\"],\n            rpm_limit=int(row[\"rpm_limit\"]),\n            source=source,\n        )\n\n    def api_key_identity_for_user(self, user_id: str, key_id: str) -> AuthIdentity | None:\n        \"\"\"Resolve one active API key owned by a signed-in user for first-party playground use.\"\"\"\n        self.ensure_schema()\n        with self._connect() as conn, conn.cursor() as cur:\n            cur.execute(\n                \"\"\"\n                SELECT k.user_id,k.id AS api_key_id,k.scopes,p.slug AS plan_slug,p.rpm_limit\n                FROM ih_api_keys k\n                LEFT JOIN LATERAL (\n                    SELECT plan_slug FROM ih_subscriptions s\n                    WHERE s.user_id=k.user_id AND s.status='active'\n                    ORDER BY s.created_at DESC LIMIT 1\n                ) s ON true\n                JOIN ih_plans p ON p.slug=COALESCE(s.plan_slug,'free')\n                WHERE k.id=%s AND k.user_id=%s AND k.revoked_at IS NULL\n                  AND (k.expires_at IS NULL OR k.expires_at>now())\n                \"\"\",\n                (key_id, user_id),\n            )\n            row = cur.fetchone()\n            if not row:\n                return None\n            cur.execute(\"UPDATE ih_api_keys SET last_used_at=now() WHERE id=%s\", (key_id,))\n            conn.commit()\n            return self._identity_from_key_row(dict(row), \"api_key\")\n\n\n    def authenticate_api_key(self, key_hash: str) -> AuthIdentity | None:\n        self.ensure_schema()\n        with self._connect() as conn, conn.cursor() as cur:\n            cur.execute(\n                \"\"\"\n                SELECT k.user_id,k.id AS api_key_id,k.scopes,p.slug AS plan_slug,p.rpm_limit\n                FROM ih_api_keys k\n                LEFT JOIN LATERAL (\n                    SELECT plan_slug FROM ih_subscriptions s\n                    WHERE s.user_id=k.user_id AND s.status='active'\n                    ORDER BY s.created_at DESC LIMIT 1\n                ) s ON true\n                JOIN ih_plans p ON p.slug=COALESCE(s.plan_slug,'free')\n                WHERE k.key_hash=%s AND k.revoked_at IS NULL\n                  AND (k.expires_at IS NULL OR k.expires_at>now())\n                \"\"\",\n                (key_hash,),\n            )\n            row = cur.fetchone()\n            if not row:\n                return None\n            cur.execute(\"UPDATE ih_api_keys SET last_used_at=now() WHERE id=%s\", (row[\"api_key_id\"],))\n            conn.commit()\n            return self._identity_from_key_row(dict(row), \"api_key\")\n\n    def authenticate_access_token(self, token_hash: str) -> AuthIdentity | None:\n        self.ensure_schema()\n        with self._connect() as conn, conn.cursor() as cur:\n            cur.execute(\n                \"\"\"\n                SELECT t.user_id,t.api_key_id,t.scopes,p.slug AS plan_slug,p.rpm_limit\n                FROM ih_oauth_tokens t\n                LEFT JOIN LATERAL (\n                    SELECT plan_slug FROM ih_subscriptions s\n                    WHERE s.user_id=t.user_id AND s.status='active'\n                    ORDER BY s.created_at DESC LIMIT 1\n                ) s ON true\n                JOIN ih_plans p ON p.slug=COALESCE(s.plan_slug,'free')\n                WHERE t.access_token_hash=%s AND t.revoked_at IS NULL AND t.access_expires_at>now()\n                \"\"\",\n                (token_hash,),\n            )\n            row = cur.fetchone()\n            return self._identity_from_key_row(dict(row), \"oauth\") if row else None\n\n    def quote_tool_call(\n        self,\n        *,\n        identity: AuthIdentity,\n        tool_name: str,\n        arguments: dict[str, Any] | None = None,\n    ) -> dict[str, Any]:\n        estimate = estimate_call(tool_name, arguments, identity.plan_slug)\n        quote = estimate.to_dict()\n        if not estimate.allowed:\n            raise ControlError(\n                \"plan_restricted\",\n                estimate.reason or \"tool is unavailable on the current plan\",\n                403,\n            )\n        return quote\n\n    def tool_cost(\n        self,\n        tool_name: str,\n        arguments: dict[str, Any] | None = None,\n        *,\n        plan_slug: str = \"free\",\n    ) -> int:\n        estimate = estimate_call(tool_name, arguments, plan_slug)\n        if not estimate.allowed:\n            raise ControlError(\n                \"plan_restricted\",\n                estimate.reason or \"tool is unavailable on the current plan\",\n                403,\n            )\n        return int(estimate.credits)\n\n    def release_stale_reservations(\n        self,\n        user_id: str,\n        *,\n        older_than_minutes: int = 60,\n    ) -> dict[str, int]:\n        \"\"\"Release abandoned reservations left behind by crashed request workers.\"\"\"\n        self.ensure_schema()\n        cutoff_minutes = max(15, min(int(older_than_minutes), 24 * 60))\n        released = 0\n        count = 0\n        with self._connect() as conn:\n            with conn.cursor() as cur:\n                cur.execute(\n                    \"\"\"\n                    SELECT request_id,metadata\n                    FROM ih_usage_events\n                    WHERE user_id=%s\n                      AND status='reserved'\n                      AND created_at < now() - (%s * interval '1 minute')\n                    FOR UPDATE\n                    \"\"\",\n                    (user_id, cutoff_minutes),\n                )\n                rows = cur.fetchall()\n                for row in rows:\n                    metadata = dict(row.get(\"metadata\") or {})\n                    reservation = dict(metadata.get(\"reservation\") or {})\n                    credits = max(0, int(reservation.get(\"credits\") or 0))\n                    reservation.update(\n                        {\n                            \"state\": \"abandoned\",\n                            \"reserved\": credits,\n                            \"settled\": 0,\n                            \"released\": credits,\n                        }\n                    )\n                    metadata[\"reservation\"] = reservation\n                    cur.execute(\n                        \"\"\"\n                        UPDATE ih_usage_events\n                        SET status='abandoned',credits_charged=0,metadata=%s::jsonb\n                        WHERE request_id=%s AND status='reserved'\n                        \"\"\",\n                        (json.dumps(metadata), row[\"request_id\"]),\n                    )\n                    if cur.rowcount:\n                        released += credits\n                        count += 1\n\n                if released:\n                    cur.execute(\n                        \"\"\"\n                        UPDATE ih_wallets\n                        SET reserved_credits=GREATEST(reserved_credits-%s,0),\n                            updated_at=now()\n                        WHERE user_id=%s\n                        \"\"\",\n                        (released, user_id),\n                    )\n            conn.commit()\n        return {\"reservations_released\": count, \"credits_released\": released}\n\n    def reserve_tool_call(\n        self,\n        *,\n        identity: AuthIdentity,\n        request_id: str,\n        tool_name: str,\n        arguments: dict[str, Any] | None,\n        input_bytes: int,\n    ) -> int:\n        self.ensure_schema()\n        self.release_stale_reservations(identity.user_id)\n        quote = self.quote_tool_call(\n            identity=identity,\n            tool_name=tool_name,\n            arguments=arguments,\n        )\n        reserved = int(quote[\"credits\"])\n        provider = None\n        if arguments:\n            ref = str(arguments.get(\"ref\") or \"\")\n            if \":\" in ref:\n                provider = ref.split(\":\", 1)[0]\n\n        with self._connect() as conn:\n            with conn.cursor() as cur:\n                cur.execute(\n                    \"SELECT count(*) AS n FROM ih_usage_events WHERE user_id=%s AND created_at>now()-interval '1 minute'\",\n                    (identity.user_id,),\n                )\n                if int(cur.fetchone()[\"n\"]) >= identity.rpm_limit:\n                    raise ControlError(\"rate_limited\", \"rate limit exceeded\", 429)\n\n                cur.execute(\n                    \"\"\"\n                    SELECT monthly_credits,purchased_credits,reserved_credits\n                    FROM ih_wallets WHERE user_id=%s FOR UPDATE\n                    \"\"\",\n                    (identity.user_id,),\n                )\n                wallet = cur.fetchone()\n                if not wallet:\n                    raise ControlError(\"wallet_missing\", \"wallet not found\", 500)\n\n                total = int(wallet[\"monthly_credits\"]) + int(wallet[\"purchased_credits\"])\n                already_reserved = int(wallet[\"reserved_credits\"])\n                available = total - already_reserved\n                if available < reserved:\n                    raise ControlError(\n                        \"insufficient_credits\",\n                        (\n                            f\"this call requires {reserved} reserved credits but only \"\n                            f\"{max(0, available)} are currently available\"\n                        ),\n                        402,\n                    )\n\n                if reserved:\n                    cur.execute(\n                        \"\"\"\n                        UPDATE ih_wallets\n                        SET reserved_credits=reserved_credits+%s,updated_at=now()\n                        WHERE user_id=%s\n                        \"\"\",\n                        (reserved, identity.user_id),\n                    )\n\n                cur.execute(\n                    \"\"\"\n                    INSERT INTO ih_usage_events(\n                        id,user_id,api_key_id,request_id,tool_ref,provider,status,\n                        credits_charged,input_bytes,metadata\n                    ) VALUES (%s,%s,%s,%s,%s,%s,'reserved',0,%s,%s::jsonb)\n                    \"\"\",\n                    (\n                        self._new_id(\"use\"),\n                        identity.user_id,\n                        identity.api_key_id,\n                        request_id,\n                        tool_name,\n                        provider,\n                        input_bytes,\n                        json.dumps(\n                            {\n                                \"auth_source\": identity.source,\n                                \"arguments_present\": bool(arguments),\n                                \"tool\": tool_name,\n                                \"plan\": identity.plan_slug,\n                                \"reservation\": {\n                                    \"credits\": reserved,\n                                    \"state\": \"reserved\",\n                                },\n                                \"pricing\": {\n                                    \"category\": quote[\"category\"],\n                                    \"provider_class\": quote[\"provider_class\"],\n                                    \"minimum_plan\": quote[\"minimum_plan\"],\n                                    \"breakdown\": quote[\"breakdown\"],\n                                },\n                            }\n                        ),\n                    ),\n                )\n            conn.commit()\n        return reserved\n\n    def settle_tool_call(\n        self,\n        request_id: str,\n        *,\n        status: str,\n        latency_ms: int,\n        output_bytes: int,\n        actual_credits:\n... (output truncated, full output saved to: /mnt/files/.composio/output/exec_hunt_stdout.txt)\nTo view the full output, run code: open('/mnt/files/.composio/output/exec_hunt_stdout.txt').read()\nOr use COMPOSIO_BASH_TOOL: 'cat /mnt/files/.composio/output/exec_hunt_stdout.txt' / 'head -n 100 /mnt/files/.composio/output/exec_hunt_stdout.txt' / 'tail -n 100 /mnt/files/.composio/output/exec_hunt_stdout.txt'","stderr":"","stdout_file_path":"/mnt/files/.composio/output/exec_hunt_stdout.txt","error":"","sandbox_id_suffix":"lsv8","session":{"id":"turn","instructions":"REQUIRED: Pass session_id \"turn\" in ALL subsequent meta tool calls for this workflow."}},"error":null,"log_id":"log_cNYnCu0LO54L","successful":true}
+from __future__ import annotations
+
+import json
+import os
+import secrets
+import threading
+import uuid
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+import psycopg
+from psycopg.errors import UniqueViolation
+from psycopg.rows import dict_row
+
+from .capability_economics import estimate_call, plan_privileges
+
+SCHEMA_SQL = r"""
+CREATE TABLE IF NOT EXISTS ih_users (
+    id text PRIMARY KEY,
+    email text NOT NULL,
+    password_hash text,
+    github_id text UNIQUE,
+    display_name text,
+    avatar_url text,
+    email_verified boolean NOT NULL DEFAULT false,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ih_users_email_lower_idx ON ih_users ((lower(email)));
+
+CREATE TABLE IF NOT EXISTS ih_sessions (
+    id text PRIMARY KEY,
+    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,
+    token_hash text NOT NULL UNIQUE,
+    expires_at timestamptz NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ih_sessions_user_idx ON ih_sessions(user_id);
+
+CREATE TABLE IF NOT EXISTS ih_plans (
+    slug text PRIMARY KEY,
+    name text NOT NULL,
+    monthly_price_inr integer NOT NULL,
+    included_credits integer NOT NULL,
+    rpm_limit integer NOT NULL,
+    concurrent_limit integer NOT NULL,
+    api_key_limit integer NOT NULL,
+    monitor_limit integer NOT NULL,
+    browser_enabled boolean NOT NULL DEFAULT false,
+    sandbox_enabled boolean NOT NULL DEFAULT false,
+    priority integer NOT NULL DEFAULT 0,
+    metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+    active boolean NOT NULL DEFAULT true
+);
+
+CREATE TABLE IF NOT EXISTS ih_subscriptions (
+    id text PRIMARY KEY,
+    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,
+    plan_slug text NOT NULL REFERENCES ih_plans(slug),
+    status text NOT NULL,
+    current_period_start timestamptz NOT NULL,
+    current_period_end timestamptz NOT NULL,
+    provider text,
+    provider_subscription_id text,
+    cancel_at_period_end boolean NOT NULL DEFAULT false,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ih_subscriptions_user_idx ON ih_subscriptions(user_id, status);
+
+CREATE TABLE IF NOT EXISTS ih_wallets (
+    user_id text PRIMARY KEY REFERENCES ih_users(id) ON DELETE CASCADE,
+    monthly_credits integer NOT NULL DEFAULT 0,
+    purchased_credits integer NOT NULL DEFAULT 0,
+    reserved_credits integer NOT NULL DEFAULT 0,
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS ih_credit_ledger (
+    id text PRIMARY KEY,
+    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,
+    amount integer NOT NULL,
+    bucket text NOT NULL,
+    kind text NOT NULL,
+    source text NOT NULL,
+    reference_id text,
+    metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ih_credit_ledger_user_idx ON ih_credit_ledger(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS ih_api_keys (
+    id text PRIMARY KEY,
+    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,
+    name text NOT NULL,
+    prefix text NOT NULL,
+    key_hash text NOT NULL UNIQUE,
+    scopes jsonb NOT NULL DEFAULT '[]'::jsonb,
+    environment text NOT NULL DEFAULT 'live',
+    last_used_at timestamptz,
+    expires_at timestamptz,
+    revoked_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ih_api_keys_user_idx ON ih_api_keys(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS ih_connections (
+    id text PRIMARY KEY,
+    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,
+    name text NOT NULL,
+    kind text NOT NULL DEFAULT 'mcp',
+    endpoint_url text NOT NULL,
+    transport text NOT NULL DEFAULT 'streamable_http',
+    auth_type text NOT NULL DEFAULT 'none',
+    config jsonb NOT NULL DEFAULT '{}'::jsonb,
+    secret_config jsonb NOT NULL DEFAULT '{}'::jsonb,
+    enabled boolean NOT NULL DEFAULT true,
+    last_status text,
+    last_checked_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ih_connections_user_idx ON ih_connections(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS ih_usage_events (
+    id text PRIMARY KEY,
+    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,
+    api_key_id text REFERENCES ih_api_keys(id) ON DELETE SET NULL,
+    request_id text NOT NULL UNIQUE,
+    tool_ref text,
+    capability text,
+    provider text,
+    status text NOT NULL,
+    credits_charged integer NOT NULL DEFAULT 0,
+    latency_ms integer,
+    input_bytes integer NOT NULL DEFAULT 0,
+    output_bytes integer NOT NULL DEFAULT 0,
+    metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ih_usage_user_time_idx ON ih_usage_events(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS ih_usage_key_time_idx ON ih_usage_events(api_key_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS ih_monitors (
+    id text PRIMARY KEY,
+    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,
+    name text NOT NULL,
+    type text NOT NULL,
+    target text NOT NULL,
+    interval_minutes integer NOT NULL,
+    enabled boolean NOT NULL DEFAULT true,
+    last_status text,
+    last_checked_at timestamptz,
+    next_check_at timestamptz,
+    config jsonb NOT NULL DEFAULT '{}'::jsonb,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ih_monitors_user_idx ON ih_monitors(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS ih_monitor_runs (
+    id text PRIMARY KEY,
+    monitor_id text NOT NULL REFERENCES ih_monitors(id) ON DELETE CASCADE,
+    status text NOT NULL,
+    latency_ms integer,
+    http_status integer,
+    summary text,
+    diff jsonb,
+    credits_charged integer NOT NULL DEFAULT 0,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ih_monitor_runs_monitor_idx ON ih_monitor_runs(monitor_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS ih_credit_packs (
+    slug text PRIMARY KEY,
+    name text NOT NULL,
+    price_inr integer NOT NULL,
+    credits integer NOT NULL,
+    active boolean NOT NULL DEFAULT true
+);
+
+CREATE TABLE IF NOT EXISTS ih_payments (
+    id text PRIMARY KEY,
+    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,
+    provider text NOT NULL DEFAULT 'razorpay',
+    order_id text UNIQUE,
+    payment_id text UNIQUE,
+    amount_paise integer NOT NULL,
+    currency text NOT NULL DEFAULT 'INR',
+    status text NOT NULL,
+    purpose text NOT NULL,
+    plan_slug text REFERENCES ih_plans(slug),
+    credit_pack_slug text REFERENCES ih_credit_packs(slug),
+    metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    paid_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS ih_payments_user_idx ON ih_payments(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS ih_oauth_authorization_codes (
+    id text PRIMARY KEY,
+    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,
+    api_key_id text NOT NULL REFERENCES ih_api_keys(id) ON DELETE CASCADE,
+    client_id text NOT NULL,
+    redirect_uri text NOT NULL,
+    code_hash text NOT NULL UNIQUE,
+    code_challenge text NOT NULL,
+    scopes jsonb NOT NULL DEFAULT '[]'::jsonb,
+    expires_at timestamptz NOT NULL,
+    used_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS ih_oauth_tokens (
+    id text PRIMARY KEY,
+    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,
+    api_key_id text NOT NULL REFERENCES ih_api_keys(id) ON DELETE CASCADE,
+    client_id text NOT NULL,
+    access_token_hash text NOT NULL UNIQUE,
+    refresh_token_hash text NOT NULL UNIQUE,
+    scopes jsonb NOT NULL DEFAULT '[]'::jsonb,
+    access_expires_at timestamptz NOT NULL,
+    refresh_expires_at timestamptz NOT NULL,
+    revoked_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ih_oauth_tokens_user_idx ON ih_oauth_tokens(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS ih_webhook_events (
+    id text PRIMARY KEY,
+    provider text NOT NULL,
+    event_id text NOT NULL,
+    event_type text NOT NULL,
+    signature_valid boolean NOT NULL,
+    payload_hash text NOT NULL,
+    status text NOT NULL,
+    processed_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE(provider, event_id)
+);
+
+CREATE TABLE IF NOT EXISTS ih_password_resets (
+    id text PRIMARY KEY,
+    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,
+    token_hash text NOT NULL UNIQUE,
+    expires_at timestamptz NOT NULL,
+    used_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS ih_tool_costs (
+    pattern text PRIMARY KEY,
+    base_credits integer NOT NULL,
+    metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+    active boolean NOT NULL DEFAULT true
+);
+"""
+
+PLAN_ROWS = [
+    ("free", "Free", 0, 2500, 10, 1, 1, 1, False, False, 0),
+    ("builder", "Builder", 499, 25000, 60, 4, 5, 10, True, False, 10),
+    ("pro", "Pro", 1499, 150000, 240, 10, 20, 50, True, True, 20),
+    ("scale", "Scale", 4999, 750000, 600, 20, 100, 250, True, True, 30),
+]
+
+CREDIT_PACK_ROWS = [
+    ("starter-5k", "5K credits", 99, 5000),
+    ("builder-25k", "25K credits", 399, 25000),
+    ("pro-75k", "75K credits", 999, 75000),
+    ("scale-250k", "250K credits", 2499, 250000),
+]
+
+TOOL_COST_ROWS = [
+    ("account_*", 0, {"category": "account"}),
+    ("monitors_list", 0, {"category": "account"}),
+    ("monitor_get", 0, {"category": "account"}),
+    ("mesh_providers", 1, {"category": "discovery"}),
+    ("mesh_search", 1, {"category": "discovery"}),
+    ("mesh_describe*", 1, {"category": "discovery"}),
+    ("mesh_capabilities", 1, {"category": "discovery"}),
+    ("gaming_capabilities", 1, {"category": "gaming"}),
+    ("gaming_profile_plan", 1, {"category": "gaming"}),
+    ("gaming_profile", 5, {"category": "gaming"}),
+    ("gaming_intel", 2, {"category": "gaming"}),
+    ("sandbox_browser_*", 2, {"category": "browser", "per_minute": 5}),
+    ("sandbox_*", 2, {"category": "sandbox", "per_minute": 10}),
+    ("mesh_execute", 3, {"category": "provider"}),
+    ("mesh_batch_execute", 10, {"category": "provider"}),
+    ("mesh_job_status", 1, {"category": "provider"}),
+    ("mesh_results", 1, {"category": "provider"}),
+    ("playground:crawl", 2, {"category": "playground"}),
+    ("*", 1, {"category": "default"}),
+]
+
+
+class ControlError(RuntimeError):
+    def __init__(self, code: str, detail: str, status_code: int = 400) -> None:
+        super().__init__(detail)
+        self.code = code
+        self.detail = detail
+        self.status_code = status_code
+
+
+@dataclass(slots=True)
+class AuthIdentity:
+    user_id: str
+    api_key_id: str | None
+    scopes: list[str]
+    plan_slug: str
+    rpm_limit: int
+    source: str
+
+
+class ControlStore:
+    def __init__(self, dsn: str | None = None) -> None:
+        self.dsn = dsn or os.getenv("INTERNET_HANDS_CONTROL_POSTGRES_DSN") or os.getenv(
+            "INTERNET_HANDS_POSTGRES_DSN"
+        )
+        self._schema_ready = False
+        self._schema_lock = threading.Lock()
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.dsn)
+
+    def _connect(self):
+        if not self.dsn:
+            raise ControlError("control_plane_unavailable", "control database is not configured", 503)
+        return psycopg.connect(self.dsn, row_factory=dict_row)
+
+    def ensure_schema(self) -> None:
+        if self._schema_ready:
+            return
+        with self._schema_lock:
+            if self._schema_ready:
+                return
+            with self._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(SCHEMA_SQL)
+                    for row in PLAN_ROWS:
+                        cur.execute(
+                            """
+                            INSERT INTO ih_plans(
+                                slug,name,monthly_price_inr,included_credits,rpm_limit,
+                                concurrent_limit,api_key_limit,monitor_limit,browser_enabled,
+                                sandbox_enabled,priority
+                            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                            ON CONFLICT (slug) DO UPDATE SET
+                                name=EXCLUDED.name,
+                                monthly_price_inr=EXCLUDED.monthly_price_inr,
+                                included_credits=EXCLUDED.included_credits,
+                                rpm_limit=EXCLUDED.rpm_limit,
+                                concurrent_limit=EXCLUDED.concurrent_limit,
+                                api_key_limit=EXCLUDED.api_key_limit,
+                                monitor_limit=EXCLUDED.monitor_limit,
+                                browser_enabled=EXCLUDED.browser_enabled,
+                                sandbox_enabled=EXCLUDED.sandbox_enabled,
+                                priority=EXCLUDED.priority
+                            """,
+                            row,
+                        )
+                    for row in CREDIT_PACK_ROWS:
+                        cur.execute(
+                            """
+                            INSERT INTO ih_credit_packs(slug,name,price_inr,credits)
+                            VALUES (%s,%s,%s,%s)
+                            ON CONFLICT (slug) DO UPDATE SET
+                                name=EXCLUDED.name, price_inr=EXCLUDED.price_inr,
+                                credits=EXCLUDED.credits, active=true
+                            """,
+                            row,
+                        )
+                    for pattern, base, metadata in TOOL_COST_ROWS:
+                        cur.execute(
+                            """
+                            INSERT INTO ih_tool_costs(pattern,base_credits,metadata)
+                            VALUES (%s,%s,%s::jsonb)
+                            ON CONFLICT (pattern) DO UPDATE SET
+                                base_credits=EXCLUDED.base_credits,
+                                metadata=EXCLUDED.metadata,
+                                active=true
+                            """,
+                            (pattern, base, json.dumps(metadata)),
+                        )
+                conn.commit()
+            self._schema_ready = True
+
+    def _new_id(self, prefix: str) -> str:
+        return f"{prefix}_{uuid.uuid4().hex}"
+
+    def create_user(self, *, email: str, password_hash: str, display_name: str | None) -> dict[str, Any]:
+        self.ensure_schema()
+        user_id = self._new_id("usr")
+        try:
+            with self._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO ih_users(id,email,password_hash,display_name)
+                        VALUES (%s,%s,%s,%s)
+                        RETURNING id,email,display_name,avatar_url,created_at
+                        """,
+                        (user_id, email.strip().lower(), password_hash, display_name),
+                    )
+                    user = cur.fetchone()
+                conn.commit()
+                assert user is not None
+                return dict(user)
+        except UniqueViolation as exc:
+            raise ControlError("email_in_use", "an account with this email already exists", 409) from exc
+
+    def _activate_free_account(self, cur: Any, user_id: str) -> None:
+        """Provision account resources once, inside the caller's transaction."""
+        now = datetime.now(UTC)
+        cur.execute(
+            """
+            INSERT INTO ih_wallets(user_id,monthly_credits)
+            VALUES (%s,2500)
+            ON CONFLICT (user_id) DO NOTHING
+            """,
+            (user_id,),
+        )
+        cur.execute(
+            """
+            INSERT INTO ih_credit_ledger(
+                id,user_id,amount,bucket,kind,source,reference_id
+            )
+            SELECT %s,%s,2500,'monthly','grant','signup','free'
+            WHERE NOT EXISTS (
+                SELECT 1 FROM ih_credit_ledger
+                WHERE user_id=%s AND kind='grant' AND source='signup'
+            )
+            """,
+            (self._new_id("led"), user_id, user_id),
+        )
+        cur.execute(
+            """
+            INSERT INTO ih_subscriptions(
+                id,user_id,plan_slug,status,current_period_start,current_period_end,provider
+            )
+            SELECT %s,%s,'free','active',%s,%s,'internal'
+            WHERE NOT EXISTS (
+                SELECT 1 FROM ih_subscriptions
+                WHERE user_id=%s AND status='active'
+            )
+            """,
+            (self._new_id("sub"), user_id, now, now + timedelta(days=30), user_id),
+        )
+
+    def activate_free_account(self, user_id: str) -> None:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            self._activate_free_account(cur, user_id)
+            conn.commit()
+
+    def get_user_by_email(self, email: str) -> dict[str, Any] | None:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM ih_users WHERE lower(email)=lower(%s)", (email.strip(),))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def get_user(self, user_id: str) -> dict[str, Any] | None:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id,email,display_name,avatar_url,email_verified,created_at,
+                       (github_id IS NOT NULL) AS github_connected
+                FROM ih_users WHERE id=%s
+                """,
+                (user_id,),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def upsert_github_user(
+        self, *, github_id: str, email: str, display_name: str | None, avatar_url: str | None
+    ) -> dict[str, Any]:
+        self.ensure_schema()
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM ih_users WHERE github_id=%s", (github_id,))
+                existing = cur.fetchone()
+                if existing:
+                    cur.execute(
+                        "UPDATE ih_users SET display_name=COALESCE(%s,display_name), avatar_url=COALESCE(%s,avatar_url), updated_at=now() WHERE id=%s RETURNING *",
+                        (display_name, avatar_url, existing["id"]),
+                    )
+                    row = cur.fetchone()
+                    conn.commit()
+                    assert row is not None
+                    return dict(row)
+                cur.execute("SELECT * FROM ih_users WHERE lower(email)=lower(%s)", (email,))
+                by_email = cur.fetchone()
+                if by_email:
+                    cur.execute(
+                        "UPDATE ih_users SET github_id=%s, display_name=COALESCE(%s,display_name), avatar_url=COALESCE(%s,avatar_url), updated_at=now() WHERE id=%s RETURNING *",
+                        (github_id, display_name, avatar_url, by_email["id"]),
+                    )
+                    row = cur.fetchone()
+                    conn.commit()
+                    assert row is not None
+                    return dict(row)
+                user_id = self._new_id("usr")
+                cur.execute(
+                    """
+                    INSERT INTO ih_users(id,email,github_id,display_name,avatar_url,email_verified)
+                    VALUES (%s,%s,%s,%s,%s,false) RETURNING *
+                    """,
+                    (user_id, email.lower(), github_id, display_name, avatar_url),
+                )
+                row = cur.fetchone()
+            conn.commit()
+            assert row is not None
+            return dict(row)
+
+    def create_session(self, *, user_id: str, token_hash: str, ttl_days: int = 30) -> None:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO ih_sessions(id,user_id,token_hash,expires_at) VALUES (%s,%s,%s,%s)",
+                (self._new_id("ses"), user_id, token_hash, datetime.now(UTC) + timedelta(days=ttl_days)),
+            )
+            conn.commit()
+
+    def session_user(self, token_hash: str) -> dict[str, Any] | None:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT u.id,u.email,u.display_name,u.avatar_url,u.email_verified,u.created_at,
+                       (u.github_id IS NOT NULL) AS github_connected
+                FROM ih_sessions s JOIN ih_users u ON u.id=s.user_id
+                WHERE s.token_hash=%s AND s.expires_at>now()
+                """,
+                (token_hash,),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def delete_session(self, token_hash: str) -> None:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM ih_sessions WHERE token_hash=%s", (token_hash,))
+            conn.commit()
+
+    def list_sessions(self, user_id: str, current_token_hash: str) -> list[dict[str, Any]]:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id,created_at,expires_at,(token_hash=%s) AS current
+                FROM ih_sessions
+                WHERE user_id=%s AND expires_at>now()
+                ORDER BY created_at DESC
+                """,
+                (current_token_hash, user_id),
+            )
+            return [dict(row) for row in cur.fetchall()]
+
+    def revoke_session(self, user_id: str, session_id: str) -> bool:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM ih_sessions WHERE id=%s AND user_id=%s", (session_id, user_id))
+            changed = cur.rowcount == 1
+            conn.commit()
+            return changed
+
+    def revoke_all_sessions(self, user_id: str) -> None:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM ih_sessions WHERE user_id=%s", (user_id,))
+            conn.commit()
+
+    def update_display_name(self, user_id: str, display_name: str) -> dict[str, Any]:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE ih_users SET display_name=%s,updated_at=now()
+                WHERE id=%s
+                RETURNING id,email,display_name,avatar_url,email_verified,created_at,
+                          (github_id IS NOT NULL) AS github_connected
+                """,
+                (display_name, user_id),
+            )
+            row = cur.fetchone()
+            conn.commit()
+            if not row:
+                raise ControlError("account_not_found", "account not found", 404)
+            return dict(row)
+
+    def update_password_and_revoke_sessions(self, user_id: str, password_hash: str) -> None:
+        self.ensure_schema()
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE ih_users SET password_hash=%s,updated_at=now() WHERE id=%s",
+                    (password_hash, user_id),
+                )
+                if cur.rowcount != 1:
+                    raise ControlError("account_not_found", "account not found", 404)
+                cur.execute("DELETE FROM ih_sessions WHERE user_id=%s", (user_id,))
+            conn.commit()
+
+    def list_plans(self) -> list[dict[str, Any]]:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM ih_plans WHERE active=true ORDER BY monthly_price_inr")
+            rows = [dict(row) for row in cur.fetchall()]
+        for row in rows:
+            row["capability_privileges"] = plan_privileges(str(row["slug"])).to_dict()
+        return rows
+
+    def list_credit_packs(self) -> list[dict[str, Any]]:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM ih_credit_packs WHERE active=true ORDER BY price_inr")
+            return [dict(row) for row in cur.fetchall()]
+
+    def account_snapshot(self, user_id: str) -> dict[str, Any]:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT u.id,u.email,u.display_name,u.avatar_url,
+                       w.monthly_credits,w.purchased_credits,w.reserved_credits,
+                       p.slug AS plan_slug,p.name AS plan_name,p.rpm_limit,p.concurrent_limit,
+                       p.api_key_limit,p.monitor_limit,p.browser_enabled,p.sandbox_enabled,
+                       s.current_period_end,s.cancel_at_period_end
+                FROM ih_users u
+                JOIN ih_wallets w ON w.user_id=u.id
+                LEFT JOIN LATERAL (
+                    SELECT * FROM ih_subscriptions sx
+                    WHERE sx.user_id=u.id AND sx.status='active'
+                    ORDER BY sx.created_at DESC LIMIT 1
+                ) s ON true
+                LEFT JOIN ih_plans p ON p.slug=COALESCE(s.plan_slug,'free')
+                WHERE u.id=%s
+                """,
+                (user_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise ControlError("account_not_found", "account not found", 404)
+            account = dict(row)
+            account["capability_privileges"] = plan_privileges(
+                str(account.get("plan_slug") or "free")
+            ).to_dict()
+            return account
+
+    def create_api_key(
+        self,
+        *,
+        user_id: str,
+        name: str,
+        prefix: str,
+        key_hash: str,
+        scopes: list[str],
+        environment: str,
+    ) -> dict[str, Any]:
+        self.ensure_schema()
+        account = self.account_snapshot(user_id)
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT count(*) AS n FROM ih_api_keys WHERE user_id=%s AND revoked_at IS NULL",
+                    (user_id,),
+                )
+                count = int(cur.fetchone()["n"])
+                if count >= int(account["api_key_limit"]):
+                    raise ControlError("api_key_limit", "API key limit reached for current plan", 403)
+                key_id = self._new_id("key")
+                cur.execute(
+                    """
+                    INSERT INTO ih_api_keys(id,user_id,name,prefix,key_hash,scopes,environment)
+                    VALUES (%s,%s,%s,%s,%s,%s::jsonb,%s)
+                    RETURNING id,name,prefix,scopes,environment,last_used_at,expires_at,revoked_at,created_at
+                    """,
+                    (key_id, user_id, name, prefix, key_hash, json.dumps(scopes), environment),
+                )
+                row = cur.fetchone()
+            conn.commit()
+            assert row is not None
+            return dict(row)
+
+    def list_api_keys(self, user_id: str) -> list[dict[str, Any]]:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id,name,prefix,scopes,environment,last_used_at,expires_at,revoked_at,created_at
+                FROM ih_api_keys WHERE user_id=%s ORDER BY created_at DESC
+                """,
+                (user_id,),
+            )
+            return [dict(row) for row in cur.fetchall()]
+
+    def revoke_api_key(self, user_id: str, key_id: str) -> bool:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE ih_api_keys SET revoked_at=now() WHERE id=%s AND user_id=%s AND revoked_at IS NULL",
+                (key_id, user_id),
+            )
+            changed = cur.rowcount > 0
+            conn.commit()
+            return changed
+
+    def _identity_from_key_row(self, row: dict[str, Any], source: str) -> AuthIdentity:
+        return AuthIdentity(
+            user_id=row["user_id"],
+            api_key_id=row["api_key_id"],
+            scopes=list(row.get("scopes") or []),
+            plan_slug=row["plan_slug"],
+            rpm_limit=int(row["rpm_limit"]),
+            source=source,
+        )
+
+    def api_key_identity_for_user(self, user_id: str, key_id: str) -> AuthIdentity | None:
+        """Resolve one active API key owned by a signed-in user for first-party playground use."""
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT k.user_id,k.id AS api_key_id,k.scopes,p.slug AS plan_slug,p.rpm_limit
+                FROM ih_api_keys k
+                LEFT JOIN LATERAL (
+                    SELECT plan_slug FROM ih_subscriptions s
+                    WHERE s.user_id=k.user_id AND s.status='active'
+                    ORDER BY s.created_at DESC LIMIT 1
+                ) s ON true
+                JOIN ih_plans p ON p.slug=COALESCE(s.plan_slug,'free')
+                WHERE k.id=%s AND k.user_id=%s AND k.revoked_at IS NULL
+                  AND (k.expires_at IS NULL OR k.expires_at>now())
+                """,
+                (key_id, user_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            cur.execute("UPDATE ih_api_keys SET last_used_at=now() WHERE id=%s", (key_id,))
+            conn.com¢ëiºÛkºwµç_ºYhºÚn¶Æ¯yÛhşiíıø¥zÏÜ¢jh²*?¢ëiºßŞÅç¢êìµÚ.¶ÜmN‹â{ayû¥–‹­¦ëkºw(uê)zæßßŠW¬ıÊ&¦‹"£ú.¶›­ıì^qú.®Ë]¢ëmÆÚŞiÓ«ºÇ‚8ÃÎHƒ!Ó8âÜjßæßßŠW¬ıÊ&¦‹"£ú.¶›­ıì^qú.®Ë]¢ëmÆßáy§g×M?š{~)^³÷(šš,ŠèºÚn·÷±yÇèº»-v‹­·µ¨¥Ÿ]4şiíıø¥zÏÜ¢jh²*?¢ëiºßŞÅç¢êìµÚ.¶Üm
