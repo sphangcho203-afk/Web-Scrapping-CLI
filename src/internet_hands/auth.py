@@ -4,6 +4,7 @@ import base64
 import contextvars
 import hashlib
 import hmac
+import os
 import secrets
 from dataclasses import asdict
 from typing import Any
@@ -78,9 +79,41 @@ def serialize_identity(identity: AuthIdentity) -> dict[str, Any]:
     return asdict(identity)
 
 
+def _legacy_store(primary: ControlStore) -> ControlStore | None:
+    dsn = os.getenv("INTERNET_HANDS_POSTGRES_DSN")
+    if not dsn or dsn == primary.dsn:
+        return None
+    return ControlStore(dsn)
+
+
 def authenticate_secret(store: ControlStore, secret: str) -> AuthIdentity | None:
     hashed = sha256_text(secret)
     identity = store.authenticate_access_token(hashed)
     if identity:
         return identity
-    return store.authenticate_api_key(hashed)
+
+    identity = store.authenticate_api_key(hashed)
+    if identity:
+        return identity
+
+    # A key already seen by the Supabase control plane must never fall back to
+    # legacy storage. This prevents a revoked migrated key being resurrected.
+    if store.has_api_key_hash(hashed):
+        return None
+
+    legacy = _legacy_store(store)
+    if not legacy:
+        return None
+
+    legacy_identity = legacy.authenticate_access_token(hashed)
+    if legacy_identity:
+        return legacy_identity
+
+    legacy_identity = legacy.authenticate_api_key(hashed)
+    if not legacy_identity:
+        return None
+
+    # Adopt only after the old database has proved possession of the key.
+    # Subsequent requests authenticate entirely against Supabase.
+    store.adopt_legacy_api_key(legacy, hashed)
+    return store.authenticate_api_key(hashed) or legacy_identity
