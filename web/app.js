@@ -769,53 +769,200 @@ function openRunInspector(event) {
     $$('[data-revoke-key]').forEach(b=>b.addEventListener('click',async()=>{if(!confirm('Revoke this key?'))return;await api(`/api/api-keys/${b.dataset.revokeKey}/revoke`,{method:'POST'});toast('Key revoked','success');dashKeys();}));
   };
 
-  dashPlayground = async function dashPlaygroundV3() {
+  dashPlayground = async function dashPlaygroundV4() {
     const [keyData,dashboard]=await Promise.all([api('/api/api-keys'),api('/api/dashboard')]);
     const keys=(keyData.keys||[]).filter(x=>!x.revoked_at&&(!x.expires_at||new Date(x.expires_at)>new Date()));
-    const account=dashboard.account||{},available=Number(account.monthly_credits||0)+Number(account.purchased_credits||0)-Number(account.reserved_credits||0);
+    const account=dashboard.account||{};
+    const available=Number(account.monthly_credits||0)+Number(account.purchased_credits||0)-Number(account.reserved_credits||0);
+
     if(!keys.length){
-      dashboardShell('playground',headline('WEB INTELLIGENCE','Research Playground','Search, crawl and collect public web information through one research workspace.','<a class="btn" data-link href="/dashboard/usage">'+icon('activity')+' Runs</a>')+'<section class="research-key-lock">'+icon('key')+'<div><small>API KEY REQUIRED</small><h2>Create a normal API key to start researching.</h2><p>Every run is metered, attributable and visible in Runs.</p></div><a class="btn primary" data-link href="/dashboard/api-keys">Create API key</a></section>');return;
+      dashboardShell('playground',
+        headline('PLAYGROUND','Search the web','Ask for information, research a topic, or paste a public URL.','<a class="btn" data-link href="/dashboard/usage">'+icon('activity')+' Runs</a>')+
+        '<section class="search-key-lock">'+icon('key')+'<div><small>API KEY REQUIRED</small><h2>Create an API key to use Playground.</h2><p>Your searches and crawls are attributed to that key.</p></div><a class="btn primary" data-link href="/dashboard/api-keys">Create API key</a></section>'
+      );
+      return;
     }
+
     const keyOptions=keys.map((k,i)=>'<option value="'+esc(k.id)+'" '+(i===0?'selected':'')+'>'+esc(k.name)+' · '+esc(k.prefix)+'…</option>').join('');
-    const html=headline('WEB INTELLIGENCE','Research Playground','Search the web, investigate URLs and collect structured public information from one console.','<a class="btn" data-link href="/dashboard/usage">'+icon('activity')+' Runs</a>')+
-      '<section class="research-console"><div class="research-top"><div><span>NEW RESEARCH RUN</span><h2>What do you want Internet Hands to find?</h2></div><label>API key<select id="ihp-key-id">'+keyOptions+'</select></label></div>'+
-      '<form id="ihp-form"><textarea id="research-query" rows="3" placeholder="Research this company, find its pricing, products, recent changes and primary sources…"></textarea>'+
-      '<div class="research-modes"><button type="button" class="active" data-mode="auto">✦ Auto</button><button type="button" data-mode="search">Web search</button><button type="button" data-mode="url">URL research</button><button type="button" data-mode="site">Site crawl</button><button type="button" data-mode="extract">Extract</button></div>'+
-      '<div class="research-target"><label>Starting URL <small>optional for Auto / required for URL & Site</small><input id="ihp-url" type="url" placeholder="https://example.com"></label></div>'+
-      '<div class="research-runbar"><div class="research-depth"><span>Depth</span><button type="button" data-depth="quick">Quick</button><button type="button" class="active" data-depth="standard">Standard</button><button type="button" data-depth="deep">Deep</button></div><button class="btn primary large ihp-run" type="submit">'+icon('activity')+' Run research</button></div>'+
-      '<details class="research-advanced"><summary>Advanced controls</summary><div class="research-grid"><label>Max pages<input id="ihp-pages" type="number" min="1" max="50" value="15"></label><label>Link depth<input id="ihp-depth" type="number" min="0" max="4" value="2"></label><label>Concurrency<input id="ihp-concurrency" type="number" min="1" max="6" value="4"></label><label>Time budget<input id="ihp-seconds" type="number" min="5" max="45" value="30"></label></div><div class="research-grid two"><label>Include paths<input id="ihp-include" placeholder="/docs/*, /pricing/*"></label><label>Exclude paths<input id="ihp-exclude" placeholder="/account/*, /private/*"></label></div><div class="research-switches"><label><input id="ihp-subdomains" type="checkbox"> Subdomains</label><label><input id="ihp-query" type="checkbox"> Preserve query params</label><span>'+icon('shield')+' Public targets · robots respected · SSRF protected</span></div></details>'+
-      '<p class="research-balance">'+fmt(available)+' credits available · Runs are attributed to the selected API key.</p></form></section>'+
-      '<section class="research-flow"><span>DISCOVER</span><i>→</i><span>CRAWL</span><i>→</i><span>EXTRACT</span><i>→</i><span>SOURCES</span><i>→</i><span>RESULT</span></section>'+
-      '<section id="ihp-result" class="research-results" hidden></section>';
+    const html=
+      headline('PLAYGROUND','Search the web','Type what you want to know. Internet Hands will search public sources; paste a URL and it will crawl the site instead.','<a class="btn" data-link href="/dashboard/usage">'+icon('activity')+' Runs</a>')+
+      '<section class="web-search-console">'+
+        '<form id="ihp-form" class="web-search-form">'+
+          '<div class="web-search-box">'+
+            '<span class="web-search-icon">'+icon('activity')+'</span>'+
+            '<textarea id="research-query" rows="1" autocomplete="off" spellcheck="false" placeholder="Search the web — e.g. latest AI news"></textarea>'+
+            '<button id="ihp-submit" type="submit" class="web-search-submit" aria-label="Search">'+icon('arrow')+'</button>'+
+          '</div>'+
+          '<div class="web-search-actions">'+
+            '<label class="deep-toggle"><input id="ihp-deep" type="checkbox"><span></span><b>Deep research</b></label>'+
+            '<span class="search-hint">Paste a URL to crawl it automatically</span>'+
+          '</div>'+
+          '<div class="search-examples" aria-label="Examples">'+
+            '<button type="button" data-example="latest AI news">latest AI news</button>'+
+            '<button type="button" data-example="OpenAI latest models and pricing">OpenAI models & pricing</button>'+
+            '<button type="button" data-example="best AI coding agents right now">best AI coding agents</button>'+
+            '<button type="button" data-example="https://recharza.in">crawl recharza.in</button>'+
+          '</div>'+
+          '<details class="search-advanced">'+
+            '<summary>Advanced options</summary>'+
+            '<div class="search-advanced-grid">'+
+              '<label>API key<select id="ihp-key-id">'+keyOptions+'</select></label>'+
+              '<label>Max results / pages<input id="ihp-pages" type="number" min="1" max="50" value="10"></label>'+
+              '<label>Crawl depth<input id="ihp-depth" type="number" min="0" max="4" value="2"></label>'+
+              '<label>Time budget (sec)<input id="ihp-seconds" type="number" min="5" max="45" value="30"></label>'+
+              '<label>Concurrency<input id="ihp-concurrency" type="number" min="1" max="6" value="4"></label>'+
+              '<label>Include paths<input id="ihp-include" placeholder="/docs/*, /pricing/*"></label>'+
+              '<label>Exclude paths<input id="ihp-exclude" placeholder="/account/*, /private/*"></label>'+
+            '</div>'+
+            '<div class="search-advanced-checks">'+
+              '<label><input id="ihp-subdomains" type="checkbox"> Include subdomains</label>'+
+              '<label><input id="ihp-queryparams" type="checkbox"> Preserve query params</label>'+
+            '</div>'+
+            '<p class="search-security">'+icon('shield')+' Public targets only · robots respected · SSRF protected · '+esc(String(available.toLocaleString()))+' credits available</p>'+
+          '</details>'+
+        '</form>'+
+      '</section>'+
+      '<section id="ihp-results" class="web-search-results" hidden></section>';
+
     dashboardShell('playground',html);
-    let mode='auto',depth='standard';
-    $$('[data-mode]').forEach(b=>b.onclick=()=>{$$('[data-mode]').forEach(x=>x.classList.remove('active'));b.classList.add('active');mode=b.dataset.mode});
-    const presets={quick:[5,1,2,15],standard:[15,2,4,30],deep:[30,3,5,40]};
-    $$('[data-depth]').forEach(b=>b.onclick=()=>{$$('[data-depth]').forEach(x=>x.classList.remove('active'));b.classList.add('active');depth=b.dataset.depth;const p=presets[depth];$('#ihp-pages').value=p[0];$('#ihp-depth').value=p[1];$('#ihp-concurrency').value=p[2];$('#ihp-seconds').value=p[3]});
-    const patterns=v=>String(v||'').split(',').map(x=>x.trim()).filter(Boolean);
-    $('#ihp-form')?.addEventListener('submit',async e=>{
-      e.preventDefault();const button=$('.ihp-run',e.currentTarget),result=$('#ihp-result'),url=$('#ihp-url').value.trim(),query=$('#research-query').value.trim();
-      if((mode==='url'||mode==='site'||mode==='extract')&&!url){toast('Add a starting URL for this mode','error');return}
-      if(!query&&!url){toast('Enter a research question or starting URL','error');return}
-      busy(button,true,'Researching…');result.hidden=false;result.innerHTML='<div class="research-running">'+icon('activity')+'<div><b>Internet Hands is researching</b><p>Discovering pages, following relevant links and collecting source-backed information…</p></div></div>';
-      const operation=mode==='search'?'search':(mode==='url'||mode==='site'||mode==='extract'?'crawl':'research');
-      const body={api_key_id:$('#ihp-key-id').value,operation,query,url,max_pages:Number($('#ihp-pages').value),max_depth:Number($('#ihp-depth').value),concurrency:Number($('#ihp-concurrency').value),max_seconds:Number($('#ihp-seconds').value),include_paths:patterns($('#ihp-include').value),exclude_paths:patterns($('#ihp-exclude').value),include_subdomains:$('#ihp-subdomains').checked,preserve_query:$('#ihp-query').checked};
+
+    const form=$('#ihp-form'), queryInput=$('#research-query'), submit=$('#ihp-submit'), results=$('#ihp-results');
+    const deep=$('#ihp-deep');
+    const isUrl=value=>/^https?:\/\/[^\s]+$/i.test(String(value||'').trim());
+    const domainOf=value=>{try{return new URL(value).hostname.replace(/^www\./,'')}catch{return ''}};
+    const fmtTime=ms=>ms>=1000?(ms/1000).toFixed(ms>=10000?0:1)+'s':String(ms||0)+'ms';
+    const safeArr=value=>Array.isArray(value)?value:[];
+
+    const renderResult=async(data,inputValue,operation)=>{
+      const result=data.result||{}, summary=data.summary||{}, usage=data.usage||{};
+      const searches=safeArr(result.search_results);
+      const evidence=safeArr(result.evidence);
+      const findings=safeArr((result.synthesis||{}).findings);
+      const pages=safeArr(result.pages);
+      const count=operation==='crawl'?pages.length:searches.length;
+      const label=operation==='crawl'?'CRAWL COMPLETE':operation==='research'?'RESEARCH COMPLETE':'SEARCH RESULTS';
+      const title=operation==='crawl'?(domainOf(inputValue)||inputValue):inputValue;
+      const meta=[
+        count+(operation==='crawl'?' pages':count===1?' result':' results'),
+        (usage.credits_charged||0)+' credit'+((usage.credits_charged||0)===1?'':'s'),
+        fmtTime(summary.duration_ms||0)
+      ].join(' · ');
+
+      const answer=findings.length?(
+        '<section class="search-answer"><div class="search-section-kicker">ANSWER</div>'+
+        findings.slice(0,6).map((f,i)=>
+          '<article class="answer-point"><span>'+(i+1)+'</span><div><p>'+esc(String(f.text||''))+'</p>'+
+          (f.url?'<a href="'+esc(f.url)+'" target="_blank" rel="noopener">['+esc(String(f.citation||i+1))+'] '+esc(domainOf(f.url)||f.title||'Source')+'</a>':'')+
+          '</div></article>'
+        ).join('')+
+        '</section>'
+      ):'';
+
+      const searchCards=searches.length?(
+        '<section class="search-results-list"><div class="search-section-head"><div><div class="search-section-kicker">WEB RESULTS</div><h3>'+searches.length+' sources found</h3></div></div>'+
+        searches.map((item,i)=>{
+          const url=String(item.url||'');
+          const source=String(item.source||'').replaceAll('_',' ');
+          return '<article class="search-result-card">'+
+            '<div class="search-result-rank">'+(i+1)+'</div>'+
+            '<div class="search-result-body">'+
+              '<div class="search-result-domain">'+esc(domainOf(url)||'web')+(source?' · '+esc(source):'')+'</div>'+
+              '<a class="search-result-title" href="'+esc(url)+'" target="_blank" rel="noopener">'+esc(String(item.title||url||'Untitled source'))+'</a>'+
+              (item.description?'<p>'+esc(String(item.description))+'</p>':'')+
+              '<a class="search-result-url" href="'+esc(url)+'" target="_blank" rel="noopener">'+esc(url)+'</a>'+
+            '</div>'+
+          '</article>';
+        }).join('')+
+        '</section>'
+      ):'';
+
+      const crawlCards=pages.length?(
+        '<section class="search-results-list"><div class="search-section-head"><div><div class="search-section-kicker">CRAWLED PAGES</div><h3>'+pages.length+' pages</h3></div></div>'+
+        pages.slice(0,50).map((page,i)=>{
+          const url=String(page.url||'');
+          const ok=Boolean(page.status_code)&&!page.error;
+          return '<article class="search-result-card">'+
+            '<div class="search-result-rank">'+(i+1)+'</div>'+
+            '<div class="search-result-body"><div class="search-result-domain">'+esc(domainOf(url)||'page')+' · '+(ok?'OK':'FAILED')+'</div>'+
+            '<a class="search-result-title" href="'+esc(url)+'" target="_blank" rel="noopener">'+esc(url)+'</a>'+
+            '<p>'+(ok?esc(String(page.status_code))+' · '+esc(String(page.links_found||0))+' links found':esc(String(page.error||'Could not fetch page')))+'</p></div>'+
+          '</article>';
+        }).join('')+
+        '</section>'
+      ):'';
+
+      const evidenceBlock=evidence.length?(
+        '<details class="search-details"><summary>Evidence & provenance <span>'+evidence.length+'</span></summary><div class="evidence-list">'+
+          evidence.map((item,i)=>'<div class="evidence-row"><b>['+(i+1)+']</b><div><a href="'+esc(item.url||'#')+'" target="_blank" rel="noopener">'+esc(item.title||item.url||'Source')+'</a><small>'+esc(String(item.source||item.discovery_source||'web'))+(item.fallback?' · recovered':'')+'</small></div></div>').join('')+
+        '</div></details>'
+      ):'';
+
+      const technical=
+        '<details class="search-details technical"><summary>Run details</summary>'+
+          '<div class="run-detail-grid"><span>Request</span><code>'+esc(data.request_id||'—')+'</code><span>Provider</span><b>'+esc(String(summary.search_provider||'native'))+'</b><span>Evidence</span><b>'+esc(String(summary.evidence_successful||0))+'</b><span>Recovered</span><b>'+esc(String(summary.fallback_recovered||0))+'</b></div>'+
+          '<details class="raw-json"><summary>Raw JSON</summary><pre>'+esc(JSON.stringify(data,null,2))+'</pre></details>'+
+        '</details>';
+
+      results.innerHTML=
+        '<div class="search-result-header"><div><div class="search-section-kicker">'+label+'</div><h2>'+esc(title)+'</h2><p>'+esc(meta)+'</p></div><button class="btn compact" id="ihp-new-search">New search</button></div>'+
+        answer+
+        (operation==='crawl'?crawlCards:searchCards)+
+        ((!answer&&!searchCards&&!crawlCards)?'<div class="search-empty">'+icon('activity')+'<div><h3>No results found</h3><p>Try a broader query or a different public URL.</p></div></div>':'')+
+        evidenceBlock+technical;
+      results.hidden=false;
+      results.scrollIntoView({behavior:'smooth',block:'start'});
+      $('#ihp-new-search')?.addEventListener('click',()=>{results.hidden=true;queryInput.focus();});
+    };
+
+    form.addEventListener('submit',async e=>{
+      e.preventDefault();
+      const inputValue=queryInput.value.trim();
+      if(!inputValue){toast('Type something to search','error');queryInput.focus();return;}
+      const urlMode=isUrl(inputValue);
+      const operation=urlMode?'crawl':(deep.checked?'research':'search');
+      const body={
+        operation,
+        api_key_id:$('#ihp-key-id').value,
+        max_pages:Number($('#ihp-pages').value||10),
+        max_depth:Number($('#ihp-depth').value||2),
+        concurrency:Number($('#ihp-concurrency').value||4),
+        max_seconds:Number($('#ihp-seconds').value||30),
+        include_paths:$('#ihp-include').value.split(',').map(x=>x.trim()).filter(Boolean),
+        exclude_paths:$('#ihp-exclude').value.split(',').map(x=>x.trim()).filter(Boolean),
+        include_subdomains:$('#ihp-subdomains').checked,
+        preserve_query:$('#ihp-queryparams').checked
+      };
+      if(urlMode) body.url=inputValue; else body.query=inputValue;
+
+      submit.disabled=true;
+      submit.innerHTML=icon('activity');
+      results.hidden=false;
+      results.innerHTML='<div class="search-loading"><span class="search-loader"></span><div><b>'+(urlMode?'Crawling website…':deep.checked?'Researching the web…':'Searching the web…')+'</b><p>'+(urlMode?'Following public pages and links.':deep.checked?'Searching, reading sources and building evidence.':'Finding relevant public sources.')+'</p></div></div>';
       try{
-        const response=await fetch('/api/playground/run',{method:'POST',credentials:'include',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});let data={};try{data=await response.json()}catch{};if(!response.ok){const d=data?.detail;throw new Error(typeof d==='string'?d:d?.message||data?.error||('Request failed ('+response.status+')'))}
-        const summary=data.summary||{},pages=data.result?.pages||[],searchResults=data.result?.search_results||[],evidence=data.result?.evidence||[];
-        const combined=[...searchResults.map(x=>({url:x.url,title:x.title,meta:(x.description||'Web search result'),kind:(x.source==='firecrawl_search'?'FIRECRAWL SEARCH':'SEARCH')})),...pages.map(x=>({url:x.url,meta:'Depth '+fmt(x.depth)+' · '+fmt(x.links_found)+' links · '+(x.elapsed_ms==null?'—':fmt(Math.round(x.elapsed_ms))+' ms'),kind:x.error?'ERROR':'CRAWLED',error:x.error}))];
-        const sourceCards=combined.slice(0,20).map((p,i)=>'<article><span>'+(i+1)+'</span><div><b>'+esc(p.title||p.url)+'</b><small>'+esc(p.meta||'')+'</small><small>'+esc(p.url)+'</small></div><em class="'+(p.error?'bad':'good')+'">'+esc(p.kind)+'</em></article>').join('');
-        const trace=pages.map(p=>'<div><span class="'+(p.error?'bad':'good')+'">'+dot(p.error?'warn':'ok')+'</span><b>'+esc(p.url)+'</b><small>depth '+fmt(p.depth)+' · '+esc(p.status_code||'OK')+'</small></div>').join('');
-        result.innerHTML='<header><div><span>RESEARCH COMPLETE</span><h2>'+esc(query||url)+'</h2><p><code>'+esc(data.request_id)+'</code> · '+fmt(data.usage?.credits_charged||0)+' credits</p></div><a class="btn" data-link href="/dashboard/usage">Open run '+icon('arrow')+'</a></header>'+
-        '<div class="research-stats"><div><small>PAGES</small><b>'+fmt(summary.pages)+'</b></div><div><small>SUCCESS</small><b>'+fmt(summary.successful)+'</b></div><div><small>DISCOVERED</small><b>'+fmt(summary.discovered_urls)+'</b></div><div><small>LINKS</small><b>'+fmt(summary.links_found)+'</b></div><div><small>EVIDENCE</small><b>'+fmt(summary.evidence_successful||0)+'</b></div><div><small>RECOVERED</small><b>'+fmt(summary.fallback_recovered||0)+'</b></div><div><small>TIME</small><b>'+fmt(summary.duration_ms)+'<em> ms</em></b></div></div>'+
-        '<div class="result-tabs"><button class="active" data-result-tab="answer">Answer</button><button data-result-tab="sources">Sources</button><button data-result-tab="evidence">Evidence</button><button data-result-tab="trace">Run trace</button><button data-result-tab="raw">Raw data</button></div><div id="result-pane"></div>';
-        const evidenceCards=evidence.map((x,i)=>'<article><span>'+(i+1)+'</span><div><b>'+esc(x.title||x.url)+'</b><small>'+esc((x.text||x.description||x.error||'').slice(0,420))+'</small><small>'+esc(x.url)+'</small></div><em class="'+(x.error?'bad':'good')+'">'+(x.error?'FAILED':((String(x.source||'').startsWith('firecrawl')?'FIRECRAWL · ':'')+'SCORE '+fmt(x.relevance_score||0)))+'</em></article>').join('');
-        const synthesis=data.result?.synthesis||{},findings=synthesis.findings||[];
-        const answerCards=findings.map(x=>'<article class="research-finding"><p>'+esc(x.text)+' <a href="'+esc(x.url)+'" target="_blank" rel="noopener">['+fmt(x.citation)+']</a></p><small>'+esc(x.title||x.url)+'</small></article>').join('');
-        const panes={answer:'<div class="research-answer">'+(answerCards||'<p>No source-backed findings were extracted.</p>')+'</div>',sources:'<div class="source-list">'+(sourceCards||'<p>No source pages returned.</p>')+'</div>',evidence:'<div class="source-list evidence-list">'+(evidenceCards||'<p>No extracted evidence for this run.</p>')+'</div>',trace:'<div class="trace-list">'+trace+'</div>',raw:'<pre class="research-raw"><code>'+esc(JSON.stringify(data,null,2))+'</code></pre>'};
-        const show=k=>{$('#result-pane').innerHTML=panes[k]||panes.answer};show('answer');$$('[data-result-tab]').forEach(b=>b.onclick=()=>{$$('[data-result-tab]').forEach(x=>x.classList.remove('active'));b.classList.add('active');show(b.dataset.resultTab)});bindCommon();result.scrollIntoView({behavior:'smooth',block:'start'});
-      }catch(error){result.innerHTML='<div class="ihp-error">'+icon('activity')+'<span><b>Research run failed</b><p>'+esc(error.message)+'</p></span></div>';toast(error.message,'error')}finally{busy(button,false)}
+        const data=await api('/api/playground/run',{method:'POST',body:JSON.stringify(body)});
+        await renderResult(data,inputValue,operation);
+      }catch(err){
+        const message=String(err?.message||err||'Search failed');
+        results.innerHTML='<div class="search-error">'+icon('shield')+'<div><h3>Could not complete this search</h3><p>'+esc(message)+'</p></div></div>';
+      }finally{
+        submit.disabled=false;
+        submit.innerHTML=icon('arrow');
+      }
     });
+
+    $$('[data-example]').forEach(btn=>btn.addEventListener('click',()=>{
+      queryInput.value=btn.dataset.example||'';
+      form.requestSubmit();
+    }));
+
+    queryInput.addEventListener('keydown',e=>{
+      if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();form.requestSubmit();}
+    });
+    queryInput.addEventListener('input',()=>{
+      queryInput.style.height='auto';
+      queryInput.style.height=Math.min(queryInput.scrollHeight,140)+'px';
+    });
+    queryInput.focus();
   };
 
   dashMonitors = async function dashMonitorsV3() {
