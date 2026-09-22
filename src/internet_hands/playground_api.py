@@ -11,6 +11,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
+from .auth import authenticate_secret
 from .control_api import _require_user
 from .control_store import AuthIdentity, ControlError, ControlStore
 from .crawler import crawl
@@ -37,7 +38,45 @@ def _http_error(exc: ControlError) -> HTTPException:
     return HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": exc.detail})
 
 
+def _require_execute_scope(identity: AuthIdentity) -> AuthIdentity:
+    scopes = set(identity.scopes or [])
+    if "*" not in scopes and "mcp:execute" not in scopes:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "scope_required", "message": "This API key needs the mcp:execute scope."},
+        )
+    return identity
+
+
+def _request_credential(request: Request) -> str:
+    supplied = str(request.headers.get("x-api-key") or "").strip()
+    authorization = str(request.headers.get("authorization") or "").strip()
+    if authorization.lower().startswith("bearer "):
+        supplied = authorization[7:].strip()
+    return supplied
+
+
 def _playground_identity(request: Request, body: dict[str, Any]) -> AuthIdentity:
+    supplied = _request_credential(request)
+    if supplied:
+        try:
+            identity = authenticate_secret(store, supplied)
+        except ControlError as exc:
+            raise _http_error(exc) from exc
+        if not identity:
+            raise HTTPException(
+                status_code=401,
+                detail={"code": "invalid_api_key", "message": "A valid Internet Hands API key or access token is required."},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        selected_key_id = str(body.get("api_key_id") or "").strip()
+        if selected_key_id and identity.api_key_id and selected_key_id != identity.api_key_id:
+            raise HTTPException(
+                status_code=403,
+                detail={"code": "credential_mismatch", "message": "The selected API key does not match the supplied credential."},
+            )
+        return _require_execute_scope(identity)
+
     user = _require_user(request)
     key_id = str(body.get("api_key_id") or "").strip()
     if not key_id:
@@ -54,13 +93,7 @@ def _playground_identity(request: Request, body: dict[str, Any]) -> AuthIdentity
             status_code=409,
             detail={"code": "api_key_required", "message": "That API key is unavailable or revoked. Create or select an active key."},
         )
-    scopes = set(identity.scopes or [])
-    if "*" not in scopes and "mcp:execute" not in scopes:
-        raise HTTPException(
-            status_code=403,
-            detail={"code": "scope_required", "message": "This API key needs the mcp:execute scope."},
-        )
-    return identity
+    return _require_execute_scope(identity)
 
 
 def _bounded_int(value: Any, name: str, default: int, minimum: int, maximum: int) -> int:
