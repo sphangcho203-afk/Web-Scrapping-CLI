@@ -496,3 +496,104 @@ def test_measured_firecrawl_provider_settles_to_its_actual_route() -> None:
         latency_ms=500,
     )
     assert settled == 7
+
+
+def test_caller_investigate_requires_pro_or_higher() -> None:
+    builder = estimate_call(
+        "phone_caller_investigate",
+        {"number": "+14155552671"},
+        "builder",
+    )
+    pro = estimate_call(
+        "phone_caller_investigate",
+        {"number": "+14155552671"},
+        "pro",
+    )
+    assert builder.allowed is False
+    assert pro.allowed is True
+
+
+def test_caller_investigate_reserves_page_budget() -> None:
+    estimate = estimate_call(
+        "phone_caller_investigate",
+        {
+            "number": "+14155552671",
+            "max_search_results": 10,
+            "max_pages": 4,
+        },
+        "pro",
+    )
+    assert estimate.allowed is True
+    assert estimate.credits == 26
+
+
+def test_caller_investigate_page_limit_scales_with_plan() -> None:
+    pro = estimate_call(
+        "phone_caller_investigate",
+        {
+            "number": "+14155552671",
+            "max_pages": 8,
+        },
+        "pro",
+    )
+    scale = estimate_call(
+        "phone_caller_investigate",
+        {
+            "number": "+14155552671",
+            "max_pages": 8,
+        },
+        "scale",
+    )
+    assert pro.allowed is False
+    assert "at most 6" in (pro.reason or "")
+    assert scale.allowed is True
+
+
+def test_caller_investigate_routing_keeps_same_quote() -> None:
+    args = {
+        "number": "+14155552671",
+        "max_search_results": 10,
+        "max_pages": 4,
+    }
+    direct = estimate_call("phone_caller_investigate", args, "pro")
+    raw = estimate_call(
+        "mesh_execute",
+        {"ref": "callerintel:investigate", "arguments": args},
+        "pro",
+    )
+    semantic = estimate_call(
+        "mesh_capability_execute",
+        {"capability": "phone.caller.investigate", "arguments": args},
+        "pro",
+    )
+    assert direct.allowed is True
+    assert raw.credits == direct.credits
+    assert semantic.credits == direct.credits
+
+
+def test_measured_caller_investigation_releases_unused_page_budget() -> None:
+    settled = settle_measured_cost(
+        "phone_caller_investigate",
+        {
+            "number": "+14155552671",
+            "max_search_results": 10,
+            "max_pages": 4,
+        },
+        "pro",
+        reserved_credits=26,
+        execution_usage={
+            "counters": {
+                "public_search_call": 1,
+                "public_search_result": 3,
+                "public_page_fetch": 2,
+                "public_page_confirmed": 1,
+            },
+            "provider_calls": {
+                "brave": 1,
+                "nativeweb": 2,
+                "callerintel": 1,
+            },
+        },
+        latency_ms=1500,
+    )
+    assert settled == 19
