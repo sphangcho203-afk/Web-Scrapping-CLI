@@ -9,16 +9,13 @@ from .control_api import _origin, _require_user, _require_verified, store
 from .control_store import random_token
 from .security_api import (
     _deliver,
-    _send_verification,
     security,
     two_factor_confirm,
     two_factor_setup,
 )
-from .supabase_auth import (
-    SupabaseAuthError,
-    request_password_recovery as supabase_request_password_recovery,
-    resend_signup as supabase_resend_signup,
-)
+from .supabase_auth import SupabaseAuthError
+from .supabase_auth import request_password_recovery as supabase_request_password_recovery
+from .supabase_auth import resend_signup as supabase_resend_signup
 
 router = APIRouter()
 
