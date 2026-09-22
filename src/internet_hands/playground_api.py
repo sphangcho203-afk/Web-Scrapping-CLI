@@ -11,6 +11,7 @@ from .control_api import _require_user
 from .control_store import AuthIdentity, ControlError, ControlStore
 from .crawler import crawl
 from .policy import PolicyError, ResolutionUnavailable, validate_public_http_url
+from .web_search import SearchKind, brave_search
 
 router = APIRouter()
 store = ControlStore()
@@ -93,22 +94,24 @@ async def playground_run(request: Request):
 
     identity = _playground_identity(request, body)
     operation = str(body.get("operation") or "crawl").strip().lower()
-    if operation != "crawl":
-        raise HTTPException(status_code=400, detail={"code": "unsupported_operation", "message": "The current playground supports the crawl operation."})
+    if operation not in {"crawl", "search", "research", "auto"}:
+        raise HTTPException(status_code=400, detail={"code": "unsupported_operation", "message": "Supported operations: crawl, search, research, auto."})
 
+    query = str(body.get("query") or "").strip()
     url = str(body.get("url") or "").strip()
-    if not url:
+    if operation == "search" and not query:
+        raise HTTPException(status_code=400, detail={"code": "query_required", "message": "Enter a web search query."})
+    if operation in {"research", "auto"} and not (query or url):
+        raise HTTPException(status_code=400, detail={"code": "query_required", "message": "Enter a research question or starting URL."})
+    if operation == "crawl" and not url:
         raise HTTPException(status_code=400, detail={"code": "url_required", "message": "Enter a public HTTP(S) URL to crawl."})
-    try:
-        validate_public_http_url(url)
-    except ResolutionUnavailable as exc:
-        raise HTTPException(
-            status_code=503,
-            detail={"code": "resolver_busy", "message": str(exc)},
-            headers={"Retry-After": "1"},
-        ) from exc
-    except PolicyError as exc:
-        raise HTTPException(status_code=400, detail={"code": "target_blocked", "message": str(exc)}) from exc
+    if url:
+        try:
+            validate_public_http_url(url)
+        except ResolutionUnavailable as exc:
+            raise HTTPException(status_code=503, detail={"code": "resolver_busy", "message": str(exc)}, headers={"Retry-After": "1"}) from exc
+        except PolicyError as exc:
+            raise HTTPException(status_code=400, detail={"code": "target_blocked", "message": str(exc)}) from exc
 
     max_pages = _bounded_int(body.get("max_pages"), "max_pages", 12, 1, 50)
     max_depth = _bounded_int(body.get("max_depth"), "max_depth", 2, 0, 4)
@@ -121,8 +124,9 @@ async def playground_run(request: Request):
 
     request_id = f"req_{uuid.uuid4().hex}"
     arguments = {
-        "ref": "playground:crawl",
+        "ref": f"playground:{operation}",
         "url": url,
+        "query": query,
         "max_pages": max_pages,
         "max_depth": max_depth,
         "concurrency": concurrency,
@@ -134,7 +138,7 @@ async def playground_run(request: Request):
         credits = store.charge_tool_call(
             identity=identity,
             request_id=request_id,
-            tool_name="playground:crawl",
+            tool_name=f"playground:{operation}",
             arguments=arguments,
             input_bytes=len(raw),
         )
@@ -145,21 +149,54 @@ async def playground_run(request: Request):
     status = "error"
     output_bytes = 0
     try:
-        result = await crawl(
-            url,
-            max_pages=max_pages,
-            max_depth=max_depth,
-            concurrency=concurrency,
-            max_seconds=float(max_seconds),
-            delay_seconds=0.10,
-            respect_robots=True,
-            include_paths=include_paths,
-            exclude_paths=exclude_paths,
-            include_subdomains=include_subdomains,
-            preserve_query=preserve_query,
-            max_bytes_per_page=2_000_000,
-        )
-        payload = result.model_dump(mode="json")
+        search_payload: dict[str, Any] | None = None
+        search_sources: list[dict[str, Any]] = []
+        if operation in {"search", "research", "auto"} and query:
+            search_payload = await brave_search(query, kind=SearchKind.WEB, count=min(max_pages, 20))
+            raw_response = search_payload.get("response") or {}
+            web_results = ((raw_response.get("web") or {}).get("results") or []) if isinstance(raw_response, dict) else []
+            for item in web_results:
+                if not isinstance(item, dict):
+                    continue
+                candidate = str(item.get("url") or "").strip()
+                if not candidate:
+                    continue
+                try:
+                    validate_public_http_url(candidate)
+                except (PolicyError, ResolutionUnavailable):
+                    continue
+                search_sources.append({
+                    "url": candidate,
+                    "title": str(item.get("title") or ""),
+                    "description": str(item.get("description") or ""),
+                    "age": item.get("age"),
+                    "source": "brave",
+                })
+            if operation == "search":
+                payload = {"pages": [], "search_results": search_sources, "discovered_urls": len(search_sources), "skipped_urls": 0, "duration_ms": 0, "truncated": False}
+            elif not url and search_sources:
+                url = search_sources[0]["url"]
+            elif not url:
+                payload = {"pages": [], "search_results": [], "discovered_urls": 0, "skipped_urls": 0, "duration_ms": 0, "truncated": False}
+
+        if operation != "search" and url:
+            result = await crawl(
+                url,
+                max_pages=max_pages,
+                max_depth=max_depth,
+                concurrency=concurrency,
+                max_seconds=float(max_seconds),
+                delay_seconds=0.10,
+                respect_robots=True,
+                include_paths=include_paths,
+                exclude_paths=exclude_paths,
+                include_subdomains=include_subdomains,
+                preserve_query=preserve_query,
+                max_bytes_per_page=2_000_000,
+            )
+            payload = result.model_dump(mode="json")
+            payload["search_results"] = search_sources
+            payload["seed_url"] = url
         pages = payload.get("pages") or []
         summary = {
             "pages": len(pages),
@@ -170,6 +207,8 @@ async def playground_run(request: Request):
             "skipped_urls": int(payload.get("skipped_urls") or 0),
             "duration_ms": int(payload.get("duration_ms") or 0),
             "truncated": bool(payload.get("truncated")),
+            "search_results": len(payload.get("search_results") or []),
+            "seed_url": payload.get("seed_url") or url or None,
         }
         response = {
             "ok": True,
