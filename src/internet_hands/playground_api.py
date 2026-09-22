@@ -16,6 +16,7 @@ from .control_store import AuthIdentity, ControlError, ControlStore
 from .crawler import crawl
 from .extractor import extract_document
 from .fetcher import fetch_url
+from .firecrawl_provider import FirecrawlToolProvider
 from .policy import PolicyError, ResolutionUnavailable, validate_public_http_url
 from .web_search import SearchKind, brave_search
 
@@ -114,6 +115,44 @@ def _rank_evidence(query: str, evidence: list[dict[str, Any]]) -> list[dict[str,
         copy["matched_terms"] = sorted(term for term in terms if term in haystack)[:12]
         ranked.append(copy)
     return sorted(ranked, key=lambda item: (-float(item.get("relevance_score") or 0), int(item.get("search_rank") or 999)))
+
+
+def _needs_fallback(item: dict[str, Any]) -> bool:
+    text = str(item.get("text") or "").strip()
+    return bool(item.get("error")) or len(text) < 280
+
+
+async def _firecrawl_fallback(evidence: list[dict[str, Any]], *, limit: int = 3) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    candidates = [item for item in evidence if _needs_fallback(item)][:max(0, limit)]
+    if not candidates:
+        return evidence, {"attempted": 0, "recovered": 0, "provider": None}
+    provider = FirecrawlToolProvider()
+    if not provider.api_key:
+        return evidence, {"attempted": 0, "recovered": 0, "provider": "firecrawl", "available": False}
+    by_url = {str(item.get("url")): dict(item) for item in evidence}
+    recovered = 0
+    for item in candidates:
+        url = str(item.get("url") or "")
+        if not url:
+            continue
+        try:
+            validate_public_http_url(url)
+            result = await provider.execute("scrape", {"url": url, "formats": ["markdown"], "onlyMainContent": True, "timeout": 15000}, timeout_seconds=20)
+            data = result.get("data") or {}
+            markdown = str(data.get("markdown") or data.get("content") or "").strip() if isinstance(data, dict) else ""
+            if len(markdown) >= 280:
+                replacement = dict(item)
+                replacement.update({"text": markdown[:12000], "error": None, "source": "firecrawl", "fallback": True})
+                metadata = data.get("metadata") if isinstance(data, dict) else None
+                if isinstance(metadata, dict) and metadata.get("title"):
+                    replacement["title"] = str(metadata["title"])
+                by_url[url] = replacement
+                recovered += 1
+        except Exception as exc:  # noqa: BLE001 -- fallback is best-effort and source-local
+            failed = dict(by_url[url])
+            failed["fallback_error"] = f"{type(exc).__name__}: {exc}"
+            by_url[url] = failed
+    return [by_url[str(item.get("url"))] for item in evidence], {"attempted": len(candidates), "recovered": recovered, "provider": "firecrawl", "available": True}
 
 
 def _synthesize_evidence(query: str, evidence: list[dict[str, Any]]) -> dict[str, Any]:
@@ -263,6 +302,10 @@ async def playground_run(request: Request):
             evidence_limit = min(8, max(3, max_pages // 3))
             evidence = await _research_evidence(search_sources, limit=evidence_limit, timeout=min(float(max_seconds), 15.0))
             evidence = _rank_evidence(query, evidence)
+            evidence, fallback = await _firecrawl_fallback(evidence, limit=min(3, evidence_limit))
+            evidence = _rank_evidence(query, evidence)
+        else:
+            fallback = {"attempted": 0, "recovered": 0, "provider": None}
 
         synthesis = _synthesize_evidence(query, evidence) if query and evidence else {"query": query, "method": "extractive", "findings": [], "sources": []}
 
@@ -285,6 +328,7 @@ async def playground_run(request: Request):
             payload["search_results"] = search_sources
             payload["evidence"] = evidence
             payload["synthesis"] = synthesis
+            payload["fallback"] = fallback
             payload["seed_url"] = url
         pages = payload.get("pages") or []
         summary = {
@@ -299,6 +343,8 @@ async def playground_run(request: Request):
             "search_results": len(payload.get("search_results") or []),
             "evidence_sources": len(payload.get("evidence") or []),
             "evidence_successful": sum(1 for item in (payload.get("evidence") or []) if item.get("text") and not item.get("error")),
+            "fallback_attempted": int((payload.get("fallback") or {}).get("attempted") or 0),
+            "fallback_recovered": int((payload.get("fallback") or {}).get("recovered") or 0),
             "seed_url": payload.get("seed_url") or url or None,
         }
         response = {
