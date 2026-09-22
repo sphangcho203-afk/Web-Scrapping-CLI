@@ -44,6 +44,22 @@
 .game-detail{min-width:0;border:1px solid #35455b;border-radius:16px;padding:22px;background:#111b2b}
 .game-detail>header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px}
 .game-actions{display:flex;gap:9px;flex-wrap:wrap}
+.game-run-button{display:inline-flex;align-items:center;gap:7px;margin-top:15px;padding:10px 14px;border:1px solid #4c749c;border-radius:9px;background:#172a40;color:#cde7ff;cursor:pointer;font:inherit;font-size:13px;font-weight:650}
+.game-run-button:hover,.game-run-button:focus-visible{background:#214260;outline-color:#9bd8ff}
+.game-run-button svg{width:15px;height:15px}
+.game-tool-runner{margin:20px 0 75px;padding:clamp(17px,3vw,26px);border:1px solid #456382;border-radius:16px;background:#131f30;color:#f0f6ff}
+.game-tool-runner>header{display:flex;justify-content:space-between;align-items:start;gap:12px}
+.game-tool-runner h3{margin:7px 0;font-size:22px}.game-tool-runner p,.game-tool-runner label{color:#b9cbde}
+.game-tool-close{border:0;background:transparent;color:#e3edfb;font-size:26px;cursor:pointer}
+.game-tool-runner form{display:grid;gap:15px;max-width:700px;margin-top:20px}.game-tool-runner form label{display:grid;gap:7px;font-size:13px}
+.game-tool-runner input,.game-tool-runner textarea,.game-tool-runner select{width:100%;min-height:44px;padding:10px 12px;border:1px solid #49617c;border-radius:9px;background:#0c1624;color:#f4f8ff;font:inherit}
+.game-tool-runner form .btn{justify-self:start}
+.game-tool-output{display:grid;gap:14px;margin-top:18px}.game-tool-output article{padding:14px;border:1px solid #3a5069;border-radius:10px;background:#1a2b40}
+.game-tool-output article strong{display:block;color:#f1f8ff}.game-tool-output article span,.game-tool-output article p{color:#c1d3e7}
+.game-tool-output small{line-height:1.5;color:#a9bed5}.game-tool-output a{color:#aad2ff}
+.game-tool-output summary{cursor:pointer;color:#b4d6fb}.game-tool-output pre{max-height:350px;overflow:auto;white-space:pre-wrap;word-break:break-word;padding:12px;background:#0c1827;border-radius:9px}
+.game-tool-rows{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:9px}
+@media(max-width:620px){.game-tool-runner form .btn{width:100%;justify-content:center}.game-tool-rows{grid-template-columns:1fr}}
 .game-detail h2{margin:4px 0 6px;font-size:clamp(22px,3vw,30px);color:#f5f7fb}
 .game-detail header p,.game-empty{margin:0;color:#aebed2}
 .game-capabilities{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:12px}

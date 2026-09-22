@@ -82,6 +82,10 @@ class ManifestHttpProvider:
             "kind": "manifest-http-catalog",
             "tool_count": len(self.tools),
             "configured_tools": executable,
+            "tool_availability": {
+                self.name + ":" + tool.tool_id: not tool.auth_env or bool(os.getenv(tool.auth_env, "").strip())
+                for tool in self.tools.values()
+            },
         }
 
     def _descriptor(self, tool: HttpToolSpec) -> ToolDescriptor:
@@ -101,6 +105,7 @@ class ManifestHttpProvider:
                 "base_url": tool.base_url,
                 "path": tool.path,
                 **tool.metadata,
+                "configured": not tool.auth_env or bool(os.getenv(tool.auth_env, "").strip()),
             },
         )
 

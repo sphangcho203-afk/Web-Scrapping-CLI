@@ -41,12 +41,28 @@ class GameAdapter:
         rows = []
         for capability in self.capabilities:
             providers = sorted({candidate.provider for candidate in capability.candidates})
-            provider_ready = any(bool(statuses.get(provider, {}).get("executable")) for provider in providers)
+            provider_ready = any(
+                bool(getattr(candidate, "ref", None))
+                and bool(statuses.get(candidate.provider, {}).get("executable"))
+                and statuses.get(candidate.provider, {}).get("tool_availability", {}).get(getattr(candidate, "ref", None), True)
+                for candidate in capability.candidates
+            )
+            needs_key = not provider_ready and any(
+                statuses.get(candidate.provider, {}).get("tool_availability", {}).get(getattr(candidate, "ref", None)) is False
+                for candidate in capability.candidates
+            )
+            discovery_only = not provider_ready and not needs_key and any(
+                not getattr(candidate, "ref", None)
+                and bool(statuses.get(candidate.provider, {}).get("searchable"))
+                for candidate in capability.candidates
+            )
             rows.append({
                 "id": capability.id,
                 "name": capability.name,
                 "description": capability.description,
                 "provider_ready": provider_ready,
+                "availability": ("ready" if provider_ready else "key_required" if needs_key
+                                 else "discovery_required" if discovery_only else "unavailable"),
                 "providers": providers,
                 "input_schema": capability.input_schema,
             })
@@ -65,7 +81,7 @@ def build_game_adapters(capabilities: dict[str, Any]) -> dict[str, GameAdapter]:
     adapters = {}
     for game_id, (name, packs) in GAME_PACKS.items():
         matches = tuple(sorted(
-            (cap for cap in capabilities.values() if cap.pack in packs), key=lambda cap: cap.id,
+            (cap for cap in capabilities.values() if cap.pack in packs or cap.pack == "gaming-common"), key=lambda cap: cap.id,
         ))
         if matches:
             adapters[game_id] = GameAdapter(game_id, name, packs, matches)

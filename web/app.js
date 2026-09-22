@@ -370,22 +370,48 @@ function renderLegalDocument(slug){
 function renderLegal(){const path=location.pathname.replace(/\/+$/,'')||'/';const alias=LEGAL_ALIASES[path];if(alias)return renderLegalDocument(alias);if(path==='/legal')return renderLegalHub();const slug=path.startsWith('/legal/')?decodeURIComponent(path.slice(7)):'';return slug?renderLegalDocument(slug):renderLegalHub()}
 
 async function dashGames(){
-  const data=await api('/api/games');
-  const games=data.games||[];
+  const [data,keyData]=await Promise.all([api('/api/games'),api('/api/api-keys')]);
+  const games=data.games||[],keys=(keyData.keys||[]).filter(k=>!k.revoked_at&&(!k.expires_at||new Date(k.expires_at)>new Date()));
   dashboardShell('games',`${pageHead('GAME INTELLIGENCE','Games & public data','Explore the capabilities currently registered for each game. Provider readiness is checked live.')}<section class="game-catalog"><label class="game-filter">Find a game<input id="game-search" type="search" placeholder="Search games" autocomplete="off"></label><div id="game-list" class="game-list"></div><div id="game-detail" class="game-detail" aria-live="polite"></div></section>`);
   const list=$('#game-list'),detail=$('#game-detail'),filter=$('#game-search');
   const draw=()=>{
     const q=filter.value.trim().toLowerCase();
     const matches=games.filter(g=>g.name.toLowerCase().includes(q)||g.game_id.includes(q));
-    list.innerHTML=matches.length?matches.map(g=>`<button class="game-tile" type="button" data-game="${esc(g.game_id)}"><strong>${esc(g.name)}</strong><span>${fmt(g.capability_count)} capabilities · ${fmt(g.provider_ready_count)} with a connected provider</span>${icon('arrow')}</button>`).join(''):'<p class="game-empty">No registered game matches that search.</p>';
+    list.innerHTML=matches.length?matches.map(g=>`<button class="game-tile" type="button" data-game="${esc(g.game_id)}"><strong>${esc(g.name)}</strong><span>${fmt(g.capability_count)} capabilities · ${fmt(g.provider_ready_count)} ready</span>${icon('arrow')}</button>`).join(''):'<p class="game-empty">No registered game matches that search.</p>';
     $$('[data-game]',list).forEach(button=>button.onclick=()=>select(button.dataset.game));
   };
+  let selectedRun=0;
   async function select(id){
+    const run=++selectedRun;
     detail.innerHTML='<p class="game-empty">Loading capabilities…</p>';
     try{
       const {game}=await api('/api/games/'+encodeURIComponent(id));
-      detail.innerHTML=`<header><div><span class="overline">${esc(game.game_id)}</span><h2>${esc(game.name)}</h2><p>${fmt(game.capability_count)} declared capabilities · ${fmt(game.provider_ready_count)} with a connected provider. Individual tools may require credentials.</p></div><div class="game-actions"><a class="btn primary" data-link href="/dashboard/playground?query=${encodeURIComponent(game.name+' latest patch and competitive meta')}">Research this game ${icon('arrow')}</a><a class="btn" data-link href="/dashboard/repositories?query=${encodeURIComponent(game.name+' public api tools')}">Find open-source tools</a></div></header><div class="game-capabilities">${(game.capabilities||[]).map(cap=>`<article><span class="game-cap-status ${cap.provider_ready?'ready':''}">${cap.provider_ready?'Provider connected':'Provider unavailable'}</span><h3>${esc(cap.name)}</h3><p>${esc(cap.description)}</p><small>${esc(cap.providers.join(' · '))}</small></article>`).join('')}</div>`;
+      if(run!==selectedRun)return;
+      detail.innerHTML=`<header><div><span class="overline">${esc(game.game_id)}</span><h2>${esc(game.name)}</h2><p>${fmt(game.capability_count)} registered capabilities · ${fmt(game.provider_ready_count)} ready. Some public services still require their own keys.</p></div><div class="game-actions"><a class="btn primary" data-link href="/dashboard/playground?query=${encodeURIComponent(game.name+' latest patch and competitive meta')}">Research this game ${icon('arrow')}</a><a class="btn" data-link href="/dashboard/repositories?query=${encodeURIComponent(game.name+' public api tools')}">Find open-source tools</a></div></header><div class="game-capabilities">${(game.capabilities||[]).map(cap=>`<article><span class="game-cap-status ${cap.provider_ready?'ready':''}">${cap.provider_ready?(cap.providers.includes('gamecore')?(cap.id.startsWith('league.reference')?'Public data · no key':'Runs locally'):'Provider configured'):cap.availability==='key_required'?'Provider key required':cap.availability==='discovery_required'?'Find tool on request':'Provider unavailable'}</span><h3>${esc(cap.name)}</h3><p>${esc(cap.description)}</p><small>${esc(cap.providers.join(' · '))}</small>${cap.provider_ready&&cap.providers.includes('gamecore')?`<button type="button" class="game-run-button" data-game-tool="${esc(cap.id)}">Run tool ${icon('arrow')}</button>`:''}</article>`).join('')}</div><div id="game-tool-panel" aria-live="polite"></div>`;
+      $$('[data-game-tool]',detail).forEach(button=>button.onclick=()=>showTool(game,button.dataset.gameTool));
     }catch(error){detail.innerHTML=`<p class="game-empty">${esc(error.message)}</p>`;}
+  }
+  function showTool(game,capability){
+    const panel=$('#game-tool-panel',detail),match=capability==='game.matches.analyze';
+    const hero=capability==='mlbb.reference.hero',items=capability.endsWith('.items'),league=capability.startsWith('league.reference');
+    panel.innerHTML=`<section class="game-tool-runner"><header><div><span class="overline">RUN INSIDE INTERNET HANDS</span><h3>${esc((game.capabilities||[]).find(c=>c.id===capability)?.name||capability)}</h3><p>${match?'Paste your own matches, oldest first. This works for any game.':league?'Fetch Riot’s published patch reference; no Riot API key required.':'Bundled historical MLBB data; dates and attribution appear with the result.'}</p></div><button type="button" class="game-tool-close" aria-label="Close tool">×</button></header>${keys.length?`<form id="game-tool-form"><label>${match?'Match results (JSON array)':hero?'Hero name or ID':items?'Item name or category':'Name, role or lane'}${match?'<textarea name="matches" rows="7" required spellcheck="false" placeholder=\'[{&quot;win&quot;:true,&quot;hero&quot;:&quot;Fanny&quot;,&quot;kills&quot;:8,&quot;deaths&quot;:2,&quot;assists&quot;:5}]\'></textarea>':`<input name="query" maxlength="60" ${hero?'required':''} placeholder="${hero?'Lancelot':items?'Blade':league?'Ahri':'jungle'}">`}</label><label>Internet Hands API key<select name="api_key_id">${keys.map(k=>`<option value="${esc(k.id)}">${esc(k.name)} · ${esc(k.prefix)}…</option>`).join('')}</select></label><button class="btn primary" type="submit">Run · 1 credit ${icon('arrow')}</button></form>`:`<p>Create an Internet Hands API key to record and run this tool.</p><a data-link class="btn primary" href="/dashboard/api-keys">Create API key</a>`}<div id="game-tool-output"></div></section>`;
+    panel.querySelector('.game-tool-close').onclick=()=>panel.replaceChildren();
+    panel.scrollIntoView({behavior:'smooth',block:'nearest'});
+    const form=$('#game-tool-form',panel);if(!form)return;
+    form.onsubmit=async event=>{
+      event.preventDefault();const output=$('#game-tool-output',panel),submit=form.querySelector('button[type="submit"]');
+      let arguments_;
+      try{arguments_=match?{matches:JSON.parse(form.elements.matches.value)}:hero?{hero:form.elements.query.value}:{query:form.elements.query.value};}
+      catch(error){output.innerHTML='<p class="game-empty">Match results must be valid JSON.</p>';return;}
+      output.innerHTML='<p class="game-empty">Running…</p>';submit.disabled=true;
+      try{
+        const response=await api('/api/games/'+encodeURIComponent(game.game_id)+'/tools/'+encodeURIComponent(capability),{method:'POST',body:{api_key_id:form.elements.api_key_id.value,arguments:arguments_}});
+        const data=response.result||{},provenance=data.provenance||{},rows=data.results||[];
+        const summary=match?`<article><strong>${fmt(data.overall?.games)} matches · ${fmt(data.overall?.win_rate)}% wins</strong><p>Recent 10: ${fmt(data.recent_10?.win_rate)}% · KDA ${fmt(data.overall?.kda)} · ${fmt(data.current_streak?.games)} ${esc(data.current_streak?.outcome||'')} streak</p></article>`:data.hero?`<article><strong>${esc(data.hero.name)} · ${esc(data.hero.role)}</strong><p>Lanes: ${esc((data.hero.lanes||[]).join(', '))}</p><p>Synergies: ${esc((data.hero.synergies||[]).join(', '))}</p><p>Community counters: ${esc((data.hero.counters||[]).join(', '))}</p></article>`:`<p>${fmt(data.total)} matches · showing ${fmt(rows.length)}</p><div class="game-tool-rows">${rows.map(row=>`<article><strong>${esc(row.name)}</strong><span>${esc(row.role||(row.roles||[]).join(', ')||row.category||'')} ${row.cost?' · '+esc(row.cost)+' gold':''}</span></article>`).join('')}</div>`;
+        output.innerHTML=`<div class="game-tool-output">${summary}<small>${match?'Calculated from your supplied games.':league?`Data Dragon version ${esc(provenance.version||'')} · <a href="${esc(provenance.source||'')}" target="_blank" rel="noopener noreferrer">Riot documentation</a>`:`Snapshot ${esc(provenance.hero_revision||'')} (heroes) / ${esc(provenance.item_revision||'')} (items) · <a href="${esc(provenance.source||'')}" target="_blank" rel="noopener noreferrer">Source and license: MIT</a>`} · ${fmt(response.usage?.credits_charged)} credit</small><details><summary>Full structured result</summary><pre>${esc(JSON.stringify(data,null,2))}</pre></details></div>`;
+      }catch(error){output.innerHTML=`<p class="game-empty">${esc(error.message)}</p>`;}
+      finally{submit.disabled=false;}
+    };
   }
   filter.oninput=draw;draw();if(games.length)select(games[0].game_id);
 }

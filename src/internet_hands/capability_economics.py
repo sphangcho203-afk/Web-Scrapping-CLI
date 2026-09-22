@@ -123,6 +123,7 @@ TOOL_ECONOMICS: tuple[ToolEconomics, ...] = (
     ToolEconomics("gaming_intel", "gaming", 2, provider_class="public"),
     ToolEconomics("playground:*", "playground", 1, provider_class="public"),
     ToolEconomics("repo:*", "repository", 1, provider_class="public"),
+    ToolEconomics("gamecore:*", "gaming", 1, provider_class="local"),
     ToolEconomics(
         "sandbox_browser_*",
         "browser",
@@ -801,6 +802,9 @@ def settle_measured_cost(
         except (ValueError, TypeError):
             requests = 0
         return min(reserved, (1 if usage.get("completed") else 0) + requests)
+
+    if tool_name.startswith("gamecore:"):
+        return min(reserved, 1 if usage.get("completed") else 0)
 
     if tool_name == "mesh_execute":
         ref = str(args.get("ref") or args.get("tool") or "").strip().lower()

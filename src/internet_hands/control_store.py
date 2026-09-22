@@ -301,6 +301,7 @@ TOOL_COST_ROWS = [
     ("mesh_results", 1, {"category": "provider"}),
     ("playground:crawl", 2, {"category": "playground"}),
     ("repo:*", 1, {"category": "repository"}),
+    ("gamecore:*", 1, {"category": "gaming"}),
     ("*", 1, {"category": "default"}),
 ]
 
