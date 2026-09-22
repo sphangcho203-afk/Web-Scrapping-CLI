@@ -769,58 +769,46 @@ function openRunInspector(event) {
     $$('[data-revoke-key]').forEach(b=>b.addEventListener('click',async()=>{if(!confirm('Revoke this key?'))return;await api(`/api/api-keys/${b.dataset.revokeKey}/revoke`,{method:'POST'});toast('Key revoked','success');dashKeys();}));
   };
 
-  dashPlayground = async function dashPlaygroundV2() {
-    const [keyData, dashboard] = await Promise.all([api('/api/api-keys'), api('/api/dashboard')]);
-    const keys=(keyData.keys||[]).filter(x=>!x.revoked_at && (!x.expires_at || new Date(x.expires_at)>new Date()));
-    const account=dashboard.account||{}, available=Number(account.monthly_credits||0)+Number(account.purchased_credits||0)-Number(account.reserved_credits||0);
-
+  dashPlayground = async function dashPlaygroundV3() {
+    const [keyData,dashboard]=await Promise.all([api('/api/api-keys'),api('/api/dashboard')]);
+    const keys=(keyData.keys||[]).filter(x=>!x.revoked_at&&(!x.expires_at||new Date(x.expires_at)>new Date()));
+    const account=dashboard.account||{},available=Number(account.monthly_credits||0)+Number(account.purchased_credits||0)-Number(account.reserved_credits||0);
     if(!keys.length){
-      dashboardShell('playground',
-        headline('METERED TESTING','Playground','Test Internet Hands against the real usage ledger. An active API key is required before execution.','<a class="btn" data-link href="/dashboard/usage">'+icon('activity')+' View runs</a>') +
-        '<section class="ihp-key ihp-key-required"><div class="ihp-key-copy">'+icon('key')+'<div><small>API KEY REQUIRED</small><h2>Create an API key before using Playground.</h2><p>Playground does not create special credentials. Create a normal scoped key in API Keys, then return here to run metered tests.</p></div></div><div class="ihp-key-actions"><span class="ihx-state idle">'+dot('warn')+' No active API keys</span><a class="btn primary" data-link href="/dashboard/api-keys">'+icon('key')+' Create API key</a></div></section>' +
-        '<section class="ihp-locked"><span>'+icon('shield')+'</span><div><small>PLAYGROUND LOCKED</small><h3>Execution is unavailable until your account has an active API key.</h3><p>Keys define scopes, isolate clients and attach usage to a revocable credential.</p></div></section>');
-      return;
+      dashboardShell('playground',headline('WEB INTELLIGENCE','Research Playground','Search, crawl and collect public web information through one research workspace.','<a class="btn" data-link href="/dashboard/usage">'+icon('activity')+' Runs</a>')+'<section class="research-key-lock">'+icon('key')+'<div><small>API KEY REQUIRED</small><h2>Create a normal API key to start researching.</h2><p>Every run is metered, attributable and visible in Runs.</p></div><a class="btn primary" data-link href="/dashboard/api-keys">Create API key</a></section>');return;
     }
-
-    const keyOptions=keys.map((key,index)=>'<option value="'+esc(key.id)+'" '+(index===0?'selected':'')+'>'+esc(key.name)+' · '+esc(key.prefix)+'… · '+esc(key.environment)+'</option>').join('');
-    const html =
-      headline('METERED TESTING','Playground','Run the real crawler through an active API key. Every test spends credits and appears in Runs.','<a class="btn" data-link href="/dashboard/usage">'+icon('activity')+' View runs</a>') +
-      '<section class="ihp-key">' +
-        '<div class="ihp-key-copy">'+icon('key')+'<div><small>STEP 01 / API KEY</small><h2>Active API key detected.</h2><p>Choose which normal API key should own this Playground run. No raw secret needs to be pasted here.</p></div></div>' +
-        '<div class="ihp-key-actions"><span class="ihx-state on">'+dot('ok')+' '+fmt(keys.length)+' active key'+(keys.length===1?'':'s')+'</span><a class="btn" data-link href="/dashboard/api-keys">Manage keys</a></div>' +
-        '<label class="ihp-key-select">Use API key<select id="ihp-key-id">'+keyOptions+'</select><small>Usage and last-used activity are attributed to this key.</small></label>' +
-      '</section>' +
-      '<section class="ihp-main">' +
-        '<form id="ihp-form" class="ihp-form">' +
-          '<header><div><small>STEP 02 / CRAWL</small><h2>Web crawl test</h2><p>Public HTTP(S) only · robots respected · SSRF protected · bounded fan-out.</p></div><span class="ihp-cost">2 credits / run</span></header>' +
-          '<label>Target URL<input id="ihp-url" type="url" required placeholder="https://example.com"></label>' +
-          '<div class="ihp-budgets"><label>Pages<input id="ihp-pages" type="number" min="1" max="50" value="12"></label><label>Depth<input id="ihp-depth" type="number" min="0" max="4" value="2"></label><label>Concurrency<input id="ihp-concurrency" type="number" min="1" max="6" value="4"></label><label>Seconds<input id="ihp-seconds" type="number" min="5" max="45" value="30"></label></div>' +
-          '<div class="ihp-paths"><label>Include paths <small>comma-separated globs</small><input id="ihp-include" placeholder="/docs/*, /blog/*"></label><label>Exclude paths <small>comma-separated globs</small><input id="ihp-exclude" placeholder="/private/*, /account/*"></label></div>' +
-          '<div class="ihp-options"><label><input id="ihp-subdomains" type="checkbox"> Include subdomains</label><label><input id="ihp-query" type="checkbox"> Preserve query parameters</label><span>'+icon('shield')+' robots.txt always respected</span></div>' +
-          '<div class="ihp-presets"><span>Quick budget</span><button type="button" data-preset="5,1,2,15">5 pages</button><button type="button" data-preset="15,2,4,30">15 pages</button><button type="button" data-preset="30,3,5,40">30 pages</button></div>' +
-          '<button class="btn primary large ihp-run" type="submit">'+icon('activity')+' Run metered crawl</button>' +
-          '<p class="ihp-note">Available balance: <b>'+fmt(available)+'</b> credits. This test is attributed to the selected API key.</p>' +
-        '</form>' +
-        '<aside class="ihp-boundary"><small>EXECUTION BOUNDARY</small><h3>Real test. Real accounting.</h3><div>'+icon('shield')+'<p><b>Public targets only</b>Private, loopback, link-local and reserved addresses are rejected.</p></div><div>'+icon('monitor')+'<p><b>Bounded crawling</b>Pages, depth, concurrency and time stop runaway jobs.</p></div><div>'+icon('activity')+'<p><b>Usage-visible</b>Request ID, status, latency and credits appear in Runs.</p></div><div>'+icon('key')+'<p><b>Normal API keys</b>Playground uses the same revocable keys created in API Keys.</p></div></aside>' +
-      '</section><section id="ihp-result" class="ihp-result" hidden></section>';
-    dashboardShell('playground', html);
-
-    $$('[data-preset]').forEach(button=>button.addEventListener('click',()=>{const values=button.dataset.preset.split(',');$('#ihp-pages').value=values[0];$('#ihp-depth').value=values[1];$('#ihp-concurrency').value=values[2];$('#ihp-seconds').value=values[3];}));
-    const patterns=value=>String(value||'').split(',').map(x=>x.trim()).filter(Boolean);
+    const keyOptions=keys.map((k,i)=>'<option value="'+esc(k.id)+'" '+(i===0?'selected':'')+'>'+esc(k.name)+' · '+esc(k.prefix)+'…</option>').join('');
+    const html=headline('WEB INTELLIGENCE','Research Playground','Search the web, investigate URLs and collect structured public information from one console.','<a class="btn" data-link href="/dashboard/usage">'+icon('activity')+' Runs</a>')+
+      '<section class="research-console"><div class="research-top"><div><span>NEW RESEARCH RUN</span><h2>What do you want Internet Hands to find?</h2></div><label>API key<select id="ihp-key-id">'+keyOptions+'</select></label></div>'+
+      '<form id="ihp-form"><textarea id="research-query" rows="3" placeholder="Research this company, find its pricing, products, recent changes and primary sources…"></textarea>'+
+      '<div class="research-modes"><button type="button" class="active" data-mode="auto">✦ Auto</button><button type="button" data-mode="search">Web search</button><button type="button" data-mode="url">URL research</button><button type="button" data-mode="site">Site crawl</button><button type="button" data-mode="extract">Extract</button></div>'+
+      '<div class="research-target"><label>Starting URL <small>optional for Auto / required for URL & Site</small><input id="ihp-url" type="url" placeholder="https://example.com"></label></div>'+
+      '<div class="research-runbar"><div class="research-depth"><span>Depth</span><button type="button" data-depth="quick">Quick</button><button type="button" class="active" data-depth="standard">Standard</button><button type="button" data-depth="deep">Deep</button></div><button class="btn primary large ihp-run" type="submit">'+icon('activity')+' Run research</button></div>'+
+      '<details class="research-advanced"><summary>Advanced controls</summary><div class="research-grid"><label>Max pages<input id="ihp-pages" type="number" min="1" max="50" value="15"></label><label>Link depth<input id="ihp-depth" type="number" min="0" max="4" value="2"></label><label>Concurrency<input id="ihp-concurrency" type="number" min="1" max="6" value="4"></label><label>Time budget<input id="ihp-seconds" type="number" min="5" max="45" value="30"></label></div><div class="research-grid two"><label>Include paths<input id="ihp-include" placeholder="/docs/*, /pricing/*"></label><label>Exclude paths<input id="ihp-exclude" placeholder="/account/*, /private/*"></label></div><div class="research-switches"><label><input id="ihp-subdomains" type="checkbox"> Subdomains</label><label><input id="ihp-query" type="checkbox"> Preserve query params</label><span>'+icon('shield')+' Public targets · robots respected · SSRF protected</span></div></details>'+
+      '<p class="research-balance">'+fmt(available)+' credits available · Runs are attributed to the selected API key.</p></form></section>'+
+      '<section class="research-flow"><span>DISCOVER</span><i>→</i><span>CRAWL</span><i>→</i><span>EXTRACT</span><i>→</i><span>SOURCES</span><i>→</i><span>RESULT</span></section>'+
+      '<section id="ihp-result" class="research-results" hidden></section>';
+    dashboardShell('playground',html);
+    let mode='auto',depth='standard';
+    $$('[data-mode]').forEach(b=>b.onclick=()=>{$$('[data-mode]').forEach(x=>x.classList.remove('active'));b.classList.add('active');mode=b.dataset.mode});
+    const presets={quick:[5,1,2,15],standard:[15,2,4,30],deep:[30,3,5,40]};
+    $$('[data-depth]').forEach(b=>b.onclick=()=>{$$('[data-depth]').forEach(x=>x.classList.remove('active'));b.classList.add('active');depth=b.dataset.depth;const p=presets[depth];$('#ihp-pages').value=p[0];$('#ihp-depth').value=p[1];$('#ihp-concurrency').value=p[2];$('#ihp-seconds').value=p[3]});
+    const patterns=v=>String(v||'').split(',').map(x=>x.trim()).filter(Boolean);
     $('#ihp-form')?.addEventListener('submit',async e=>{
-      e.preventDefault();
-      const button=$('.ihp-run',e.currentTarget), result=$('#ihp-result');
-      busy(button,true,'Crawling…');result.hidden=false;result.innerHTML='<div class="ihp-running">'+icon('activity')+'<span><b>Crawl in progress</b><small>Applying your page, depth, concurrency and time budgets…</small></span></div>';
-      const body={api_key_id:$('#ihp-key-id').value,operation:'crawl',url:$('#ihp-url').value.trim(),max_pages:Number($('#ihp-pages').value),max_depth:Number($('#ihp-depth').value),concurrency:Number($('#ihp-concurrency').value),max_seconds:Number($('#ihp-seconds').value),include_paths:patterns($('#ihp-include').value),exclude_paths:patterns($('#ihp-exclude').value),include_subdomains:$('#ihp-subdomains').checked,preserve_query:$('#ihp-query').checked};
+      e.preventDefault();const button=$('.ihp-run',e.currentTarget),result=$('#ihp-result'),url=$('#ihp-url').value.trim(),query=$('#research-query').value.trim();
+      if((mode==='url'||mode==='site'||mode==='extract')&&!url){toast('Add a starting URL for this mode','error');return}
+      if(!url){toast('Current execution requires a starting URL. Add one while web-search routing is connected.','error');return}
+      busy(button,true,'Researching…');result.hidden=false;result.innerHTML='<div class="research-running">'+icon('activity')+'<div><b>Internet Hands is researching</b><p>Discovering pages, following relevant links and collecting source-backed information…</p></div></div>';
+      const body={api_key_id:$('#ihp-key-id').value,operation:'crawl',url,max_pages:Number($('#ihp-pages').value),max_depth:Number($('#ihp-depth').value),concurrency:Number($('#ihp-concurrency').value),max_seconds:Number($('#ihp-seconds').value),include_paths:patterns($('#ihp-include').value),exclude_paths:patterns($('#ihp-exclude').value),include_subdomains:$('#ihp-subdomains').checked,preserve_query:$('#ihp-query').checked};
       try{
-        const response=await fetch('/api/playground/run',{method:'POST',credentials:'include',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-        let data={};try{data=await response.json();}catch{} if(!response.ok){const detail=data?.detail;throw new Error(typeof detail==='string'?detail:detail?.message||data?.error||('Request failed ('+response.status+')'));}
-        const summary=data.summary||{}, pages=data.result?.pages||[];
-        const rows=pages.map(page=>'<div class="ihp-row"><span class="ihx-state '+(page.error?'idle':'on')+'">'+dot(page.error?'warn':'ok')+' '+(page.error?'Error':esc(page.status_code||'OK'))+'</span><span>'+fmt(page.depth)+'</span><span><b>'+esc(page.url)+'</b>'+(page.error?'<small>'+esc(page.error)+'</small>':'')+'</span><span>'+fmt(page.links_found)+'</span><span>'+(page.elapsed_ms==null?'—':fmt(Math.round(page.elapsed_ms))+' ms')+'</span></div>').join('');
-        result.innerHTML='<header class="ihp-result-head"><div><span>'+dot()+' CRAWL COMPLETE</span><h2>'+esc(body.url)+'</h2><p>Request <code>'+esc(data.request_id)+'</code> · '+fmt(data.usage?.credits_charged||0)+' credits charged</p></div><a class="btn" data-link href="/dashboard/usage">Open in Runs '+icon('arrow')+'</a></header><div class="ihp-stats"><div><small>PAGES</small><b>'+fmt(summary.pages)+'</b></div><div><small>SUCCESS</small><b>'+fmt(summary.successful)+'</b></div><div><small>DISCOVERED</small><b>'+fmt(summary.discovered_urls)+'</b></div><div><small>LINKS</small><b>'+fmt(summary.links_found)+'</b></div><div><small>DURATION</small><b>'+fmt(summary.duration_ms)+'<em> ms</em></b></div></div><div class="ihp-table"><div class="ihp-table-head"><span>STATE</span><span>DEPTH</span><span>URL</span><span>LINKS</span><span>TIME</span></div>'+(rows||'<div class="notice">No pages returned.</div>')+'</div><details class="ihp-raw"><summary>Raw crawl response</summary><pre><code>'+esc(JSON.stringify(data,null,2))+'</code></pre></details>';
-        bindCommon();result.scrollIntoView({behavior:'smooth',block:'start'});
-      }catch(error){result.innerHTML='<div class="ihp-error">'+icon('activity')+'<span><b>Crawl failed</b><p>'+esc(error.message)+'</p></span></div>';toast(error.message,'error');}
-      finally{busy(button,false);}
+        const response=await fetch('/api/playground/run',{method:'POST',credentials:'include',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});let data={};try{data=await response.json()}catch{};if(!response.ok){const d=data?.detail;throw new Error(typeof d==='string'?d:d?.message||data?.error||('Request failed ('+response.status+')'))}
+        const summary=data.summary||{},pages=data.result?.pages||[],sourceCards=pages.slice(0,12).map((p,i)=>'<article><span>'+(i+1)+'</span><div><b>'+esc(p.url)+'</b><small>Depth '+fmt(p.depth)+' · '+fmt(p.links_found)+' links · '+(p.elapsed_ms==null?'—':fmt(Math.round(p.elapsed_ms))+' ms')+'</small></div><em class="'+(p.error?'bad':'good')+'">'+(p.error?'ERROR':'SOURCE')+'</em></article>').join('');
+        const trace=pages.map(p=>'<div><span class="'+(p.error?'bad':'good')+'">'+dot(p.error?'warn':'ok')+'</span><b>'+esc(p.url)+'</b><small>depth '+fmt(p.depth)+' · '+esc(p.status_code||'OK')+'</small></div>').join('');
+        result.innerHTML='<header><div><span>RESEARCH COMPLETE</span><h2>'+esc(query||url)+'</h2><p><code>'+esc(data.request_id)+'</code> · '+fmt(data.usage?.credits_charged||0)+' credits</p></div><a class="btn" data-link href="/dashboard/usage">Open run '+icon('arrow')+'</a></header>'+
+        '<div class="research-stats"><div><small>PAGES</small><b>'+fmt(summary.pages)+'</b></div><div><small>SUCCESS</small><b>'+fmt(summary.successful)+'</b></div><div><small>DISCOVERED</small><b>'+fmt(summary.discovered_urls)+'</b></div><div><small>LINKS</small><b>'+fmt(summary.links_found)+'</b></div><div><small>TIME</small><b>'+fmt(summary.duration_ms)+'<em> ms</em></b></div></div>'+
+        '<div class="result-tabs"><button class="active" data-result-tab="sources">Sources</button><button data-result-tab="trace">Run trace</button><button data-result-tab="raw">Raw data</button></div><div id="result-pane"></div>';
+        const panes={sources:'<div class="source-list">'+(sourceCards||'<p>No source pages returned.</p>')+'</div>',trace:'<div class="trace-list">'+trace+'</div>',raw:'<pre class="research-raw"><code>'+esc(JSON.stringify(data,null,2))+'</code></pre>'};
+        const show=k=>{$('#result-pane').innerHTML=panes[k]||panes.sources};show('sources');$$('[data-result-tab]').forEach(b=>b.onclick=()=>{$$('[data-result-tab]').forEach(x=>x.classList.remove('active'));b.classList.add('active');show(b.dataset.resultTab)});bindCommon();result.scrollIntoView({behavior:'smooth',block:'start'});
+      }catch(error){result.innerHTML='<div class="ihp-error">'+icon('activity')+'<span><b>Research run failed</b><p>'+esc(error.message)+'</p></span></div>';toast(error.message,'error')}finally{busy(button,false)}
     });
   };
 
