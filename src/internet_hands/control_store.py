@@ -997,7 +997,676 @@ class ControlStore:
         status: str,
         latency_ms: int,
         output_bytes: int,
-        actual_credits:
-... (output truncated, full output saved to: /mnt/files/.composio/output/exec_once_stdout.txt)
-To view the full output, run code: open('/mnt/files/.composio/output/exec_once_stdout.txt').read()
-Or use COMPOSIO_BASH_TOOL: 'cat /mnt/files/.composio/output/exec_once_stdout.txt' / 'head -n 100 /mnt/files/.composio/output/exec_once_stdout.txt' / 'tail -n 100 /mnt/files/.composio/output/exec_once_stdout.txt'
+        actual_credits: int | None = None,
+        execution_usage: dict[str, Any] | None = None,
+    ) -> int:
+        self.ensure_schema()
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT user_id,status,credits_charged,metadata
+                    FROM ih_usage_events
+                    WHERE request_id=%s
+                    FOR UPDATE
+                    """,
+                    (request_id,),
+                )
+                event = cur.fetchone()
+                if not event:
+                    return 0
+
+                metadata = dict(event.get("metadata") or {})
+                if execution_usage is not None:
+                    metadata["measured_usage"] = execution_usage
+
+                if event["status"] != "reserved":
+                    cur.execute(
+                        """
+                        UPDATE ih_usage_events
+                        SET status=%s,latency_ms=%s,output_bytes=%s,metadata=%s::jsonb
+                        WHERE request_id=%s
+                        """,
+                        (
+                            status,
+                            latency_ms,
+                            output_bytes,
+                            json.dumps(metadata),
+                            request_id,
+                        ),
+                    )
+                    conn.commit()
+                    return int(event["credits_charged"] or 0)
+
+                reservation = dict(metadata.get("reservation") or {})
+                reserved = max(0, int(reservation.get("credits") or 0))
+                actual = reserved if actual_credits is None else max(0, int(actual_credits))
+                if actual > reserved:
+                    raise ControlError(
+                        "reservation_exceeded",
+                        (
+                            f"actual cost {actual} exceeds reserved amount {reserved}; "
+                            "the estimator must reserve the maximum possible charge"
+                        ),
+                        500,
+                    )
+
+                cur.execute(
+                    """
+                    SELECT monthly_credits,purchased_credits,reserved_credits
+                    FROM ih_wallets
+                    WHERE user_id=%s
+                    FOR UPDATE
+                    """,
+                    (event["user_id"],),
+                )
+                wallet = cur.fetchone()
+                if not wallet:
+                    raise ControlError("wallet_missing", "wallet not found", 500)
+
+                monthly = int(wallet["monthly_credits"])
+                purchased = int(wallet["purchased_credits"])
+                from_monthly = min(monthly, actual)
+                from_purchased = actual - from_monthly
+                if from_purchased > purchased:
+                    raise ControlError(
+                        "wallet_invariant",
+                        "reserved credits can no longer be settled from the wallet",
+                        500,
+                    )
+
+                cur.execute(
+                    """
+                    UPDATE ih_wallets
+                    SET monthly_credits=monthly_credits-%s,
+                        purchased_credits=purchased_credits-%s,
+                        reserved_credits=GREATEST(reserved_credits-%s,0),
+                        updated_at=now()
+                    WHERE user_id=%s
+                    """,
+                    (from_monthly, from_purchased, reserved, event["user_id"]),
+                )
+
+                ledger_metadata = {
+                    "tool": metadata.get("tool"),
+                    "plan": metadata.get("plan"),
+                    "pricing": metadata.get("pricing") or {},
+                    "measured_usage": metadata.get("measured_usage") or {},
+                    "reservation": {
+                        "reserved": reserved,
+                        "settled": actual,
+                        "released": reserved - actual,
+                    },
+                }
+                tool_name = str(metadata.get("tool") or "")
+                ledger_metadata["tool"] = tool_name
+
+                if from_monthly:
+                    cur.execute(
+                        """
+                        INSERT INTO ih_credit_ledger(
+                            id,user_id,amount,bucket,kind,source,reference_id,metadata
+                        ) VALUES (%s,%s,%s,'monthly','usage','mcp',%s,%s::jsonb)
+                        """,
+                        (
+                            self._new_id("led"),
+                            event["user_id"],
+                            -from_monthly,
+                            request_id,
+                            json.dumps(ledger_metadata),
+                        ),
+                    )
+                if from_purchased:
+                    cur.execute(
+                        """
+                        INSERT INTO ih_credit_ledger(
+                            id,user_id,amount,bucket,kind,source,reference_id,metadata
+                        ) VALUES (%s,%s,%s,'purchased','usage','mcp',%s,%s::jsonb)
+                        """,
+                        (
+                            self._new_id("led"),
+                            event["user_id"],
+                            -from_purchased,
+                            request_id,
+                            json.dumps(ledger_metadata),
+                        ),
+                    )
+
+                reservation.update(
+                    {
+                        "state": "settled",
+                        "reserved": reserved,
+                        "settled": actual,
+                        "released": reserved - actual,
+                    }
+                )
+                metadata["reservation"] = reservation
+                cur.execute(
+                    """
+                    UPDATE ih_usage_events
+                    SET status=%s,credits_charged=%s,latency_ms=%s,output_bytes=%s,
+                        metadata=%s::jsonb
+                    WHERE request_id=%s
+                    """,
+                    (
+                        status,
+                        actual,
+                        latency_ms,
+                        output_bytes,
+                        json.dumps(metadata),
+                        request_id,
+                    ),
+                )
+            conn.commit()
+        return actual
+
+    def release_tool_reservation(
+        self,
+        request_id: str,
+        *,
+        status: str = "cancelled",
+        latency_ms: int = 0,
+        output_bytes: int = 0,
+    ) -> int:
+        return self.settle_tool_call(
+            request_id,
+            status=status,
+            latency_ms=latency_ms,
+            output_bytes=output_bytes,
+            actual_credits=0,
+        )
+
+    def charge_tool_call(
+        self,
+        *,
+        identity: AuthIdentity,
+        request_id: str,
+        tool_name: str,
+        arguments: dict[str, Any] | None,
+        input_bytes: int,
+    ) -> int:
+        """Compatibility path: reserve and immediately settle the quoted cost."""
+        reserved = self.reserve_tool_call(
+            identity=identity,
+            request_id=request_id,
+            tool_name=tool_name,
+            arguments=arguments,
+            input_bytes=input_bytes,
+        )
+        return self.settle_tool_call(
+            request_id,
+            status="accepted",
+            latency_ms=0,
+            output_bytes=0,
+            actual_credits=reserved,
+        )
+
+    def finish_usage(
+        self,
+        request_id: str,
+        *,
+        status: str,
+        latency_ms: int,
+        output_bytes: int,
+        actual_credits: int | None = None,
+        execution_usage: dict[str, Any] | None = None,
+    ) -> None:
+        self.settle_tool_call(
+            request_id,
+            status=status,
+            latency_ms=latency_ms,
+            output_bytes=output_bytes,
+            actual_credits=actual_credits,
+            execution_usage=execution_usage,
+        )
+
+    def usage_summary(self, user_id: str) -> dict[str, Any]:
+        self.ensure_schema()
+        account = self.account_snapshot(user_id)
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT count(*) FILTER (WHERE created_at>now()-interval '24 hours') AS calls_24h,
+                       count(*) FILTER (WHERE created_at>now()-interval '30 days') AS calls_30d,
+                       COALESCE(sum(credits_charged) FILTER (WHERE created_at>now()-interval '30 days'),0) AS credits_30d,
+                       COALESCE(avg(latency_ms) FILTER (WHERE created_at>now()-interval '30 days' AND latency_ms IS NOT NULL),0)::int AS avg_latency_ms,
+                       COALESCE(100.0*sum(CASE WHEN status='ok' THEN 1 ELSE 0 END) FILTER (WHERE created_at>now()-interval '30 days') / NULLIF(count(*) FILTER (WHERE created_at>now()-interval '30 days'),0),100) AS success_rate
+                FROM ih_usage_events WHERE user_id=%s
+                """,
+                (user_id,),
+            )
+            usage = dict(cur.fetchone())
+            cur.execute(
+                """
+                SELECT date_trunc('day',created_at)::date AS day,count(*) AS calls,COALESCE(sum(credits_charged),0) AS credits
+                FROM ih_usage_events WHERE user_id=%s AND created_at>now()-interval '30 days'
+                GROUP BY 1 ORDER BY 1
+                """,
+                (user_id,),
+            )
+            series = [dict(r) for r in cur.fetchall()]
+            cur.execute(
+                """
+                SELECT tool_ref,count(*) AS calls,COALESCE(sum(credits_charged),0) AS credits
+                FROM ih_usage_events WHERE user_id=%s AND created_at>now()-interval '30 days'
+                GROUP BY tool_ref ORDER BY calls DESC LIMIT 8
+                """,
+                (user_id,),
+            )
+            top_tools = [dict(r) for r in cur.fetchall()]
+        return {"account": account, "usage": usage, "series": series, "top_tools": top_tools}
+
+    def recent_usage(self, user_id: str, limit: int = 100) -> list[dict[str, Any]]:
+        self.ensure_schema()
+        limit = max(1, min(limit, 500))
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT request_id,tool_ref,capability,provider,status,credits_charged,latency_ms,
+                       input_bytes,output_bytes,created_at
+                FROM ih_usage_events WHERE user_id=%s ORDER BY created_at DESC LIMIT %s
+                """,
+                (user_id, limit),
+            )
+            return [dict(r) for r in cur.fetchall()]
+
+    def wallet_ledger(self, user_id: str, limit: int = 100) -> dict[str, Any]:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM ih_wallets WHERE user_id=%s", (user_id,))
+            wallet = cur.fetchone()
+            cur.execute(
+                """
+                SELECT id,amount,bucket,kind,source,reference_id,metadata,created_at
+                FROM ih_credit_ledger WHERE user_id=%s ORDER BY created_at DESC LIMIT %s
+                """,
+                (user_id, max(1, min(limit, 500))),
+            )
+            return {"wallet": dict(wallet) if wallet else None, "ledger": [dict(r) for r in cur.fetchall()]}
+
+    def list_connections(self, user_id: str) -> list[dict[str, Any]]:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT id,name,kind,endpoint_url,transport,auth_type,config,enabled,last_status,last_checked_at,created_at,updated_at
+                   FROM ih_connections WHERE user_id=%s ORDER BY created_at DESC""",
+                (user_id,),
+            )
+            rows = []
+            for raw in cur.fetchall():
+                row = dict(raw)
+                config = dict(row.get("config") or {})
+                row["header_names"] = list(config.get("header_names") or [])
+                rows.append(row)
+            return rows
+
+    def create_connection(
+        self, *, user_id: str, name: str, endpoint_url: str, transport: str,
+        auth_type: str, config: dict[str, Any], secret_config: dict[str, Any],
+    ) -> dict[str, Any]:
+        self.ensure_schema()
+        connection_id = self._new_id("con")
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO ih_connections(id,user_id,name,kind,endpoint_url,transport,auth_type,config,secret_config)
+                   VALUES (%s,%s,%s,'mcp',%s,%s,%s,%s::jsonb,%s::jsonb)
+                   RETURNING id,name,kind,endpoint_url,transport,auth_type,config,enabled,last_status,last_checked_at,created_at,updated_at""",
+                (connection_id, user_id, name, endpoint_url, transport, auth_type, json.dumps(config), json.dumps(secret_config)),
+            )
+            row = dict(cur.fetchone())
+            conn.commit()
+        row["header_names"] = list((row.get("config") or {}).get("header_names") or [])
+        return row
+
+    def delete_connection(self, user_id: str, connection_id: str) -> bool:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM ih_connections WHERE id=%s AND user_id=%s", (connection_id, user_id))
+            changed = cur.rowcount > 0
+            conn.commit()
+            return changed
+
+    def list_monitors(self, user_id: str) -> list[dict[str, Any]]:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM ih_monitors WHERE user_id=%s ORDER BY created_at DESC", (user_id,))
+            return [dict(r) for r in cur.fetchall()]
+
+    def get_monitor(self, user_id: str, monitor_id: str) -> dict[str, Any] | None:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM ih_monitors WHERE id=%s AND user_id=%s", (monitor_id, user_id))
+            monitor = cur.fetchone()
+            if not monitor:
+                return None
+            cur.execute(
+                "SELECT * FROM ih_monitor_runs WHERE monitor_id=%s ORDER BY created_at DESC LIMIT 50",
+                (monitor_id,),
+            )
+            result = dict(monitor)
+            result["runs"] = [dict(r) for r in cur.fetchall()]
+            return result
+
+    def create_monitor(
+        self,
+        *,
+        user_id: str,
+        name: str,
+        monitor_type: str,
+        target: str,
+        interval_minutes: int,
+        config: dict[str, Any],
+    ) -> dict[str, Any]:
+        self.ensure_schema()
+        account = self.account_snapshot(user_id)
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT count(*) AS n FROM ih_monitors WHERE user_id=%s", (user_id,))
+                if int(cur.fetchone()["n"]) >= int(account["monitor_limit"]):
+                    raise ControlError("monitor_limit", "monitor limit reached for current plan", 403)
+                monitor_id = self._new_id("mon")
+                cur.execute(
+                    """
+                    INSERT INTO ih_monitors(id,user_id,name,type,target,interval_minutes,next_check_at,config)
+                    VALUES (%s,%s,%s,%s,%s,%s,now()+(%s || ' minutes')::interval,%s::jsonb)
+                    RETURNING *
+                    """,
+                    (
+                        monitor_id, user_id, name, monitor_type, target, interval_minutes,
+                        interval_minutes, json.dumps(config),
+                    ),
+                )
+                row = cur.fetchone()
+            conn.commit()
+            assert row is not None
+            return dict(row)
+
+    def toggle_monitor(self, user_id: str, monitor_id: str, enabled: bool) -> bool:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE ih_monitors SET enabled=%s,updated_at=now() WHERE id=%s AND user_id=%s",
+                (enabled, monitor_id, user_id),
+            )
+            changed = cur.rowcount > 0
+            conn.commit()
+            return changed
+
+    def create_oauth_code(
+        self,
+        *,
+        identity: AuthIdentity,
+        client_id: str,
+        redirect_uri: str,
+        code_hash: str,
+        code_challenge: str,
+        scopes: list[str],
+    ) -> None:
+        self.ensure_schema()
+        if not identity.api_key_id:
+            raise ControlError("invalid_api_key", "OAuth authorization requires an API key", 400)
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO ih_oauth_authorization_codes(
+                    id,user_id,api_key_id,client_id,redirect_uri,code_hash,code_challenge,scopes,expires_at
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s)
+                """,
+                (
+                    self._new_id("cod"), identity.user_id, identity.api_key_id, client_id,
+                    redirect_uri, code_hash, code_challenge, json.dumps(scopes),
+                    datetime.now(UTC) + timedelta(minutes=5),
+                ),
+            )
+            conn.commit()
+
+    def consume_oauth_code(self, code_hash: str) -> dict[str, Any] | None:
+        self.ensure_schema()
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT * FROM ih_oauth_authorization_codes
+                    WHERE code_hash=%s AND used_at IS NULL AND expires_at>now() FOR UPDATE
+                    """,
+                    (code_hash,),
+                )
+                row = cur.fetchone()
+                if not row:
+                    return None
+                cur.execute("UPDATE ih_oauth_authorization_codes SET used_at=now() WHERE id=%s", (row["id"],))
+            conn.commit()
+            return dict(row)
+
+    def create_oauth_token(
+        self,
+        *,
+        user_id: str,
+        api_key_id: str,
+        client_id: str,
+        access_hash: str,
+        refresh_hash: str,
+        scopes: list[str],
+    ) -> None:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO ih_oauth_tokens(
+                    id,user_id,api_key_id,client_id,access_token_hash,refresh_token_hash,scopes,
+                    access_expires_at,refresh_expires_at
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s)
+                """,
+                (
+                    self._new_id("tok"), user_id, api_key_id, client_id, access_hash, refresh_hash,
+                    json.dumps(scopes), datetime.now(UTC) + timedelta(hours=1),
+                    datetime.now(UTC) + timedelta(days=30),
+                ),
+            )
+            conn.commit()
+
+    def consume_refresh_token(self, refresh_hash: str, client_id: str) -> dict[str, Any] | None:
+        self.ensure_schema()
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT * FROM ih_oauth_tokens
+                    WHERE refresh_token_hash=%s AND client_id=%s AND revoked_at IS NULL
+                      AND refresh_expires_at>now() FOR UPDATE
+                    """,
+                    (refresh_hash, client_id),
+                )
+                row = cur.fetchone()
+                if not row:
+                    return None
+                cur.execute("UPDATE ih_oauth_tokens SET revoked_at=now() WHERE id=%s", (row["id"],))
+            conn.commit()
+            return dict(row)
+
+    def create_payment(
+        self,
+        *,
+        user_id: str,
+        order_id: str,
+        amount_paise: int,
+        purpose: str,
+        plan_slug: str | None,
+        credit_pack_slug: str | None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        self.ensure_schema()
+        payment_row_id = self._new_id("pay")
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO ih_payments(
+                    id,user_id,order_id,amount_paise,status,purpose,plan_slug,credit_pack_slug,metadata
+                ) VALUES (%s,%s,%s,%s,'created',%s,%s,%s,%s::jsonb)
+                RETURNING *
+                """,
+                (
+                    payment_row_id, user_id, order_id, amount_paise, purpose, plan_slug,
+                    credit_pack_slug, json.dumps(metadata or {}),
+                ),
+            )
+            row = cur.fetchone()
+            conn.commit()
+            assert row is not None
+            return dict(row)
+
+    def get_payment_by_order(self, order_id: str) -> dict[str, Any] | None:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM ih_payments WHERE order_id=%s", (order_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def finalize_payment(self, *, order_id: str, payment_id: str, status: str = "captured") -> dict[str, Any]:
+        self.ensure_schema()
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM ih_payments WHERE order_id=%s FOR UPDATE", (order_id,))
+                payment = cur.fetchone()
+                if not payment:
+                    raise ControlError("payment_not_found", "payment order not found", 404)
+                if payment["status"] in {"paid", "captured"}:
+                    return dict(payment)
+                user_id = payment["user_id"]
+                if payment["purpose"] == "credits":
+                    cur.execute(
+                        "SELECT credits FROM ih_credit_packs WHERE slug=%s AND active=true",
+                        (payment["credit_pack_slug"],),
+                    )
+                    pack = cur.fetchone()
+                    if not pack:
+                        raise ControlError("credit_pack_not_found", "credit pack not found", 404)
+                    credits = int(pack["credits"])
+                    cur.execute(
+                        "UPDATE ih_wallets SET purchased_credits=purchased_credits+%s,updated_at=now() WHERE user_id=%s",
+                        (credits, user_id),
+                    )
+                    cur.execute(
+                        """
+                        INSERT INTO ih_credit_ledger(id,user_id,amount,bucket,kind,source,reference_id)
+                        VALUES (%s,%s,%s,'purchased','purchase','razorpay',%s)
+                        """,
+                        (self._new_id("led"), user_id, credits, order_id),
+                    )
+                elif payment["purpose"] == "subscription":
+                    plan_slug = payment["plan_slug"]
+                    cur.execute("SELECT included_credits FROM ih_plans WHERE slug=%s", (plan_slug,))
+                    plan = cur.fetchone()
+                    if not plan:
+                        raise ControlError("plan_not_found", "plan not found", 404)
+                    cur.execute(
+                        "UPDATE ih_subscriptions SET status='replaced',updated_at=now() WHERE user_id=%s AND status='active'",
+                        (user_id,),
+                    )
+                    now = datetime.now(UTC)
+                    cur.execute(
+                        """
+                        INSERT INTO ih_subscriptions(
+                            id,user_id,plan_slug,status,current_period_start,current_period_end,provider
+                        ) VALUES (%s,%s,%s,'active',%s,%s,'razorpay')
+                        """,
+                        (self._new_id("sub"), user_id, plan_slug, now, now + timedelta(days=30)),
+                    )
+                    credits = int(plan["included_credits"])
+                    cur.execute(
+                        "UPDATE ih_wallets SET monthly_credits=%s,updated_at=now() WHERE user_id=%s",
+                        (credits, user_id),
+                    )
+                    cur.execute(
+                        """
+                        INSERT INTO ih_credit_ledger(id,user_id,amount,bucket,kind,source,reference_id)
+                        VALUES (%s,%s,%s,'monthly','grant','subscription',%s)
+                        """,
+                        (self._new_id("led"), user_id, credits, order_id),
+                    )
+                cur.execute(
+                    """
+                    UPDATE ih_payments SET payment_id=%s,status=%s,paid_at=now() WHERE id=%s RETURNING *
+                    """,
+                    (payment_id, status, payment["id"]),
+                )
+                result = cur.fetchone()
+            conn.commit()
+            assert result is not None
+            return dict(result)
+
+    def record_webhook(
+        self,
+        *,
+        provider: str,
+        event_id: str,
+        event_type: str,
+        signature_valid: bool,
+        payload_hash: str,
+        status: str,
+    ) -> bool:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO ih_webhook_events(id,provider,event_id,event_type,signature_valid,payload_hash,status)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s)
+                    """,
+                    (
+                        self._new_id("wh"), provider, event_id, event_type, signature_valid,
+                        payload_hash, status,
+                    ),
+                )
+                conn.commit()
+                return True
+            except UniqueViolation:
+                conn.rollback()
+                return False
+
+    def list_payments(self, user_id: str, limit: int = 100) -> list[dict[str, Any]]:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM ih_payments WHERE user_id=%s ORDER BY created_at DESC LIMIT %s",
+                (user_id, max(1, min(limit, 500))),
+            )
+            return [dict(r) for r in cur.fetchall()]
+
+    def create_password_reset(self, user_id: str, token_hash: str) -> None:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE ih_password_resets SET used_at=now() "
+                "WHERE user_id=%s AND used_at IS NULL",
+                (user_id,),
+            )
+            cur.execute(
+                "INSERT INTO ih_password_resets(id,user_id,token_hash,expires_at) VALUES (%s,%s,%s,%s)",
+                (self._new_id("rst"), user_id, token_hash, datetime.now(UTC) + timedelta(minutes=30)),
+            )
+            conn.commit()
+
+    def consume_password_reset(self, token_hash: str, password_hash: str) -> bool:
+        self.ensure_schema()
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT * FROM ih_password_resets
+                    WHERE token_hash=%s AND used_at IS NULL AND expires_at>now() FOR UPDATE
+                    """,
+                    (token_hash,),
+                )
+                row = cur.fetchone()
+                if not row:
+                    return False
+                cur.execute("UPDATE ih_users SET password_hash=%s,updated_at=now() WHERE id=%s", (password_hash, row["user_id"]))
+                cur.execute("UPDATE ih_password_resets SET used_at=now() WHERE id=%s", (row["id"],))
+                cur.execute("DELETE FROM ih_sessions WHERE user_id=%s", (row["user_id"],))
+            conn.commit()
+            return True
+
+
+def random_token(prefix: str = "") -> str:
+    return f"{prefix}{secrets.token_urlsafe(32)}"
