@@ -300,6 +300,7 @@ TOOL_COST_ROWS = [
     ("mesh_job_status", 1, {"category": "provider"}),
     ("mesh_results", 1, {"category": "provider"}),
     ("playground:crawl", 2, {"category": "playground"}),
+    ("repo:*", 1, {"category": "repository"}),
     ("*", 1, {"category": "default"}),
 ]
 

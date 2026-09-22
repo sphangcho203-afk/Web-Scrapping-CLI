@@ -122,6 +122,7 @@ TOOL_ECONOMICS: tuple[ToolEconomics, ...] = (
     ToolEconomics("gaming_profile", "gaming", 5, provider_class="public"),
     ToolEconomics("gaming_intel", "gaming", 2, provider_class="public"),
     ToolEconomics("playground:*", "playground", 1, provider_class="public"),
+    ToolEconomics("repo:*", "repository", 1, provider_class="public"),
     ToolEconomics(
         "sandbox_browser_*",
         "browser",
@@ -439,6 +440,17 @@ def estimate_call(
                 {"kind": "search_budget", "credits": search_budget},
                 {"kind": "recovery_budget", "credits": recovery_budget},
             ), limits=plan.to_dict(),
+        )
+
+    if tool_name in {"repo:search", "repo:inspect"}:
+        budget = 2 if tool_name == "repo:search" else 6
+        return CostEstimate(
+            allowed=True, plan=plan.slug, tool_name=tool_name,
+            category=rule.category, credits=rule.base_credits + budget,
+            minimum_plan=rule.minimum_plan, provider_class=rule.provider_class,
+            reason=None, breakdown=({"kind": "base", "credits": rule.base_credits},
+                                    {"kind": "github_request_budget", "credits": budget}),
+            limits=plan.to_dict(),
         )
 
     if tool_name == "phone_number_lookup":
@@ -782,6 +794,13 @@ def settle_measured_cost(
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 reported += max(0, int(value))
         return min(reserved, (1 if usage.get("completed") else 0) + reported)
+
+    if tool_name in {"repo:search", "repo:inspect"}:
+        try:
+            requests = max(0, int(counters.get("github_api_calls") or 0))
+        except (ValueError, TypeError):
+            requests = 0
+        return min(reserved, (1 if usage.get("completed") else 0) + requests)
 
     if tool_name == "mesh_execute":
         ref = str(args.get("ref") or args.get("tool") or "").strip().lower()

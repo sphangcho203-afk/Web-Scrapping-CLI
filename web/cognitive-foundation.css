@@ -43,6 +43,7 @@
 .game-tile strong{font-size:16px}.game-tile span{grid-column:1;font-size:12px;color:#aebed2}.game-tile svg{grid-column:2;grid-row:1/3;width:18px;height:18px}
 .game-detail{min-width:0;border:1px solid #35455b;border-radius:16px;padding:22px;background:#111b2b}
 .game-detail>header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+.game-actions{display:flex;gap:9px;flex-wrap:wrap}
 .game-detail h2{margin:4px 0 6px;font-size:clamp(22px,3vw,30px);color:#f5f7fb}
 .game-detail header p,.game-empty{margin:0;color:#aebed2}
 .game-capabilities{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:12px}
@@ -2131,3 +2132,15 @@ html.ih-overlay-open,html.ih-overlay-open body{overflow:hidden}
   .answer-point p{font-size:14px}
   .search-key-lock{grid-template-columns:auto 1fr}.search-key-lock .btn{grid-column:1/-1}
 }
+
+/* Public repository investigation */
+.repo-workspace{display:grid;gap:16px;max-width:1100px;margin:auto}
+.repo-search{display:grid;gap:10px;padding:22px;border:1px solid #33445a;border-radius:18px;background:#111b2b}
+.repo-search label{font-size:13px;color:#aec1d8}.repo-search>div{display:flex;gap:10px}.repo-search input{flex:1;min-width:0;min-height:48px;padding:12px 15px;border:1px solid #465973;border-radius:11px;background:#0b1423;color:#eef5ff;font:inherit}
+.repo-search input:focus-visible,.repo-suggestions button:focus-visible,.repo-card button:focus-visible{outline:2px solid #8bb8ff;outline-offset:2px}
+.repo-search details{color:#b1bfd1;font-size:12px}.repo-search summary{cursor:pointer;width:max-content}.repo-search select{display:block;max-width:100%;margin-top:9px;padding:9px;border:1px solid #465973;border-radius:8px;background:#0b1423;color:#eef5ff}
+.repo-suggestions{display:flex;flex-wrap:wrap;gap:8px}.repo-suggestions button{padding:8px 12px;border:1px solid #3a4d64;border-radius:999px;background:#18273b;color:#cad8eb;cursor:pointer}
+.repo-result-head{display:flex;align-items:flex-start;justify-content:space-between;gap:15px;flex-wrap:wrap;padding:14px 0}.repo-result-head h2{margin:3px 0 8px;font-size:clamp(22px,3vw,30px)}.repo-result-head p{margin-bottom:8px;color:#c0cddd}.repo-result-head small,.repo-card small,.repo-findings small{color:#9fb3ca}.repo-result-head>a{color:#92beff}
+.repo-result-list,.repo-findings{display:grid;gap:12px}.repo-card,.repo-findings article{display:flex;justify-content:space-between;gap:16px;padding:18px;border:1px solid #354860;border-radius:13px;background:#162236}.repo-card strong{font-size:16px;color:#f4f7fc}.repo-card p{margin:6px 0 10px;color:#b8c6d9;line-height:1.4}.repo-card-actions{display:flex;align-items:center;gap:10px;white-space:nowrap}.repo-card-actions a,.repo-card-actions button,.repo-files a,.repo-findings article>a{color:#99c2ff}.repo-card-actions button{border:0;background:none;cursor:pointer;font:inherit}.repo-card-actions svg{width:15px}
+.repo-findings{margin:10px 0 20px}.repo-findings h3{margin:12px 0 0;font-size:18px}.repo-findings article{display:block}.repo-findings article small{display:block;margin:8px 0}.repo-findings article p{margin:8px 0;color:#b8c6d9}.repo-endpoints,.repo-files{display:flex;flex-wrap:wrap;gap:8px}.repo-endpoints code,.repo-files a{padding:8px 10px;border:1px solid #344760;border-radius:7px;background:#0e192a;font-size:12px;overflow-wrap:anywhere}.repo-empty,.repo-note,.repo-error{padding:18px;border:1px dashed #405572;border-radius:12px;color:#b6c7dc}.repo-error{border-color:#b56369;color:#ffc4c6}
+@media(max-width:620px){.repo-search{padding:16px}.repo-search>div{flex-direction:column}.repo-search button{min-height:44px}.repo-card{display:block}.repo-card-actions{margin-top:14px;white-space:normal}.repo-result-head>a{display:block}}

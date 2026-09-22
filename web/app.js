@@ -384,12 +384,50 @@ async function dashGames(){
     detail.innerHTML='<p class="game-empty">Loading capabilities…</p>';
     try{
       const {game}=await api('/api/games/'+encodeURIComponent(id));
-      detail.innerHTML=`<header><div><span class="overline">${esc(game.game_id)}</span><h2>${esc(game.name)}</h2><p>${fmt(game.capability_count)} declared capabilities · ${fmt(game.provider_ready_count)} with a connected provider. Individual tools may require credentials.</p></div><a class="btn primary" data-link href="/dashboard/playground?query=${encodeURIComponent(game.name+' latest patch and competitive meta')}">Research this game ${icon('arrow')}</a></header><div class="game-capabilities">${(game.capabilities||[]).map(cap=>`<article><span class="game-cap-status ${cap.provider_ready?'ready':''}">${cap.provider_ready?'Provider connected':'Provider unavailable'}</span><h3>${esc(cap.name)}</h3><p>${esc(cap.description)}</p><small>${esc(cap.providers.join(' · '))}</small></article>`).join('')}</div>`;
+      detail.innerHTML=`<header><div><span class="overline">${esc(game.game_id)}</span><h2>${esc(game.name)}</h2><p>${fmt(game.capability_count)} declared capabilities · ${fmt(game.provider_ready_count)} with a connected provider. Individual tools may require credentials.</p></div><div class="game-actions"><a class="btn primary" data-link href="/dashboard/playground?query=${encodeURIComponent(game.name+' latest patch and competitive meta')}">Research this game ${icon('arrow')}</a><a class="btn" data-link href="/dashboard/repositories?query=${encodeURIComponent(game.name+' public api tools')}">Find open-source tools</a></div></header><div class="game-capabilities">${(game.capabilities||[]).map(cap=>`<article><span class="game-cap-status ${cap.provider_ready?'ready':''}">${cap.provider_ready?'Provider connected':'Provider unavailable'}</span><h3>${esc(cap.name)}</h3><p>${esc(cap.description)}</p><small>${esc(cap.providers.join(' · '))}</small></article>`).join('')}</div>`;
     }catch(error){detail.innerHTML=`<p class="game-empty">${esc(error.message)}</p>`;}
   }
   filter.oninput=draw;draw();if(games.length)select(games[0].game_id);
 }
-async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,games:dashGames,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
+async function dashRepositories(){
+  const keyData=await api('/api/api-keys');
+  const keys=(keyData.keys||[]).filter(k=>!k.revoked_at&&(!k.expires_at||new Date(k.expires_at)>new Date()));
+  if(!keys.length){
+    dashboardShell('repositories',`${pageHead('REPOSITORY INTELLIGENCE','Explore public code','Discover repositories and inspect documented API surfaces.')}<section class="search-key-lock">${icon('key')}<div><h2>Create an API key first</h2><p>Repository searches are recorded as runs against your key.</p></div><a class="btn primary" data-link href="/dashboard/api-keys">Create API key</a></section>`);
+    return;
+  }
+  dashboardShell('repositories',`${pageHead('REPOSITORY INTELLIGENCE','Explore public code','Search GitHub projects, inspect licenses and map published OpenAPI specs.')}<section class="repo-workspace"><form id="repo-form" class="repo-search"><label for="repo-query">Search topic or paste owner/repository</label><div><input id="repo-query" required maxlength="160" autocomplete="off" placeholder="MLBB data tools, replay analysis, or owner/repo"><button class="btn primary" id="repo-submit">Investigate ${icon('arrow')}</button></div><details><summary>API key</summary><select id="repo-key">${keys.map(k=>`<option value="${esc(k.id)}">${esc(k.name)} · ${esc(k.prefix)}…</option>`).join('')}</select></details></form><div class="repo-suggestions"><button data-repo-example="MLBB data tools">MLBB data tools</button><button data-repo-example="game replay analysis">Replay analysis</button><button data-repo-example="openapi game statistics">Game APIs</button></div><div id="repo-results" aria-live="polite"><p class="repo-empty">Results will show source links, license, freshness and available API specifications.</p></div></section>`);
+  const field=$('#repo-query'),results=$('#repo-results'),button=$('#repo-submit');
+  field.value=(new URLSearchParams(location.search).get('query')||'').slice(0,160);
+  const source=name=>/^[\w.-]+\/[\w.-]+$/.test(name||'')?'https://github.com/'+name:'';
+  const pushed=value=>value&&Number.isFinite(Date.parse(value))?' · Last push '+new Date(value).toLocaleDateString():'';
+  let activeRun=0;
+  async function investigate(input,forceInspect=false){
+    const value=String(input||'').trim();if(!value)return;
+    const inspect=forceInspect||/^([\w.-]+\/[\w.-]+|https:\/\/github\.com\/[\w.-]+\/[\w.-]+(?:\.git)?)$/i.test(value);
+    const run=++activeRun;
+    button.disabled=true;results.innerHTML='<p class="repo-empty">Searching public GitHub data…</p>';
+    try{
+      const response=await api('/api/repos/'+(inspect?'inspect':'search'),{method:'POST',body:{[inspect?'repository':'query']:value,api_key_id:$('#repo-key').value}});
+      if(run!==activeRun)return;
+      const data=response.result||{},usage=response.usage||{};
+      const metric=`${fmt(usage.credits_charged)} credits · ${fmt(usage.github_api_calls)} GitHub requests`;
+      if(!inspect){
+        const rows=data.repositories||[];
+        results.innerHTML=`<header class="repo-result-head"><h2>${fmt(rows.length)} public repositories</h2><small>${esc(metric)}${data.incomplete_results?' · GitHub returned partial results':''}</small></header>${rows.length?`<div class="repo-result-list">${rows.map(row=>{const url=source(row.name);return `<article class="repo-card"><div><strong>${esc(row.name)}</strong><p>${esc(row.description||'No description provided.')}</p><small>${esc(row.language||'Language unknown')} · ${fmt(row.stars)} stars · ${esc(row.license||'License not declared')}${esc(pushed(row.updated_at))}</small></div><div class="repo-card-actions">${url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">View source</a><button data-repo-inspect="${esc(row.name)}">Inspect ${icon('arrow')}</button>`:''}</div></article>`}).join('')}</div>`:'<p class="repo-empty">No public repositories found. Try a broader topic.</p>'}`;
+        $$('[data-repo-inspect]',results).forEach(item=>item.onclick=()=>{field.value=item.dataset.repoInspect;investigate(field.value,true)});
+      }else{
+        const url=source(data.repository),specs=data.api_specs||[],files=data.candidate_files||[];
+        results.innerHTML=`<header class="repo-result-head"><div><span class="overline">PUBLIC REPOSITORY</span><h2>${esc(data.repository||value)}</h2><p>${esc(data.description||'No description provided.')}</p><small>${esc(data.language||'Language unknown')} · ${fmt(data.stars)} stars · ${esc(data.license||'License not declared')}${esc(pushed(data.pushed_at))} · ${esc(metric)}</small></div>${url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">View on GitHub ${icon('arrow')}</a>`:''}</header>${data.tree_truncated?'<p class="repo-note">The file tree was truncated; findings cover the inspected portion.</p>':''}<section class="repo-findings"><h3>Documented API specs</h3>${specs.length?specs.map(spec=>`<article><a href="${esc(spec.url)}" target="_blank" rel="noopener noreferrer">${esc(spec.path)}</a><small>${spec.parsed?`${fmt((spec.endpoints||[]).length)} endpoint examples · ${fmt((spec.oauth_scopes||[]).length)} OAuth scope names`:'Specification could not be parsed'}</small>${(spec.endpoints||[]).length?`<div class="repo-endpoints">${spec.endpoints.slice(0,20).map(ep=>`<code>${esc(ep.method)} ${esc(ep.path)}</code>`).join('')}</div>`:''}${(spec.oauth_scopes||[]).length?`<p>Documented scopes: ${esc(spec.oauth_scopes.join(', '))}</p>`:''}</article>`).join(''):'<p class="repo-empty">No small OpenAPI spec was found in the inspected tree.</p>'}<h3>Promising source paths</h3>${files.length?`<div class="repo-files">${files.slice(0,35).map(file=>`<a href="${esc(file.url)}" target="_blank" rel="noopener noreferrer">${esc(file.path)}</a>`).join('')}</div>`:'<p class="repo-empty">No API related paths found in the inspected tree.</p>'}</section>${url?`<button class="btn" id="repo-clone">Copy public clone command</button>`:''}`;
+        $('#repo-clone')?.addEventListener('click',event=>copyText('git clone '+url+'.git',event.currentTarget));
+      }
+    }catch(error){if(run===activeRun)results.innerHTML=`<p class="repo-error">${esc(error.message)}</p>`;}
+    finally{if(run===activeRun)button.disabled=false;}
+  }
+  $('#repo-form').onsubmit=e=>{e.preventDefault();investigate(field.value)};
+  $$('[data-repo-example]').forEach(item=>item.onclick=()=>{field.value=item.dataset.repoExample;investigate(field.value)});
+}
+async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,games:dashGames,repositories:dashRepositories,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
 async function renderRoute(){clearTransientUi();window.scrollTo(0,0);const p=location.pathname;try{if(p==='/'||p==='/pricing'||p==='/status'||p.startsWith('/docs')||p.startsWith('/legal')||LEGAL_ALIASES[p])await hydrateOptionalSession();if(p.startsWith('/dashboard'))return await renderDashboard();if(p==='/verify-email')return await renderVerify();if(p==='/login')return renderAuth('login');if(p==='/signup')return renderAuth('signup');if(p==='/forgot-password')return renderRecovery();if(p==='/reset-password')return renderRecovery(true);if(p.startsWith('/legal')||LEGAL_ALIASES[p])return renderLegal();if(p.startsWith('/docs'))return renderDocs();if(p==='/pricing')return await renderPricing();if(p==='/status')return await renderStatus();return await renderHome();}catch(error){console.error(error);if(error.status===401)return go('/login',true);app.innerHTML=`<main class="fatal"><div>${brand()}<span class="eyebrow">REQUEST FAILED</span><h1>The control plane did not answer cleanly.</h1><p>${esc(error.message)}</p><button class="btn primary" onclick="location.reload()">Try again</button></div></main>`;}}
 document.addEventListener('click',e=>{
   if(e.defaultPrevented)return;
@@ -1078,6 +1116,7 @@ function openRunInspector(event) {
       ['overview','terminal','Overview'],
       ['playground','activity','Playground'],
       ['games','activity','Game Intelligence'],
+      ['repositories','api','Repositories'],
       ['api-keys','key','API Keys']
     ]],
     ['Observe', [
@@ -1167,6 +1206,7 @@ function openRunInspector(event) {
         <span class="cos-sheet-label">Build & observe</span>
         <a data-link href="/dashboard/api-keys">${icon('key')} API Keys</a>
         <a data-link href="/dashboard/games">${icon('activity')} Game Intelligence</a>
+        <a data-link href="/dashboard/repositories">${icon('api')} Repositories</a>
         <a data-link href="/dashboard/monitors">${icon('monitor')} Monitors</a>
         <span class="cos-sheet-label">Account & product</span>
         <a data-link href="/dashboard/wallet">${icon('wallet')} Credits</a>
