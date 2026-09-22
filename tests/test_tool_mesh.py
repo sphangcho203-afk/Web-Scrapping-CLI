@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+
 from internet_hands.execution_meter import (
     execution_usage_snapshot,
     reset_execution_meter,
