@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
+from urllib.parse import urlsplit, urlunsplit
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -10,6 +12,8 @@ from fastapi import APIRouter, HTTPException, Request
 from .control_api import _require_user
 from .control_store import AuthIdentity, ControlError, ControlStore
 from .crawler import crawl
+from .extractor import extract_document
+from .fetcher import fetch_url
 from .policy import PolicyError, ResolutionUnavailable, validate_public_http_url
 from .web_search import SearchKind, brave_search
 
@@ -80,6 +84,33 @@ def _patterns(value: Any, name: str) -> list[str]:
     if len(cleaned) > 20 or any(len(item) > 200 for item in cleaned):
         raise HTTPException(status_code=400, detail={"code": "invalid_input", "message": f"{name} is too large"})
     return cleaned
+
+
+def _canonical_source_url(value: str) -> str:
+    parts = urlsplit(value.strip())
+    path = parts.path or "/"
+    if path != "/":
+        path = path.rstrip("/")
+    return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), path, "", ""))
+
+
+async def _research_evidence(sources: list[dict[str, Any]], *, limit: int, timeout: float) -> list[dict[str, Any]]:
+    semaphore = asyncio.Semaphore(min(4, max(1, limit)))
+    async def one(source: dict[str, Any]) -> dict[str, Any]:
+        async with semaphore:
+            url = source["url"]
+            try:
+                fetched = await fetch_url(url, timeout=timeout, max_bytes=1_000_000)
+                document = extract_document(fetched)
+                text = str(getattr(document, "text", "") or "").strip()
+                return {
+                    "url": url, "title": str(getattr(document, "title", "") or source.get("title") or ""),
+                    "description": source.get("description") or "", "text": text[:12000],
+                    "status_code": fetched.status_code, "content_type": fetched.content_type, "source": source.get("source") or "web",
+                }
+            except Exception as exc:  # noqa: BLE001 -- evidence failures remain source-local
+                return {"url": url, "title": source.get("title") or "", "description": source.get("description") or "", "text": "", "error": f"{type(exc).__name__}: {exc}", "source": source.get("source") or "web"}
+    return await asyncio.gather(*(one(source) for source in sources[:limit]))
 
 
 @router.post("/api/playground/run")
@@ -172,12 +203,28 @@ async def playground_run(request: Request):
                     "age": item.get("age"),
                     "source": "brave",
                 })
+            deduped: list[dict[str, Any]] = []
+            seen_sources: set[str] = set()
+            for source in search_sources:
+                canonical = _canonical_source_url(source["url"])
+                if canonical in seen_sources:
+                    continue
+                seen_sources.add(canonical)
+                source["canonical_url"] = canonical
+                source["rank"] = len(deduped) + 1
+                deduped.append(source)
+            search_sources = deduped
             if operation == "search":
-                payload = {"pages": [], "search_results": search_sources, "discovered_urls": len(search_sources), "skipped_urls": 0, "duration_ms": 0, "truncated": False}
+                payload = {"pages": [], "search_results": search_sources, "evidence": [], "discovered_urls": len(search_sources), "skipped_urls": 0, "duration_ms": 0, "truncated": False}
             elif not url and search_sources:
                 url = search_sources[0]["url"]
             elif not url:
                 payload = {"pages": [], "search_results": [], "discovered_urls": 0, "skipped_urls": 0, "duration_ms": 0, "truncated": False}
+
+        evidence: list[dict[str, Any]] = []
+        if operation in {"research", "auto"} and search_sources:
+            evidence_limit = min(8, max(3, max_pages // 3))
+            evidence = await _research_evidence(search_sources, limit=evidence_limit, timeout=min(float(max_seconds), 15.0))
 
         if operation != "search" and url:
             result = await crawl(
@@ -196,6 +243,7 @@ async def playground_run(request: Request):
             )
             payload = result.model_dump(mode="json")
             payload["search_results"] = search_sources
+            payload["evidence"] = evidence
             payload["seed_url"] = url
         pages = payload.get("pages") or []
         summary = {
@@ -208,6 +256,8 @@ async def playground_run(request: Request):
             "duration_ms": int(payload.get("duration_ms") or 0),
             "truncated": bool(payload.get("truncated")),
             "search_results": len(payload.get("search_results") or []),
+            "evidence_sources": len(payload.get("evidence") or []),
+            "evidence_successful": sum(1 for item in (payload.get("evidence") or []) if item.get("text") and not item.get("error")),
             "seed_url": payload.get("seed_url") or url or None,
         }
         response = {
