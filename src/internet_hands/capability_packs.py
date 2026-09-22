@@ -666,6 +666,7 @@ def _caller_capabilities() -> list[Capability]:
                     note="First-party bounded public caller-attribution provider.",
                 ),
             ),
+        ),
         Capability(
             id="phone.caller.investigate",
             name="Unknown caller public corroboration",
@@ -717,7 +718,6 @@ def _caller_capabilities() -> list[Capability]:
                     note="First-party bounded public-page corroboration provider.",
                 ),
             ),
-        ),
         ),
     ]
 
