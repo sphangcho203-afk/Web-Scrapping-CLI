@@ -118,13 +118,18 @@ async def sign_up(
     metadata = {"display_name": display_name} if display_name else {}
     if metadata:
         payload["data"] = metadata
-    return await _request(
+    result = await _request(
         "POST",
         "/auth/v1/signup",
         payload=payload,
         params=params,
         expected=(200, 201),
     )
+    # GoTrue returns a bare user object while email confirmation is enabled,
+    # and a session-shaped object after immediate confirmation. Normalize both.
+    if result.get("id") and result.get("email") and "user" not in result:
+        return {"user": result, "session": None}
+    return result
 
 
 async def sign_in(*, email: str, password: str) -> dict[str, Any]:
