@@ -251,7 +251,7 @@ async def investigate_caller_public_association(
         leads = []
 
     e164 = str((telecom.get("formats") or {}).get("e164") or number)
-    national = str(((telecom.get("number") or {}).get("national_number") or ""))
+    national = str((telecom.get("number") or {}).get("national_number") or "")
     pattern = _phone_digit_pattern(e164, national)
 
     page_limit = max(1, min(int(max_pages), 12))
