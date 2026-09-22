@@ -128,3 +128,22 @@ async def test_execute_records_provider_call_but_dry_run_does_not() -> None:
         assert after_dry_run["provider_calls"]["one"] == 1
     finally:
         reset_execution_meter(token)
+
+
+def test_default_tool_mesh_registers_caller_research_provider() -> None:
+    from internet_hands.tool_mcp import get_tool_mesh
+    get_tool_mesh.cache_clear()
+    assert "callerresearch" in get_tool_mesh().providers
+
+
+@pytest.mark.asyncio
+async def test_default_capability_registry_exposes_deep_caller_investigation() -> None:
+    from internet_hands.tool_mcp import get_capability_registry, get_tool_mesh
+    get_tool_mesh.cache_clear()
+    get_capability_registry.cache_clear()
+    registry = get_capability_registry()
+    capability = registry.capabilities["phone.caller.investigate"]
+    assert capability.pack == "phone"
+    assert capability.read_only is True
+    resolved = await registry.resolve("phone.caller.investigate")
+    assert resolved["resolved"][0]["ref"] == "callerresearch:investigate"

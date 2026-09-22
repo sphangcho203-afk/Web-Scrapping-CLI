@@ -110,6 +110,13 @@ TOOL_ECONOMICS: tuple[ToolEconomics, ...] = (
         minimum_plan="builder",
         provider_class="free_tier",
     ),
+    ToolEconomics(
+        "phone_caller_investigate",
+        "caller_investigation",
+        6,
+        minimum_plan="builder",
+        provider_class="free_tier",
+    ),
     ToolEconomics("gaming_capabilities", "gaming", 1, provider_class="local"),
     ToolEconomics("gaming_profile_plan", "gaming", 1, provider_class="public"),
     ToolEconomics("gaming_profile", "gaming", 5, provider_class="public"),
@@ -156,6 +163,7 @@ RAW_PROVIDER_SURCHARGES: dict[str, tuple[str, int]] = {
     "nativeweb": ("local", 0),
     "phoneintel": ("local", 0),
     "callerintel": ("free_tier", 4),
+    "callerresearch": ("free_tier", 6),
     "publicapi": ("public", 1),
     "openapi": ("public", 1),
     "mcp": ("public", 2),
@@ -442,6 +450,28 @@ def estimate_call(
             reason=reason,
             breakdown=tuple(caller_breakdown),
             limits=plan.to_dict(),
+        )
+
+    if tool_name == "phone_caller_investigate":
+        try:
+            max_sources = max(1, min(int(args.get("max_sources", 4)), 12))
+        except (TypeError, ValueError):
+            max_sources = 4
+        if max_sources > plan.max_external_sources:
+            return CostEstimate(
+                allowed=False, plan=plan.slug, tool_name=tool_name, category=rule.category,
+                credits=6, minimum_plan=rule.minimum_plan, provider_class="free_tier",
+                reason=f"{plan.slug} allows at most {plan.max_external_sources} deep caller evidence sources",
+                breakdown=({"kind": "base", "credits": 6},), limits=plan.to_dict(),
+            )
+        caller_args = {"public_search": True, "max_results": min(20, max(5, max_sources * 2)), "telecom_external": bool(args.get("telecom_external", False)), "telecom_providers": args.get("telecom_providers")}
+        caller_credits, provider_class, caller_breakdown, reason = _caller_cost(plan, caller_args)
+        credits = caller_credits + max_sources
+        breakdown = [*caller_breakdown, {"kind": "source_fetch_budget", "sources": max_sources, "credits": max_sources}]
+        return CostEstimate(
+            allowed=reason is None, plan=plan.slug, tool_name=tool_name, category=rule.category,
+            credits=credits, minimum_plan=rule.minimum_plan, provider_class=provider_class,
+            reason=reason, breakdown=tuple(breakdown), limits=plan.to_dict(),
         )
 
     cost = rule.base_credits
@@ -745,6 +775,11 @@ def settle_measured_cost(
                 execution_usage=usage,
                 latency_ms=latency_ms,
             )
+        if ref == "callerresearch:investigate":
+            return settle_measured_cost(
+                "phone_caller_investigate", nested_args, plan_slug,
+                reserved_credits=reserved, execution_usage=usage, latency_ms=latency_ms,
+            )
 
         prefix = ref.split(":", 1)[0] if ":" in ref else ""
         economics = RAW_PROVIDER_SURCHARGES.get(prefix)
@@ -782,6 +817,11 @@ def settle_measured_cost(
                 execution_usage=usage,
                 latency_ms=latency_ms,
             )
+        if capability == "phone.caller.investigate":
+            return settle_measured_cost(
+                "phone_caller_investigate", nested_args, plan_slug,
+                reserved_credits=reserved, execution_usage=usage, latency_ms=latency_ms,
+            )
 
     if tool_name == "phone_number_lookup":
         actual = 2 + _measured_provider_surcharge(provider_calls)
@@ -801,6 +841,27 @@ def settle_measured_cost(
         if search_calls:
             actual += 4 * search_calls
             actual += math.ceil(result_count / 5) if result_count else 0
+        actual += _measured_provider_surcharge(provider_calls)
+        return min(reserved, actual)
+
+    if tool_name == "phone_caller_investigate":
+        actual = 6
+        try:
+            search_calls = max(0, int(counters.get("public_search_call") or 0))
+        except (TypeError, ValueError):
+            search_calls = 0
+        try:
+            result_count = max(0, int(counters.get("public_search_result") or 0))
+        except (TypeError, ValueError):
+            result_count = 0
+        try:
+            fetch_count = max(0, int(counters.get("caller_source_fetch") or 0))
+        except (TypeError, ValueError):
+            fetch_count = 0
+        if search_calls:
+            actual += 4 * search_calls
+            actual += math.ceil(result_count / 5) if result_count else 0
+        actual += fetch_count
         actual += _measured_provider_surcharge(provider_calls)
         return min(reserved, actual)
 

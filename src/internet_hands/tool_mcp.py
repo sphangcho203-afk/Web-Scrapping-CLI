@@ -5,6 +5,7 @@ from functools import lru_cache
 from typing import Any
 
 from .caller_intelligence import CallerIntelligenceProvider
+from .caller_investigation import CallerInvestigationProvider
 from .capability_packs import CapabilityRegistry, build_default_capabilities
 from .catalog_providers import build_catalog_providers
 from .composio_bridge import ComposioBridgeProvider
@@ -31,6 +32,7 @@ def get_tool_mesh() -> ToolMesh:
             *[provider for provider in build_default_providers() if provider.name != "composio"],
             ComposioBridgeProvider(),
             CallerIntelligenceProvider(),
+            CallerInvestigationProvider(),
             FirecrawlToolProvider(),
             NativeWebToolProvider(),
             NativeSandboxToolProvider(),
