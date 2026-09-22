@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
+import re
 import time
 import uuid
 from urllib.parse import urlsplit, urlunsplit
@@ -94,6 +96,41 @@ def _canonical_source_url(value: str) -> str:
     return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), path, "", ""))
 
 
+def _query_terms(query: str) -> set[str]:
+    return {term for term in re.findall(r"[a-z0-9]{3,}", query.lower()) if term not in {"the","and","for","with","from","this","that","what","when","where","which","about"}}
+
+
+def _rank_evidence(query: str, evidence: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    terms = _query_terms(query)
+    ranked: list[dict[str, Any]] = []
+    for index, item in enumerate(evidence):
+        haystack = " ".join(str(item.get(k) or "") for k in ("title","description","text")).lower()
+        hits = sum(1 for term in terms if term in haystack)
+        coverage = hits / max(1, len(terms))
+        search_rank = int(item.get("search_rank") or index + 1)
+        score = round((coverage * 0.82) + (0.18 / max(1, math.sqrt(search_rank))), 4)
+        copy = dict(item)
+        copy["relevance_score"] = score
+        copy["matched_terms"] = sorted(term for term in terms if term in haystack)[:12]
+        ranked.append(copy)
+    return sorted(ranked, key=lambda item: (-float(item.get("relevance_score") or 0), int(item.get("search_rank") or 999)))
+
+
+def _synthesize_evidence(query: str, evidence: list[dict[str, Any]]) -> dict[str, Any]:
+    ranked = _rank_evidence(query, evidence)
+    findings: list[dict[str, Any]] = []
+    terms = _query_terms(query)
+    for source_index, item in enumerate(ranked[:6], start=1):
+        text = str(item.get("text") or item.get("description") or "").strip()
+        if not text:
+            continue
+        sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if len(s.strip()) >= 40]
+        sentences.sort(key=lambda s: sum(1 for term in terms if term in s.lower()), reverse=True)
+        excerpt = (sentences[0] if sentences else text[:500])[:700]
+        findings.append({"text": excerpt, "citation": source_index, "url": item.get("url"), "title": item.get("title") or item.get("url"), "score": item.get("relevance_score")})
+    return {"query": query, "method": "extractive", "findings": findings, "sources": [{"citation": i, "url": x.get("url"), "title": x.get("title") or x.get("url"), "score": x.get("relevance_score")} for i,x in enumerate(ranked[:6], start=1)]}
+
+
 async def _research_evidence(sources: list[dict[str, Any]], *, limit: int, timeout: float) -> list[dict[str, Any]]:
     semaphore = asyncio.Semaphore(min(4, max(1, limit)))
     async def one(source: dict[str, Any]) -> dict[str, Any]:
@@ -106,10 +143,10 @@ async def _research_evidence(sources: list[dict[str, Any]], *, limit: int, timeo
                 return {
                     "url": url, "title": str(getattr(document, "title", "") or source.get("title") or ""),
                     "description": source.get("description") or "", "text": text[:12000],
-                    "status_code": fetched.status_code, "content_type": fetched.content_type, "source": source.get("source") or "web",
+                    "status_code": fetched.status_code, "content_type": fetched.content_type, "source": source.get("source") or "web", "search_rank": source.get("rank"),
                 }
             except Exception as exc:  # noqa: BLE001 -- evidence failures remain source-local
-                return {"url": url, "title": source.get("title") or "", "description": source.get("description") or "", "text": "", "error": f"{type(exc).__name__}: {exc}", "source": source.get("source") or "web"}
+                return {"url": url, "title": source.get("title") or "", "description": source.get("description") or "", "text": "", "error": f"{type(exc).__name__}: {exc}", "source": source.get("source") or "web", "search_rank": source.get("rank")}
     return await asyncio.gather(*(one(source) for source in sources[:limit]))
 
 
@@ -225,6 +262,9 @@ async def playground_run(request: Request):
         if operation in {"research", "auto"} and search_sources:
             evidence_limit = min(8, max(3, max_pages // 3))
             evidence = await _research_evidence(search_sources, limit=evidence_limit, timeout=min(float(max_seconds), 15.0))
+            evidence = _rank_evidence(query, evidence)
+
+        synthesis = _synthesize_evidence(query, evidence) if query and evidence else {"query": query, "method": "extractive", "findings": [], "sources": []}
 
         if operation != "search" and url:
             result = await crawl(
@@ -244,6 +284,7 @@ async def playground_run(request: Request):
             payload = result.model_dump(mode="json")
             payload["search_results"] = search_sources
             payload["evidence"] = evidence
+            payload["synthesis"] = synthesis
             payload["seed_url"] = url
         pages = payload.get("pages") or []
         summary = {
