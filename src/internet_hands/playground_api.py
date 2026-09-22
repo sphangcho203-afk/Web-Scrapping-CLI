@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException, Request
 from .auth import authenticate_secret
 from .control_api import _require_user
 from .control_store import AuthIdentity, ControlError, ControlStore
+from .capability_economics import settle_measured_cost
 from .crawler import crawl
 from .extractor import extract_document
 from .fetcher import fetch_url
@@ -164,6 +165,7 @@ async def _firecrawl_fallback(evidence: list[dict[str, Any]], *, limit: int = 3)
         return evidence, {"attempted": 0, "recovered": 0, "provider": "firecrawl", "available": False}
     by_url = {str(item.get("url")): dict(item) for item in evidence}
     recovered = 0
+    usage: list[dict[str, Any]] = []
     for item in candidates:
         url = str(item.get("url") or "")
         if not url:
@@ -171,6 +173,7 @@ async def _firecrawl_fallback(evidence: list[dict[str, Any]], *, limit: int = 3)
         try:
             validate_public_http_url(url)
             result = await provider.execute("scrape", {"url": url, "formats": ["markdown"], "onlyMainContent": True, "timeout": 15000}, timeout_seconds=20)
+            usage.append({"provider": "firecrawl", "operation": "scrape", "credits_used": (result.get("metadata") or {}).get("credits_used"), "status": "ok"})
             data = result.get("data") or {}
             markdown = str(data.get("markdown") or data.get("content") or "").strip() if isinstance(data, dict) else ""
             if len(markdown) >= 280:
@@ -182,10 +185,11 @@ async def _firecrawl_fallback(evidence: list[dict[str, Any]], *, limit: int = 3)
                 by_url[url] = replacement
                 recovered += 1
         except Exception as exc:  # noqa: BLE001 -- fallback is best-effort and source-local
+            usage.append({"provider": "firecrawl", "operation": "scrape", "credits_used": None, "status": "error"})
             failed = dict(by_url[url])
             failed["fallback_error"] = f"{type(exc).__name__}: {exc}"
             by_url[url] = failed
-    return [by_url[str(item.get("url"))] for item in evidence], {"attempted": len(candidates), "recovered": recovered, "provider": "firecrawl", "available": True}
+    return [by_url[str(item.get("url"))] for item in evidence], {"attempted": len(usage), "recovered": recovered, "provider": "firecrawl", "available": True, "provider_usage": usage}
 
 
 def _synthesize_evidence(query: str, evidence: list[dict[str, Any]]) -> dict[str, Any]:
@@ -356,7 +360,7 @@ async def playground_run(request: Request):
         "preserve_query": preserve_query,
     }
     try:
-        credits = store.charge_tool_call(
+        reserved = store.reserve_tool_call(
             identity=identity,
             request_id=request_id,
             tool_name=f"playground:{operation}",
@@ -369,6 +373,7 @@ async def playground_run(request: Request):
     started = time.monotonic()
     status = "error"
     output_bytes = 0
+    provider_usage: list[dict[str, Any]] = []
     try:
         search_payload: dict[str, Any] | None = None
         search_sources: list[dict[str, Any]] = []
@@ -377,6 +382,7 @@ async def playground_run(request: Request):
             raw_sources, search_meta = await _discover_search_sources(
                 query, count=min(max_pages, 20), timeout=min(float(max_seconds), 30.0)
             )
+            provider_usage.append({"provider": str(search_meta.get("provider") or "unknown"), "operation": "search", "credits_used": search_meta.get("credits_used"), "status": "ok"})
             for item in raw_sources:
                 candidate = str(item.get("url") or "").strip()
                 if not candidate:
@@ -410,6 +416,7 @@ async def playground_run(request: Request):
             evidence = await _research_evidence(search_sources, limit=evidence_limit, timeout=min(float(max_seconds), 15.0))
             evidence = _rank_evidence(query, evidence)
             evidence, fallback = await _firecrawl_fallback(evidence, limit=min(3, evidence_limit))
+            provider_usage.extend(fallback.pop("provider_usage", []))
             evidence = _rank_evidence(query, evidence)
         else:
             fallback = {"attempted": 0, "recovered": 0, "provider": None}
@@ -460,7 +467,11 @@ async def playground_run(request: Request):
             "ok": True,
             "request_id": request_id,
             "operation": operation,
-            "usage": {"credits_charged": credits, "metered": True},
+            "usage": {"credits_charged": settle_measured_cost(
+                f"playground:{operation}", arguments, identity.plan_slug,
+                reserved_credits=reserved,
+                execution_usage={"completed": True, "provider_usage": provider_usage},
+            ), "credits_reserved": reserved, "metered": True, "provider_usage": provider_usage},
             "summary": summary,
             "result": payload,
         }
@@ -470,24 +481,28 @@ async def playground_run(request: Request):
     except ResolutionUnavailable as exc:
         raise HTTPException(
             status_code=503,
-            detail={"code": "resolver_busy", "message": str(exc), "request_id": request_id, "credits_charged": credits},
+            detail={"code": "resolver_busy", "message": str(exc), "request_id": request_id},
             headers={"Retry-After": "1"},
         ) from exc
     except (ValueError, PolicyError) as exc:
         raise HTTPException(
             status_code=400,
-            detail={"code": "crawl_rejected", "message": str(exc), "request_id": request_id, "credits_charged": credits},
+            detail={"code": "crawl_rejected", "message": str(exc), "request_id": request_id},
         ) from exc
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(
             status_code=502,
-            detail={"code": "crawl_failed", "message": f"{type(exc).__name__}: {exc}", "request_id": request_id, "credits_charged": credits},
+            detail={"code": "crawl_failed", "message": f"{type(exc).__name__}: {exc}", "request_id": request_id},
         ) from exc
     finally:
         elapsed = max(0, int((time.monotonic() - started) * 1000))
-        try:
-            store.finish_usage(request_id, status=status, latency_ms=elapsed, output_bytes=output_bytes)
-        except Exception:  # noqa: BLE001, S110 -- metering cleanup must not mask response
-            pass
+        measured_usage = {"completed": status == "ok", "provider_usage": provider_usage}
+        store.finish_usage(
+            request_id, status=status, latency_ms=elapsed, output_bytes=output_bytes,
+            actual_credits=settle_measured_cost(
+                f"playground:{operation}", arguments, identity.plan_slug,
+                reserved_credits=reserved, execution_usage=measured_usage, latency_ms=elapsed,
+            ), execution_usage=measured_usage,
+        )

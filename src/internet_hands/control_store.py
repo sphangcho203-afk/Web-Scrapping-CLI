@@ -142,6 +142,17 @@ CREATE TABLE IF NOT EXISTS ih_usage_events (
 CREATE INDEX IF NOT EXISTS ih_usage_user_time_idx ON ih_usage_events(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS ih_usage_key_time_idx ON ih_usage_events(api_key_id, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS ih_provider_usage (
+    id text PRIMARY KEY,
+    request_id text NOT NULL REFERENCES ih_usage_events(request_id) ON DELETE CASCADE,
+    provider text NOT NULL,
+    operation text NOT NULL,
+    credits_used integer,
+    status text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ih_provider_usage_request_idx ON ih_provider_usage(request_id);
+
 CREATE TABLE IF NOT EXISTS ih_monitors (
     id text PRIMARY KEY,
     user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,
@@ -1037,6 +1048,29 @@ class ControlStore:
                     )
                     conn.commit()
                     return int(event["credits_charged"] or 0)
+
+                provider_usage = (execution_usage or {}).get("provider_usage") or []
+                for item in provider_usage:
+                    if not isinstance(item, dict):
+                        continue
+                    provider = str(item.get("provider") or "")[:80]
+                    operation = str(item.get("operation") or "")[:80]
+                    if not provider or not operation:
+                        continue
+                    raw_credits = item.get("credits_used")
+                    credits_used = (
+                        max(0, int(raw_credits))
+                        if isinstance(raw_credits, (int, float)) and not isinstance(raw_credits, bool)
+                        else None
+                    )
+                    cur.execute(
+                        """
+                        INSERT INTO ih_provider_usage(id,request_id,provider,operation,credits_used,status)
+                        VALUES (%s,%s,%s,%s,%s,%s)
+                        """,
+                        (self._new_id("pru"), request_id, provider, operation, credits_used,
+                         str(item.get("status") or "unknown")[:40]),
+                    )
 
                 reservation = dict(metadata.get("reservation") or {})
                 reserved = max(0, int(reservation.get("credits") or 0))
