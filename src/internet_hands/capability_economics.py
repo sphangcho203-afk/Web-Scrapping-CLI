@@ -121,6 +121,9 @@ TOOL_ECONOMICS: tuple[ToolEconomics, ...] = (
     ToolEconomics("gaming_profile_plan", "gaming", 1, provider_class="public"),
     ToolEconomics("gaming_profile", "gaming", 5, provider_class="public"),
     ToolEconomics("gaming_intel", "gaming", 2, provider_class="public"),
+    ToolEconomics("playground:*", "playground", 1, provider_class="public"),
+    ToolEconomics("repo:*", "repository", 1, provider_class="public"),
+    ToolEconomics("gamecore:*", "gaming", 1, provider_class="local"),
     ToolEconomics(
         "sandbox_browser_*",
         "browser",
@@ -419,6 +422,36 @@ def estimate_call(
             "sandbox tools are unavailable on this plan",
             tuple(breakdown),
             plan.to_dict(),
+        )
+
+    if tool_name.startswith("playground:"):
+        operation = tool_name.split(":", 1)[1]
+        # Reserve the bounded search and recovery fan-out. The final charge is
+        # based on credits reported by providers and never exceeds this quote.
+        search_budget = 2 if operation in {"search", "research", "auto"} and args.get("query") else 0
+        recovery_budget = 3 if operation in {"research", "auto"} and args.get("query") else 0
+        reserved = rule.base_credits + search_budget + recovery_budget
+        return CostEstimate(
+            allowed=True, plan=plan.slug, tool_name=tool_name,
+            category=rule.category, credits=reserved,
+            minimum_plan=rule.minimum_plan, provider_class=rule.provider_class,
+            reason=None,
+            breakdown=(
+                {"kind": "base", "credits": rule.base_credits},
+                {"kind": "search_budget", "credits": search_budget},
+                {"kind": "recovery_budget", "credits": recovery_budget},
+            ), limits=plan.to_dict(),
+        )
+
+    if tool_name in {"repo:search", "repo:inspect"}:
+        budget = 2 if tool_name == "repo:search" else 6
+        return CostEstimate(
+            allowed=True, plan=plan.slug, tool_name=tool_name,
+            category=rule.category, credits=rule.base_credits + budget,
+            minimum_plan=rule.minimum_plan, provider_class=rule.provider_class,
+            reason=None, breakdown=({"kind": "base", "credits": rule.base_credits},
+                                    {"kind": "github_request_budget", "credits": budget}),
+            limits=plan.to_dict(),
         )
 
     if tool_name == "phone_number_lookup":
@@ -749,6 +782,29 @@ def settle_measured_cost(
         counters = {}
     if not isinstance(provider_calls, dict):
         provider_calls = {}
+
+    if tool_name.startswith("playground:"):
+        # Provider credits are a policy mapping of one internal credit per
+        # reported external credit. Unknown/missing provider usage is recorded
+        # separately and never guessed into a customer charge.
+        reported = 0
+        for item in usage.get("provider_usage") or []:
+            if not isinstance(item, dict):
+                continue
+            value = item.get("credits_used")
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                reported += max(0, int(value))
+        return min(reserved, (1 if usage.get("completed") else 0) + reported)
+
+    if tool_name in {"repo:search", "repo:inspect"}:
+        try:
+            requests = max(0, int(counters.get("github_api_calls") or 0))
+        except (ValueError, TypeError):
+            requests = 0
+        return min(reserved, (1 if usage.get("completed") else 0) + requests)
+
+    if tool_name.startswith("gamecore:"):
+        return min(reserved, 1 if usage.get("completed") else 0)
 
     if tool_name == "mesh_execute":
         ref = str(args.get("ref") or args.get("tool") or "").strip().lower()

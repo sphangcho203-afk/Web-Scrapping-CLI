@@ -9,12 +9,14 @@ from . import account_mcp as _account_mcp  # noqa: F401
 from .control_api import router as control_router
 from .control_hardening import router as hardening_router
 from .fleet_api import app as fleet_app
+from .game_api import router as game_router
 from .mcp_customer import customer_streamable_http_app
 from .mcp_server import sandbox_mcp
 from .monitor_executor import router as monitor_executor_router
 from .monitor_lifecycle import router as monitor_lifecycle_router
 from .oauth_compat import router as oauth_compat_router
 from .playground_api import router as playground_router
+from .repository_api import router as repository_router
 from .security_api import router as security_router
 from .security_hardening import router as security_hardening_router
 from .site import router as site_router
@@ -51,6 +53,8 @@ app.include_router(system_health_router)
 app.include_router(control_router)
 app.include_router(usage_router)
 app.include_router(playground_router)
+app.include_router(repository_router)
+app.include_router(game_router)
 app.include_router(site_router)
 app.mount("/mcp", customer_streamable_http_app())
 

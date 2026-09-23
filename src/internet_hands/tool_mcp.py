@@ -11,11 +11,13 @@ from .catalog_providers import build_catalog_providers
 from .composio_bridge import ComposioBridgeProvider
 from .firecrawl_capabilities import build_firecrawl_capabilities
 from .firecrawl_provider import FirecrawlToolProvider
+from .game_core_provider import GameCoreProvider
 from .gaming_capabilities import build_gaming_capabilities
 from .gaming_extra_capabilities import build_extra_gaming_capabilities
 from .gaming_extra_providers import build_extra_gaming_providers
 from .gaming_profiles import build_gaming_profile_plan
 from .gaming_providers import build_gaming_providers
+from .github_public_provider import GitHubPublicProvider
 from .mcp_server import sandbox_mcp
 from .native_sandbox_provider import NativeSandboxToolProvider
 from .native_web_provider import NativeWebToolProvider
@@ -35,6 +37,8 @@ def get_tool_mesh() -> ToolMesh:
             CallerInvestigationProvider(),
             FirecrawlToolProvider(),
             NativeWebToolProvider(),
+            GitHubPublicProvider(),
+            GameCoreProvider(),
             NativeSandboxToolProvider(),
             PhoneIntelligenceProvider(),
             *build_catalog_providers(),

@@ -234,23 +234,35 @@ async function renderVerify(seed=null) {
     try { state.me = await api('/api/auth/me'); }
     catch { return go('/login?verify=session_required',true); }
   }
-  if (state.me.user.email_verified) return renderOnboarding(); const email=state.me.user.email.replace(/^(.{2}).*(@.*)$/,'$1••••$2'), params=new URLSearchParams(location.search), deliveryFailed=params.get('delivery')==='failed', fromSignin=params.get('context')==='signin';
-  const verificationMessage=deliveryFailed?`This account still requires verification, but the email could not be sent. Use Resend code for ${esc(email)}.`:fromSignin?`This account wasn't verified, so we sent a six-digit code to ${esc(email)}. Enter it below to continue.`:`We sent a link and six-digit code to ${esc(email)}.`;
-  authShell('Verify your email',verificationMessage,`<div class="verify-mark">${icon('activity')}</div>${deliveryFailed?'<div class="notice warning">Delivery failed. No active account, credits, or subscription will be created until verification succeeds.</div>':''}<form id="verify-form" class="form-stack"><label>Verification code<input class="code-input" required name="code" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" autocomplete="one-time-code" placeholder="000000"></label><button class="btn primary large">Verify account ${icon('arrow')}</button></form><div class="verify-actions"><button id="resend">Resend code <span></span></button><button id="other-account">Use another account</button></div><div class="notice">The newest code replaces older codes and expires after 15 minutes.</div>`,'One small gate before the internet opens up.');
-  $('#verify-form').onsubmit=async e=>{e.preventDefault();const button=$('button',e.currentTarget);busy(button,true,'Checking…');try{await api('/api/auth/email-verification/confirm',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))});state.me=null;go('/verify-email?verified=1');}catch(error){toast(error.message,'error');busy(button,false);}};
-  let seconds=0;const tick=()=>{const b=$('#resend');$('span',b).textContent=seconds?`(${seconds}s)`:'';b.disabled=seconds>0;if(seconds-->0)setTimeout(tick,1000);};
-  $('#resend').onclick=async()=>{try{const result=await api('/api/auth/email-verification/send',{method:'POST'});if(!result.sent)throw new Error('Verification email could not be sent. Try again shortly.');seconds=60;tick();toast('New verification email sent','success');}catch(error){toast(error.message,'error');}};
+  if (state.me.user.email_verified) return renderOnboarding();
+  const email=state.me.user.email.replace(/^(.{2}).*(@.*)$/,'$1••••$2');
+  const params=new URLSearchParams(location.search);
+  const deliveryFailed=params.get('delivery')==='failed';
+  const fromSignin=params.get('context')==='signin';
+  const verificationMessage=deliveryFailed
+    ? `Supabase could not send the confirmation email just now. Retry for ${esc(email)}.`
+    : fromSignin
+      ? `This account still needs email confirmation. Open the newest Supabase verification email sent to ${esc(email)}.`
+      : `Supabase sent a secure confirmation link to ${esc(email)}. Open it in this browser or any browser, then this page will unlock automatically.`;
+  authShell('Verify your email',verificationMessage,`<div class="verify-mark">${icon('mail')}</div><div class="notice">Email verification is now handled by Supabase Auth. Confirmation links are single-use; request a new one if the previous link expired.</div><div class="verify-actions"><button id="resend">Resend verification email <span></span></button><button id="other-account">Use another account</button></div>`,'One small gate before the internet opens up.');
+  let seconds=0;
+  const tick=()=>{const b=$('#resend');$('span',b).textContent=seconds?`(${seconds}s)`:'';b.disabled=seconds>0;if(seconds-->0)setTimeout(tick,1000);};
+  $('#resend').onclick=async()=>{try{const result=await api('/api/auth/email-verification/send',{method:'POST'});if(!result.sent&&!result.already_verified)throw new Error('Verification email could not be sent. Try again shortly.');if(result.already_verified){state.me=null;return go('/verify-email?verified=1',true);}seconds=60;tick();toast('New verification email sent','success');}catch(error){toast(error.message,'error');}};
   $('#other-account').onclick=async()=>{await api('/api/auth/logout',{method:'POST'});state.me=null;go('/login');};
   const pollVerification=async()=>{if(location.pathname!=='/verify-email')return;try{const latest=await api('/api/auth/me');if(latest.user.email_verified){state.me=latest;go('/verify-email?verified=1',true);return;}}catch{}setTimeout(pollVerification,3000);};
-  setTimeout(pollVerification,3000);
+  setTimeout(pollVerification,1500);
 }
 function renderOnboarding(){authShell('Email verified','Choose the shortest route to your first successful request.',`<div class="success-orbit">${icon('check')}</div><div class="onboarding-grid"><a data-link href="/dashboard/connections"><b>Connect an agent</b><small>ChatGPT, Claude, Grok or MCP</small>${icon('arrow')}</a><a data-link href="/dashboard/api-keys"><b>Create an API key</b><small>Scripts, servers and CI</small>${icon('arrow')}</a><a data-link href="/dashboard/monitors"><b>Create a monitor</b><small>Watch an endpoint</small>${icon('arrow')}</a><a data-link href="/docs/quickstart"><b>Open quickstart</b><small>Make the first request</small>${icon('arrow')}</a></div><a class="btn quiet onboarding-skip" data-link href="/dashboard">Go to mission control</a>`,'Identity confirmed. Now give your agent reach.');}
 function renderRecovery(reset=false){
-  const token=new URLSearchParams(location.search).get('token')||'';
+  const query=new URLSearchParams(location.search);
+  const fragment=new URLSearchParams(location.hash.replace(/^#/,''));
+  const token=query.get('token')||'';
+  const accessToken=fragment.get('access_token')||'';
+  const hasResetCredential=Boolean(token||accessToken);
   authShell(
     reset?'Choose a new password':'Reset your password',
-    reset?'A successful reset signs every web session out.':'Enter the email connected to your account. We will send a secure reset link.',
-    `<form id="recovery-form" class="form-stack">${reset?'<label>New password<input required minlength="8" type="password" name="password" autocomplete="new-password"></label><label>Confirm password<input required minlength="8" type="password" name="confirm" autocomplete="new-password"></label>':'<label>Account email<input required type="email" name="email" autocomplete="email" placeholder="you@example.com"></label>'}<button class="btn primary large" ${reset&&!token?'disabled':''}>${reset?'Update password':'Send reset link'} ${icon('arrow')}</button></form>${reset&&!token?'<div class="notice warning">This reset link is missing its security token. Request a new one.</div>':''}<p class="auth-foot"><a data-link href="/login">Back to sign in</a></p>`
+    reset?'A successful reset signs every web session out.':'Enter the email connected to your account. Supabase Auth will send the recovery link after the account has migrated.',
+    `<form id="recovery-form" class="form-stack">${reset?'<label>New password<input required minlength="8" type="password" name="password" autocomplete="new-password"></label><label>Confirm password<input required minlength="8" type="password" name="confirm" autocomplete="new-password"></label>':'<label>Account email<input required type="email" name="email" autocomplete="email" placeholder="you@example.com"></label>'}<button class="btn primary large" ${reset&&!hasResetCredential?'disabled':''}>${reset?'Update password':'Send reset link'} ${icon('arrow')}</button></form>${reset&&!hasResetCredential?'<div class="notice warning">This reset link is missing its recovery credential. Request a new one.</div>':''}<p class="auth-foot"><a data-link href="/login">Back to sign in</a></p>`
   );
   $('#recovery-form').onsubmit=async e=>{
     e.preventDefault();
@@ -260,17 +272,18 @@ function renderRecovery(reset=false){
     try{
       const result=await api(reset?'/api/auth/password-reset/confirm':'/api/auth/password-reset/request',{
         method:'POST',
-        body:reset?{token,password:values.password}:values
+        body:reset?{token,access_token:accessToken,password:values.password}:values
       });
       if(reset){
+        history.replaceState({},'', '/login');
         toast('Password updated. Sign in with your new password.','success');
-        go('/login');
+        go('/login',true);
         return;
       }
       authShell(
         'Check your inbox',
         result.message,
-        `<div class="verify-mark">${icon('activity')}</div><div class="notice">The reset link expires after 30 minutes. Only the newest link will work.</div><a class="btn primary large" data-link href="/login">Back to sign in ${icon('arrow')}</a>`,
+        `<div class="verify-mark">${icon('activity')}</div><div class="notice">Migrated accounts receive a Supabase recovery link. Legacy accounts are securely adopted into Supabase when that reset completes.</div><a class="btn primary large" data-link href="/login">Back to sign in ${icon('arrow')}</a>`,
         'Recover access without weakening account security.'
       );
     }catch(error){
@@ -369,7 +382,133 @@ function renderLegalDocument(slug){
 }
 function renderLegal(){const path=location.pathname.replace(/\/+$/,'')||'/';const alias=LEGAL_ALIASES[path];if(alias)return renderLegalDocument(alias);if(path==='/legal')return renderLegalHub();const slug=path.startsWith('/legal/')?decodeURIComponent(path.slice(7)):'';return slug?renderLegalDocument(slug):renderLegalHub()}
 
-async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
+async function dashGames(){
+  const [data,keyData]=await Promise.all([api('/api/games'),api('/api/api-keys')]);
+  const games=data.games||[],keys=(keyData.keys||[]).filter(k=>!k.revoked_at&&(!k.expires_at||new Date(k.expires_at)>new Date()));
+  dashboardShell('games',`${pageHead('GAME INTELLIGENCE','Games & public data','Explore the capabilities currently registered for each game. Provider readiness is checked live.')}<section class="game-catalog"><label class="game-filter">Find a game<input id="game-search" type="search" placeholder="Search games" autocomplete="off"></label><div id="game-list" class="game-list"></div><div id="game-detail" class="game-detail" aria-live="polite"></div></section>`);
+  const list=$('#game-list'),detail=$('#game-detail'),filter=$('#game-search');
+  const draw=()=>{
+    const q=filter.value.trim().toLowerCase();
+    const matches=games.filter(g=>g.name.toLowerCase().includes(q)||g.game_id.includes(q));
+    list.innerHTML=matches.length?matches.map(g=>`<button class="game-tile" type="button" data-game="${esc(g.game_id)}"><strong>${esc(g.name)}</strong><span>${fmt(g.capability_count)} capabilities · ${fmt(g.provider_ready_count)} ready</span>${icon('arrow')}</button>`).join(''):'<p class="game-empty">No registered game matches that search.</p>';
+    $$('[data-game]',list).forEach(button=>button.onclick=()=>select(button.dataset.game));
+  };
+  let selectedRun=0;
+  async function select(id){
+    const run=++selectedRun;
+    detail.innerHTML='<p class="game-empty">Loading capabilities…</p>';
+    try{
+      const {game}=await api('/api/games/'+encodeURIComponent(id));
+      if(run!==selectedRun)return;
+      detail.innerHTML=`<header><div><span class="overline">${esc(game.game_id)}</span><h2>${esc(game.name)}</h2><p>${fmt(game.capability_count)} registered capabilities · ${fmt(game.provider_ready_count)} directly connected. Discover public operations and run them below.</p></div><div class="game-actions"><a class="btn primary" data-link href="/dashboard/playground?query=${encodeURIComponent(game.name+' latest patch and competitive meta')}">Research this game ${icon('arrow')}</a><a class="btn" data-link href="/dashboard/repositories?query=${encodeURIComponent(game.name+' public api tools')}">Find open-source tools</a></div></header><div class="game-capabilities">${(game.capabilities||[]).map(cap=>`<article><span class="game-cap-status ${cap.provider_ready?'ready':''}">${cap.provider_ready?(cap.providers.includes('gamecore')?(cap.id.startsWith('league.reference')?'Public data · no key':'Runs locally'):'Provider configured'):cap.availability==='key_required'?'Provider key required':cap.availability==='discovery_required'?'Discover public operations':'Provider unavailable'}</span><h3>${esc(cap.name)}</h3><p>${esc(cap.description)}</p><small>${esc(cap.providers.join(' · '))}</small>${cap.providers.includes('gamecore')&&cap.provider_ready?`<button type="button" class="game-run-button" data-game-tool="${esc(cap.id)}">Run tool ${icon('arrow')}</button>`:cap.availability==='ready'||cap.availability==='discovery_required'?`<button type="button" class="game-run-button" data-game-discover="${esc(cap.id)}">${cap.provider_ready?'Run tool':'Find operations'} ${icon('arrow')}</button>`:''}</article>`).join('')}</div><div id="game-tool-panel" aria-live="polite"></div>`;
+      const cards=$$('.game-capabilities > article',detail),grid=$('.game-capabilities',detail);
+      const ready=cards.filter(card=>card.querySelector('.game-cap-status.ready'));
+      const other=cards.filter(card=>!card.querySelector('.game-cap-status.ready'));
+      ready.forEach(card=>grid.appendChild(card));
+      if(other.length){
+        const disclosure=document.createElement('details');
+        disclosure.className='game-more-capabilities';
+        disclosure.innerHTML=`<summary>${fmt(other.length)} more capabilities · discover operations or connect providers ${icon('arrow')}</summary><div class="game-capabilities"></div>`;
+        other.forEach(card=>disclosure.querySelector('.game-capabilities').appendChild(card));
+        grid.after(disclosure);
+      }
+      $$('[data-game-tool]',detail).forEach(button=>button.onclick=()=>showTool(game,button.dataset.gameTool));
+      $$('[data-game-discover]',detail).forEach(button=>button.onclick=()=>showDiscoveredTool(game,button.dataset.gameDiscover));
+    }catch(error){detail.innerHTML=`<p class="game-empty">${esc(error.message)}</p>`;}
+  }
+  async function showDiscoveredTool(game,capability){
+    const panel=$('#game-tool-panel',detail),cap=(game.capabilities||[]).find(c=>c.id===capability);
+    panel.innerHTML=`<section class="game-tool-runner"><header><div><span class="overline">DISCOVER READ-ONLY OPERATIONS</span><h3>${esc(cap?.name||capability)}</h3><p>Checking current provider operations and required inputs…</p></div><button type="button" class="game-tool-close" aria-label="Close tool">×</button></header><div id="game-tool-options"></div></section>`;
+    panel.querySelector('.game-tool-close').onclick=()=>panel.replaceChildren();
+    panel.scrollIntoView({behavior:'smooth',block:'nearest'});
+    try{
+      const response=await api('/api/games/'+encodeURIComponent(game.game_id)+'/tools/'+encodeURIComponent(capability));
+      if(!panel.isConnected)return;
+      const tools=response.tools||[],box=$('#game-tool-options',panel);
+      if(!tools.length){box.innerHTML=`<p class="game-empty">${esc((response.reasons||[]).join(' · ')||'No public read-only operation is available right now.')}</p>`;return;}
+      box.innerHTML=`<label>Published operation<select id="game-operation">${tools.map((tool,index)=>`<option value="${index}">${esc(tool.name)} · ${esc(tool.metadata?.method||'GET')} ${esc(tool.metadata?.path||'')}</option>`).join('')}</select></label><div id="game-operation-form"></div>`;
+      const selector=$('#game-operation',box);
+      function renderOperation(){
+        const tool=tools[Number(selector.value)],properties=tool.input_schema?.properties||{},required=tool.input_schema?.required||[];
+        const fields=Object.entries(properties).filter(([key,schema])=>schema['x-in']!=='header'&&!['authorization','cookie','proxy-authorization','x-api-key'].includes(key.toLowerCase()));
+        $('#game-operation-form',box).innerHTML=`<p>${esc(tool.description||'Read public data from the selected provider.')}</p><small>${esc(tool.provider)} · ${esc(tool.metadata?.server||tool.metadata?.base_url||'')} · ${esc(tool.metadata?.path||'')}${tool.metadata?.source==='rone-mlbb'?' · Rone Arena community API':''}</small>${keys.length?`<form id="game-discovered-form">${fields.map(([name,schema])=>`<label>${esc(name)}${required.includes(name)?' *':''}${schema.enum?`<select name="${esc(name)}">${schema.enum.map(value=>`<option value="${esc(value)}">${esc(value)}</option>`).join('')}</select>`:`<input name="${esc(name)}" ${required.includes(name)?'required':''} ${['integer','number'].includes(schema.type)?'type="number"':'type="text"'} ${schema.type==='integer'?'step="1"':''} maxlength="512" placeholder="${esc(schema.description||name)}">`}</label>`).join('')}<label>Internet Hands API key<select name="api_key_id">${keys.map(key=>`<option value="${esc(key.id)}">${esc(key.name)} · ${esc(key.prefix)}…</option>`).join('')}</select></label><button class="btn primary" type="submit">Run read-only operation ${icon('arrow')}</button></form>`:`<p>Create an Internet Hands API key to run this operation.</p><a data-link class="btn primary" href="/dashboard/api-keys">Create API key</a>`}<div id="game-discovered-output" aria-live="polite"></div>`;
+        const form=$('#game-discovered-form',box);if(!form)return;
+        form.onsubmit=async event=>{
+          event.preventDefault();const output=$('#game-discovered-output',box),submit=form.querySelector('button[type="submit"]'),arguments_={};
+          for(const [name,schema] of fields){const input=form.elements.namedItem(name);if(!input||input.value==='')continue;arguments_[name]=schema.type==='integer'?Number.parseInt(input.value,10):schema.type==='number'?Number(input.value):schema.type==='boolean'?input.value==='true':input.value;}
+          output.innerHTML='<p class="game-empty">Running…</p>';submit.disabled=true;
+          try{const result=await api('/api/games/'+encodeURIComponent(game.game_id)+'/tools/'+encodeURIComponent(capability),{method:'POST',body:{ref:tool.ref,arguments:arguments_,api_key_id:form.elements.api_key_id.value}});
+            output.innerHTML=`<div class="game-tool-output"><small>${esc(result.ref)} · ${fmt(result.usage?.credits_charged)} credits${tool.metadata?.source==='rone-mlbb'?' · Data: <a href="https://arena.rone.dev" target="_blank" rel="noopener noreferrer">Rone Arena</a>':''}</small><pre>${esc(JSON.stringify(result.result,null,2))}</pre></div>`;
+          }catch(error){output.innerHTML=`<p class="game-empty">${esc(error.message)}</p>`;}
+          finally{submit.disabled=false;}
+        };
+      }
+      selector.onchange=renderOperation;renderOperation();
+    }catch(error){const box=$('#game-tool-options',panel);if(box)box.innerHTML=`<p class="game-empty">${esc(error.message)}</p>`;}
+  }
+  function showTool(game,capability){
+    const panel=$('#game-tool-panel',detail),match=capability==='game.matches.analyze';
+    const hero=capability==='mlbb.reference.hero',items=capability.endsWith('.items'),league=capability.startsWith('league.reference');
+    panel.innerHTML=`<section class="game-tool-runner"><header><div><span class="overline">RUN INSIDE INTERNET HANDS</span><h3>${esc((game.capabilities||[]).find(c=>c.id===capability)?.name||capability)}</h3><p>${match?'Paste your own matches, oldest first. This works for any game.':league?'Fetch Riot’s published patch reference; no Riot API key required.':'Bundled historical MLBB data; dates and attribution appear with the result.'}</p></div><button type="button" class="game-tool-close" aria-label="Close tool">×</button></header>${keys.length?`<form id="game-tool-form"><label>${match?'Match results (JSON array)':hero?'Hero name or ID':items?'Item name or category':'Name, role or lane'}${match?'<textarea name="matches" rows="7" required spellcheck="false" placeholder=\'[{&quot;win&quot;:true,&quot;hero&quot;:&quot;Fanny&quot;,&quot;kills&quot;:8,&quot;deaths&quot;:2,&quot;assists&quot;:5}]\'></textarea>':`<input name="query" maxlength="60" ${hero?'required':''} placeholder="${hero?'Lancelot':items?'Blade':league?'Ahri':'jungle'}">`}</label><label>Internet Hands API key<select name="api_key_id">${keys.map(k=>`<option value="${esc(k.id)}">${esc(k.name)} · ${esc(k.prefix)}…</option>`).join('')}</select></label><button class="btn primary" type="submit">Run · 1 credit ${icon('arrow')}</button></form>`:`<p>Create an Internet Hands API key to record and run this tool.</p><a data-link class="btn primary" href="/dashboard/api-keys">Create API key</a>`}<div id="game-tool-output"></div></section>`;
+    panel.querySelector('.game-tool-close').onclick=()=>panel.replaceChildren();
+    panel.scrollIntoView({behavior:'smooth',block:'nearest'});
+    const form=$('#game-tool-form',panel);if(!form)return;
+    form.onsubmit=async event=>{
+      event.preventDefault();const output=$('#game-tool-output',panel),submit=form.querySelector('button[type="submit"]');
+      let arguments_;
+      try{arguments_=match?{matches:JSON.parse(form.elements.matches.value)}:hero?{hero:form.elements.query.value}:{query:form.elements.query.value};}
+      catch(error){output.innerHTML='<p class="game-empty">Match results must be valid JSON.</p>';return;}
+      output.innerHTML='<p class="game-empty">Running…</p>';submit.disabled=true;
+      try{
+        const response=await api('/api/games/'+encodeURIComponent(game.game_id)+'/tools/'+encodeURIComponent(capability),{method:'POST',body:{api_key_id:form.elements.api_key_id.value,arguments:arguments_}});
+        const data=response.result||{},provenance=data.provenance||{},rows=data.results||[];
+        const summary=match?`<article><strong>${fmt(data.overall?.games)} matches · ${fmt(data.overall?.win_rate)}% wins</strong><p>Recent 10: ${fmt(data.recent_10?.win_rate)}% · KDA ${fmt(data.overall?.kda)} · ${fmt(data.current_streak?.games)} ${esc(data.current_streak?.outcome||'')} streak</p></article>`:data.hero?`<article><strong>${esc(data.hero.name)} · ${esc(data.hero.role)}</strong><p>Lanes: ${esc((data.hero.lanes||[]).join(', '))}</p><p>Synergies: ${esc((data.hero.synergies||[]).join(', '))}</p><p>Community counters: ${esc((data.hero.counters||[]).join(', '))}</p></article>`:`<p>${fmt(data.total)} matches · showing ${fmt(rows.length)}</p><div class="game-tool-rows">${rows.map(row=>`<article><strong>${esc(row.name)}</strong><span>${esc(row.role||(row.roles||[]).join(', ')||row.category||'')} ${row.cost?' · '+esc(row.cost)+' gold':''}</span></article>`).join('')}</div>`;
+        output.innerHTML=`<div class="game-tool-output">${summary}<small>${match?'Calculated from your supplied games.':league?`Data Dragon version ${esc(provenance.version||'')} · <a href="${esc(provenance.source||'')}" target="_blank" rel="noopener noreferrer">Riot documentation</a>`:`Snapshot ${esc(provenance.hero_revision||'')} (heroes) / ${esc(provenance.item_revision||'')} (items) · <a href="${esc(provenance.source||'')}" target="_blank" rel="noopener noreferrer">Source and license: MIT</a>`} · ${fmt(response.usage?.credits_charged)} credit</small><details><summary>Full structured result</summary><pre>${esc(JSON.stringify(data,null,2))}</pre></details></div>`;
+      }catch(error){output.innerHTML=`<p class="game-empty">${esc(error.message)}</p>`;}
+      finally{submit.disabled=false;}
+    };
+  }
+  filter.oninput=draw;draw();if(games.length)select(games[0].game_id);
+}
+async function dashRepositories(){
+  const keyData=await api('/api/api-keys');
+  const keys=(keyData.keys||[]).filter(k=>!k.revoked_at&&(!k.expires_at||new Date(k.expires_at)>new Date()));
+  if(!keys.length){
+    dashboardShell('repositories',`${pageHead('REPOSITORY INTELLIGENCE','Explore public code','Discover repositories and inspect documented API surfaces.')}<section class="search-key-lock">${icon('key')}<div><h2>Create an API key first</h2><p>Repository searches are recorded as runs against your key.</p></div><a class="btn primary" data-link href="/dashboard/api-keys">Create API key</a></section>`);
+    return;
+  }
+  dashboardShell('repositories',`${pageHead('REPOSITORY INTELLIGENCE','Explore public code','Search GitHub projects, inspect licenses and map published OpenAPI specs.')}<section class="repo-workspace"><form id="repo-form" class="repo-search"><label for="repo-query">Search topic or paste owner/repository</label><div><input id="repo-query" required maxlength="160" autocomplete="off" placeholder="MLBB data tools, replay analysis, or owner/repo"><button class="btn primary" id="repo-submit">Investigate ${icon('arrow')}</button></div><details><summary>API key</summary><select id="repo-key">${keys.map(k=>`<option value="${esc(k.id)}">${esc(k.name)} · ${esc(k.prefix)}…</option>`).join('')}</select></details></form><div class="repo-suggestions"><button data-repo-example="MLBB data tools">MLBB data tools</button><button data-repo-example="game replay analysis">Replay analysis</button><button data-repo-example="openapi game statistics">Game APIs</button></div><div id="repo-results" aria-live="polite"><p class="repo-empty">Results will show source links, license, freshness and available API specifications.</p></div></section>`);
+  const field=$('#repo-query'),results=$('#repo-results'),button=$('#repo-submit');
+  field.value=(new URLSearchParams(location.search).get('query')||'').slice(0,160);
+  const source=name=>/^[\w.-]+\/[\w.-]+$/.test(name||'')?'https://github.com/'+name:'';
+  const pushed=value=>value&&Number.isFinite(Date.parse(value))?' · Last push '+new Date(value).toLocaleDateString():'';
+  let activeRun=0;
+  async function investigate(input,forceInspect=false){
+    const value=String(input||'').trim();if(!value)return;
+    const inspect=forceInspect||/^([\w.-]+\/[\w.-]+|https:\/\/github\.com\/[\w.-]+\/[\w.-]+(?:\.git)?)$/i.test(value);
+    const run=++activeRun;
+    button.disabled=true;results.innerHTML='<p class="repo-empty">Searching public GitHub data…</p>';
+    try{
+      const response=await api('/api/repos/'+(inspect?'inspect':'search'),{method:'POST',body:{[inspect?'repository':'query']:value,api_key_id:$('#repo-key').value}});
+      if(run!==activeRun)return;
+      const data=response.result||{},usage=response.usage||{};
+      const metric=`${fmt(usage.credits_charged)} credits · ${fmt(usage.github_api_calls)} GitHub requests`;
+      if(!inspect){
+        const rows=data.repositories||[];
+        results.innerHTML=`<header class="repo-result-head"><h2>${fmt(rows.length)} public repositories</h2><small>${esc(metric)}${data.incomplete_results?' · GitHub returned partial results':''}</small></header>${rows.length?`<div class="repo-result-list">${rows.map(row=>{const url=source(row.name);return `<article class="repo-card"><div><strong>${esc(row.name)}</strong><p>${esc(row.description||'No description provided.')}</p><small>${esc(row.language||'Language unknown')} · ${fmt(row.stars)} stars · ${esc(row.license||'License not declared')}${esc(pushed(row.updated_at))}</small></div><div class="repo-card-actions">${url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">View source</a><button data-repo-inspect="${esc(row.name)}">Inspect ${icon('arrow')}</button>`:''}</div></article>`}).join('')}</div>`:'<p class="repo-empty">No public repositories found. Try a broader topic.</p>'}`;
+        $$('[data-repo-inspect]',results).forEach(item=>item.onclick=()=>{field.value=item.dataset.repoInspect;investigate(field.value,true)});
+      }else{
+        const url=source(data.repository),specs=data.api_specs||[],files=data.candidate_files||[];
+        results.innerHTML=`<header class="repo-result-head"><div><span class="overline">PUBLIC REPOSITORY</span><h2>${esc(data.repository||value)}</h2><p>${esc(data.description||'No description provided.')}</p><small>${esc(data.language||'Language unknown')} · ${fmt(data.stars)} stars · ${esc(data.license||'License not declared')}${esc(pushed(data.pushed_at))} · ${esc(metric)}</small></div>${url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">View on GitHub ${icon('arrow')}</a>`:''}</header>${data.tree_truncated?'<p class="repo-note">The file tree was truncated; findings cover the inspected portion.</p>':''}<section class="repo-findings"><h3>Documented API specs</h3>${specs.length?specs.map(spec=>`<article><a href="${esc(spec.url)}" target="_blank" rel="noopener noreferrer">${esc(spec.path)}</a><small>${spec.parsed?`${fmt((spec.endpoints||[]).length)} endpoint examples · ${fmt((spec.oauth_scopes||[]).length)} OAuth scope names`:'Specification could not be parsed'}</small>${(spec.endpoints||[]).length?`<div class="repo-endpoints">${spec.endpoints.slice(0,20).map(ep=>`<code>${esc(ep.method)} ${esc(ep.path)}</code>`).join('')}</div>`:''}${(spec.oauth_scopes||[]).length?`<p>Documented scopes: ${esc(spec.oauth_scopes.join(', '))}</p>`:''}</article>`).join(''):'<p class="repo-empty">No small OpenAPI spec was found in the inspected tree.</p>'}<h3>Promising source paths</h3>${files.length?`<div class="repo-files">${files.slice(0,35).map(file=>`<a href="${esc(file.url)}" target="_blank" rel="noopener noreferrer">${esc(file.path)}</a>`).join('')}</div>`:'<p class="repo-empty">No API related paths found in the inspected tree.</p>'}</section>${url?`<button class="btn" id="repo-clone">Copy public clone command</button>`:''}`;
+        $('#repo-clone')?.addEventListener('click',event=>copyText('git clone '+url+'.git',event.currentTarget));
+      }
+    }catch(error){if(run===activeRun)results.innerHTML=`<p class="repo-error">${esc(error.message)}</p>`;}
+    finally{if(run===activeRun)button.disabled=false;}
+  }
+  $('#repo-form').onsubmit=e=>{e.preventDefault();investigate(field.value)};
+  $$('[data-repo-example]').forEach(item=>item.onclick=()=>{field.value=item.dataset.repoExample;investigate(field.value)});
+}
+async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,games:dashGames,repositories:dashRepositories,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
 async function renderRoute(){clearTransientUi();window.scrollTo(0,0);const p=location.pathname;try{if(p==='/'||p==='/pricing'||p==='/status'||p.startsWith('/docs')||p.startsWith('/legal')||LEGAL_ALIASES[p])await hydrateOptionalSession();if(p.startsWith('/dashboard'))return await renderDashboard();if(p==='/verify-email')return await renderVerify();if(p==='/login')return renderAuth('login');if(p==='/signup')return renderAuth('signup');if(p==='/forgot-password')return renderRecovery();if(p==='/reset-password')return renderRecovery(true);if(p.startsWith('/legal')||LEGAL_ALIASES[p])return renderLegal();if(p.startsWith('/docs'))return renderDocs();if(p==='/pricing')return await renderPricing();if(p==='/status')return await renderStatus();return await renderHome();}catch(error){console.error(error);if(error.status===401)return go('/login',true);app.innerHTML=`<main class="fatal"><div>${brand()}<span class="eyebrow">REQUEST FAILED</span><h1>The control plane did not answer cleanly.</h1><p>${esc(error.message)}</p><button class="btn primary" onclick="location.reload()">Try again</button></div></main>`;}}
 document.addEventListener('click',e=>{
   if(e.defaultPrevented)return;
@@ -725,46 +864,33 @@ function openRunInspector(event) {
   };
 
   dashIntegrations = async function dashIntegrationsV3() {
-    const endpoint = `${location.origin}/mcp`;
-    const clients = [
-      {mark:'openai',brand:'OpenAI',name:'ChatGPT',mode:'OAuth MCP',desc:'Give ChatGPT a stable remote MCP endpoint with explicit scopes.',steps:['Copy the permanent endpoint.','Add it as a remote/custom MCP server.','Approve requested scopes and run a public-web test.']},
-      {mark:'anthropic',brand:'Anthropic',name:'Claude',mode:'OAuth MCP',desc:'Connect Claude through Streamable HTTP and browser authorization.',steps:['Copy the permanent endpoint.','Add it under Claude integrations.','Complete OAuth consent and test the connection.']},
-      {mark:'xai',brand:'xAI',name:'Grok',mode:'Scoped key',desc:'Use a server-held bearer key when an interactive OAuth flow is not available.',steps:['Create a scoped Internet Hands key.','Use the MCP endpoint as your tool gateway.','Send the key as a Bearer token.']},
-      {mark:'hermes',brand:'Nous Research',name:'Hermes Agent',mode:'MCP / key',desc:'Register the same gateway in self-hosted agent runtimes.',steps:['Choose OAuth for user sessions or a scoped key for automation.','Register the endpoint in Hermes.','Run capability discovery before execution.']},
-      {mark:'mcp',brand:'Model Context Protocol',name:'Generic MCP client',mode:'OAuth MCP',desc:'Any compatible Streamable HTTP client can use the same gateway.',steps:['Register the endpoint.','Follow protected-resource discovery.','Authorize scopes and test mesh_route.']},
-      {mark:'api',brand:'HTTP API',name:'Direct automation',mode:'Bearer key',desc:'Scripts, CI and servers can use scoped credentials directly.',steps:['Create an API key.','Send it through Authorization: Bearer.','Keep one key per integration for clean revocation.']}
-    ];
-    dashboardShell('connections',`
-      ${headline('CONNECTIONS','One gateway. Every client.','Connect the tools you already use without duplicating provider credentials or changing the endpoint.',`<button class="btn primary" data-copy="${esc(endpoint)}">${icon('copy')} Copy MCP endpoint</button>`)}
-      <section class="ihx-endpoint-hero">
-        <div><span>${dot()} PERMANENT ENDPOINT</span><h2>${esc(endpoint)}</h2><p>OAuth discovery, scoped access and metered execution live behind this address.</p></div>
-        <div class="ihx-endpoint-meta"><span><small>Transport</small><b>Streamable HTTP</b></span><span><small>Identity</small><b>OAuth / key</b></span><span><small>State</small><b>Operational</b></span></div>
-      </section>
-      <section class="ihx-connection-modes">
-        <article><span>${icon('shield')}</span><div><small>INTERACTIVE CLIENTS</small><h3>OAuth MCP</h3><p>Consent + PKCE + short-lived bearer tokens.</p></div><a data-link href="/docs/oauth">OAuth guide ${icon('arrow')}</a></article>
-        <article><span>${icon('key')}</span><div><small>AUTOMATION</small><h3>Scoped API keys</h3><p>Independent credentials for scripts, CI and servers.</p></div><a data-link href="/dashboard/api-keys">Manage keys ${icon('arrow')}</a></article>
-      </section>
-      <section class="ihx-catalog">
-        <header><div><span>CLIENT CATALOG</span><h2>Your existing stack, connected properly.</h2></div><p>No raw provider-name wall. Each integration keeps its identity, mode and exact setup path.</p></header>
-        <div class="ihx-client-grid">
-          ${clients.map((x,i)=>`<article class="ihx-client-card" data-client-card>
-            <button class="ihx-client-main" data-client-toggle aria-expanded="false">
-              ${clientMark(x.mark,x.brand)}
-              <span class="ihx-client-copy"><small>${esc(x.brand)}</small><b>${esc(x.name)}</b><p>${esc(x.desc)}</p></span>
-              <span class="ihx-client-mode">${esc(x.mode)}</span>${icon('arrow')}
-            </button>
-            <div class="ihx-client-detail" hidden>
-              <ol>${x.steps.map((step,n)=>`<li><i>${String(n+1).padStart(2,'0')}</i><span>${esc(step)}</span></li>`).join('')}</ol>
-              <div class="ihx-client-code"><code>${esc(x.mode.includes('key')||x.mode.includes('Bearer')?`Authorization: Bearer ih_live_…\nEndpoint: ${endpoint}`:endpoint)}</code><button data-copy="${esc(x.mode.includes('key')||x.mode.includes('Bearer')?`Authorization: Bearer ih_live_…\nEndpoint: ${endpoint}`:endpoint)}">${icon('copy')} Copy</button></div>
-            </div>
-          </article>`).join('')}
-        </div>
-      </section>`);
+    const endpoint=location.origin+'/mcp', d=await api('/api/connections').catch(()=>({connections:[]})), cs=d.connections||[];
+    const rows=cs.length?cs.map(c=>'<article class="mcp-row"><div><b>'+esc(c.name)+'</b><code>'+esc(c.endpoint_url)+'</code><small>'+esc(c.transport)+' · '+esc(c.auth_type)+' · '+esc((c.header_names||[]).join(', '))+'</small></div><button class="btn quiet small" data-del-mcp="'+esc(c.id)+'">Delete</button></article>').join(''):'<div class="mcp-empty"><b>No remote MCP connections</b><p>Add one manually or import a cURL command.</p></div>';
+    dashboardShell('connections', headline('CONNECTIONS','MCP connections','Connect remote MCP servers with the authentication they actually require.','<button class="btn primary" id="mcp-add">+ Add connection</button>')+
+      '<section class="ihx-endpoint-hero"><div><span>YOUR INTERNET HANDS MCP</span><h2>'+esc(endpoint)+'</h2><p>Use this endpoint when ChatGPT, Claude, Grok or another MCP client connects to Internet Hands.</p></div><div class="ihx-endpoint-meta"><span><small>Transport</small><b>Streamable HTTP</b></span><span><small>Identity</small><b>OAuth / key</b></span><span><small>State</small><b>Operational</b></span></div></section>'+
+      '<section class="agent-connect"><header><span>CONNECT YOUR CODING AGENT</span><h2>Use Internet Hands from your terminal</h2><p>Pick your agent, copy the setup, then verify the MCP connection.</p></header><div class="agent-tabs"><button class="active" data-agent-tab="codex">Codex CLI</button><button data-agent-tab="claude">Claude Code</button><button data-agent-tab="config">MCP config</button><button data-agent-tab="curl">HTTP / cURL</button></div><div id="agent-setup"></div></section><section class="mcp-secondary"><button id="mcp-add2"><b>Connect remote MCP</b><small>Internet Hands → another MCP server</small></button><button id="mcp-curl"><b>Import provider cURL</b><small>Outbound remote MCP setup</small></button></section>'+
+      '<section class="mcp-saved"><header><span>SAVED CONNECTIONS</span><h2>Remote MCP servers</h2><p>Credential values are never rendered back.</p></header>'+rows+'</section>'+
+      '<section class="ihx-connection-modes"><article><span>'+icon('shield')+'</span><div><small>INTERACTIVE CLIENTS</small><h3>OAuth MCP</h3><p>Consent + PKCE + short-lived bearer tokens.</p></div><button class="mcp-link" data-mcp-guide="oauth">OAuth guide →</button></article><article><span>'+icon('key')+'</span><div><small>AUTOMATION</small><h3>Scoped API keys</h3><p>Independent credentials for scripts, CI and servers.</p></div><a data-link href="/dashboard/api-keys">Manage keys →</a></article></section>');
     bindCommon();
-    $$('[data-client-toggle]').forEach(b=>b.addEventListener('click',()=>{
-      const card=b.closest('[data-client-card]'), detail=card.querySelector('.ihx-client-detail'), open=detail.hidden;
-      detail.hidden=!open; b.setAttribute('aria-expanded',String(open)); card.classList.toggle('open',open);
-    }));
+    const agentSetup=(kind)=>{
+      const configs={
+        codex:{title:'Codex CLI',desc:'Add Internet Hands as a Streamable HTTP MCP server.',cmd:'codex mcp add internet-hands --url '+endpoint,verify:'codex mcp list',extra:'OAuth: codex mcp login internet-hands. Manual config: ~/.codex/config.toml.'},
+        claude:{title:'Claude Code',desc:'Register Internet Hands over HTTP from your terminal.',cmd:'claude mcp add --transport http internet-hands '+endpoint,verify:'claude mcp list',extra:'Choose project or user scope when you want the connection shared.'},
+        config:{title:'Codex config.toml',desc:'Manual MCP configuration.',cmd:'[mcp_servers.internet_hands]\nurl = "'+endpoint+'"',verify:'codex mcp list',extra:'Save in ~/.codex/config.toml or .codex/config.toml for a trusted project.'},
+        curl:{title:'Raw HTTP / cURL',desc:'Inspect the endpoint or wire a custom client.',cmd:'curl -i '+endpoint,verify:'curl -i '+endpoint,extra:'Add the issued auth header when required. Never commit secrets.'}
+      },x=configs[kind]||configs.codex,box=document.querySelector('#agent-setup');if(!box)return;
+      box.innerHTML='<article class="agent-command"><div class="agent-command-head"><div><small>'+esc(x.title)+'</small><h3>'+esc(x.desc)+'</h3></div><button class="btn quiet small" data-copy-agent>Copy setup</button></div><pre><code>'+esc(x.cmd)+'</code></pre><div class="agent-verify"><span>VERIFY</span><code>'+esc(x.verify)+'</code><button class="btn quiet small" data-copy-verify>Copy</button></div><p>'+esc(x.extra)+'</p></article>';
+      box.querySelector('[data-copy-agent]')?.addEventListener('click',()=>navigator.clipboard.writeText(x.cmd).then(()=>toast('Setup copied','success')));
+      box.querySelector('[data-copy-verify]')?.addEventListener('click',()=>navigator.clipboard.writeText(x.verify).then(()=>toast('Verify command copied','success')));
+    };
+    document.querySelectorAll('[data-agent-tab]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-agent-tab]').forEach(x=>x.classList.remove('active'));b.classList.add('active');agentSetup(b.dataset.agentTab)});
+    agentSetup('codex');
+    const panel=(title,body)=>{const w=document.createElement('div');w.className='modal-backdrop open';w.innerHTML='<section class="modal-card mcp-modal"><header><h2>'+esc(title)+'</h2><button class="icon-btn" data-x>×</button></header>'+body+'</section>';document.body.appendChild(w);w.querySelector('[data-x]').onclick=()=>w.remove();w.onclick=e=>{if(e.target===w)w.remove()};return w};
+    const fields=t=>t==='api_key'?'<label>Header name<input name="header_name" value="X-API-Key"></label><label>API key<input type="password" name="secret" required autocomplete="new-password"></label>':(t==='bearer'||t==='oauth')?'<label>'+(t==='oauth'?'OAuth access token':'Bearer token')+'<input type="password" name="secret" required autocomplete="new-password"></label>':t==='headers'?'<label>Custom headers<textarea name="headers_text" rows="5" placeholder="X-API-Key: …&#10;X-Workspace: …"></textarea></label>':'<p class="mcp-note">No credentials will be sent.</p>';
+    const add=()=>{const w=panel('Add MCP connection','<form id="mcp-form" class="form-stack"><label>Name<input name="name" required maxlength="80" placeholder="Production MCP"></label><label>Server URL<input type="url" name="endpoint_url" required placeholder="https://example.com/mcp"></label><div class="mcp-grid"><label>Transport<select name="transport"><option value="streamable_http">Streamable HTTP</option><option value="sse">SSE</option></select></label><label>Authentication<select name="auth_type"><option value="none">No auth</option><option value="api_key">API key</option><option value="bearer">Bearer token</option><option value="headers">Custom headers</option><option value="oauth">OAuth access token</option></select></label></div><div id="mcp-auth">'+fields('none')+'</div><p class="mcp-note">Credentials are submitted server-side and are not displayed after creation.</p><button class="btn primary" type="submit">Save connection</button></form>');const f=w.querySelector('#mcp-form'),a=f.elements.auth_type;a.onchange=()=>w.querySelector('#mcp-auth').innerHTML=fields(a.value);f.onsubmit=async e=>{e.preventDefault();const body=Object.fromEntries(new FormData(f));if(body.headers_text){body.headers={};body.headers_text.split(/\r?\n/).forEach(x=>{const i=x.indexOf(':');if(i>0)body.headers[x.slice(0,i).trim()]=x.slice(i+1).trim()});delete body.headers_text}try{await api('/api/connections',{method:'POST',body});w.remove();toast('MCP connection saved','success');dashIntegrations()}catch(x){toast(x.message,'error')}}};
+    const guide=k=>{const g=k==='curl'?['cURL import guide','<h3>Import, never execute</h3><p>Paste a provider cURL example. Internet Hands parses the URL and supported headers without running shell commands.</p><pre><code>curl https://example.com/mcp -H &quot;Authorization: Bearer YOUR_TOKEN&quot;</code></pre><h3>Safety</h3><p>Client certificates, key files, cookies and unsafe credential-bearing file options are rejected. Imported credential values stay redacted.</p>']:k==='oauth'?['OAuth MCP guide','<h3>Client → Internet Hands</h3><ol><li>Copy <code>'+esc(endpoint)+'</code>.</li><li>Add it as a remote MCP server.</li><li>Follow OAuth discovery and browser consent.</li><li>Approve only required scopes.</li><li>Run a capability discovery test.</li></ol>']:['MCP connection guide','<h3>Two directions</h3><p><b>Client → Internet Hands:</b> use <code>'+esc(endpoint)+'</code>. <b>Internet Hands → remote MCP:</b> Add MCP connection.</p><h3>Transport</h3><p>Prefer Streamable HTTP. Use SSE only for servers that explicitly expose SSE.</p><h3>Authentication</h3><p>No auth, API key, Bearer token, custom headers, or an already-issued OAuth access token are supported by the connection form.</p>'];panel(g[0],'<div class="mcp-guide">'+g[1]+'</div>')};
+    const curl=()=>{const w=panel('Import cURL','<form id="curl-form" class="form-stack"><label>Name<input name="name" placeholder="Imported MCP"></label><label>cURL command<textarea name="command" rows="8" required spellcheck="false"></textarea></label><p class="mcp-note">Parsed only. The command is never executed and credential values are omitted from preview.</p><div id="curl-result"></div><button class="btn primary">Preview import</button></form>');const f=w.querySelector('#curl-form');f.onsubmit=async e=>{e.preventDefault();try{const d=await api('/api/connections/import-curl',{method:'POST',body:Object.fromEntries(new FormData(f))}),c=d.connection||{};w.querySelector('#curl-result').innerHTML='<div class="mcp-preview"><b>'+esc(c.name||'Imported MCP')+'</b><code>'+esc(c.url||'')+'</code><small>'+esc(c.auth_type||'none')+' · '+esc((c.header_names||[]).join(', '))+'</small><p>Use Add connection to save it with the credential values.</p></div>'}catch(x){toast(x.message,'error')}}};
+    document.querySelector('#mcp-add')?.addEventListener('click',add);document.querySelector('#mcp-add2')?.addEventListener('click',add);document.querySelector('#mcp-curl')?.addEventListener('click',curl);document.querySelectorAll('[data-mcp-guide]').forEach(b=>b.onclick=()=>guide(b.dataset.mcpGuide));document.querySelectorAll('[data-del-mcp]').forEach(b=>b.onclick=async()=>{if(!confirm('Delete this MCP connection?'))return;try{await api('/api/connections/'+encodeURIComponent(b.dataset.delMcp),{method:'DELETE'});toast('Connection deleted','success');dashIntegrations()}catch(x){toast(x.message,'error')}});
   };
 
   dashKeys = async function dashKeysV3() {
@@ -782,59 +908,201 @@ function openRunInspector(event) {
     $$('[data-revoke-key]').forEach(b=>b.addEventListener('click',async()=>{if(!confirm('Revoke this key?'))return;await api(`/api/api-keys/${b.dataset.revokeKey}/revoke`,{method:'POST'});toast('Key revoked','success');dashKeys();}));
   };
 
-  dashPlayground = async function dashPlaygroundV2() {
-    const [keyData, dashboard] = await Promise.all([api('/api/api-keys'), api('/api/dashboard')]);
-    const keys=(keyData.keys||[]).filter(x=>!x.revoked_at && (!x.expires_at || new Date(x.expires_at)>new Date()));
-    const account=dashboard.account||{}, available=Number(account.monthly_credits||0)+Number(account.purchased_credits||0)-Number(account.reserved_credits||0);
+  dashPlayground = async function dashPlaygroundV4() {
+    const [keyData,dashboard]=await Promise.all([api('/api/api-keys'),api('/api/dashboard')]);
+    const keys=(keyData.keys||[]).filter(x=>!x.revoked_at&&(!x.expires_at||new Date(x.expires_at)>new Date()));
+    const account=dashboard.account||{};
+    const available=Number(account.monthly_credits||0)+Number(account.purchased_credits||0)-Number(account.reserved_credits||0);
 
     if(!keys.length){
       dashboardShell('playground',
-        headline('METERED TESTING','Playground','Test Internet Hands against the real usage ledger. An active API key is required before execution.','<a class="btn" data-link href="/dashboard/usage">'+icon('activity')+' View runs</a>') +
-        '<section class="ihp-key ihp-key-required"><div class="ihp-key-copy">'+icon('key')+'<div><small>API KEY REQUIRED</small><h2>Create an API key before using Playground.</h2><p>Playground does not create special credentials. Create a normal scoped key in API Keys, then return here to run metered tests.</p></div></div><div class="ihp-key-actions"><span class="ihx-state idle">'+dot('warn')+' No active API keys</span><a class="btn primary" data-link href="/dashboard/api-keys">'+icon('key')+' Create API key</a></div></section>' +
-        '<section class="ihp-locked"><span>'+icon('shield')+'</span><div><small>PLAYGROUND LOCKED</small><h3>Execution is unavailable until your account has an active API key.</h3><p>Keys define scopes, isolate clients and attach usage to a revocable credential.</p></div></section>');
+        headline('PLAYGROUND','Search the web','Ask for information, research a topic, or paste a public URL.','<a class="btn" data-link href="/dashboard/usage">'+icon('activity')+' Runs</a>')+
+        '<section class="search-key-lock">'+icon('key')+'<div><small>API KEY REQUIRED</small><h2>Create an API key to use Playground.</h2><p>Your searches and crawls are attributed to that key.</p></div><a class="btn primary" data-link href="/dashboard/api-keys">Create API key</a></section>'
+      );
       return;
     }
 
-    const keyOptions=keys.map((key,index)=>'<option value="'+esc(key.id)+'" '+(index===0?'selected':'')+'>'+esc(key.name)+' · '+esc(key.prefix)+'… · '+esc(key.environment)+'</option>').join('');
-    const html =
-      headline('METERED TESTING','Playground','Run the real crawler through an active API key. Every test spends credits and appears in Runs.','<a class="btn" data-link href="/dashboard/usage">'+icon('activity')+' View runs</a>') +
-      '<section class="ihp-key">' +
-        '<div class="ihp-key-copy">'+icon('key')+'<div><small>STEP 01 / API KEY</small><h2>Active API key detected.</h2><p>Choose which normal API key should own this Playground run. No raw secret needs to be pasted here.</p></div></div>' +
-        '<div class="ihp-key-actions"><span class="ihx-state on">'+dot('ok')+' '+fmt(keys.length)+' active key'+(keys.length===1?'':'s')+'</span><a class="btn" data-link href="/dashboard/api-keys">Manage keys</a></div>' +
-        '<label class="ihp-key-select">Use API key<select id="ihp-key-id">'+keyOptions+'</select><small>Usage and last-used activity are attributed to this key.</small></label>' +
-      '</section>' +
-      '<section class="ihp-main">' +
-        '<form id="ihp-form" class="ihp-form">' +
-          '<header><div><small>STEP 02 / CRAWL</small><h2>Web crawl test</h2><p>Public HTTP(S) only · robots respected · SSRF protected · bounded fan-out.</p></div><span class="ihp-cost">2 credits / run</span></header>' +
-          '<label>Target URL<input id="ihp-url" type="url" required placeholder="https://example.com"></label>' +
-          '<div class="ihp-budgets"><label>Pages<input id="ihp-pages" type="number" min="1" max="50" value="12"></label><label>Depth<input id="ihp-depth" type="number" min="0" max="4" value="2"></label><label>Concurrency<input id="ihp-concurrency" type="number" min="1" max="6" value="4"></label><label>Seconds<input id="ihp-seconds" type="number" min="5" max="45" value="30"></label></div>' +
-          '<div class="ihp-paths"><label>Include paths <small>comma-separated globs</small><input id="ihp-include" placeholder="/docs/*, /blog/*"></label><label>Exclude paths <small>comma-separated globs</small><input id="ihp-exclude" placeholder="/private/*, /account/*"></label></div>' +
-          '<div class="ihp-options"><label><input id="ihp-subdomains" type="checkbox"> Include subdomains</label><label><input id="ihp-query" type="checkbox"> Preserve query parameters</label><span>'+icon('shield')+' robots.txt always respected</span></div>' +
-          '<div class="ihp-presets"><span>Quick budget</span><button type="button" data-preset="5,1,2,15">5 pages</button><button type="button" data-preset="15,2,4,30">15 pages</button><button type="button" data-preset="30,3,5,40">30 pages</button></div>' +
-          '<button class="btn primary large ihp-run" type="submit">'+icon('activity')+' Run metered crawl</button>' +
-          '<p class="ihp-note">Available balance: <b>'+fmt(available)+'</b> credits. This test is attributed to the selected API key.</p>' +
-        '</form>' +
-        '<aside class="ihp-boundary"><small>EXECUTION BOUNDARY</small><h3>Real test. Real accounting.</h3><div>'+icon('shield')+'<p><b>Public targets only</b>Private, loopback, link-local and reserved addresses are rejected.</p></div><div>'+icon('monitor')+'<p><b>Bounded crawling</b>Pages, depth, concurrency and time stop runaway jobs.</p></div><div>'+icon('activity')+'<p><b>Usage-visible</b>Request ID, status, latency and credits appear in Runs.</p></div><div>'+icon('key')+'<p><b>Normal API keys</b>Playground uses the same revocable keys created in API Keys.</p></div></aside>' +
-      '</section><section id="ihp-result" class="ihp-result" hidden></section>';
-    dashboardShell('playground', html);
+    const keyOptions=keys.map((k,i)=>'<option value="'+esc(k.id)+'" '+(i===0?'selected':'')+'>'+esc(k.name)+' · '+esc(k.prefix)+'…</option>').join('');
+    const html=
+      headline('PLAYGROUND','Search the web','Type what you want to know. Internet Hands will search public sources; paste a URL and it will crawl the site instead.','<a class="btn" data-link href="/dashboard/usage">'+icon('activity')+' Runs</a>')+
+      '<section class="web-search-console">'+
+        '<form id="ihp-form" class="web-search-form">'+
+          '<div class="web-search-box">'+
+            '<span class="web-search-icon">'+icon('activity')+'</span>'+
+            '<textarea id="research-query" rows="1" autocomplete="off" spellcheck="false" placeholder="Search the web — e.g. latest AI news"></textarea>'+
+            '<button id="ihp-submit" type="submit" class="web-search-submit" aria-label="Search">'+icon('arrow')+'</button>'+
+          '</div>'+
+          '<div class="web-search-actions">'+
+            '<label class="deep-toggle"><input id="ihp-deep" type="checkbox"><span></span><b>Deep research</b></label>'+
+            '<span class="search-hint">Paste a URL to crawl it automatically</span>'+
+          '</div>'+
+          '<div class="search-examples" aria-label="Examples">'+
+            '<button type="button" data-example="latest AI news">latest AI news</button>'+
+            '<button type="button" data-example="OpenAI latest models and pricing">OpenAI models & pricing</button>'+
+            '<button type="button" data-example="best AI coding agents right now">best AI coding agents</button>'+
+            '<button type="button" data-example="https://recharza.in">crawl recharza.in</button>'+
+          '</div>'+
+          '<details class="search-advanced">'+
+            '<summary>Advanced options</summary>'+
+            '<div class="search-advanced-grid">'+
+              '<label>API key<select id="ihp-key-id">'+keyOptions+'</select></label>'+
+              '<label>Max results / pages<input id="ihp-pages" type="number" min="1" max="50" value="10"></label>'+
+              '<label>Crawl depth<input id="ihp-depth" type="number" min="0" max="4" value="2"></label>'+
+              '<label>Time budget (sec)<input id="ihp-seconds" type="number" min="5" max="45" value="30"></label>'+
+              '<label>Concurrency<input id="ihp-concurrency" type="number" min="1" max="6" value="4"></label>'+
+              '<label>Include paths<input id="ihp-include" placeholder="/docs/*, /pricing/*"></label>'+
+              '<label>Exclude paths<input id="ihp-exclude" placeholder="/account/*, /private/*"></label>'+
+            '</div>'+
+            '<div class="search-advanced-checks">'+
+              '<label><input id="ihp-subdomains" type="checkbox"> Include subdomains</label>'+
+              '<label><input id="ihp-queryparams" type="checkbox"> Preserve query params</label>'+
+            '</div>'+
+            '<p class="search-security">'+icon('shield')+' Public targets only · robots respected · SSRF protected · '+esc(String(available.toLocaleString()))+' credits available</p>'+
+          '</details>'+
+        '</form>'+
+      '</section>'+
+      '<section id="ihp-results" class="web-search-results" hidden></section>';
 
-    $$('[data-preset]').forEach(button=>button.addEventListener('click',()=>{const values=button.dataset.preset.split(',');$('#ihp-pages').value=values[0];$('#ihp-depth').value=values[1];$('#ihp-concurrency').value=values[2];$('#ihp-seconds').value=values[3];}));
-    const patterns=value=>String(value||'').split(',').map(x=>x.trim()).filter(Boolean);
-    $('#ihp-form')?.addEventListener('submit',async e=>{
+    dashboardShell('playground',html);
+
+    const form=$('#ihp-form'), queryInput=$('#research-query'), submit=$('#ihp-submit'), results=$('#ihp-results');
+    queryInput.value=(new URLSearchParams(location.search).get('query')||'').slice(0,1000);
+    const deep=$('#ihp-deep');
+    const isUrl=value=>/^https?:\/\/[^\s]+$/i.test(String(value||'').trim());
+    const domainOf=value=>{try{return new URL(value).hostname.replace(/^www\./,'')}catch{return ''}};
+    const fmtTime=ms=>ms>=1000?(ms/1000).toFixed(ms>=10000?0:1)+'s':String(ms||0)+'ms';
+    const safeArr=value=>Array.isArray(value)?value:[];
+
+    const renderResult=async(data,inputValue,operation)=>{
+      const result=data.result||{}, summary=data.summary||{}, usage=data.usage||{};
+      const searches=safeArr(result.search_results);
+      const evidence=safeArr(result.evidence);
+      const findings=safeArr((result.synthesis||{}).findings);
+      const pages=safeArr(result.pages);
+      const count=operation==='crawl'?pages.length:searches.length;
+      const label=operation==='crawl'?'CRAWL COMPLETE':operation==='research'?'RESEARCH COMPLETE':'SEARCH RESULTS';
+      const title=operation==='crawl'?(domainOf(inputValue)||inputValue):inputValue;
+      const meta=[
+        count+(operation==='crawl'?' pages':count===1?' result':' results'),
+        (usage.credits_charged||0)+' credit'+((usage.credits_charged||0)===1?'':'s'),
+        fmtTime(summary.duration_ms||0)
+      ].join(' · ');
+
+      const answer=findings.length?(
+        '<section class="search-answer"><div class="search-section-kicker">ANSWER</div>'+
+        findings.slice(0,6).map((f,i)=>
+          '<article class="answer-point"><span>'+(i+1)+'</span><div><p>'+esc(String(f.text||''))+'</p>'+
+          (f.url?'<a href="'+esc(f.url)+'" target="_blank" rel="noopener">['+esc(String(f.citation||i+1))+'] '+esc(domainOf(f.url)||f.title||'Source')+'</a>':'')+
+          '</div></article>'
+        ).join('')+
+        '</section>'
+      ):'';
+
+      const searchCards=searches.length?(
+        '<section class="search-results-list"><div class="search-section-head"><div><div class="search-section-kicker">WEB RESULTS</div><h3>'+searches.length+' sources found</h3></div></div>'+
+        searches.map((item,i)=>{
+          const url=String(item.url||'');
+          const source=String(item.source||'').replaceAll('_',' ');
+          return '<article class="search-result-card">'+
+            '<div class="search-result-rank">'+(i+1)+'</div>'+
+            '<div class="search-result-body">'+
+              '<div class="search-result-domain">'+esc(domainOf(url)||'web')+(source?' · '+esc(source):'')+'</div>'+
+              '<a class="search-result-title" href="'+esc(url)+'" target="_blank" rel="noopener">'+esc(String(item.title||url||'Untitled source'))+'</a>'+
+              (item.description?'<p>'+esc(String(item.description))+'</p>':'')+
+              '<a class="search-result-url" href="'+esc(url)+'" target="_blank" rel="noopener">'+esc(url)+'</a>'+
+            '</div>'+
+          '</article>';
+        }).join('')+
+        '</section>'
+      ):'';
+
+      const crawlCards=pages.length?(
+        '<section class="search-results-list"><div class="search-section-head"><div><div class="search-section-kicker">CRAWLED PAGES</div><h3>'+pages.length+' pages</h3></div></div>'+
+        pages.slice(0,50).map((page,i)=>{
+          const url=String(page.url||'');
+          const ok=Boolean(page.status_code)&&!page.error;
+          return '<article class="search-result-card">'+
+            '<div class="search-result-rank">'+(i+1)+'</div>'+
+            '<div class="search-result-body"><div class="search-result-domain">'+esc(domainOf(url)||'page')+' · '+(ok?'OK':'FAILED')+'</div>'+
+            '<a class="search-result-title" href="'+esc(url)+'" target="_blank" rel="noopener">'+esc(url)+'</a>'+
+            '<p>'+(ok?esc(String(page.status_code))+' · '+esc(String(page.links_found||0))+' links found':esc(String(page.error||'Could not fetch page')))+'</p></div>'+
+          '</article>';
+        }).join('')+
+        '</section>'
+      ):'';
+
+      const evidenceBlock=evidence.length?(
+        '<details class="search-details"><summary>Evidence & provenance <span>'+evidence.length+'</span></summary><div class="evidence-list">'+
+          evidence.map((item,i)=>'<div class="evidence-row"><b>['+(i+1)+']</b><div><a href="'+esc(item.url||'#')+'" target="_blank" rel="noopener">'+esc(item.title||item.url||'Source')+'</a><small>'+esc(String(item.source||item.discovery_source||'web'))+(item.fallback?' · recovered':'')+'</small></div></div>').join('')+
+        '</div></details>'
+      ):'';
+
+      const technical=
+        '<details class="search-details technical"><summary>Run details</summary>'+
+          '<div class="run-detail-grid"><span>Request</span><code>'+esc(data.request_id||'—')+'</code><span>Provider</span><b>'+esc(String(summary.search_provider||'native'))+'</b><span>Evidence</span><b>'+esc(String(summary.evidence_successful||0))+'</b><span>Recovered</span><b>'+esc(String(summary.fallback_recovered||0))+'</b></div>'+
+          '<details class="raw-json"><summary>Raw JSON</summary><pre>'+esc(JSON.stringify(data,null,2))+'</pre></details>'+
+        '</details>';
+
+      results.innerHTML=
+        '<div class="search-result-header"><div><div class="search-section-kicker">'+label+'</div><h2>'+esc(title)+'</h2><p>'+esc(meta)+'</p></div><button class="btn compact" id="ihp-new-search">New search</button></div>'+
+        answer+
+        (operation==='crawl'?crawlCards:searchCards)+
+        ((!answer&&!searchCards&&!crawlCards)?'<div class="search-empty">'+icon('activity')+'<div><h3>No results found</h3><p>Try a broader query or a different public URL.</p></div></div>':'')+
+        evidenceBlock+technical;
+      results.hidden=false;
+      results.scrollIntoView({behavior:'smooth',block:'start'});
+      $('#ihp-new-search')?.addEventListener('click',()=>{results.hidden=true;queryInput.focus();});
+    };
+
+    form.addEventListener('submit',async e=>{
       e.preventDefault();
-      const button=$('.ihp-run',e.currentTarget), result=$('#ihp-result');
-      busy(button,true,'Crawling…');result.hidden=false;result.innerHTML='<div class="ihp-running">'+icon('activity')+'<span><b>Crawl in progress</b><small>Applying your page, depth, concurrency and time budgets…</small></span></div>';
-      const body={api_key_id:$('#ihp-key-id').value,operation:'crawl',url:$('#ihp-url').value.trim(),max_pages:Number($('#ihp-pages').value),max_depth:Number($('#ihp-depth').value),concurrency:Number($('#ihp-concurrency').value),max_seconds:Number($('#ihp-seconds').value),include_paths:patterns($('#ihp-include').value),exclude_paths:patterns($('#ihp-exclude').value),include_subdomains:$('#ihp-subdomains').checked,preserve_query:$('#ihp-query').checked};
+      const inputValue=queryInput.value.trim();
+      if(!inputValue){toast('Type something to search','error');queryInput.focus();return;}
+      const urlMode=isUrl(inputValue);
+      const operation=urlMode?'crawl':(deep.checked?'research':'search');
+      const body={
+        operation,
+        api_key_id:$('#ihp-key-id').value,
+        max_pages:Number($('#ihp-pages').value||10),
+        max_depth:Number($('#ihp-depth').value||2),
+        concurrency:Number($('#ihp-concurrency').value||4),
+        max_seconds:Number($('#ihp-seconds').value||30),
+        include_paths:$('#ihp-include').value.split(',').map(x=>x.trim()).filter(Boolean),
+        exclude_paths:$('#ihp-exclude').value.split(',').map(x=>x.trim()).filter(Boolean),
+        include_subdomains:$('#ihp-subdomains').checked,
+        preserve_query:$('#ihp-queryparams').checked
+      };
+      if(urlMode) body.url=inputValue; else body.query=inputValue;
+
+      submit.disabled=true;
+      submit.innerHTML=icon('activity');
+      results.hidden=false;
+      results.innerHTML='<div class="search-loading"><span class="search-loader"></span><div><b>'+(urlMode?'Crawling website…':deep.checked?'Researching the web…':'Searching the web…')+'</b><p>'+(urlMode?'Following public pages and links.':deep.checked?'Searching, reading sources and building evidence.':'Finding relevant public sources.')+'</p></div></div>';
       try{
-        const response=await fetch('/api/playground/run',{method:'POST',credentials:'include',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-        let data={};try{data=await response.json();}catch{} if(!response.ok){const detail=data?.detail;throw new Error(typeof detail==='string'?detail:detail?.message||data?.error||('Request failed ('+response.status+')'));}
-        const summary=data.summary||{}, pages=data.result?.pages||[];
-        const rows=pages.map(page=>'<div class="ihp-row"><span class="ihx-state '+(page.error?'idle':'on')+'">'+dot(page.error?'warn':'ok')+' '+(page.error?'Error':esc(page.status_code||'OK'))+'</span><span>'+fmt(page.depth)+'</span><span><b>'+esc(page.url)+'</b>'+(page.error?'<small>'+esc(page.error)+'</small>':'')+'</span><span>'+fmt(page.links_found)+'</span><span>'+(page.elapsed_ms==null?'—':fmt(Math.round(page.elapsed_ms))+' ms')+'</span></div>').join('');
-        result.innerHTML='<header class="ihp-result-head"><div><span>'+dot()+' CRAWL COMPLETE</span><h2>'+esc(body.url)+'</h2><p>Request <code>'+esc(data.request_id)+'</code> · '+fmt(data.usage?.credits_charged||0)+' credits charged</p></div><a class="btn" data-link href="/dashboard/usage">Open in Runs '+icon('arrow')+'</a></header><div class="ihp-stats"><div><small>PAGES</small><b>'+fmt(summary.pages)+'</b></div><div><small>SUCCESS</small><b>'+fmt(summary.successful)+'</b></div><div><small>DISCOVERED</small><b>'+fmt(summary.discovered_urls)+'</b></div><div><small>LINKS</small><b>'+fmt(summary.links_found)+'</b></div><div><small>DURATION</small><b>'+fmt(summary.duration_ms)+'<em> ms</em></b></div></div><div class="ihp-table"><div class="ihp-table-head"><span>STATE</span><span>DEPTH</span><span>URL</span><span>LINKS</span><span>TIME</span></div>'+(rows||'<div class="notice">No pages returned.</div>')+'</div><details class="ihp-raw"><summary>Raw crawl response</summary><pre><code>'+esc(JSON.stringify(data,null,2))+'</code></pre></details>';
-        bindCommon();result.scrollIntoView({behavior:'smooth',block:'start'});
-      }catch(error){result.innerHTML='<div class="ihp-error">'+icon('activity')+'<span><b>Crawl failed</b><p>'+esc(error.message)+'</p></span></div>';toast(error.message,'error');}
-      finally{busy(button,false);}
+        const data=await api('/api/playground/run',{method:'POST',body:JSON.stringify(body)});
+        await renderResult(data,inputValue,operation);
+      }catch(err){
+        const message=String(err?.message||err||'Search failed');
+        results.innerHTML='<div class="search-error">'+icon('shield')+'<div><h3>Could not complete this search</h3><p>'+esc(message)+'</p></div></div>';
+      }finally{
+        submit.disabled=false;
+        submit.innerHTML=icon('arrow');
+      }
     });
+
+    $$('[data-example]').forEach(btn=>btn.addEventListener('click',()=>{
+      queryInput.value=btn.dataset.example||'';
+      form.requestSubmit();
+    }));
+
+    queryInput.addEventListener('keydown',e=>{
+      if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();form.requestSubmit();}
+    });
+    queryInput.addEventListener('input',()=>{
+      queryInput.style.height='auto';
+      queryInput.style.height=Math.min(queryInput.scrollHeight,140)+'px';
+    });
+    queryInput.focus();
   };
 
   dashMonitors = async function dashMonitorsV3() {
@@ -928,6 +1196,8 @@ function openRunInspector(event) {
     ['Build', [
       ['overview','terminal','Overview'],
       ['playground','activity','Playground'],
+      ['games','activity','Game Intelligence'],
+      ['repositories','api','Repositories'],
       ['api-keys','key','API Keys']
     ]],
     ['Observe', [
@@ -1016,6 +1286,8 @@ function openRunInspector(event) {
         <div class="cos-sheet-title"><b>More</b><small>Workspace navigation</small></div>
         <span class="cos-sheet-label">Build & observe</span>
         <a data-link href="/dashboard/api-keys">${icon('key')} API Keys</a>
+        <a data-link href="/dashboard/games">${icon('activity')} Game Intelligence</a>
+        <a data-link href="/dashboard/repositories">${icon('api')} Repositories</a>
         <a data-link href="/dashboard/monitors">${icon('monitor')} Monitors</a>
         <span class="cos-sheet-label">Account & product</span>
         <a data-link href="/dashboard/wallet">${icon('wallet')} Credits</a>

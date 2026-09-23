@@ -105,6 +105,24 @@ CREATE TABLE IF NOT EXISTS ih_api_keys (
 );
 CREATE INDEX IF NOT EXISTS ih_api_keys_user_idx ON ih_api_keys(user_id, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS ih_connections (
+    id text PRIMARY KEY,
+    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,
+    name text NOT NULL,
+    kind text NOT NULL DEFAULT 'mcp',
+    endpoint_url text NOT NULL,
+    transport text NOT NULL DEFAULT 'streamable_http',
+    auth_type text NOT NULL DEFAULT 'none',
+    config jsonb NOT NULL DEFAULT '{}'::jsonb,
+    secret_config jsonb NOT NULL DEFAULT '{}'::jsonb,
+    enabled boolean NOT NULL DEFAULT true,
+    last_status text,
+    last_checked_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ih_connections_user_idx ON ih_connections(user_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS ih_usage_events (
     id text PRIMARY KEY,
     user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,
@@ -123,6 +141,17 @@ CREATE TABLE IF NOT EXISTS ih_usage_events (
 );
 CREATE INDEX IF NOT EXISTS ih_usage_user_time_idx ON ih_usage_events(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS ih_usage_key_time_idx ON ih_usage_events(api_key_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS ih_provider_usage (
+    id text PRIMARY KEY,
+    request_id text NOT NULL REFERENCES ih_usage_events(request_id) ON DELETE CASCADE,
+    provider text NOT NULL,
+    operation text NOT NULL,
+    credits_used integer,
+    status text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ih_provider_usage_request_idx ON ih_provider_usage(request_id);
 
 CREATE TABLE IF NOT EXISTS ih_monitors (
     id text PRIMARY KEY,
@@ -271,6 +300,8 @@ TOOL_COST_ROWS = [
     ("mesh_job_status", 1, {"category": "provider"}),
     ("mesh_results", 1, {"category": "provider"}),
     ("playground:crawl", 2, {"category": "playground"}),
+    ("repo:*", 1, {"category": "repository"}),
+    ("gamecore:*", 1, {"category": "gaming"}),
     ("*", 1, {"category": "default"}),
 ]
 
@@ -308,7 +339,12 @@ class ControlStore:
     def _connect(self):
         if not self.dsn:
             raise ControlError("control_plane_unavailable", "control database is not configured", 503)
-        return psycopg.connect(self.dsn, row_factory=dict_row)
+        options: dict[str, Any] = {"row_factory": dict_row}
+        # Supabase's transaction pooler must not receive named prepared
+        # statements because a later transaction can land on another backend.
+        if "pooler.supabase.com" in self.dsn:
+            options["prepare_threshold"] = None
+        return psycopg.connect(self.dsn, **options)
 
     def ensure_schema(self) -> None:
         if self._schema_ready:
@@ -456,6 +492,86 @@ class ControlStore:
             row = cur.fetchone()
             return dict(row) if row else None
 
+    def auth_user_id_for_legacy(self, user_id: str) -> str | None:
+        """Return the linked Supabase Auth UUID for one Internet Hands identity."""
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    SELECT id::text AS auth_user_id
+                    FROM profiles
+                    WHERE legacy_user_id=%s OR id::text=%s
+                    LIMIT 1
+                    """,
+                    (user_id, user_id),
+                )
+            except psycopg.Error:
+                conn.rollback()
+                return None
+            row = cur.fetchone()
+            return str(row["auth_user_id"]) if row else None
+
+    def has_api_key_hash(self, key_hash: str) -> bool:
+        """Detect an already-adopted key, including revoked keys."""
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM ih_api_keys WHERE key_hash=%s LIMIT 1", (key_hash,))
+            return cur.fetchone() is not None
+
+    def adopt_legacy_api_key(self, legacy: ControlStore, key_hash: str) -> bool:
+        """Copy one verified legacy key after first successful use.
+
+        The raw key never moves between databases; only its existing one-way
+        hash and metadata are copied inside the server process.
+        """
+        self.ensure_schema()
+        legacy.ensure_schema()
+        with legacy._connect() as source, source.cursor() as source_cur:
+            source_cur.execute(
+                """
+                SELECT id,user_id,name,prefix,key_hash,scopes,environment,
+                       last_used_at,expires_at,revoked_at,created_at
+                FROM ih_api_keys
+                WHERE key_hash=%s AND revoked_at IS NULL
+                  AND (expires_at IS NULL OR expires_at>now())
+                LIMIT 1
+                """,
+                (key_hash,),
+            )
+            row = source_cur.fetchone()
+        if not row:
+            return False
+        owner = self.get_user(str(row["user_id"]))
+        if not owner:
+            return False
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO ih_api_keys(
+                    id,user_id,name,prefix,key_hash,scopes,environment,
+                    last_used_at,expires_at,revoked_at,created_at
+                ) VALUES (%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s,%s)
+                ON CONFLICT (key_hash) DO NOTHING
+                """,
+                (
+                    row["id"],
+                    row["user_id"],
+                    row["name"],
+                    row["prefix"],
+                    row["key_hash"],
+                    json.dumps(row.get("scopes") or []),
+                    row["environment"],
+                    row.get("last_used_at"),
+                    row.get("expires_at"),
+                    row.get("revoked_at"),
+                    row.get("created_at"),
+                ),
+            )
+            changed = cur.rowcount == 1
+            conn.commit()
+            return changed
+
     def upsert_github_user(
         self, *, github_id: str, email: str, display_name: str | None, avatar_url: str | None
     ) -> dict[str, Any]:
@@ -584,6 +700,16 @@ class ControlStore:
                 if cur.rowcount != 1:
                     raise ControlError("account_not_found", "account not found", 404)
                 cur.execute("DELETE FROM ih_sessions WHERE user_id=%s", (user_id,))
+            conn.commit()
+
+    def clear_password_hash(self, user_id: str) -> None:
+        """Remove a compatibility password hash after Supabase has adopted it."""
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE ih_users SET password_hash=NULL,updated_at=now() WHERE id=%s",
+                (user_id,),
+            )
             conn.commit()
 
     def list_plans(self) -> list[dict[str, Any]]:
@@ -1020,6 +1146,29 @@ class ControlStore:
                     conn.commit()
                     return int(event["credits_charged"] or 0)
 
+                provider_usage = (execution_usage or {}).get("provider_usage") or []
+                for item in provider_usage:
+                    if not isinstance(item, dict):
+                        continue
+                    provider = str(item.get("provider") or "")[:80]
+                    operation = str(item.get("operation") or "")[:80]
+                    if not provider or not operation:
+                        continue
+                    raw_credits = item.get("credits_used")
+                    credits_used = (
+                        max(0, int(raw_credits))
+                        if isinstance(raw_credits, (int, float)) and not isinstance(raw_credits, bool)
+                        else None
+                    )
+                    cur.execute(
+                        """
+                        INSERT INTO ih_provider_usage(id,request_id,provider,operation,credits_used,status)
+                        VALUES (%s,%s,%s,%s,%s,%s)
+                        """,
+                        (self._new_id("pru"), request_id, provider, operation, credits_used,
+                         str(item.get("status") or "unknown")[:40]),
+                    )
+
                 reservation = dict(metadata.get("reservation") or {})
                 reserved = max(0, int(reservation.get("credits") or 0))
                 actual = reserved if actual_credits is None else max(0, int(actual_credits))
@@ -1265,6 +1414,48 @@ class ControlStore:
                 (user_id, max(1, min(limit, 500))),
             )
             return {"wallet": dict(wallet) if wallet else None, "ledger": [dict(r) for r in cur.fetchall()]}
+
+    def list_connections(self, user_id: str) -> list[dict[str, Any]]:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT id,name,kind,endpoint_url,transport,auth_type,config,enabled,last_status,last_checked_at,created_at,updated_at
+                   FROM ih_connections WHERE user_id=%s ORDER BY created_at DESC""",
+                (user_id,),
+            )
+            rows = []
+            for raw in cur.fetchall():
+                row = dict(raw)
+                config = dict(row.get("config") or {})
+                row["header_names"] = list(config.get("header_names") or [])
+                rows.append(row)
+            return rows
+
+    def create_connection(
+        self, *, user_id: str, name: str, endpoint_url: str, transport: str,
+        auth_type: str, config: dict[str, Any], secret_config: dict[str, Any],
+    ) -> dict[str, Any]:
+        self.ensure_schema()
+        connection_id = self._new_id("con")
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO ih_connections(id,user_id,name,kind,endpoint_url,transport,auth_type,config,secret_config)
+                   VALUES (%s,%s,%s,'mcp',%s,%s,%s,%s::jsonb,%s::jsonb)
+                   RETURNING id,name,kind,endpoint_url,transport,auth_type,config,enabled,last_status,last_checked_at,created_at,updated_at""",
+                (connection_id, user_id, name, endpoint_url, transport, auth_type, json.dumps(config), json.dumps(secret_config)),
+            )
+            row = dict(cur.fetchone())
+            conn.commit()
+        row["header_names"] = list((row.get("config") or {}).get("header_names") or [])
+        return row
+
+    def delete_connection(self, user_id: str, connection_id: str) -> bool:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM ih_connections WHERE id=%s AND user_id=%s", (connection_id, user_id))
+            changed = cur.rowcount > 0
+            conn.commit()
+            return changed
 
     def list_monitors(self, user_id: str) -> list[dict[str, Any]]:
         self.ensure_schema()
@@ -1572,6 +1763,23 @@ class ControlStore:
                 (user_id, max(1, min(limit, 500))),
             )
             return [dict(r) for r in cur.fetchall()]
+
+    def password_reset_user(self, token_hash: str) -> dict[str, Any] | None:
+        """Resolve a still-valid compatibility reset without consuming it."""
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT u.id,u.email,u.display_name,u.email_verified
+                FROM ih_password_resets r
+                JOIN ih_users u ON u.id=r.user_id
+                WHERE r.token_hash=%s AND r.used_at IS NULL AND r.expires_at>now()
+                LIMIT 1
+                """,
+                (token_hash,),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
 
     def create_password_reset(self, user_id: str, token_hash: str) -> None:
         self.ensure_schema()

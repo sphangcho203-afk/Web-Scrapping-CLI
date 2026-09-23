@@ -924,5 +924,22 @@ def _connected_capabilities() -> list[Capability]:
     ]
 
 
+def _github_capabilities() -> list[Capability]:
+    return [
+        Capability(
+            id="repo.search", name="Find public source repositories",
+            description="Search public GitHub repositories by topic and inspect source, license and freshness.",
+            pack="repositories", tags=("github", "repository", "search", "public"),
+            candidates=(CapabilityCandidate(provider="githubpublic", ref="githubpublic:search"),),
+        ),
+        Capability(
+            id="repo.inspect", name="Inspect public repository",
+            description="Inspect a public repository tree and documented API specifications without executing its code.",
+            pack="repositories", tags=("github", "repository", "openapi", "oauth", "public"),
+            candidates=(CapabilityCandidate(provider="githubpublic", ref="githubpublic:inspect"),),
+        ),
+    ]
+
+
 def build_default_capabilities() -> list[Capability]:
-    return [*_apify_capabilities(), *_mlbb_capabilities(), *_phone_capabilities(), *_caller_capabilities(), *_connected_capabilities()]
+    return [*_apify_capabilities(), *_mlbb_capabilities(), *_phone_capabilities(), *_caller_capabilities(), *_connected_capabilities(), *_github_capabilities()]

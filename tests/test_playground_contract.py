@@ -39,7 +39,11 @@ def test_playground_dashboard_surface() -> None:
     assert "dashboardShell('playground'" in app
     assert "Create API key" in app
     assert "/api/playground/run" in app
-    assert "Run metered crawl" in app
+    assert "Search the web" in app
+    assert "latest AI news" in app
+    assert "Deep research" in app
+    assert "Paste a URL to crawl it automatically" in app
+    assert "Starting URL" not in app
 
 
 def test_playground_uses_normal_account_api_keys() -> None:

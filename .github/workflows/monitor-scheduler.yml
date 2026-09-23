@@ -3,6 +3,7 @@ name: Monitor scheduler
 on:
   schedule:
     - cron: "*/5 * * * *"
+    - cron: "17 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -49,4 +50,16 @@ jobs:
           curl --fail --silent --show-error \
             --retry 2 --retry-all-errors --max-time 60 \
             -H "Authorization: Bearer ${OIDC_TOKEN}" \
-            "https://web-scrapping-cli.vercel.app/api/internal/system/health"
+            "https://web-scrapping-cli.vercel.app/api/internal/system/health?strict=true"
+
+      - name: Deep capability resolution health
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '17 * * * *'
+        env:
+          OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            --retry 2 --retry-all-errors --max-time 180 \
+            -H "Authorization: Bearer ${OIDC_TOKEN}" \
+            "https://web-scrapping-cli.vercel.app/api/internal/system/health?deep=true&strict=true"
