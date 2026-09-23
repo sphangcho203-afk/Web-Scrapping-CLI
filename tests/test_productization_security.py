@@ -8,7 +8,7 @@ import pytest
 from fastapi import HTTPException
 
 from internet_hands import control_api, security_api
-from internet_hands.control_store import AuthIdentity, ControlError, ControlStore
+from internet_hands.control_store import AuthIdentity, ControlStore
 
 
 class _Request:
