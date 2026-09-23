@@ -1,5 +1,6 @@
 from internet_hands.playground_api import _rank_evidence, _synthesize_evidence
 
+
 def test_rank_evidence_prefers_query_coverage():
     evidence=[{"url":"https://a.test","title":"Other","text":"unrelated material","search_rank":1},{"url":"https://b.test","title":"Pricing","text":"Acme pricing is 20 dollars for the business plan.","search_rank":2}]
     ranked=_rank_evidence("Acme business pricing", evidence)

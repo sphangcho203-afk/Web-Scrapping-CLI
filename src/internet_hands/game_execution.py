@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-
 _BLOCKED_INPUTS = {"authorization", "cookie", "proxy-authorization", "x-api-key"}
 
 

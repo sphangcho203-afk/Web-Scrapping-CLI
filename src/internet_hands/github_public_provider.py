@@ -14,8 +14,8 @@ import yaml
 from .tool_mesh import ToolDescriptor
 
 _REPO_PART = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
-_SPEC = re.compile(r"(?:^|/)(?:openapi|swagger|api[-_]schema)(?:\.[^.]+)?\.(?:json|ya?ml)$|\.postman_collection\.json$", re.I)
-_API_PATH = re.compile(r"(?:^|/)(?:routes?|api|graphql|schemas?|proto)(?:/|$)|\.(?:proto|graphql)$", re.I)
+_SPEC = re.compile(r"(?:^|/)(?:openapi|swagger|api[-_]schema)(?:\.[^.]+)?\.(?:json|ya?ml)$|\.postman_collection\.json$", re.IGNORECASE)
+_API_PATH = re.compile(r"(?:^|/)(?:routes?|api|graphql|schemas?|proto)(?:/|$)|\.(?:proto|graphql)$", re.IGNORECASE)
 _MAX_RESPONSE = 1_500_000
 
 

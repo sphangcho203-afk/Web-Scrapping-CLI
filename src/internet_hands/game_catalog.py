@@ -9,7 +9,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-
 GAME_PACKS: dict[str, tuple[str, tuple[str, ...]]] = {
     "mlbb": ("Mobile Legends: Bang Bang", ("mlbb",)),
     "valorant": ("VALORANT", ("valorant",)),

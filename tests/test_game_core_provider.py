@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
 import httpx
+import pytest
 
 from internet_hands.capability_economics import estimate_call, settle_measured_cost
 from internet_hands.game_core_provider import GameCoreProvider

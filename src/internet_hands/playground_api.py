@@ -6,15 +6,15 @@ import math
 import re
 import time
 import uuid
-from urllib.parse import urlsplit, urlunsplit
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import APIRouter, HTTPException, Request
 
 from .auth import authenticate_secret
+from .capability_economics import settle_measured_cost
 from .control_api import _require_user
 from .control_store import AuthIdentity, ControlError, ControlStore
-from .capability_economics import settle_measured_cost
 from .crawler import crawl
 from .extractor import extract_document
 from .fetcher import fetch_url
@@ -224,7 +224,7 @@ async def _discover_search_sources(query: str, *, count: int, timeout: float) ->
             if isinstance(item, dict) and str(item.get("url") or "").strip()
         ]
         return sources, {"provider": "brave", "fallback": False}
-    except Exception as brave_exc:  # noqa: BLE001 -- Firecrawl is the bounded search fallback
+    except Exception as brave_exc:
         provider = FirecrawlToolProvider()
         if not provider.api_key:
             raise RuntimeError(

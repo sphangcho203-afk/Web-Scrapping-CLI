@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+
 import httpx
 import pytest
 
 from internet_hands.capability_packs import Capability, CapabilityCandidate
-from internet_hands.catalog_providers import HttpToolSpec, ManifestHttpProvider, OpenApiToolProvider, _OpenApiSource
+from internet_hands.catalog_providers import (
+    HttpToolSpec,
+    ManifestHttpProvider,
+    OpenApiToolProvider,
+    _OpenApiSource,
+)
 from internet_hands.game_execution import discover_game_tools, validate_game_arguments
 from internet_hands.tool_mesh import ToolMesh
 

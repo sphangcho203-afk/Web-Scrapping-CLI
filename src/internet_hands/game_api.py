@@ -6,11 +6,11 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, Request
 
+from .capability_economics import settle_measured_cost
 from .control_api import _require_user, _require_verified
+from .control_store import ControlError
 from .game_catalog import build_game_adapters
 from .game_execution import discover_game_tools, validate_game_arguments
-from .capability_economics import settle_measured_cost
-from .control_store import ControlError
 from .playground_api import _playground_identity, store
 from .tool_mcp import get_capability_registry, get_tool_mesh
 
