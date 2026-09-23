@@ -189,7 +189,7 @@ class GameCoreProvider:
         payload = await self._cdn_json(path, max_bytes=3_000_000)
         raw = payload.get("data") if isinstance(payload, dict) else None
         if not isinstance(raw, dict):
-            raise RuntimeError("Riot Data Dragon data format changed")
+            raise TypeError("Riot Data Dragon data format changed")
         results = []
         for key, value in raw.items():
             if not isinstance(value, dict) or not isinstance(value.get("name"), str):
