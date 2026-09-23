@@ -375,7 +375,6 @@ async def playground_run(request: Request):
     output_bytes = 0
     provider_usage: list[dict[str, Any]] = []
     try:
-        search_payload: dict[str, Any] | None = None
         search_sources: list[dict[str, Any]] = []
         search_meta: dict[str, Any] = {"provider": None, "fallback": False}
         if operation in {"search", "research", "auto"} and query:
