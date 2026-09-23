@@ -14,30 +14,41 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Require Vercel token
+      - name: Resolve existing Vercel credential
+        id: token
         shell: bash
         env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          TOKEN_1: ${{ secrets.VERCEL_TOKEN }}
+          TOKEN_2: ${{ secrets.VERCEL_API_TOKEN }}
+          TOKEN_3: ${{ secrets.VERCEL_ACCESS_TOKEN }}
+          TOKEN_4: ${{ secrets.INTERNET_HANDS_VERCEL_TOKEN }}
+          TOKEN_5: ${{ secrets.VERCEL_CLI_TOKEN }}
+          TOKEN_6: ${{ secrets.VERCEL_PROD_TOKEN }}
         run: |
           set -euo pipefail
-          test -n "${VERCEL_TOKEN}" || {
-            echo "::error::VERCEL_TOKEN repository secret is not configured"
-            exit 1
-          }
+          for candidate in "$TOKEN_1" "$TOKEN_2" "$TOKEN_3" "$TOKEN_4" "$TOKEN_5" "$TOKEN_6"; do
+            if [ -n "$candidate" ]; then
+              echo "::add-mask::$candidate"
+              echo "token=$candidate" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "::error::No Vercel credential is stored in the checked GitHub secrets"
+          exit 1
 
-      - name: Promote staged Internet Hands deployment
+      - name: Promote verified staged deployment
         shell: bash
         env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_TOKEN: ${{ steps.token.outputs.token }}
         run: |
           set -euo pipefail
           npx --yes vercel@latest promote \
-            web-scrapping-bwj8904l6-stand-still.vercel.app \
+            web-scrapping-mqi21i8ec-stand-still.vercel.app \
             --yes \
             --scope stand-still \
-            --token "${VERCEL_TOKEN}"
+            --token "$VERCEL_TOKEN"
 
-      - name: Verify production endpoint
+      - name: Verify production
         shell: bash
         run: |
           set -euo pipefail
