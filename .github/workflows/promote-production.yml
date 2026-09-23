@@ -1,0 +1,45 @@
+name: Promote production
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    if: contains(github.event.head_commit.message, '[promote-production]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Require Vercel token
+        shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN}" || {
+            echo "::error::VERCEL_TOKEN repository secret is not configured"
+            exit 1
+          }
+
+      - name: Promote staged Internet Hands deployment
+        shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          npx --yes vercel@latest promote \
+            web-scrapping-bwj8904l6-stand-still.vercel.app \
+            --yes \
+            --scope stand-still \
+            --token "${VERCEL_TOKEN}"
+
+      - name: Verify production endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 3 --retry-all-errors \
+            https://web-scrapping-cli.vercel.app/ >/dev/null
