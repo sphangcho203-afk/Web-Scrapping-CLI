@@ -114,22 +114,29 @@ class GitHubPublicProvider:
     async def _get(self, path: str, *, params: dict[str, Any] | None, calls: list[str]) -> dict[str, Any]:
         calls.append(path.split("?")[0])
         try:
-            async with httpx.AsyncClient(timeout=12, follow_redirects=False) as client:
-                async with client.stream(
-                    "GET", "https://api.github.com" + path, params=params,
-                    headers={"Accept": "application/vnd.github+json", "User-Agent": "InternetHands-PublicRepoResearch"},
-                ) as response:
-                    if response.status_code == 404:
-                        raise PublicRepositoryError("Public GitHub resource not found.", 404)
-                    if response.status_code in {403, 429}:
-                        raise PublicRepositoryError("GitHub request limit reached; try again later.", 429)
-                    if response.status_code >= 400:
-                        raise PublicRepositoryError("GitHub could not complete this request.", 502)
-                    raw = bytearray()
-                    async for chunk in response.aiter_bytes():
-                        raw.extend(chunk)
-                        if len(raw) > _MAX_RESPONSE:
-                            raise PublicRepositoryError("Repository listing is too large to inspect safely.", 413)
+            async with (
+                httpx.AsyncClient(timeout=12, follow_redirects=False) as client,
+                client.stream(
+                    "GET",
+                    "https://api.github.com" + path,
+                    params=params,
+                    headers={
+                        "Accept": "application/vnd.github+json",
+                        "User-Agent": "InternetHands-PublicRepoResearch",
+                    },
+                ) as response,
+            ):
+                if response.status_code == 404:
+                    raise PublicRepositoryError("Public GitHub resource not found.", 404)
+                if response.status_code in {403, 429}:
+                    raise PublicRepositoryError("GitHub request limit reached; try again later.", 429)
+                if response.status_code >= 400:
+                    raise PublicRepositoryError("GitHub could not complete this request.", 502)
+                raw = bytearray()
+                async for chunk in response.aiter_bytes():
+                    raw.extend(chunk)
+                    if len(raw) > _MAX_RESPONSE:
+                        raise PublicRepositoryError("Repository listing is too large to inspect safely.", 413)
         except httpx.RequestError as exc:
             raise PublicRepositoryError("GitHub is temporarily unreachable.", 503) from exc
         try:
