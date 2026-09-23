@@ -24,10 +24,17 @@ from .auth import (
     verify_pkce,
 )
 from .control_store import ControlError, ControlStore, random_token
-
+from .policy import validate_public_http_url
+from .remote_mcp_provider import AUTH_TYPES, TRANSPORTS, parse_curl_connection
 
 router = APIRouter()
 store = ControlStore()
+_legacy_dsn = os.getenv("INTERNET_HANDS_POSTGRES_DSN")
+legacy_store = (
+    ControlStore(_legacy_dsn)
+    if _legacy_dsn and _legacy_dsn != store.dsn
+    else None
+)
 SESSION_COOKIE = "ih_session"
 GITHUB_STATE_COOKIE = "ih_github_state"
 DEFAULT_SCOPES = ["mcp:read", "mcp:execute"]
@@ -45,10 +52,26 @@ def _session_user(request: Request) -> dict[str, Any] | None:
     raw = request.cookies.get(SESSION_COOKIE)
     if not raw:
         return None
+    token_hash = sha256_text(raw)
     try:
-        return store.session_user(sha256_text(raw))
+        current = store.session_user(token_hash)
     except ControlError:
-        return None
+        current = None
+    if current:
+        return current
+
+    # Existing browsers keep working until their identity is adopted into
+    # Supabase Auth. Once linked, legacy sessions are intentionally rejected.
+    if legacy_store:
+        try:
+            legacy_user = legacy_store.session_user(token_hash)
+        except ControlError:
+            legacy_user = None
+        if legacy_user:
+            primary = store.get_user_by_email(str(legacy_user["email"]))
+            if primary and not store.auth_user_id_for_legacy(str(primary["id"])):
+                return primary
+    return None
 
 
 def _require_user(request: Request) -> dict[str, Any]:
@@ -320,10 +343,16 @@ async def login(request: Request):
 def logout(request: Request):
     raw = request.cookies.get(SESSION_COOKIE)
     if raw:
+        token_hash = sha256_text(raw)
         try:
-            store.delete_session(sha256_text(raw))
+            store.delete_session(token_hash)
         except ControlError:
             pass
+        if legacy_store:
+            try:
+                legacy_store.delete_session(token_hash)
+            except ControlError:
+                pass
     response = JSONResponse({"ok": True})
     response.delete_cookie(SESSION_COOKIE, path="/")
     return response
@@ -337,6 +366,7 @@ def auth_me(request: Request):
         "user": user,
         "account": store.account_snapshot(user["id"]) if verified else None,
         "verification_required": not verified,
+        "verification_mode": "supabase_link" if not verified else None,
     }
 
 
@@ -435,6 +465,71 @@ def revoke_api_key_endpoint(key_id: str, request: Request):
     user = _require_user(request)
     if not store.revoke_api_key(user["id"], key_id):
         raise HTTPException(status_code=404, detail="API key not found")
+    return {"ok": True}
+
+
+@router.get("/api/connections")
+def connections(request: Request):
+    user = _require_user(request)
+    return {"connections": store.list_connections(user["id"])}
+
+
+@router.post("/api/connections/import-curl")
+async def import_connection_curl(request: Request):
+    _require_verified(_require_user(request))
+    body = await request.json()
+    command = str(body.get("curl") or body.get("command") or "").strip()
+    if not command:
+        raise HTTPException(status_code=400, detail="curl command is required")
+    try:
+        draft = parse_curl_connection(command, name=str(body.get("name") or "Imported MCP")[:80])
+        validate_public_http_url(str(draft["url"]))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    redacted = dict(draft)
+    headers = dict(redacted.pop("headers", {}) or {})
+    redacted["header_names"] = list(headers)
+    redacted["has_credentials"] = bool(headers)
+    return {"connection": redacted, "warning": "Credential values are intentionally omitted from the import preview."}
+
+
+@router.post("/api/connections")
+async def create_connection_endpoint(request: Request):
+    user = _require_verified(_require_user(request))
+    body = await request.json()
+    name = str(body.get("name") or "MCP connection").strip()[:80]
+    endpoint_url = str(body.get("url") or body.get("endpoint_url") or "").strip()
+    transport = str(body.get("transport") or "streamable_http").lower().replace("-", "_")
+    auth_type = str(body.get("auth_type") or "none").lower()
+    if transport == "streamablehttp":
+        transport = "streamable_http"
+    if transport not in TRANSPORTS:
+        raise HTTPException(status_code=400, detail="transport must be streamable_http or sse")
+    if auth_type not in AUTH_TYPES:
+        raise HTTPException(status_code=400, detail="unsupported MCP authentication type")
+    try:
+        validate_public_http_url(endpoint_url)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    headers = body.get("headers") if isinstance(body.get("headers"), dict) else {}
+    secret_config: dict[str, Any] = {"headers": {str(k): str(v) for k, v in headers.items() if str(k).strip()}}
+    secret = str(body.get("secret") or body.get("token") or body.get("api_key") or "")
+    header_name = str(body.get("header_name") or "X-API-Key").strip()
+    if auth_type == "bearer" and secret:
+        secret_config["headers"]["Authorization"] = f"Bearer {secret}"
+    elif auth_type == "api_key" and secret:
+        secret_config["headers"][header_name] = secret
+    elif auth_type in {"api_key", "bearer", "headers", "oauth"} and not secret_config["headers"]:
+        raise HTTPException(status_code=400, detail="this authentication type requires credential headers")
+    config = {"header_names": list(secret_config["headers"]), "oauth": body.get("oauth") if auth_type == "oauth" and isinstance(body.get("oauth"), dict) else None}
+    return {"connection": store.create_connection(user_id=user["id"], name=name, endpoint_url=endpoint_url, transport=transport, auth_type=auth_type, config=config, secret_config=secret_config)}
+
+
+@router.delete("/api/connections/{connection_id}")
+def delete_connection_endpoint(connection_id: str, request: Request):
+    user = _require_verified(_require_user(request))
+    if not store.delete_connection(user["id"], connection_id):
+        raise HTTPException(status_code=404, detail="connection not found")
     return {"ok": True}
 
 

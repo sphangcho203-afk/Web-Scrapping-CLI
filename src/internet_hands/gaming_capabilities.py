@@ -25,6 +25,27 @@ def _candidate(
 def _mlbb_capabilities() -> list[Capability]:
     return [
         Capability(
+            id="mlbb.reference.heroes", name="MLBB hero reference search",
+            description="Search a bundled historical hero snapshot by name, role or lane. No upstream API key needed.",
+            pack="mlbb", tags=("gaming", "mlbb", "heroes", "offline", "reference"),
+            candidates=(_candidate("gamecore", "gamecore:mlbb-heroes"),),
+            input_schema={"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}}},
+        ),
+        Capability(
+            id="mlbb.reference.hero", name="MLBB hero detail",
+            description="Find a historical hero's role, lanes, synergies and counters in bundled data.",
+            pack="mlbb", tags=("gaming", "mlbb", "hero", "offline", "reference"),
+            candidates=(_candidate("gamecore", "gamecore:mlbb-hero"),),
+            input_schema={"type": "object", "required": ["hero"], "properties": {"hero": {"type": "string"}}},
+        ),
+        Capability(
+            id="mlbb.reference.items", name="MLBB item reference search",
+            description="Search historical item names, categories, cost and modifiers in bundled data.",
+            pack="mlbb", tags=("gaming", "mlbb", "items", "offline", "reference"),
+            candidates=(_candidate("gamecore", "gamecore:mlbb-items"),),
+            input_schema={"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}}},
+        ),
+        Capability(
             id="mlbb.rank.current",
             name="MLBB current rank intelligence",
             description="Retrieve the detailed community MLBB profile payload containing current rank/MMR-style rank fields where the provider exposes them.",
@@ -431,6 +452,14 @@ def _supercell_capabilities() -> list[Capability]:
 
 def build_gaming_capabilities() -> list[Capability]:
     return [
+        Capability(
+            id="game.matches.analyze", name="Analyze your match results",
+            description="Calculate win rate, streak, recent form, hero usage and KDA from supplied games. Works for every game without a provider API.",
+            pack="gaming-common", tags=("gaming", "matches", "analytics", "offline"),
+            candidates=(_candidate("gamecore", "gamecore:match-analysis"),),
+            input_schema={"type": "object", "required": ["game", "matches"], "properties": {
+                "game": {"type": "string"}, "matches": {"type": "array", "items": {"type": "object"}}}},
+        ),
         *_mlbb_capabilities(),
         *_valorant_capabilities(),
         *_dota_capabilities(),
@@ -439,4 +468,18 @@ def build_gaming_capabilities() -> list[Capability]:
         *_roblox_capabilities(),
         *_osu_capabilities(),
         *_supercell_capabilities(),
+        Capability(
+            id="league.reference.champions", name="League champion reference",
+            description="Search Riot's published Data Dragon champions and roles. No Riot API key needed.",
+            pack="league", tags=("gaming", "league", "champions", "riot", "reference"),
+            candidates=(_candidate("gamecore", "gamecore:league-champions"),),
+            input_schema={"type": "object", "properties": {"query": {"type": "string"}}},
+        ),
+        Capability(
+            id="league.reference.items", name="League item reference",
+            description="Search Riot's published Data Dragon item names, prices and stats. No Riot API key needed.",
+            pack="league", tags=("gaming", "league", "items", "riot", "reference"),
+            candidates=(_candidate("gamecore", "gamecore:league-items"),),
+            input_schema={"type": "object", "properties": {"query": {"type": "string"}}},
+        ),
     ]

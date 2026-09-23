@@ -6,6 +6,7 @@ import pytest
 from starlette.responses import JSONResponse
 
 from internet_hands.control_store import AuthIdentity
+from internet_hands.execution_meter import record_provider_call, record_usage
 from internet_hands.mcp_gateway import MCPGatewayASGI
 
 
@@ -59,13 +60,14 @@ async def test_unauthenticated_mcp_returns_oauth_resource_metadata() -> None:
 
 
 class _FakeStore:
-    def __init__(self) -> None:
+    def __init__(self, reserved: int = 3) -> None:
+        self.reserved = reserved
         self.charged: list[dict[str, Any]] = []
         self.finished: list[dict[str, Any]] = []
 
-    def charge_tool_call(self, **kwargs: Any) -> int:
+    def reserve_tool_call(self, **kwargs: Any) -> int:
         self.charged.append(kwargs)
-        return 3
+        return self.reserved
 
     def finish_usage(self, request_id: str, **kwargs: Any) -> None:
         self.finished.append({"request_id": request_id, **kwargs})
@@ -93,8 +95,65 @@ async def test_customer_tool_call_is_metered(monkeypatch: pytest.MonkeyPatch) ->
     assert status == 200
     assert response_body == b'{"ok":true}'
     assert headers["x-request-id"].startswith("req_")
+    assert headers["x-credits-reserved"] == "3"
     assert len(store.charged) == 1
     assert store.charged[0]["tool_name"] == "gaming_profile"
     assert store.charged[0]["arguments"] == {"game": "mlbb"}
     assert len(store.finished) == 1
     assert store.finished[0]["status"] == "ok"
+
+
+
+async def _empty_receive() -> dict[str, Any]:
+    return {"type": "http.disconnect"}
+
+
+async def _caller_inner_app(scope: dict[str, Any], receive: Any, send: Any) -> None:
+    del receive
+    record_usage("public_search_call")
+    record_usage("public_search_result", 3)
+    record_provider_call("brave")
+    response = JSONResponse({"ok": True})
+    await response(scope, _empty_receive, send)
+
+
+@pytest.mark.asyncio
+async def test_gateway_settles_measured_caller_cost(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    identity = AuthIdentity(
+        user_id="usr_1",
+        api_key_id="key_1",
+        scopes=["mcp:read", "mcp:execute"],
+        plan_slug="builder",
+        rpm_limit=60,
+        source="api_key",
+    )
+    store = _FakeStore(reserved=10)
+    monkeypatch.setattr(
+        "internet_hands.mcp_gateway.authenticate_secret",
+        lambda _store, _secret: identity,
+    )
+    app = MCPGatewayASGI(_caller_inner_app, store=store)  # type: ignore[arg-type]
+    body = (
+        b'{"jsonrpc":"2.0","id":1,"method":"tools/call",'
+        b'"params":{"name":"phone_caller_lookup","arguments":'
+        b'{"number":"+14155552671","public_search":true,"max_results":8}}}'
+    )
+
+    status, headers, _ = await _request(
+        app,
+        headers=[
+            (b"host", b"mcp.example.test"),
+            (b"authorization", b"Bearer ih_live_fake"),
+        ],
+        body=body,
+    )
+
+    assert status == 200
+    assert headers["x-credits-reserved"] == "10"
+    assert store.finished[0]["actual_credits"] == 9
+    measured = store.finished[0]["execution_usage"]
+    assert measured["counters"]["public_search_call"] == 1
+    assert measured["counters"]["public_search_result"] == 3
+    assert measured["provider_calls"]["brave"] == 1

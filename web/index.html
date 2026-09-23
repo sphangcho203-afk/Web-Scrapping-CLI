@@ -1,27 +1,26 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#07090e">
-  <meta name="description" content="Internet Hands — Public Internet Intelligence, Web Scraping Studio, Authenticated MCP Gateway & SaaS Control Plane.">
-  <title>Internet Hands — Public Intelligence & Web Scraping Studio</title>
-  <link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/app.css">
+  <meta name="theme-color" content="#070a0e">
+  <meta name="description" content="Internet Hands — an executable internet workspace for agents.">
+  <title>Internet Hands</title>
+  <link rel="icon" href="/assets/internet-hands-logo.webp" type="image/webp">
+  <!-- One stylesheet + one browser runtime. Cognitive UI owns the frontend contract. -->
+  <link rel="stylesheet" href="/assets/cognitive-foundation.css?v=20260920-popover-v6">
 </head>
-<body class="theme-dark">
-  <div class="ambient-glow" aria-hidden="true"></div>
-  <div id="toast-region" aria-live="polite" aria-atomic="true"></div>
-  <div id="modal-container"></div>
+<body>
   <div id="app">
-    <div class="app-loading">
-      <div class="spinner"></div>
-      <p>Initializing Internet Hands…</p>
+    <div class="cos-boot" role="status" aria-label="Loading Internet Hands">
+      <div class="cos-boot-inner">
+        <div class="cos-boot-mark"><img src="/assets/internet-hands-logo.webp" alt="Internet Hands"></div>
+        <div class="cos-boot-line" aria-hidden="true"></div>
+        <p>Preparing workspace…</p>
+      </div>
     </div>
+    <noscript>Internet Hands requires JavaScript for the web console.</noscript>
   </div>
-  <script src="/assets/app.js" defer></script>
+  <script src="/assets/app.js?v=20260920-popover-v6" defer></script>
 </body>
 </html>

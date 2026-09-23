@@ -42,6 +42,17 @@ These capabilities are intended for public data and remain subject to Internet H
 
 - `ads.meta.library` → `apify:curious_coder/facebook-ads-library-scraper`
 
+### Phone intelligence
+
+- `phone.number.lookup` → `phoneintel:lookup`
+- `phone.caller.lookup` → `callerintel:lookup`
+
+`phone.number.lookup` inspects telecom metadata such as validity, region, line type, carrier, time zones, MCC/MNC and configured risk signals. The local libphonenumber layer is always available. Optional external providers can enrich results.
+
+`phone.caller.lookup` adds a bounded exact-number public-web search for unknown-caller research. The basic capability returns public evidence titles/URLs, source types and footprint strength; it does not claim that an indexed page proves subscriber ownership.
+
+Both capabilities intentionally exclude private subscriber/SIM-owner records, secrets and private addresses.
+
 ### Mobile Legends / MLBB
 
 - `mlbb.player.lookup`

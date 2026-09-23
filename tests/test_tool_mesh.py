@@ -4,6 +4,11 @@ from typing import Any
 
 import pytest
 
+from internet_hands.execution_meter import (
+    execution_usage_snapshot,
+    reset_execution_meter,
+    start_execution_meter,
+)
 from internet_hands.tool_mesh import ToolDescriptor, ToolMesh
 
 
@@ -106,3 +111,39 @@ async def test_mesh_policy_blocks_denied_refs(monkeypatch: pytest.MonkeyPatch) -
     assert result["tools"] == []
     with pytest.raises(PermissionError):
         await mesh.execute("one:a0", {})
+
+
+
+@pytest.mark.asyncio
+async def test_execute_records_provider_call_but_dry_run_does_not() -> None:
+    mesh = ToolMesh([FakeProvider("one", "a")])
+    token = start_execution_meter()
+    try:
+        await mesh.execute("one:a0", {"x": 1})
+        after_execute = execution_usage_snapshot()
+        assert after_execute["provider_calls"]["one"] == 1
+
+        await mesh.execute("one:a0", {"x": 2}, dry_run=True)
+        after_dry_run = execution_usage_snapshot()
+        assert after_dry_run["provider_calls"]["one"] == 1
+    finally:
+        reset_execution_meter(token)
+
+
+def test_default_tool_mesh_registers_caller_research_provider() -> None:
+    from internet_hands.tool_mcp import get_tool_mesh
+    get_tool_mesh.cache_clear()
+    assert "callerresearch" in get_tool_mesh().providers
+
+
+@pytest.mark.asyncio
+async def test_default_capability_registry_exposes_deep_caller_investigation() -> None:
+    from internet_hands.tool_mcp import get_capability_registry, get_tool_mesh
+    get_tool_mesh.cache_clear()
+    get_capability_registry.cache_clear()
+    registry = get_capability_registry()
+    capability = registry.capabilities["phone.caller.investigate"]
+    assert capability.pack == "phone"
+    assert capability.read_only is True
+    resolved = await registry.resolve("phone.caller.investigate")
+    assert resolved["resolved"][0]["ref"] == "callerresearch:investigate"

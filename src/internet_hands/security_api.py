@@ -33,11 +33,20 @@ from .control_api import (
     _origin,
     _require_user,
     _require_verified,
+    legacy_store,
     store,
 )
 from .control_store import ControlError, random_token
 from .mailer import MailError, mail_provider, send_mail
 from .security_store import SecurityStore
+from .supabase_auth import SupabaseAuthError
+from .supabase_auth import admin_create_user as supabase_admin_create_user
+from .supabase_auth import admin_update_user as supabase_admin_update_user
+from .supabase_auth import resend_signup as supabase_resend_signup
+from .supabase_auth import sign_in as supabase_sign_in
+from .supabase_auth import sign_up as supabase_sign_up
+from .supabase_auth import update_password_with_access_token as supabase_update_password
+from .supabase_auth import verify_signup_otp as supabase_verify_signup_otp
 from .totp import (
     decrypt_secret,
     encrypt_secret,
@@ -281,52 +290,46 @@ async def signup_secure(request: Request):
     display_name = str(body.get("display_name") or "").strip() or None
     if "@" not in email or len(email) > 320:
         raise HTTPException(status_code=400, detail="valid email required")
-    try:
-        encoded = hash_password(password)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="password must contain at least 8 characters")
 
-    resumed = False
+    redirect_to = f"{_origin(request)}/verify-email?verified=1"
     try:
-        created = store.create_user(email=email, password_hash=encoded, display_name=display_name)
-        user = store.get_user(created["id"])
-    except ControlError as exc:
-        existing = store.get_user_by_email(email) if exc.code == "email_in_use" else None
-        if (
-            not existing
-            or bool(existing.get("email_verified"))
-            or not verify_password(password, existing.get("password_hash"))
-        ):
-            raise _json_error(exc) from exc
-        user = store.get_user(existing["id"])
-        resumed = True
-    if not user:
-        raise _json_error(
-            ControlError("account_not_found", "account could not be loaded", 500)
+        auth_result = await supabase_sign_up(
+            email=email,
+            password=password,
+            display_name=display_name,
+            redirect_to=redirect_to,
         )
-    raw = random_token("ih_sess_")
-    store.create_session(user_id=user["id"], token_hash=sha256_text(raw))
-    sent = await _send_verification(request, user)
-    response = JSONResponse(
-        jsonable_encoder({
-            "user": user,
-            "verification_required": True,
-            "verification_sent": sent,
-            "resumed": resumed,
-            "next": "/verify-email",
-        }),
-        status_code=202,
-    )
-    response.set_cookie(
-        SESSION_COOKIE,
-        raw,
-        httponly=True,
-        secure=_cookie_secure(request),
-        samesite="lax",
-        max_age=30 * 86400,
-        path="/",
-    )
-    return response
+    except SupabaseAuthError as exc:
+        status = 429 if exc.status_code == 429 else 400 if exc.status_code < 500 else 503
+        raise HTTPException(
+            status_code=status,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+
+    auth_user = auth_result.get("user") if isinstance(auth_result, dict) else None
+    if not isinstance(auth_user, dict) or not auth_user.get("id"):
+        raise HTTPException(status_code=502, detail="Supabase Auth did not create an account")
+    if auth_user.get("identities") == []:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "email_in_use", "message": "an account with this email already exists"},
+        )
+
+    user = store.get_user_by_email(email)
+    if not user:
+        raise HTTPException(status_code=502, detail="Supabase identity bridge did not create the account profile")
+
+    verified = bool(user.get("email_verified"))
+    payload = {
+        "user": user,
+        "verification_required": not verified,
+        "verification_sent": not verified,
+        "verification_mode": "supabase_link" if not verified else None,
+        "next": "/dashboard" if verified else "/verify-email",
+    }
+    return _session_response(request, user["id"], payload)
 
 
 @router.post("/api/auth/login")
@@ -334,32 +337,167 @@ async def login_secure(request: Request):
     body = await request.json()
     email = str(body.get("email") or "").strip().lower()
     password = str(body.get("password") or "")
-    user = store.get_user_by_email(email)
-    if not user or not verify_password(password, user.get("password_hash")):
-        raise HTTPException(
-            status_code=401,
-            detail={"code": "invalid_credentials", "message": "invalid email or password"},
+    if not email or not password:
+        raise HTTPException(status_code=401, detail={"code": "invalid_credentials", "message": "invalid email or password"})
+
+    current = store.get_user_by_email(email)
+    auth_id = store.auth_user_id_for_legacy(str(current["id"])) if current else None
+    auth_result: dict[str, Any] | None = None
+    primary_error: SupabaseAuthError | None = None
+
+    try:
+        auth_result = await supabase_sign_in(email=email, password=password)
+    except SupabaseAuthError as exc:
+        primary_error = exc
+
+    if auth_result is None:
+        message = str(primary_error or "").lower()
+        code = (primary_error.code if primary_error else "") or ""
+        email_unconfirmed = code == "email_not_confirmed" or "email not confirmed" in message
+
+        if email_unconfirmed and current:
+            try:
+                sent = await supabase_resend_signup(
+                    email=email,
+                    redirect_to=f"{_origin(request)}/verify-email?verified=1",
+                )
+            except SupabaseAuthError:
+                sent = False
+            return _session_response(
+                request,
+                current["id"],
+                {
+                    "user": current,
+                    "verification_required": True,
+                    "verification_sent": sent,
+                    "verification_mode": "supabase_link",
+                    "verification_context": "signin",
+                    "next": "/verify-email",
+                },
+            )
+
+        # Once an identity is linked to Supabase, legacy passwords are never
+        # accepted again. This prevents an old password from becoming a
+        # permanent backdoor after a password change.
+        if auth_id:
+            raise HTTPException(
+                status_code=401,
+                detail={"code": "invalid_credentials", "message": "invalid email or password"},
+            )
+
+        legacy_user = legacy_store.get_user_by_email(email) if legacy_store else None
+        if not legacy_user or not verify_password(password, legacy_user.get("password_hash")):
+            raise HTTPException(
+                status_code=401,
+                detail={"code": "invalid_credentials", "message": "invalid email or password"},
+            )
+
+        current = current or store.get_user_by_email(email)
+        confirmed = bool(
+            (current and current.get("email_verified"))
+            or legacy_user.get("email_verified")
         )
-    sec = security.account_security(user["id"])
-    if sec["totp_enabled"]:
-        return _create_2fa_challenge(request, user["id"])
-    current = store.get_user(user["id"])
+        display_name = (
+            (current or {}).get("display_name")
+            or legacy_user.get("display_name")
+        )
+        try:
+            await supabase_admin_create_user(
+                email=email,
+                password=password,
+                display_name=display_name,
+                email_confirm=confirmed,
+            )
+        except SupabaseAuthError as exc:
+            # A concurrent migration may have created the Auth identity first.
+            current = store.get_user_by_email(email)
+            auth_id = (
+                store.auth_user_id_for_legacy(str(current["id"]))
+                if current
+                else None
+            )
+            if not auth_id:
+                raise HTTPException(
+                    status_code=503,
+                    detail={"code": "auth_migration_failed", "message": str(exc)},
+                ) from exc
+
+        current = store.get_user_by_email(email) or current
+        if not current:
+            raise HTTPException(status_code=502, detail="migrated account could not be loaded")
+
+        auth_id = store.auth_user_id_for_legacy(str(current["id"]))
+        if confirmed:
+            try:
+                auth_result = await supabase_sign_in(email=email, password=password)
+            except SupabaseAuthError as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail={"code": "auth_migration_failed", "message": str(exc)},
+                ) from exc
+        else:
+            try:
+                sent = await supabase_resend_signup(
+                    email=email,
+                    redirect_to=f"{_origin(request)}/verify-email?verified=1",
+                )
+            except SupabaseAuthError:
+                sent = False
+            return _session_response(
+                request,
+                current["id"],
+                {
+                    "user": current,
+                    "verification_required": True,
+                    "verification_sent": sent,
+                    "verification_mode": "supabase_link",
+                    "verification_context": "signin",
+                    "next": "/verify-email",
+                },
+            )
+
+    current = store.get_user_by_email(email)
     if not current:
-        raise HTTPException(status_code=404, detail="account not found")
-    payload: dict[str, Any] = {"user": current, "next": "/dashboard"}
+        raise HTTPException(status_code=502, detail="authenticated account profile is unavailable")
+
+    auth_user = auth_result.get("user") if isinstance(auth_result, dict) else None
+    if isinstance(auth_user, dict) and (
+        auth_user.get("email_confirmed_at") or auth_user.get("confirmed_at")
+    ) and not current.get("email_verified"):
+        security.set_email_verified(current["id"], True)
+        current = store.get_user(current["id"]) or current
+
+    sec = security.account_security(current["id"])
+    if sec["totp_enabled"]:
+        return _create_2fa_challenge(request, current["id"])
+
     if not current["email_verified"]:
-        sent = await _send_verification(request, current)
-        payload.update(
+        try:
+            sent = await supabase_resend_signup(
+                email=email,
+                redirect_to=f"{_origin(request)}/verify-email?verified=1",
+            )
+        except SupabaseAuthError:
+            sent = False
+        return _session_response(
+            request,
+            current["id"],
             {
+                "user": current,
                 "verification_required": True,
                 "verification_sent": sent,
+                "verification_mode": "supabase_link",
                 "verification_context": "signin",
                 "next": "/verify-email",
-            }
+            },
         )
-    response = _session_response(request, user["id"], payload)
-    if current["email_verified"]:
-        await _send_login_notice(request, current, "password")
+
+    response = _session_response(
+        request,
+        current["id"],
+        {"user": current, "next": "/dashboard"},
+    )
+    await _send_login_notice(request, current, "Supabase password")
     return response
 
 
@@ -412,8 +550,17 @@ async def resend_verification(request: Request):
         raise HTTPException(status_code=404, detail="account not found")
     if current["email_verified"]:
         return {"ok": True, "already_verified": True}
-    sent = await _send_verification(request, current)
-    return {"ok": True, "sent": sent}
+    try:
+        sent = await supabase_resend_signup(
+            email=current["email"],
+            redirect_to=f"{_origin(request)}/verify-email?verified=1",
+        )
+    except SupabaseAuthError as exc:
+        raise HTTPException(
+            status_code=429 if exc.status_code == 429 else 503,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+    return {"ok": True, "sent": sent, "verification_mode": "supabase_link"}
 
 
 @router.post("/api/auth/email-verification/confirm")
@@ -423,9 +570,14 @@ async def confirm_verification_code(request: Request):
     code = "".join(ch for ch in str(body.get("code") or "") if ch.isdigit())
     if len(code) != 6:
         raise HTTPException(status_code=400, detail="enter the 6-digit verification code")
-    row = security.consume_email_code(user["id"], sha256_text(code))
-    if not row:
-        raise HTTPException(status_code=400, detail="verification code is invalid or expired")
+    try:
+        await supabase_verify_signup_otp(email=user["email"], token=code)
+    except SupabaseAuthError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": exc.code, "message": "verification code is invalid or expired"},
+        ) from exc
+    security.set_email_verified(user["id"], True)
     current = store.get_user(user["id"])
     if current:
         await _send_verified(current)
@@ -434,6 +586,7 @@ async def confirm_verification_code(request: Request):
 
 @router.get("/api/auth/verify-email")
 async def verify_email_link(token: str = ""):
+    # Compatibility for verification links issued before the Supabase cutover.
     if not token:
         return RedirectResponse("/login?verify=missing", status_code=302)
     row = security.consume_email_token(sha256_text(token))
@@ -441,6 +594,12 @@ async def verify_email_link(token: str = ""):
         return RedirectResponse("/login?verify=invalid_or_expired", status_code=302)
     current = store.get_user(row["user_id"])
     if current:
+        auth_id = store.auth_user_id_for_legacy(current["id"])
+        if auth_id:
+            try:
+                await supabase_admin_update_user(auth_id, email_confirm=True)
+            except SupabaseAuthError:
+                return RedirectResponse("/verify-email?sync=failed", status_code=302)
         await _send_verified(current)
     return RedirectResponse("/verify-email?verified=1", status_code=302)
 
@@ -602,16 +761,38 @@ async def change_account_password(request: Request):
     body = await request.json()
     current_password = str(body.get("current_password") or "")
     new_password = str(body.get("new_password") or "")
-    private = store.get_user_by_email(user["email"])
-    if not private or not verify_password(current_password, private.get("password_hash")):
-        raise HTTPException(status_code=401, detail="current password is incorrect")
-    try:
-        encoded = hash_password(new_password)
-        store.update_password_and_revoke_sessions(user["id"], encoded)
-    except (ValueError, ControlError) as exc:
-        if isinstance(exc, ControlError):
-            raise _json_error(exc) from exc
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if len(new_password) < 8:
+        raise HTTPException(status_code=400, detail="password must contain at least 8 characters")
+
+    auth_id = store.auth_user_id_for_legacy(user["id"])
+    if auth_id:
+        try:
+            signed_in = await supabase_sign_in(email=user["email"], password=current_password)
+        except SupabaseAuthError as exc:
+            raise HTTPException(status_code=401, detail="current password is incorrect") from exc
+        access_token = str(signed_in.get("access_token") or "")
+        if not access_token:
+            raise HTTPException(status_code=503, detail="Supabase session token was not returned")
+        try:
+            await supabase_update_password(access_token=access_token, password=new_password)
+        except SupabaseAuthError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    else:
+        legacy_user = legacy_store.get_user_by_email(user["email"]) if legacy_store else None
+        if not legacy_user or not verify_password(current_password, legacy_user.get("password_hash")):
+            raise HTTPException(status_code=401, detail="current password is incorrect")
+        try:
+            await supabase_admin_create_user(
+                email=user["email"],
+                password=new_password,
+                display_name=user.get("display_name"),
+                email_confirm=bool(user.get("email_verified")),
+            )
+        except SupabaseAuthError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    store.clear_password_hash(user["id"])
+    store.revoke_all_sessions(user["id"])
     await _send_security_notice(
         user,
         "Your Internet Hands password changed",
@@ -813,16 +994,58 @@ async def password_reset_request_smtp(request: Request):
 async def password_reset_confirm_secure(request: Request):
     body = await request.json()
     token = str(body.get("token") or "")
+    access_token = str(body.get("access_token") or "")
     password = str(body.get("password") or "")
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="password must contain at least 8 characters")
+
+    if access_token:
+        try:
+            auth_user = await supabase_update_password(
+                access_token=access_token,
+                password=password,
+            )
+        except SupabaseAuthError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={"code": exc.code, "message": "reset session is invalid or expired"},
+            ) from exc
+        email = str(auth_user.get("email") or "")
+        current = store.get_user_by_email(email) if email else None
+        if current:
+            store.clear_password_hash(current["id"])
+            store.revoke_all_sessions(current["id"])
+        return {"ok": True}
+
     if not token:
         raise HTTPException(status_code=400, detail="reset token is required")
-    try:
-        encoded = hash_password(password)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    # Look up the user before consuming the token only for notification purposes.
-    if not store.consume_password_reset(sha256_text(token), encoded):
+
+    token_hash = sha256_text(token)
+    reset_user = store.password_reset_user(token_hash)
+    if not reset_user:
         raise HTTPException(status_code=400, detail="reset token is invalid or expired")
+
+    auth_id = store.auth_user_id_for_legacy(reset_user["id"])
+    try:
+        if auth_id:
+            await supabase_admin_update_user(auth_id, password=password)
+        else:
+            await supabase_admin_create_user(
+                email=reset_user["email"],
+                password=password,
+                display_name=reset_user.get("display_name"),
+                email_confirm=bool(reset_user.get("email_verified")),
+            )
+    except SupabaseAuthError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    # Consume the pre-cutover compatibility reset token, then remove the
+    # temporary compatibility hash immediately.
+    encoded = hash_password(password)
+    if not store.consume_password_reset(token_hash, encoded):
+        raise HTTPException(status_code=400, detail="reset token is invalid or expired")
+    store.clear_password_hash(reset_user["id"])
+    store.revoke_all_sessions(reset_user["id"])
     return {"ok": True}
 
 

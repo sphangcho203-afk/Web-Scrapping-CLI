@@ -4,16 +4,24 @@ import asyncio
 from functools import lru_cache
 from typing import Any
 
+from .caller_intelligence import CallerIntelligenceProvider
+from .caller_investigation import CallerInvestigationProvider
 from .capability_packs import CapabilityRegistry, build_default_capabilities
 from .catalog_providers import build_catalog_providers
+from .composio_bridge import ComposioBridgeProvider
 from .firecrawl_capabilities import build_firecrawl_capabilities
 from .firecrawl_provider import FirecrawlToolProvider
+from .game_core_provider import GameCoreProvider
 from .gaming_capabilities import build_gaming_capabilities
 from .gaming_extra_capabilities import build_extra_gaming_capabilities
 from .gaming_extra_providers import build_extra_gaming_providers
 from .gaming_profiles import build_gaming_profile_plan
 from .gaming_providers import build_gaming_providers
+from .github_public_provider import GitHubPublicProvider
 from .mcp_server import sandbox_mcp
+from .native_sandbox_provider import NativeSandboxToolProvider
+from .native_web_provider import NativeWebToolProvider
+from .phone_intelligence import PhoneIntelligenceProvider
 from .remote_mcp_provider import build_remote_mcp_provider
 from .tool_mesh import ToolMesh
 from .tool_providers import build_default_providers
@@ -23,8 +31,16 @@ from .tool_providers import build_default_providers
 def get_tool_mesh() -> ToolMesh:
     return ToolMesh(
         [
-            *build_default_providers(),
+            *[provider for provider in build_default_providers() if provider.name != "composio"],
+            ComposioBridgeProvider(),
+            CallerIntelligenceProvider(),
+            CallerInvestigationProvider(),
             FirecrawlToolProvider(),
+            NativeWebToolProvider(),
+            GitHubPublicProvider(),
+            GameCoreProvider(),
+            NativeSandboxToolProvider(),
+            PhoneIntelligenceProvider(),
             *build_catalog_providers(),
             *build_gaming_providers(),
             *build_extra_gaming_providers(),
@@ -44,6 +60,49 @@ def get_capability_registry() -> CapabilityRegistry:
             *build_extra_gaming_capabilities(),
         ],
     )
+
+
+@sandbox_mcp.tool()
+async def phone_caller_lookup(
+    number: str,
+    region: str | None = None,
+    public_search: bool = True,
+    max_results: int = 8,
+    telecom_external: bool = False,
+    telecom_providers: list[str] | None = None,
+) -> dict[str, Any]:
+    """Combine telecom metadata with bounded public-web evidence for an unknown caller."""
+    return await get_tool_mesh().execute(
+        "callerintel:lookup",
+        {
+            "number": number,
+            "region": region,
+            "public_search": public_search,
+            "max_results": max_results,
+            "telecom_external": telecom_external,
+            "telecom_providers": telecom_providers,
+        },
+    )
+
+
+@sandbox_mcp.tool()
+async def phone_number_lookup(
+    number: str,
+    region: str | None = None,
+    external: bool = False,
+    providers: list[str] | None = None,
+) -> dict[str, Any]:
+    """Inspect telecom metadata and risk signals for a phone number without identifying a private subscriber."""
+    result = await get_tool_mesh().execute(
+        "phoneintel:lookup",
+        {
+            "number": number,
+            "region": region,
+            "external": external,
+            "providers": providers,
+        },
+    )
+    return result
 
 
 @sandbox_mcp.tool()
@@ -188,15 +247,19 @@ async def mesh_capability_execute(
     capability: str,
     arguments: dict[str, Any],
     provider_preference: str | None = None,
+    account: str | None = None,
+    allow_side_effects: bool = False,
     dry_run: bool = False,
     wait_seconds: int = 30,
     timeout_seconds: int = 60,
 ) -> dict[str, Any]:
-    """Execute a semantic capability using the best available read-only provider fallback."""
+    """Execute a semantic capability with explicit gating for side-effecting operations."""
     return await get_capability_registry().execute(
         capability,
         arguments,
         provider_preference=provider_preference,
+        account=account,
+        allow_side_effects=allow_side_effects,
         dry_run=dry_run,
         wait_seconds=wait_seconds,
         timeout_seconds=timeout_seconds,

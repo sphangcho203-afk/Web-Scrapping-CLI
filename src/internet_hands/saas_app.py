@@ -4,19 +4,24 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
 from . import account_mcp as _account_mcp  # noqa: F401
-from .connectors_api import router as connectors_router
 from .control_api import router as control_router
 from .control_hardening import router as hardening_router
 from .fleet_api import app as fleet_app
+from .game_api import router as game_router
 from .mcp_customer import customer_streamable_http_app
 from .mcp_server import sandbox_mcp
+from .monitor_executor import router as monitor_executor_router
+from .monitor_lifecycle import router as monitor_lifecycle_router
 from .oauth_compat import router as oauth_compat_router
+from .playground_api import router as playground_router
+from .repository_api import router as repository_router
 from .security_api import router as security_router
 from .security_hardening import router as security_hardening_router
 from .site import router as site_router
+from .system_health import router as system_health_router
+from .usage_api import router as usage_router
 
 
 @asynccontextmanager
@@ -37,22 +42,19 @@ app = FastAPI(
     redoc_url=None,
 )
 
-# Enable CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # Security and hardened compatibility overrides are registered first so they take precedence.
 app.include_router(oauth_compat_router)
 app.include_router(security_hardening_router)
 app.include_router(security_router)
 app.include_router(hardening_router)
+app.include_router(monitor_executor_router)
+app.include_router(monitor_lifecycle_router)
+app.include_router(system_health_router)
 app.include_router(control_router)
-app.include_router(connectors_router)
+app.include_router(usage_router)
+app.include_router(playground_router)
+app.include_router(repository_router)
+app.include_router(game_router)
 app.include_router(site_router)
 app.mount("/mcp", customer_streamable_http_app())
 

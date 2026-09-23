@@ -15,6 +15,8 @@ class CapabilityCandidate:
     priority: int = 100
     argument_map: dict[str, str] = field(default_factory=dict)
     defaults: dict[str, Any] = field(default_factory=dict)
+    when: dict[str, Any] = field(default_factory=dict)
+    passthrough_arguments: bool = True
     note: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -30,6 +32,7 @@ class Capability:
     tags: tuple[str, ...]
     candidates: tuple[CapabilityCandidate, ...]
     read_only: bool = True
+    input_schema: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -39,6 +42,7 @@ class Capability:
             "pack": self.pack,
             "tags": list(self.tags),
             "read_only": self.read_only,
+            "input_schema": self.input_schema,
             "candidates": [candidate.to_dict() for candidate in self.candidates],
         }
 
@@ -106,7 +110,8 @@ class CapabilityRegistry:
                 resolved.append(
                     {
                         "candidate": candidate.to_dict(),
-                        "available": bool(status.get("executable", True)),
+                        "available": bool(status.get("executable", True))
+                        and (descriptor.get("metadata") or {}).get("configured", True) is not False,
                         "ref": ref,
                         "tool": descriptor,
                     }
@@ -127,11 +132,17 @@ class CapabilityRegistry:
         arguments: dict[str, Any],
         *,
         provider_preference: str | None = None,
+        account: str | None = None,
+        allow_side_effects: bool = False,
         dry_run: bool = False,
         wait_seconds: int = 30,
         timeout_seconds: int = 60,
     ) -> dict[str, Any]:
         capability = self._get(capability_id)
+        if not capability.read_only and not dry_run and not allow_side_effects:
+            raise PermissionError(
+                "side-effecting capability requires allow_side_effects=true or dry_run=true"
+            )
         candidates = sorted(capability.candidates, key=lambda item: item.priority)
         if provider_preference:
             preferred = [item for item in candidates if item.provider == provider_preference]
@@ -140,49 +151,111 @@ class CapabilityRegistry:
 
         attempts: list[dict[str, Any]] = []
         started = time.time()
+        statuses = await self.mesh.provider_status()
+
         for candidate in candidates:
-            try:
-                ref = await self._resolve_candidate(candidate)
-                descriptor = await self.mesh.describe(ref)
-                if descriptor.get("side_effecting") and capability.read_only:
-                    raise PermissionError("read-only capability resolved to a side-effecting tool")
-                mapped = self._map_arguments(arguments, candidate)
-                execution = await self.mesh.execute(
-                    ref,
-                    mapped,
-                    wait_seconds=wait_seconds,
-                    timeout_seconds=timeout_seconds,
-                    dry_run=dry_run,
-                )
-                attempts.append(
-                    {
-                        "provider": candidate.provider,
-                        "ref": ref,
-                        "status": execution.get("status"),
-                        "error": execution.get("error"),
-                    }
-                )
-                if execution.get("status") != "failed":
-                    return {
-                        "capability": capability_id,
-                        "selected": ref,
-                        "attempts": attempts,
-                        "execution": execution,
-                        "duration_ms": max(0, int((time.time() - started) * 1000)),
-                    }
-                if not capability.read_only or descriptor.get("side_effecting"):
-                    break
-            except Exception as exc:  # noqa: BLE001 - read-only provider fallback boundary
+            if not self._candidate_matches(arguments, candidate):
                 attempts.append(
                     {
                         "provider": candidate.provider,
                         "ref": candidate.ref,
-                        "status": "failed",
+                        "status": "skipped",
+                        "error": "candidate conditions did not match",
+                    }
+                )
+                continue
+
+            provider_status = statuses.get(candidate.provider, {})
+            provider_ready = bool(provider_status.get("executable"))
+            dry_run_ready = bool(
+                provider_status.get("searchable")
+                or provider_status.get("executable")
+                or provider_status.get("configured")
+            )
+            if not provider_ready and not (dry_run and dry_run_ready):
+                attempts.append(
+                    {
+                        "provider": candidate.provider,
+                        "ref": candidate.ref,
+                        "status": "skipped",
+                        "error": "provider is not executable",
+                    }
+                )
+                continue
+
+            # Resolution and schema inspection are preflight-only operations. It is safe
+            # to try a later provider when this stage fails, even for write capabilities.
+            try:
+                ref = await self._resolve_candidate(candidate)
+                descriptor = await self.mesh.describe(ref)
+            except Exception as exc:  # noqa: BLE001 - provider preflight boundary
+                attempts.append(
+                    {
+                        "provider": candidate.provider,
+                        "ref": candidate.ref,
+                        "status": "preflight_failed",
                         "error": str(exc),
                     }
                 )
-                if not capability.read_only:
-                    break
+                continue
+
+            if descriptor.get("side_effecting") and capability.read_only:
+                attempts.append(
+                    {
+                        "provider": candidate.provider,
+                        "ref": ref,
+                        "status": "preflight_failed",
+                        "error": "read-only capability resolved to a side-effecting tool",
+                    }
+                )
+                continue
+
+            configured = (descriptor.get("metadata") or {}).get("configured", True)
+            if configured is False and not dry_run:
+                attempts.append(
+                    {
+                        "provider": candidate.provider,
+                        "ref": ref,
+                        "status": "skipped",
+                        "error": "tool is not configured",
+                    }
+                )
+                continue
+
+            mapped = self._map_arguments(arguments, candidate)
+            try:
+                execution = await self.mesh.execute(
+                    ref,
+                    mapped,
+                    account=account,
+                    wait_seconds=wait_seconds,
+                    timeout_seconds=timeout_seconds,
+                    dry_run=dry_run,
+                )
+            except Exception as exc:  # noqa: BLE001 - provider execution boundary
+                execution = {"status": "failed", "error": str(exc)}
+
+            attempts.append(
+                {
+                    "provider": candidate.provider,
+                    "ref": ref,
+                    "status": execution.get("status"),
+                    "error": execution.get("error"),
+                }
+            )
+            if execution.get("status") != "failed":
+                return {
+                    "capability": capability_id,
+                    "selected": ref,
+                    "attempts": attempts,
+                    "execution": execution,
+                    "duration_ms": max(0, int((time.time() - started) * 1000)),
+                }
+
+            # After a side-effecting execution has actually started we fail closed.
+            # Retrying another backend could duplicate an action whose outcome is unknown.
+            if not capability.read_only or descriptor.get("side_effecting"):
+                break
 
         return {
             "capability": capability_id,
@@ -219,6 +292,12 @@ class CapabilityRegistry:
         raise LookupError("search returned no read-only tools")
 
     @staticmethod
+    def _candidate_matches(
+        arguments: dict[str, Any], candidate: CapabilityCandidate
+    ) -> bool:
+        return all(arguments.get(name) == value for name, value in candidate.when.items())
+
+    @staticmethod
     def _map_arguments(
         arguments: dict[str, Any], candidate: CapabilityCandidate
     ) -> dict[str, Any]:
@@ -227,11 +306,14 @@ class CapabilityRegistry:
             for source, target in candidate.argument_map.items():
                 if source in arguments:
                     mapped[target] = arguments[source]
+            if candidate.passthrough_arguments:
+                for name, value in arguments.items():
+                    if name not in candidate.argument_map and name not in candidate.when:
+                        mapped[name] = value
+        elif candidate.passthrough_arguments:
             for name, value in arguments.items():
-                if name not in candidate.argument_map:
+                if name not in candidate.when:
                     mapped[name] = value
-        else:
-            mapped.update(arguments)
         return mapped
 
 
@@ -490,5 +572,374 @@ def _mlbb_capabilities() -> list[Capability]:
     ]
 
 
+
+def _phone_capabilities() -> list[Capability]:
+    return [
+        Capability(
+            id="phone.number.lookup",
+            name="Phone number intelligence",
+            description=(
+                "Inspect a phone number for validity, country/region, carrier, line type, "
+                "formatting, time zones, MCC/MNC and configured telecom risk signals "
+                "without identifying a private subscriber."
+            ),
+            pack="phone",
+            tags=("phone", "telecom", "carrier", "line-type", "sim-swap", "lookup"),
+            input_schema={
+                "type": "object",
+                "required": ["number"],
+                "properties": {
+                    "number": {"type": "string"},
+                    "region": {"type": "string"},
+                    "external": {"type": "boolean"},
+                    "providers": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["veriphone", "abstract", "numverify", "twilio"],
+                        },
+                    },
+                },
+            },
+            candidates=(
+                CapabilityCandidate(
+                    provider="phoneintel",
+                    ref="phoneintel:lookup",
+                    priority=10,
+                    argument_map={
+                        "number": "number",
+                        "region": "region",
+                        "external": "external",
+                        "providers": "providers",
+                    },
+                    passthrough_arguments=False,
+                    note="First-party phone intelligence provider with local libphonenumber fallback.",
+                ),
+            ),
+        ),
+    ]
+
+
+def _caller_capabilities() -> list[Capability]:
+    return [
+        Capability(
+            id="phone.caller.lookup",
+            name="Unknown caller public intelligence",
+            description=(
+                "Combine phone-network metadata with bounded exact-number public-web "
+                "evidence for an unknown caller without exposing private subscriber records."
+            ),
+            pack="phone",
+            tags=("phone", "caller", "unknown-call", "osint", "public-web"),
+            input_schema={
+                "type": "object",
+                "required": ["number"],
+                "properties": {
+                    "number": {"type": "string"},
+                    "region": {"type": "string"},
+                    "public_search": {"type": "boolean"},
+                    "max_results": {"type": "integer", "minimum": 1, "maximum": 20},
+                    "telecom_external": {"type": "boolean"},
+                    "telecom_providers": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["veriphone", "abstract", "numverify", "twilio"],
+                        },
+                    },
+                },
+            },
+            candidates=(
+                CapabilityCandidate(
+                    provider="callerintel",
+                    ref="callerintel:lookup",
+                    priority=10,
+                    argument_map={
+                        "number": "number",
+                        "region": "region",
+                        "public_search": "public_search",
+                        "max_results": "max_results",
+                        "telecom_external": "telecom_external",
+                        "telecom_providers": "telecom_providers",
+                    },
+                    passthrough_arguments=False,
+                    note="First-party bounded public caller-attribution provider.",
+                ),
+            ),
+        ),
+        Capability(
+            id="phone.caller.investigate",
+            name="Deep unknown-caller public investigation",
+            description=(
+                "Corroborate an unknown phone number across bounded public web sources, "
+                "fetch selected evidence pages, and report confidence without exposing "
+                "private subscriber records or raw page content."
+            ),
+            pack="phone",
+            tags=("phone", "caller", "investigation", "osint", "public-web", "corroboration"),
+            input_schema={"type": "object", "required": ["number"], "properties": {
+                "number": {"type": "string"}, "region": {"type": "string"},
+                "max_sources": {"type": "integer", "minimum": 1, "maximum": 12},
+                "telecom_external": {"type": "boolean"},
+                "telecom_providers": {"type": "array", "items": {"type": "string", "enum": ["veriphone", "abstract", "numverify", "twilio"]}},
+            }},
+            candidates=(CapabilityCandidate(
+                provider="callerresearch", ref="callerresearch:investigate", priority=10,
+                argument_map={"number": "number", "region": "region", "max_sources": "max_sources", "telecom_external": "telecom_external", "telecom_providers": "telecom_providers"},
+                passthrough_arguments=False,
+                note="First-party bounded public corroboration engine with source verification.",
+            ),),
+        ),
+    ]
+
+
+def _connected_capabilities() -> list[Capability]:
+    return [
+        Capability(
+            id="browser.navigate",
+            name="Browser navigation task",
+            description=(
+                "Run a natural-language browser task without exposing the underlying browser vendor."
+            ),
+            pack="connected",
+            tags=("browser", "automation", "navigate", "connected"),
+            read_only=False,
+            input_schema={
+                "type": "object",
+                "required": ["goal"],
+                "properties": {
+                    "goal": {"type": "string"},
+                    "url": {"type": "string"},
+                    "session_id": {"type": "string"},
+                    "secrets": {"type": "object"},
+                },
+            },
+            candidates=(
+                CapabilityCandidate(
+                    provider="composio",
+                    ref="composio:BROWSER_TOOL_CREATE_TASK",
+                    priority=10,
+                    argument_map={
+                        "goal": "task",
+                        "url": "startUrl",
+                        "session_id": "sessionId",
+                        "secrets": "secrets",
+                    },
+                    passthrough_arguments=False,
+                    note="Composio cloud browser task.",
+                ),
+            ),
+        ),
+        Capability(
+            id="browser.task.status",
+            name="Browser task status",
+            description="Inspect progress and results from a semantic browser task.",
+            pack="connected",
+            tags=("browser", "automation", "status", "connected"),
+            input_schema={
+                "type": "object",
+                "required": ["task_id"],
+                "properties": {
+                    "task_id": {"type": "string"},
+                    "last_step_seen": {"type": "integer"},
+                },
+            },
+            candidates=(
+                CapabilityCandidate(
+                    provider="composio",
+                    ref="composio:BROWSER_TOOL_WATCH_TASK",
+                    priority=10,
+                    argument_map={
+                        "task_id": "taskId",
+                        "last_step_seen": "lastStepSeen",
+                    },
+                    passthrough_arguments=False,
+                ),
+            ),
+        ),
+        Capability(
+            id="automation.workflow",
+            name="Workflow execution",
+            description="Execute an automation workflow without exposing n8n-specific field names.",
+            pack="connected",
+            tags=("automation", "workflow", "n8n", "connected"),
+            read_only=False,
+            input_schema={
+                "type": "object",
+                "required": ["workflow_id"],
+                "properties": {
+                    "workflow_id": {"type": "string"},
+                    "mode": {"enum": ["manual", "production"]},
+                    "inputs": {"type": "object"},
+                    "trigger": {"type": "string"},
+                },
+            },
+            candidates=(
+                CapabilityCandidate(
+                    provider="composio",
+                    ref="composio:CUSTOM_N8N_EXECUTE_WORKFLOW",
+                    priority=10,
+                    argument_map={
+                        "workflow_id": "workflowId",
+                        "mode": "executionMode",
+                        "inputs": "inputs",
+                        "trigger": "triggerNodeName",
+                    },
+                    defaults={"executionMode": "manual"},
+                    passthrough_arguments=False,
+                    note="Connected n8n workflow execution.",
+                ),
+            ),
+        ),
+        Capability(
+            id="automation.workflow.status",
+            name="Workflow execution status",
+            description="Inspect an automation workflow execution and optionally include node data.",
+            pack="connected",
+            tags=("automation", "workflow", "status", "n8n", "connected"),
+            input_schema={
+                "type": "object",
+                "required": ["workflow_id", "execution_id"],
+                "properties": {
+                    "workflow_id": {"type": "string"},
+                    "execution_id": {"type": "string"},
+                    "include_data": {"type": "boolean"},
+                    "node_names": {"type": "array", "items": {"type": "string"}},
+                    "truncate_data": {"type": "integer"},
+                },
+            },
+            candidates=(
+                CapabilityCandidate(
+                    provider="composio",
+                    ref="composio:CUSTOM_N8N_GET_WORKFLOW_EXECUTION",
+                    priority=10,
+                    argument_map={
+                        "workflow_id": "workflowId",
+                        "execution_id": "executionId",
+                        "include_data": "includeData",
+                        "node_names": "nodeNames",
+                        "truncate_data": "truncateData",
+                    },
+                    passthrough_arguments=False,
+                ),
+            ),
+        ),
+        Capability(
+            id="messaging.send",
+            name="Send connected message",
+            description="Send a message through a supported connected messaging backend.",
+            pack="connected",
+            tags=("messaging", "telegram", "discord", "send", "connected"),
+            read_only=False,
+            input_schema={
+                "type": "object",
+                "required": ["platform", "target", "message"],
+                "properties": {
+                    "platform": {"enum": ["telegram", "discord"]},
+                    "target": {"type": ["string", "integer"]},
+                    "message": {"type": "string"},
+                    "parse_mode": {"type": "string"},
+                    "silent": {"type": "boolean"},
+                    "reply_to_message_id": {"type": ["string", "integer"]},
+                },
+            },
+            candidates=(
+                CapabilityCandidate(
+                    provider="composio",
+                    ref="composio:TELEGRAM_SEND_MESSAGE",
+                    priority=10,
+                    when={"platform": "telegram"},
+                    argument_map={
+                        "target": "chat_id",
+                        "message": "text",
+                        "parse_mode": "parse_mode",
+                        "silent": "disable_notification",
+                        "reply_to_message_id": "reply_to_message_id",
+                    },
+                    passthrough_arguments=False,
+                ),
+                CapabilityCandidate(
+                    provider="composio",
+                    ref="composio:DISCORDBOT_CREATE_MESSAGE",
+                    priority=10,
+                    when={"platform": "discord"},
+                    argument_map={
+                        "target": "channel_id",
+                        "message": "content",
+                        "reply_to_message_id": "message_reference",
+                    },
+                    passthrough_arguments=False,
+                    note="reply_to_message_id should use a full message_reference for advanced replies.",
+                ),
+            ),
+        ),
+        Capability(
+            id="code.execute",
+            name="Isolated code execution",
+            description=(
+                "Execute a shell command in an isolated connected cloud sandbox."
+            ),
+            pack="connected",
+            tags=("code", "shell", "sandbox", "execute", "connected"),
+            read_only=False,
+            input_schema={
+                "type": "object",
+                "required": ["command"],
+                "properties": {
+                    "command": {"type": "string"},
+                    "timeout_seconds": {"type": "integer"},
+                    "background": {"type": "boolean"},
+                    "restart": {"type": "boolean"},
+                },
+            },
+            candidates=(
+                CapabilityCandidate(
+                    provider="composio",
+                    ref="composio:HIGGSFIELD_MCP_SANDBOX_EXEC",
+                    priority=10,
+                    argument_map={
+                        "command": "command",
+                        "timeout_seconds": "timeout_seconds",
+                        "background": "background",
+                        "restart": "restart",
+                    },
+                    passthrough_arguments=False,
+                    note="Ephemeral isolated Higgsfield Linux sandbox.",
+                ),
+                CapabilityCandidate(
+                    provider="nativesandbox",
+                    ref="nativesandbox:exec",
+                    priority=50,
+                    argument_map={
+                        "command": "command",
+                        "timeout_seconds": "timeout_seconds",
+                        "background": "background",
+                        "restart": "restart",
+                    },
+                    passthrough_arguments=False,
+                    note="First-party Vercel Sandbox fallback selected only during preflight.",
+                ),
+            ),
+        ),
+    ]
+
+
+def _github_capabilities() -> list[Capability]:
+    return [
+        Capability(
+            id="repo.search", name="Find public source repositories",
+            description="Search public GitHub repositories by topic and inspect source, license and freshness.",
+            pack="repositories", tags=("github", "repository", "search", "public"),
+            candidates=(CapabilityCandidate(provider="githubpublic", ref="githubpublic:search"),),
+        ),
+        Capability(
+            id="repo.inspect", name="Inspect public repository",
+            description="Inspect a public repository tree and documented API specifications without executing its code.",
+            pack="repositories", tags=("github", "repository", "openapi", "oauth", "public"),
+            candidates=(CapabilityCandidate(provider="githubpublic", ref="githubpublic:inspect"),),
+        ),
+    ]
+
+
 def build_default_capabilities() -> list[Capability]:
-    return [*_apify_capabilities(), *_mlbb_capabilities()]
+    return [*_apify_capabilities(), *_mlbb_capabilities(), *_phone_capabilities(), *_caller_capabilities(), *_connected_capabilities(), *_github_capabilities()]

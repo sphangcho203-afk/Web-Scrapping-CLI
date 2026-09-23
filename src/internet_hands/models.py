@@ -53,12 +53,19 @@ class CrawlPage(BaseModel):
     status_code: int | None = None
     sha256: str | None = None
     links_found: int = 0
+    depth: int = 0
+    content_type: str | None = None
+    elapsed_ms: float | None = None
     error: str | None = None
 
 
 class CrawlResult(BaseModel):
     seed_url: str
     pages: list[CrawlPage]
+    discovered_urls: int = 0
+    skipped_urls: int = 0
+    duration_ms: int = 0
+    truncated: bool = False
 
 
 class DownloadInfo(BaseModel):

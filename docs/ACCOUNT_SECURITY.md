@@ -1,10 +1,10 @@
 # Internet Hands account security
 
-Internet Hands v0.7 adds transactional email, email verification, login notifications, payment confirmations, and optional TOTP two-factor authentication.
+Internet Hands v0.7 includes transactional email, email verification, login notifications, payment confirmations, and optional TOTP two-factor authentication.
 
-## SMTP
+## Transactional email
 
-SMTP is the preferred mail transport. Configure these server-side variables in both Vercel Production and Preview when testing previews:
+Resend is the preferred production mail transport; SMTP remains a configurable fallback. Configure these server-side variables in both Vercel Production and Preview when testing previews:
 
 ```text
 SMTP_HOST=smtp.example.com

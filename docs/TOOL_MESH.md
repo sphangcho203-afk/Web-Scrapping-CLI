@@ -66,6 +66,18 @@ Agents do not need to know those refs for common tasks. Semantic packs expose na
 
 `mesh_capability_execute` runs a semantic read-only capability and may fall back to another provider when the preferred source is unavailable.
 
+## Phone intelligence provider
+
+`phoneintel` is a first-party read-only provider for phone-number metadata. Its raw tool is:
+
+```text
+phoneintel:lookup
+```
+
+The direct MCP convenience tool is `phone_number_lookup`, and the stable semantic capability is `phone.number.lookup`.
+
+The provider always has a local libphonenumber fallback and can optionally enrich results through configured Veriphone, Abstract Phone Validation, Numverify/APILayer, and Twilio Lookup credentials. Third-party responses are filtered through a telecom-only allowlist, so private subscriber/SIM-owner identity fields are not exposed.
+
 ## Apify provider
 
 The Apify adapter treats public Store Actors as discoverable tools. Store search works without credentials. Executing an Actor requires `APIFY_TOKEN`.
@@ -202,3 +214,35 @@ That contract is deliberately small. A provider can represent an Actor marketpla
 ## Design boundary
 
 Internet Hands keeps its existing public-network and sandbox isolation rules. The Tool Mesh is an orchestration plane, not a way to weaken those boundaries. Provider credentials stay server-side, provider errors are normalized into execution receipts, external content is treated as untrusted, and large outputs are paged or bounded before they enter model context.
+
+## Connected semantic capability plane
+
+Connected SaaS and automation tools are also exposed through stable semantic
+capabilities so an agent does not need to memorize vendor-specific tool slugs.
+
+Current built-ins:
+
+- browser.navigate — start a natural-language browser automation task
+- browser.task.status — inspect browser progress/results
+- automation.workflow — execute a connected workflow
+- automation.workflow.status — inspect one workflow execution
+- messaging.send — send through Telegram or Discord using platform
+- code.execute — run a command in an isolated connected cloud sandbox
+
+These capabilities normalize their arguments before calling the provider. For
+example, messaging.send accepts platform, target, and message; the registry maps
+those to the selected backend's concrete schema and drops provider-irrelevant
+fields.
+
+Side-effecting capabilities are fail-closed. A real execution requires
+allow_side_effects=true. Without that flag, callers can still use dry_run=true to
+resolve the backend and inspect the normalized call. This gate is in addition to
+Tool Mesh allow/deny policy and the Composio connected-account allowlist.
+
+The optional account argument on mesh_capability_execute is passed through to
+the provider layer. For Composio, the connected-account bridge still enforces
+its allowlist and rejects ambiguous account routing rather than guessing.
+
+Automatic fallback remains conservative: read-only capabilities may try a later
+provider when the preferred source is unavailable; write capabilities never
+silently retry a different side-effecting backend after an execution attempt.

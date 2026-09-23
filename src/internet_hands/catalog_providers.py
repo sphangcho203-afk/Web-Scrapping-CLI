@@ -82,6 +82,10 @@ class ManifestHttpProvider:
             "kind": "manifest-http-catalog",
             "tool_count": len(self.tools),
             "configured_tools": executable,
+            "tool_availability": {
+                self.name + ":" + tool.tool_id: not tool.auth_env or bool(os.getenv(tool.auth_env, "").strip())
+                for tool in self.tools.values()
+            },
         }
 
     def _descriptor(self, tool: HttpToolSpec) -> ToolDescriptor:
@@ -101,6 +105,7 @@ class ManifestHttpProvider:
                 "base_url": tool.base_url,
                 "path": tool.path,
                 **tool.metadata,
+                "configured": not tool.auth_env or bool(os.getenv(tool.auth_env, "").strip()),
             },
         )
 
@@ -497,7 +502,7 @@ class OpenApiToolProvider:
                         input_schema=self._input_schema(path_item, operation),
                         output_schema={},
                         tags=[source.name, *tags],
-                        requires_auth=bool(operation.get("security") or spec.get("security")),
+                        requires_auth=bool(operation["security"] if "security" in operation else spec.get("security")),
                         side_effecting=False,
                         metadata={
                             "source": source.name,
@@ -595,6 +600,8 @@ class OpenApiToolProvider:
             headers=headers,
             timeout=max(1.0, min(float(timeout_seconds), 120.0)),
         )
+        if len(response.content) > 2_000_000:
+            raise ValueError("OpenAPI response exceeds the 2 MB read-only limit")
         try:
             data: Any = response.json()
         except ValueError:
