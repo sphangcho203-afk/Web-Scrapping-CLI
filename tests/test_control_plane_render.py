@@ -150,6 +150,7 @@ def test_monitor_history_and_responsive_layout(frontend_url):
         page.locator(".monitor-row").click()
         page.locator(".monitor-history-table tbody tr").wait_for()
         page.get_by_role("button", name="Load older checks").click()
+        page.locator(".monitor-history-table tbody tr").nth(1).wait_for()
         assert page.locator(".monitor-history-table tbody tr").count() == 2
         assert page.get_by_role("button", name="Load older checks").count() == 0
         bounds = page.locator(".modal").bounding_box()
