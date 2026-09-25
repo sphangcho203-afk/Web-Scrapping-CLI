@@ -51,7 +51,7 @@
         ${rows.length ? `<div class="ih-inspector-section"><span>RUN METADATA</span><div class="ih-run-metadata">${rows.map(([key,value])=>`<div><small>${esc(key)}</small><code>${esc(value)}</code></div>`).join('')}</div></div>` : '<div class="ih-inspector-note"><b>No additional execution metadata</b><p>This run is still fully traceable through its request ID, capability, provider, byte counts, latency and credit charge.</p></div>'}
       </div>`, true);
       bindCommon();
-      wrap.querySelector('[data-close]')?.addEventListener('click', clearRunDeepLink, {once:true});
+      wrap.onClose=clearRunDeepLink;
       return wrap;
     } catch (error) {
       clearRunDeepLink();
