@@ -267,8 +267,9 @@ CREATE TABLE IF NOT EXISTS ih_tool_costs (
 );
 """
 
+FREE_MONTHLY_CREDITS = 250
 PLAN_ROWS = [
-    ("free", "Free", 0, 2500, 10, 1, 1, 1, False, False, 0),
+    ("free", "Free", 0, FREE_MONTHLY_CREDITS, 10, 1, 1, 1, False, False, 0),
     ("builder", "Builder", 499, 25000, 60, 4, 5, 10, True, False, 10),
     ("pro", "Pro", 1499, 150000, 240, 10, 20, 50, True, True, 20),
     ("scale", "Scale", 4999, 750000, 600, 20, 100, 250, True, True, 30),
@@ -430,26 +431,27 @@ class ControlStore:
     def _activate_free_account(self, cur: Any, user_id: str) -> None:
         """Provision account resources once, inside the caller's transaction."""
         now = datetime.now(UTC)
+        free_credits = FREE_MONTHLY_CREDITS
         cur.execute(
             """
             INSERT INTO ih_wallets(user_id,monthly_credits)
-            VALUES (%s,2500)
+            VALUES (%s,%s)
             ON CONFLICT (user_id) DO NOTHING
             """,
-            (user_id,),
+            (user_id, free_credits),
         )
         cur.execute(
             """
             INSERT INTO ih_credit_ledger(
                 id,user_id,amount,bucket,kind,source,reference_id
             )
-            SELECT %s,%s,2500,'monthly','grant','signup','free'
+            SELECT %s,%s,%s,'monthly','grant','signup','free'
             WHERE NOT EXISTS (
                 SELECT 1 FROM ih_credit_ledger
                 WHERE user_id=%s AND kind='grant' AND source='signup'
             )
             """,
-            (self._new_id("led"), user_id, user_id),
+            (self._new_id("led"), user_id, free_credits, user_id),
         )
         cur.execute(
             """

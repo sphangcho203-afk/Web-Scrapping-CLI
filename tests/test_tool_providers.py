@@ -31,6 +31,7 @@ async def test_apify_search_and_async_execute() -> None:
             )
         if request.url.path.endswith("/actors/apify~web-scraper/runs"):
             assert request.headers["authorization"] == "Bearer token"
+            assert request.url.params["maxTotalChargeUsd"] == "0.1"
             assert json.loads(request.content) == {
                 "startUrls": [{"url": "https://example.com"}]
             }
