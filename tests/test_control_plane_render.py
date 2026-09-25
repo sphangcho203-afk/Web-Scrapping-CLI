@@ -98,3 +98,116 @@ def test_initial_control_plane_render(frontend_url, mode):
             if mode == "populated" and route == "/dashboard/api-keys":
                 assert page.get_by_text("Fixture key", exact=True).count() == 1
         browser.close()
+
+
+def test_monitor_history_and_responsive_layout(frontend_url):
+    monitor = {
+        "id": "mon_fixture", "name": "Docs health", "type": "web",
+        "target": "https://example.com/long/path/to/health-check", "enabled": True,
+        "interval_minutes": 60, "last_status": "healthy",
+        "last_checked_at": "2026-09-25T12:00:00Z",
+        "next_check_at": "2026-09-25T13:00:00Z",
+    }
+    run = {"created_at": "2026-09-25T12:00:00Z", "status": "healthy",
+           "http_status": 200, "latency_ms": 83, "summary": "HTTP 200"}
+    older = {**run, "created_at": "2026-09-24T12:00:00Z", "summary": "Older check"}
+
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 1366, "height": 800})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if path == "/api/auth/me":
+                data = {"user": {"email": "fixture@example.test", "email_verified": True},
+                        "account": {}}
+            elif path == "/api/monitors":
+                data = {"monitors": [monitor]}
+            elif path == "/api/monitors/mon_fixture":
+                data = monitor
+            elif path == "/api/monitors/mon_fixture/history":
+                data = ({"runs": [older], "has_more": False, "next_before": None}
+                        if "before=" in route.request.url else
+                        {"runs": [run], "has_more": True,
+                         "next_before": "2026-09-25T12:00:00Z"})
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/monitors")
+        page.locator(".monitor-row").wait_for()
+        assert page.locator(".monitor-row .badge.success").count() == 1
+        assert page.locator(".stats-grid .stat-card").nth(1).locator("b").inner_text() == "1"
+        assert page.locator('[data-monitor-template="gaming"]').count() == 0
+        for width in (320, 360, 390, 430, 768, 900, 1024, 1366, 1440, 1920):
+            page.set_viewport_size({"width": width, "height": 800})
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
+
+        page.set_viewport_size({"width": 320, "height": 700})
+        page.locator(".monitor-row").click()
+        page.locator(".monitor-history-table tbody tr").wait_for()
+        page.get_by_role("button", name="Load older checks").click()
+        assert page.locator(".monitor-history-table tbody tr").count() == 2
+        assert page.get_by_role("button", name="Load older checks").count() == 0
+        bounds = page.locator(".modal").bounding_box()
+        assert bounds and bounds["x"] >= 0 and bounds["x"] + bounds["width"] <= 320
+        page.locator(".modal").press("Escape")
+        page.get_by_role("button", name="New monitor").click()
+        assert page.locator('input[name="target"]').get_attribute("type") == "url"
+        page.locator('select[name="type"]').select_option("mcp")
+        assert "MCP endpoint" in page.locator("#monitor-target-hint").inner_text()
+        assert not errors, errors
+        browser.close()
+
+
+def test_curl_connection_preview_then_save(frontend_url):
+    saved = []
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if path == "/api/auth/me":
+                data = {"user": {"email": "fixture@example.test", "email_verified": True},
+                        "account": {}}
+            elif path == "/api/connections" and route.request.method == "GET":
+                data = {"connections": saved}
+            elif path == "/api/connections/import-curl":
+                body = route.request.post_data_json
+                assert body["command"].startswith("curl ")
+                if body.get("save"):
+                    saved.append({"id": "con_fixture", "name": "Provider",
+                                  "endpoint_url": "https://example.com/mcp",
+                                  "transport": "streamable_http", "auth_type": "bearer",
+                                  "header_names": ["Authorization"]})
+                    data = {"connection": saved[-1], "saved": True}
+                else:
+                    data = {"connection": {"name": "Provider", "url": "https://example.com/mcp",
+                                           "auth_type": "bearer", "header_names": ["Authorization"]}}
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/connections")
+        page.locator("#mcp-curl").click()
+        page.locator('#curl-form input[name="name"]').fill("Provider")
+        page.locator('#curl-form textarea[name="command"]').fill(
+            "curl https://example.com/mcp -H 'Authorization: Bearer fixture-access-token'"
+        )
+        page.get_by_role("button", name="Preview import").click()
+        page.locator("#curl-save").wait_for()
+        assert "fixture-access-token" not in page.locator("#curl-result").inner_text()
+        page.locator("#curl-save").click()
+        page.locator(".mcp-row").wait_for()
+        assert len(saved) == 1
+        assert "Provider" in page.locator(".mcp-row").inner_text()
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        assert not errors, errors
+        browser.close()

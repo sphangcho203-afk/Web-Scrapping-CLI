@@ -476,7 +476,7 @@ def connections(request: Request):
 
 @router.post("/api/connections/import-curl")
 async def import_connection_curl(request: Request):
-    _require_verified(_require_user(request))
+    user = _require_verified(_require_user(request))
     body = await request.json()
     command = str(body.get("curl") or body.get("command") or "").strip()
     if not command:
@@ -488,6 +488,17 @@ async def import_connection_curl(request: Request):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     redacted = dict(draft)
     headers = dict(redacted.pop("headers", {}) or {})
+    if body.get("save") is True:
+        connection = store.create_connection(
+            user_id=user["id"],
+            name=draft["name"],
+            endpoint_url=draft["url"],
+            transport=draft["transport"],
+            auth_type=draft["auth_type"],
+            config={"header_names": list(headers)},
+            secret_config={"headers": headers},
+        )
+        return {"connection": connection, "saved": True}
     redacted["header_names"] = list(headers)
     redacted["has_credentials"] = bool(headers)
     return {"connection": redacted, "warning": "Credential values are intentionally omitted from the import preview."}
@@ -515,7 +526,7 @@ async def create_connection_endpoint(request: Request):
     secret_config: dict[str, Any] = {"headers": {str(k): str(v) for k, v in headers.items() if str(k).strip()}}
     secret = str(body.get("secret") or body.get("token") or body.get("api_key") or "")
     header_name = str(body.get("header_name") or "X-API-Key").strip()
-    if auth_type == "bearer" and secret:
+    if auth_type in {"bearer", "oauth"} and secret:
         secret_config["headers"]["Authorization"] = f"Bearer {secret}"
     elif auth_type == "api_key" and secret:
         secret_config["headers"][header_name] = secret
