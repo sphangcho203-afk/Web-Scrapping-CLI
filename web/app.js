@@ -117,7 +117,7 @@ async function api(path, options = {}) {
   if (init.body && typeof init.body !== 'string') init.body = JSON.stringify(init.body);
   const response = await fetch(path, init); let data = {};
   try { data = await response.json(); } catch {}
-  if (!response.ok) { const detail = data?.detail; const error = new Error(typeof detail === 'string' ? detail : detail?.message || data?.error || `Request failed (${response.status})`); error.status = response.status; error.code = detail?.code; throw error; }
+  if (!response.ok) { const detail = data?.detail; const error = new Error(typeof detail === 'string' ? detail : detail?.message || data?.error || `Request failed (${response.status})`); error.status = response.status; error.code = detail?.code; error.requestId = detail?.request_id; throw error; }
   return (init.method || 'GET').toUpperCase() === 'GET' ? normalizeCollections(path, data) : data;
 }
 async function hydrateOptionalSession() {
@@ -494,12 +494,14 @@ async function dashGames(){
   const draw=()=>{
     const q=filter.value.trim().toLowerCase();
     const matches=games.filter(g=>g.name.toLowerCase().includes(q)||g.game_id.includes(q));
-    list.innerHTML=matches.length?matches.map(g=>`<button class="game-tile" type="button" data-game="${esc(g.game_id)}"><strong>${esc(g.name)}</strong><span>${fmt(g.capability_count)} capabilities · ${fmt(g.provider_ready_count)} ready</span>${icon('arrow')}</button>`).join(''):'<p class="game-empty">No registered game matches that search.</p>';
+    list.innerHTML=matches.length?matches.map(g=>`<button class="game-tile" type="button" data-game="${esc(g.game_id)}" aria-pressed="${g.game_id===selectedId}" ${toolRunning?'disabled':''}><strong>${esc(g.name)}</strong><span>${fmt(g.capability_count)} capabilities · ${fmt(g.provider_ready_count)} ready</span>${icon('arrow')}</button>`).join(''):'<p class="game-empty">No registered game matches that search.</p>';
     $$('[data-game]',list).forEach(button=>button.onclick=()=>select(button.dataset.game));
   };
-  let selectedRun=0;
+  let selectedRun=0,selectedId='',panelRun=0,toolRunning=false;
   async function select(id){
+    if(toolRunning)return;
     const run=++selectedRun;
+    selectedId=id;panelRun++;draw();
     detail.innerHTML='<p class="game-empty">Loading capabilities…</p>';
     try{
       const {game}=await api('/api/games/'+encodeURIComponent(id));
@@ -518,16 +520,18 @@ async function dashGames(){
       }
       $$('[data-game-tool]',detail).forEach(button=>button.onclick=()=>showTool(game,button.dataset.gameTool));
       $$('[data-game-discover]',detail).forEach(button=>button.onclick=()=>showDiscoveredTool(game,button.dataset.gameDiscover));
-    }catch(error){detail.innerHTML=`<p class="game-empty">${esc(error.message)}</p>`;}
+    }catch(error){if(run===selectedRun)detail.innerHTML=`<p class="game-empty">${esc(error.message)}</p>`;}
   }
   async function showDiscoveredTool(game,capability){
+    if(toolRunning)return;
+    const currentPanel=++panelRun;
     const panel=$('#game-tool-panel',detail),cap=(game.capabilities||[]).find(c=>c.id===capability);
     panel.innerHTML=`<section class="game-tool-runner"><header><div><span class="overline">DISCOVER READ-ONLY OPERATIONS</span><h3>${esc(cap?.name||capability)}</h3><p>Checking current provider operations and required inputs…</p></div><button type="button" class="game-tool-close" aria-label="Close tool">×</button></header><div id="game-tool-options"></div></section>`;
-    panel.querySelector('.game-tool-close').onclick=()=>panel.replaceChildren();
+    panel.querySelector('.game-tool-close').onclick=()=>{panelRun++;panel.replaceChildren();};
     panel.scrollIntoView({behavior:'smooth',block:'nearest'});
     try{
       const response=await api('/api/games/'+encodeURIComponent(game.game_id)+'/tools/'+encodeURIComponent(capability));
-      if(!panel.isConnected)return;
+      if(currentPanel!==panelRun||!panel.isConnected)return;
       const tools=response.tools||[],box=$('#game-tool-options',panel);
       if(!tools.length){box.innerHTML=`<p class="game-empty">${esc((response.reasons||[]).join(' · ')||'No public read-only operation is available right now.')}</p>`;return;}
       box.innerHTML=`<label>Published operation<select id="game-operation">${tools.map((tool,index)=>`<option value="${index}">${esc(tool.name)} · ${esc(tool.metadata?.method||'GET')} ${esc(tool.metadata?.path||'')}</option>`).join('')}</select></label><div id="game-operation-form"></div>`;
@@ -535,41 +539,68 @@ async function dashGames(){
       function renderOperation(){
         const tool=tools[Number(selector.value)],properties=tool.input_schema?.properties||{},required=tool.input_schema?.required||[];
         const fields=Object.entries(properties).filter(([key,schema])=>schema['x-in']!=='header'&&!['authorization','cookie','proxy-authorization','x-api-key'].includes(key.toLowerCase()));
-        $('#game-operation-form',box).innerHTML=`<p>${esc(tool.description||'Read public data from the selected provider.')}</p><small>${esc(tool.provider)} · ${esc(tool.metadata?.server||tool.metadata?.base_url||'')} · ${esc(tool.metadata?.path||'')}${tool.metadata?.source==='rone-mlbb'?' · Rone Arena community API':''}</small>${keys.length?`<form id="game-discovered-form">${fields.map(([name,schema])=>`<label>${esc(name)}${required.includes(name)?' *':''}${schema.enum?`<select name="${esc(name)}">${schema.enum.map(value=>`<option value="${esc(value)}">${esc(value)}</option>`).join('')}</select>`:`<input name="${esc(name)}" ${required.includes(name)?'required':''} ${['integer','number'].includes(schema.type)?'type="number"':'type="text"'} ${schema.type==='integer'?'step="1"':''} maxlength="512" placeholder="${esc(schema.description||name)}">`}</label>`).join('')}<label>Internet Hands API key<select name="api_key_id">${keys.map(key=>`<option value="${esc(key.id)}">${esc(key.name)} · ${esc(key.prefix)}…</option>`).join('')}</select></label><button class="btn primary" type="submit">Run read-only operation ${icon('arrow')}</button></form>`:`<p>Create an Internet Hands API key to run this operation.</p><a data-link class="btn primary" href="/dashboard/api-keys">Create API key</a>`}<div id="game-discovered-output" aria-live="polite"></div>`;
+        const fieldInput=(name,schema,index)=>{
+          const requiredAttr=required.includes(name)?'required':'';
+          const attr=`data-game-arg="${index}" ${requiredAttr}`;
+          if(Array.isArray(schema.enum))return `<select ${attr}><option value="">Choose a value</option>${schema.enum.map((value,i)=>`<option value="${i}">${esc(String(value))}</option>`).join('')}</select>`;
+          if(schema.type==='boolean')return `<select ${attr}><option value="">Choose a value</option><option value="true">True</option><option value="false">False</option></select>`;
+          if(['object','array'].includes(schema.type))return `<textarea ${attr} rows="4" maxlength="4000" spellcheck="false" placeholder="${schema.type==='array'?'[]':'{}'}"></textarea>`;
+          const number=['integer','number'].includes(schema.type);
+          return `<input ${attr} ${number?'type="number"':'type="text"'} ${number?`step="${schema.type==='integer'?'1':'any'}"`:''} ${number&&Number.isFinite(schema.minimum)?`min="${esc(schema.minimum)}"`:''} ${number&&Number.isFinite(schema.maximum)?`max="${esc(schema.maximum)}"`:''} maxlength="512" placeholder="${esc(schema.description||name)}">`;
+        };
+        $('#game-operation-form',box).innerHTML=`<p>${esc(tool.description||'Read public data from the selected provider.')}</p><small>${esc(tool.provider)} · ${esc(tool.metadata?.server||tool.metadata?.base_url||'')} · ${esc(tool.metadata?.path||'')}${tool.metadata?.source==='rone-mlbb'?' · Rone Arena community API':''}</small>${keys.length?`<form id="game-discovered-form">${fields.map(([name,schema],index)=>`<label>${esc(name)}${required.includes(name)?' *':''}${fieldInput(name,schema,index)}</label>`).join('')}<label>Internet Hands API key<select name="api_key_id">${keys.map(key=>`<option value="${esc(key.id)}">${esc(key.name)} · ${esc(key.prefix)}…</option>`).join('')}</select></label><button class="btn primary" type="submit">Run read-only operation ${icon('arrow')}</button></form>`:`<p>Create an Internet Hands API key to run this operation.</p><a data-link class="btn primary" href="/dashboard/api-keys">Create API key</a>`}<div id="game-discovered-output" aria-live="polite"></div>`;
         const form=$('#game-discovered-form',box);if(!form)return;
         form.onsubmit=async event=>{
-          event.preventDefault();const output=$('#game-discovered-output',box),submit=form.querySelector('button[type="submit"]'),arguments_={};
-          for(const [name,schema] of fields){const input=form.elements.namedItem(name);if(!input||input.value==='')continue;arguments_[name]=schema.type==='integer'?Number.parseInt(input.value,10):schema.type==='number'?Number(input.value):schema.type==='boolean'?input.value==='true':input.value;}
-          output.innerHTML='<p class="game-empty">Running…</p>';submit.disabled=true;
+          event.preventDefault();if(toolRunning)return;
+          const output=$('#game-discovered-output',box),submit=form.querySelector('button[type="submit"]'),arguments_={};
+          try{
+            fields.forEach(([name,schema],index)=>{
+              const value=form.querySelector(`[data-game-arg="${index}"]`).value;
+              if(value==='')return;
+              let parsed=Array.isArray(schema.enum)?schema.enum[Number(value)]:schema.type==='integer'?Number(value):schema.type==='number'?Number(value):schema.type==='boolean'?value==='true':value;
+              if(['object','array'].includes(schema.type)&&!Array.isArray(schema.enum)){
+                try{parsed=JSON.parse(value);}catch{throw new Error(`${name} must be valid JSON.`);}
+                if(schema.type==='array'?!Array.isArray(parsed):!parsed||Array.isArray(parsed)||typeof parsed!=='object')throw new Error(`${name} must be a JSON ${schema.type}.`);
+              }
+              arguments_[name]=parsed;
+            });
+          }catch(error){output.innerHTML=`<p class="game-error" role="alert">${esc(error.message)}</p>`;return;}
+          toolRunning=true;draw();selector.disabled=true;panel.querySelector('.game-tool-close').disabled=true;
+          output.innerHTML='<p class="game-progress" role="status">Operation sent · waiting for provider response…</p>';submit.disabled=true;submit.setAttribute('aria-busy','true');
           try{const result=await api('/api/games/'+encodeURIComponent(game.game_id)+'/tools/'+encodeURIComponent(capability),{method:'POST',body:{ref:tool.ref,arguments:arguments_,api_key_id:form.elements.api_key_id.value}});
-            output.innerHTML=`<div class="game-tool-output"><small>${esc(result.ref)} · ${fmt(result.usage?.credits_charged)} credits${tool.metadata?.source==='rone-mlbb'?' · Data: <a href="https://arena.rone.dev" target="_blank" rel="noopener noreferrer">Rone Arena</a>':''}</small><pre>${esc(JSON.stringify(result.result,null,2))}</pre></div>`;
-          }catch(error){output.innerHTML=`<p class="game-empty">${esc(error.message)}</p>`;}
-          finally{submit.disabled=false;}
+            output.innerHTML=`<div class="game-tool-output" role="status"><small>Complete · ${esc(result.ref)} · ${fmt(result.usage?.credits_charged)} credits · ${esc(result.request_id||'')}${tool.metadata?.source==='rone-mlbb'?' · Data: <a href="https://arena.rone.dev" target="_blank" rel="noopener noreferrer">Rone Arena</a>':''}</small><pre>${esc(JSON.stringify(result.result,null,2))}</pre></div>`;
+          }catch(error){output.innerHTML=`<p class="game-error" role="alert">${esc(error.message)}${error.requestId?` · ${esc(error.requestId)}`:''}</p>`;}
+          finally{toolRunning=false;draw();selector.disabled=false;panel.querySelector('.game-tool-close').disabled=false;submit.disabled=false;submit.removeAttribute('aria-busy');}
         };
       }
       selector.onchange=renderOperation;renderOperation();
-    }catch(error){const box=$('#game-tool-options',panel);if(box)box.innerHTML=`<p class="game-empty">${esc(error.message)}</p>`;}
+    }catch(error){const box=$('#game-tool-options',panel);if(currentPanel===panelRun&&box)box.innerHTML=`<p class="game-error" role="alert">${esc(error.message)}</p>`;}
   }
   function showTool(game,capability){
+    if(toolRunning)return;
+    panelRun++;
     const panel=$('#game-tool-panel',detail),match=capability==='game.matches.analyze';
     const hero=capability==='mlbb.reference.hero',items=capability.endsWith('.items'),league=capability.startsWith('league.reference');
-    panel.innerHTML=`<section class="game-tool-runner"><header><div><span class="overline">RUN INSIDE INTERNET HANDS</span><h3>${esc((game.capabilities||[]).find(c=>c.id===capability)?.name||capability)}</h3><p>${match?'Paste your own matches, oldest first. This works for any game.':league?'Fetch Riot’s published patch reference; no Riot API key required.':'Bundled historical MLBB data; dates and attribution appear with the result.'}</p></div><button type="button" class="game-tool-close" aria-label="Close tool">×</button></header>${keys.length?`<form id="game-tool-form"><label>${match?'Match results (JSON array)':hero?'Hero name or ID':items?'Item name or category':'Name, role or lane'}${match?'<textarea name="matches" rows="7" required spellcheck="false" placeholder=\'[{&quot;win&quot;:true,&quot;hero&quot;:&quot;Fanny&quot;,&quot;kills&quot;:8,&quot;deaths&quot;:2,&quot;assists&quot;:5}]\'></textarea>':`<input name="query" maxlength="60" ${hero?'required':''} placeholder="${hero?'Lancelot':items?'Blade':league?'Ahri':'jungle'}">`}</label><label>Internet Hands API key<select name="api_key_id">${keys.map(k=>`<option value="${esc(k.id)}">${esc(k.name)} · ${esc(k.prefix)}…</option>`).join('')}</select></label><button class="btn primary" type="submit">Run · 1 credit ${icon('arrow')}</button></form>`:`<p>Create an Internet Hands API key to record and run this tool.</p><a data-link class="btn primary" href="/dashboard/api-keys">Create API key</a>`}<div id="game-tool-output"></div></section>`;
-    panel.querySelector('.game-tool-close').onclick=()=>panel.replaceChildren();
+    panel.innerHTML=`<section class="game-tool-runner"><header><div><span class="overline">RUN INSIDE INTERNET HANDS</span><h3>${esc((game.capabilities||[]).find(c=>c.id===capability)?.name||capability)}</h3><p>${match?'Paste your own matches, oldest first. This works for any game.':league?'Fetch Riot’s published patch reference; no Riot API key required.':'Bundled historical MLBB data; dates and attribution appear with the result.'}</p></div><button type="button" class="game-tool-close" aria-label="Close tool">×</button></header>${keys.length?`<form id="game-tool-form"><label>${match?'Match results (JSON array)':hero?'Hero name or ID':items?'Item name or category':'Name, role or lane'}${match?'<textarea name="matches" rows="7" required spellcheck="false" placeholder=\'[{&quot;win&quot;:true,&quot;hero&quot;:&quot;Fanny&quot;,&quot;kills&quot;:8,&quot;deaths&quot;:2,&quot;assists&quot;:5}]\'></textarea>':`<input name="query" maxlength="60" ${hero?'required':''} placeholder="${hero?'Lancelot':items?'Blade':league?'Ahri':'jungle'}">`}</label><label>Internet Hands API key<select name="api_key_id">${keys.map(k=>`<option value="${esc(k.id)}">${esc(k.name)} · ${esc(k.prefix)}…</option>`).join('')}</select></label><button class="btn primary" type="submit">Run · 1 credit ${icon('arrow')}</button></form>`:`<p>Create an Internet Hands API key to record and run this tool.</p><a data-link class="btn primary" href="/dashboard/api-keys">Create API key</a>`}<div id="game-tool-output" aria-live="polite"></div></section>`;
+    panel.querySelector('.game-tool-close').onclick=()=>{panelRun++;panel.replaceChildren();};
     panel.scrollIntoView({behavior:'smooth',block:'nearest'});
     const form=$('#game-tool-form',panel);if(!form)return;
     form.onsubmit=async event=>{
-      event.preventDefault();const output=$('#game-tool-output',panel),submit=form.querySelector('button[type="submit"]');
+      event.preventDefault();if(toolRunning)return;
+      const output=$('#game-tool-output',panel),submit=form.querySelector('button[type="submit"]');
       let arguments_;
       try{arguments_=match?{matches:JSON.parse(form.elements.matches.value)}:hero?{hero:form.elements.query.value}:{query:form.elements.query.value};}
-      catch(error){output.innerHTML='<p class="game-empty">Match results must be valid JSON.</p>';return;}
-      output.innerHTML='<p class="game-empty">Running…</p>';submit.disabled=true;
+      catch(error){output.innerHTML='<p class="game-error" role="alert">Match results must be valid JSON.</p>';return;}
+      if(match&&!Array.isArray(arguments_.matches)){output.innerHTML='<p class="game-error" role="alert">Match results must be a JSON array.</p>';return;}
+      toolRunning=true;draw();panel.querySelector('.game-tool-close').disabled=true;
+      output.innerHTML='<p class="game-progress" role="status">Tool sent · waiting for execution result…</p>';submit.disabled=true;submit.setAttribute('aria-busy','true');
       try{
         const response=await api('/api/games/'+encodeURIComponent(game.game_id)+'/tools/'+encodeURIComponent(capability),{method:'POST',body:{api_key_id:form.elements.api_key_id.value,arguments:arguments_}});
         const data=response.result||{},provenance=data.provenance||{},rows=data.results||[];
         const summary=match?`<article><strong>${fmt(data.overall?.games)} matches · ${fmt(data.overall?.win_rate)}% wins</strong><p>Recent 10: ${fmt(data.recent_10?.win_rate)}% · KDA ${fmt(data.overall?.kda)} · ${fmt(data.current_streak?.games)} ${esc(data.current_streak?.outcome||'')} streak</p></article>`:data.hero?`<article><strong>${esc(data.hero.name)} · ${esc(data.hero.role)}</strong><p>Lanes: ${esc((data.hero.lanes||[]).join(', '))}</p><p>Synergies: ${esc((data.hero.synergies||[]).join(', '))}</p><p>Community counters: ${esc((data.hero.counters||[]).join(', '))}</p></article>`:`<p>${fmt(data.total)} matches · showing ${fmt(rows.length)}</p><div class="game-tool-rows">${rows.map(row=>`<article><strong>${esc(row.name)}</strong><span>${esc(row.role||(row.roles||[]).join(', ')||row.category||'')} ${row.cost?' · '+esc(row.cost)+' gold':''}</span></article>`).join('')}</div>`;
-        output.innerHTML=`<div class="game-tool-output">${summary}<small>${match?'Calculated from your supplied games.':league?`Data Dragon version ${esc(provenance.version||'')} · <a href="${esc(provenance.source||'')}" target="_blank" rel="noopener noreferrer">Riot documentation</a>`:`Snapshot ${esc(provenance.hero_revision||'')} (heroes) / ${esc(provenance.item_revision||'')} (items) · <a href="${esc(provenance.source||'')}" target="_blank" rel="noopener noreferrer">Source and license: MIT</a>`} · ${fmt(response.usage?.credits_charged)} credit</small><details><summary>Full structured result</summary><pre>${esc(JSON.stringify(data,null,2))}</pre></details></div>`;
-      }catch(error){output.innerHTML=`<p class="game-empty">${esc(error.message)}</p>`;}
-      finally{submit.disabled=false;}
+        output.innerHTML=`<div class="game-tool-output" role="status">${summary}<small>${match?'Calculated from your supplied games.':league?`Data Dragon version ${esc(provenance.version||'')} · <a href="${esc(provenance.source||'')}" target="_blank" rel="noopener noreferrer">Riot documentation</a>`:`Snapshot ${esc(provenance.hero_revision||'')} (heroes) / ${esc(provenance.item_revision||'')} (items) · <a href="${esc(provenance.source||'')}" target="_blank" rel="noopener noreferrer">Source and license: MIT</a>`} · ${fmt(response.usage?.credits_charged)} credit · ${esc(response.request_id||'')}</small><details><summary>Full structured result</summary><pre>${esc(JSON.stringify(data,null,2))}</pre></details></div>`;
+      }catch(error){output.innerHTML=`<p class="game-error" role="alert">${esc(error.message)}${error.requestId?` · ${esc(error.requestId)}`:''}</p>`;}
+      finally{toolRunning=false;draw();panel.querySelector('.game-tool-close').disabled=false;submit.disabled=false;submit.removeAttribute('aria-busy');}
     };
   }
   filter.oninput=draw;draw();if(games.length)select(games[0].game_id);
@@ -586,31 +617,33 @@ async function dashRepositories(){
   field.value=(new URLSearchParams(location.search).get('query')||'').slice(0,160);
   const source=name=>/^[\w.-]+\/[\w.-]+$/.test(name||'')?'https://github.com/'+name:'';
   const pushed=value=>value&&Number.isFinite(Date.parse(value))?' · Last push '+new Date(value).toLocaleDateString():'';
-  let activeRun=0;
+  let activeRun=0,requestPending=false;
   async function investigate(input,forceInspect=false){
-    const value=String(input||'').trim();if(!value)return;
+    const value=String(input||'').trim();if(!value||requestPending)return;
     const inspect=forceInspect||/^([\w.-]+\/[\w.-]+|https:\/\/github\.com\/[\w.-]+\/[\w.-]+(?:\.git)?)$/i.test(value);
     const run=++activeRun;
-    button.disabled=true;results.innerHTML='<p class="repo-empty">Searching public GitHub data…</p>';
+    requestPending=true;button.disabled=true;button.setAttribute('aria-busy','true');
+    $$('[data-repo-example]').forEach(item=>item.disabled=true);
+    results.innerHTML=`<p class="repo-progress" role="status">${inspect?'Inspecting public repository files':'Searching public GitHub data'} · waiting for GitHub response…</p>`;
     try{
       const response=await api('/api/repos/'+(inspect?'inspect':'search'),{method:'POST',body:{[inspect?'repository':'query']:value,api_key_id:$('#repo-key').value}});
       if(run!==activeRun)return;
       const data=response.result||{},usage=response.usage||{};
-      const metric=`${fmt(usage.credits_charged)} credits · ${fmt(usage.github_api_calls)} GitHub requests`;
+      const metric=`${fmt(usage.credits_charged)} credits · ${fmt(usage.github_api_calls)} GitHub requests${response.request_id?' · '+esc(response.request_id):''}`;
       if(!inspect){
         const rows=data.repositories||[];
         results.innerHTML=`<header class="repo-result-head"><h2>${fmt(rows.length)} public repositories</h2><small>${esc(metric)}${data.incomplete_results?' · GitHub returned partial results':''}</small></header>${rows.length?`<div class="repo-result-list">${rows.map(row=>{const url=source(row.name);return `<article class="repo-card"><div><strong>${esc(row.name)}</strong><p>${esc(row.description||'No description provided.')}</p><small>${esc(row.language||'Language unknown')} · ${fmt(row.stars)} stars · ${esc(row.license||'License not declared')}${esc(pushed(row.updated_at))}</small></div><div class="repo-card-actions">${url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">View source</a><button data-repo-inspect="${esc(row.name)}">Inspect ${icon('arrow')}</button>`:''}</div></article>`}).join('')}</div>`:'<p class="repo-empty">No public repositories found. Try a broader topic.</p>'}`;
-        $$('[data-repo-inspect]',results).forEach(item=>item.onclick=()=>{field.value=item.dataset.repoInspect;investigate(field.value,true)});
+        $$('[data-repo-inspect]',results).forEach(item=>item.onclick=()=>{if(requestPending)return;field.value=item.dataset.repoInspect;investigate(field.value,true)});
       }else{
         const url=source(data.repository),specs=data.api_specs||[],files=data.candidate_files||[];
         results.innerHTML=`<header class="repo-result-head"><div><span class="overline">PUBLIC REPOSITORY</span><h2>${esc(data.repository||value)}</h2><p>${esc(data.description||'No description provided.')}</p><small>${esc(data.language||'Language unknown')} · ${fmt(data.stars)} stars · ${esc(data.license||'License not declared')}${esc(pushed(data.pushed_at))} · ${esc(metric)}</small></div>${url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">View on GitHub ${icon('arrow')}</a>`:''}</header>${data.tree_truncated?'<p class="repo-note">The file tree was truncated; findings cover the inspected portion.</p>':''}<section class="repo-findings"><h3>Documented API specs</h3>${specs.length?specs.map(spec=>`<article><a href="${esc(spec.url)}" target="_blank" rel="noopener noreferrer">${esc(spec.path)}</a><small>${spec.parsed?`${fmt((spec.endpoints||[]).length)} endpoint examples · ${fmt((spec.oauth_scopes||[]).length)} OAuth scope names`:'Specification could not be parsed'}</small>${(spec.endpoints||[]).length?`<div class="repo-endpoints">${spec.endpoints.slice(0,20).map(ep=>`<code>${esc(ep.method)} ${esc(ep.path)}</code>`).join('')}</div>`:''}${(spec.oauth_scopes||[]).length?`<p>Documented scopes: ${esc(spec.oauth_scopes.join(', '))}</p>`:''}</article>`).join(''):'<p class="repo-empty">No small OpenAPI spec was found in the inspected tree.</p>'}<h3>Promising source paths</h3>${files.length?`<div class="repo-files">${files.slice(0,35).map(file=>`<a href="${esc(file.url)}" target="_blank" rel="noopener noreferrer">${esc(file.path)}</a>`).join('')}</div>`:'<p class="repo-empty">No API related paths found in the inspected tree.</p>'}</section>${url?`<button class="btn" id="repo-clone">Copy public clone command</button>`:''}`;
         $('#repo-clone')?.addEventListener('click',event=>copyText('git clone '+url+'.git',event.currentTarget));
       }
-    }catch(error){if(run===activeRun)results.innerHTML=`<p class="repo-error">${esc(error.message)}</p>`;}
-    finally{if(run===activeRun)button.disabled=false;}
+    }catch(error){if(run===activeRun)results.innerHTML=`<p class="repo-error" role="alert">${esc(error.message)}${error.requestId?` · ${esc(error.requestId)}`:''}</p>`;}
+    finally{if(run===activeRun){requestPending=false;button.disabled=false;button.removeAttribute('aria-busy');$$('[data-repo-example]').forEach(item=>item.disabled=false);}}
   }
   $('#repo-form').onsubmit=e=>{e.preventDefault();investigate(field.value)};
-  $$('[data-repo-example]').forEach(item=>item.onclick=()=>{field.value=item.dataset.repoExample;investigate(field.value)});
+  $$('[data-repo-example]').forEach(item=>item.onclick=()=>{if(requestPending)return;field.value=item.dataset.repoExample;investigate(field.value)});
 }
 async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,games:dashGames,repositories:dashRepositories,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
 async function renderRoute(){clearTransientUi();window.scrollTo(0,0);const p=location.pathname;try{if(p==='/'||p==='/pricing'||p==='/status'||p.startsWith('/docs')||p.startsWith('/legal')||LEGAL_ALIASES[p])await hydrateOptionalSession();if(p.startsWith('/dashboard'))return await renderDashboard();if(p==='/verify-email')return await renderVerify();if(p==='/login')return renderAuth('login');if(p==='/signup')return renderAuth('signup');if(p==='/forgot-password')return renderRecovery();if(p==='/reset-password')return renderRecovery(true);if(p.startsWith('/legal')||LEGAL_ALIASES[p])return renderLegal();if(p.startsWith('/docs'))return renderDocs();if(p==='/pricing')return await renderPricing();if(p==='/status')return await renderStatus();return await renderHome();}catch(error){console.error(error);if(error.status===401)return go('/login',true);app.innerHTML=`<main class="fatal"><div>${brand()}<span class="eyebrow">REQUEST FAILED</span><h1>The control plane did not answer cleanly.</h1><p>${esc(error.message)}</p><button class="btn primary" onclick="location.reload()">Try again</button></div></main>`;}}

@@ -212,3 +212,122 @@ def test_curl_connection_preview_then_save(frontend_url):
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
         assert not errors, errors
         browser.close()
+
+
+def test_game_discovery_schema_execution_and_mobile_state(frontend_url):
+    calls = []
+    remote = {"id": "mlbb.reference.rank", "name": "Rank reference", "description": "Public rank data",
+              "providers": ["openapi"], "provider_ready": True, "availability": "ready"}
+    local = {"id": "game.matches.analyze", "name": "Match analysis", "description": "Analyze matches",
+             "providers": ["gamecore"], "provider_ready": True, "availability": "ready"}
+    game = {"game_id": "mlbb", "name": "Mobile Legends", "capability_count": 2,
+            "provider_ready_count": 2, "capabilities": [remote, local]}
+    tool = {"ref": "openapi:rank", "name": "Public rank", "provider": "openapi",
+            "description": "Published rankings", "metadata": {"method": "GET", "path": "/rank"},
+            "input_schema": {"required": ["enabled", "filters"], "properties": {
+                "enabled": {"type": "boolean"}, "filters": {"type": "object"},
+                "regions": {"type": "array"}, "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                "mode": {"type": "string", "enum": ["current", "historical"]},
+            }}}
+
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 320, "height": 740})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if path == "/api/auth/me":
+                data = {"user": {"email": "fixture@example.test", "email_verified": True}, "account": {}}
+            elif path == "/api/api-keys":
+                data = {"keys": [{"id": "key_fixture", "name": "Test key", "prefix": "ih_test", "scopes": []}]}
+            elif path == "/api/games":
+                data = {"games": [game]}
+            elif path == "/api/games/mlbb":
+                data = {"game": game}
+            elif path.endswith("/tools/mlbb.reference.rank") and route.request.method == "GET":
+                data = {"tools": [tool]}
+            elif path.endswith("/tools/mlbb.reference.rank"):
+                calls.append(route.request.post_data_json)
+                data = {"request_id": "req_rank", "ref": tool["ref"], "result": {"ranks": [1]},
+                        "usage": {"credits_charged": 1}}
+            elif path.endswith("/tools/game.matches.analyze"):
+                calls.append(route.request.post_data_json)
+                data = {"request_id": "req_match", "result": {"overall": {"games": 1, "win_rate": 100,
+                        "kda": 3}, "recent_10": {"win_rate": 100}, "current_streak": {"games": 1,
+                        "outcome": "win"}}, "usage": {"credits_charged": 1}}
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/games")
+        page.locator('[data-game="mlbb"][aria-pressed="true"]').wait_for()
+        page.locator('[data-game-discover="mlbb.reference.rank"]').click()
+        page.locator("#game-discovered-form").wait_for()
+        fields = page.locator("[data-game-arg]")
+        fields.nth(0).select_option("false")
+        fields.nth(1).fill('{"tier":"gold"}')
+        fields.nth(2).fill('["NA"]')
+        fields.nth(3).fill("12")
+        fields.nth(4).select_option(label="historical")
+        page.locator("#game-discovered-form button[type=submit]").click()
+        page.get_by_text("req_rank").wait_for()
+        assert calls[0]["arguments"] == {"enabled": False, "filters": {"tier": "gold"},
+                                          "regions": ["NA"], "limit": 12, "mode": "historical"}
+        assert calls[0]["api_key_id"] == "key_fixture"
+        fields.nth(1).fill("[]")
+        page.locator("#game-discovered-form button[type=submit]").click()
+        assert "JSON object" in page.locator("#game-discovered-output").inner_text()
+        assert len(calls) == 1
+
+        page.locator('[data-game-tool="game.matches.analyze"]').click()
+        page.locator('#game-tool-form textarea[name="matches"]').fill('{}')
+        page.locator("#game-tool-form button[type=submit]").click()
+        assert "JSON array" in page.locator("#game-tool-output").inner_text()
+        assert len(calls) == 1
+        page.locator('#game-tool-form textarea[name="matches"]').fill('[{"win":true}]')
+        page.locator("#game-tool-form button[type=submit]").click()
+        page.get_by_text("req_match").wait_for()
+        assert calls[1]["arguments"]["matches"] == [{"win": True}]
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        assert not errors, errors
+        browser.close()
+
+
+def test_repository_investigation_blocks_duplicate_metered_requests(frontend_url):
+    calls = []
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 360, "height": 740})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if path == "/api/auth/me":
+                data = {"user": {"email": "fixture@example.test", "email_verified": True}, "account": {}}
+            elif path == "/api/api-keys":
+                data = {"keys": [{"id": "key_fixture", "name": "Test key", "prefix": "ih_test", "scopes": []}]}
+            elif path == "/api/repos/search":
+                calls.append(route.request.post_data_json)
+                data = {"request_id": "req_search", "result": {"repositories": []},
+                        "usage": {"credits_charged": 2, "github_api_calls": 1}}
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/repositories")
+        page.locator("#repo-query").fill("public game api")
+        page.evaluate("""() => {
+            const form = document.querySelector('#repo-form');
+            form.requestSubmit(); form.dispatchEvent(new Event('submit', {bubbles:true, cancelable:true}));
+            document.querySelector('[data-repo-example]').click();
+        }""")
+        page.get_by_text("req_search").wait_for()
+        assert calls == [{"query": "public game api", "api_key_id": "key_fixture"}]
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        assert not errors, errors
+        browser.close()
