@@ -5,7 +5,7 @@
 
 /* === Core application ==================================================== */
 const app = document.getElementById('app');
-const state = { me: null, plans: null, sessionChecked: false };
+const state = { me: null, plans: null, sessionChecked: false, gateway: null, gatewayCheckedAt: 0 };
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = v => String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
@@ -48,8 +48,27 @@ function toast(message, tone = '') {
   setTimeout(() => item.remove(), 3600);
 }
 async function copyText(text, button) {
-  try { await navigator.clipboard.writeText(text); toast('Copied to clipboard', 'success'); if (button) { const old = button.innerHTML; button.innerHTML = `${icon('check')} Copied`; setTimeout(() => button.innerHTML = old, 1400); } }
+  try { await navigator.clipboard.writeText(text); toast('Copied to clipboard', 'success'); if (button) { const old = button.innerHTML; button.innerHTML = `${icon('check')} Copied`; button.setAttribute('aria-label', 'Copied to clipboard'); setTimeout(() => { if (button.isConnected) { button.innerHTML = old; button.removeAttribute('aria-label'); } }, 1400); } }
   catch { toast('Clipboard access was blocked', 'error'); }
+}
+async function refreshGatewayStatus(force = false) {
+  const label = $('[data-gateway-label]');
+  if (!label) return;
+  if (force || !state.gateway || Date.now() - state.gatewayCheckedAt > 30000) {
+    const started=performance.now();
+    try { state.gateway = { reachable: true, ...await api('/api/status'), checkMs:Math.round(performance.now()-started) }; }
+    catch { state.gateway = { reachable: false }; }
+    state.gatewayCheckedAt = Date.now();
+  }
+  const current = $('[data-gateway-label]');
+  const detail = $('[data-gateway-detail]');
+  const indicator = $('[data-gateway-indicator]');
+  if (!current || !detail || !indicator) return;
+  current.textContent = state.gateway.reachable ? 'Gateway responding' : 'Gateway unavailable';
+  detail.textContent = state.gateway.reachable
+    ? `${state.gateway.checkMs} ms status check · ${state.gateway.control_database ? 'DB configured' : 'DB unconfigured'}`
+    : 'Latest status check failed';
+  indicator.classList.toggle('is-unavailable', !state.gateway.reachable);
 }
 // Normalize only documented display collections. Do not alter arbitrary run
 // metadata, authentication responses, or mutation payloads.
@@ -125,6 +144,8 @@ function clearTransientUi() {
   document.querySelectorAll('[aria-expanded="true"]').forEach(el=>el.setAttribute('aria-expanded','false'));
 }
 function go(path, replace = false) {
+  state.activePlayground?.abort();
+  if(!path.startsWith('/dashboard'))clearInterval(state.gatewayTimer);
   clearTransientUi();
   history[replace ? 'replaceState' : 'pushState']({}, '', path);
   renderRoute();
@@ -159,7 +180,7 @@ function publicShell(content) {
 }
 async function getPlans() { if (state.plans) return state.plans; try { state.plans = await api('/api/public/plans'); } catch { state.plans = {plans:[],credit_packs:[]}; } return state.plans; }
 
-function gatewayVisual() { return `<div class="gateway-visual"><span class="visual-label">LIVE ROUTING FABRIC</span><div class="agent-node"><i></i>AGENT</div><div class="route a"></div><div class="core-node"><img src="/assets/mark.svg" width="52" height="52" alt=""><b>INTERNET HANDS</b><small>Policy · route · meter</small></div><div class="route b"></div><div class="mesh-nodes"><span>Browser</span><span>Web data</span><span>APIs</span><span>Remote MCP</span><span>Monitors</span><span>Sandbox</span></div><div class="route-event"><i></i>route accepted <b>42 ms</b></div></div>`; }
+function gatewayVisual() { return `<div class="gateway-visual"><span class="visual-label">ROUTING FABRIC</span><div class="agent-node"><i></i>AGENT</div><div class="route a"></div><div class="core-node"><img src="/assets/mark.svg" width="52" height="52" alt=""><b>INTERNET HANDS</b><small>Policy · route · meter</small></div><div class="route b"></div><div class="mesh-nodes"><span>Browser</span><span>Web data</span><span>APIs</span><span>Remote MCP</span><span>Monitors</span><span>Sandbox</span></div></div>`; }
 function feature(kicker, title, body) { return `<article class="feature-card"><span>${kicker}</span><h3>${title}</h3><p>${body}</p><a data-link href="/docs/capabilities">Explore ${icon('arrow')}</a></article>`; }
 function integrationTiles() { return `<div class="integration-grid">${[['OpenAI','ChatGPT clients','OAuth MCP'],['Anthropic','Claude clients','OAuth MCP'],['xAI','Grok workflows','API key'],['Hermes','Self-hosted agents','MCP'],['Generic MCP','Streamable HTTP','OAuth / key'],['REST API','Scripts and CI','Bearer key']].map(x => `<article><b>${x[0]}</b><p>${x[1]}</p><span>${x[2]}</span></article>`).join('')}</div>`; }
 function planCards(plans) {
@@ -175,9 +196,9 @@ async function renderPricing() {
   publicShell(`<main class="page"><section class="page-hero container"><span class="eyebrow">PRICING</span><h1>Infrastructure pricing without mystery.</h1><p>Monthly credits refresh. Purchased credits roll over. Provider-heavy jobs spend according to work.</p></section><section class="container">${planCards(plans.plans)}<article class="card comparison"><header><span class="overline">CREDIT MODEL</span><h2>What work costs</h2></header><div class="table-wrap"><table><thead><tr><th>Capability</th><th>Typical base</th><th>Notes</th></tr></thead><tbody><tr><td>Discovery and health</td><td>1 credit</td><td>Metadata and schemas</td></tr><tr><td>Browser or sandbox</td><td>2 credits</td><td>Per bounded action</td></tr><tr><td>Live web search</td><td>3 credits</td><td>Provider usage may apply</td></tr><tr><td>Fetch or scrape</td><td>5 credits</td><td>Single target</td></tr><tr><td>Crawl</td><td>10 + pages</td><td>Policy bounded</td></tr></tbody></table></div></article><div class="faq-grid"><article><h3>Do credits expire?</h3><p>Monthly credits refresh. Purchased credits remain until used.</p></article><article><h3>When does access change?</h3><p>Only after a captured payment matches the server-created order.</p></article><article><h3>Can I start free?</h3><p>Yes. Verification unlocks the Free plan control plane.</p></article></div></section></main>`);
 }
 async function renderStatus() {
-  let s = {}; try { s = await api('/api/status'); } catch {}
-  const rows = [['MCP gateway',true,'/mcp'],['Control database',!!s.control_database,'Accounts and usage'],['OAuth authorization',!!s.oauth,'PKCE'],['Billing',!!s.billing,'Razorpay'],['GitHub sign-in',!!s.github_oauth,'OAuth'],['Monitoring',true,'Control plane']];
-  publicShell(`<main class="page"><section class="page-hero container"><span class="eyebrow">SYSTEM STATUS</span><h1>Operational state, without exposing secrets.</h1><p>Configuration-level health for the public gateway and control plane.</p></section><section class="container"><div class="card status-panel"><div class="status-summary"><i></i><span><b>Internet Hands is responding</b><small>Checked ${new Date().toLocaleTimeString()}</small></span></div>${rows.map(x => `<div class="status-row"><span><b>${x[0]}</b><small>${x[2]}</small></span><em class="badge ${x[1] ? 'success' : 'warning'}">${x[1] ? 'Operational' : 'Pending config'}</em></div>`).join('')}</div></section></main>`);
+  let s = null; try { s = await api('/api/status'); } catch {}
+  const rows = [['MCP route',!!s?.mcp,'/mcp'],['Control database',!!s?.control_database,'Accounts and usage'],['OAuth authorization',!!s?.oauth,'PKCE'],['Billing',!!s?.billing,'Razorpay'],['GitHub sign-in',!!s?.github_oauth,'OAuth']];
+  publicShell(`<main class="page"><section class="page-hero container"><span class="eyebrow">SYSTEM STATUS</span><h1>Configuration state, without exposing secrets.</h1><p>This endpoint reports configuration and reachability. It does not verify individual providers.</p></section><section class="container"><div class="card status-panel"><div class="status-summary ${s?'':'is-unavailable'}"><i></i><span><b>${s?'Status endpoint responding':'Status endpoint unavailable'}</b><small>Checked ${new Date().toLocaleTimeString()}</small></span></div>${rows.map(x => `<div class="status-row"><span><b>${x[0]}</b><small>${x[2]}</small></span><em class="badge ${s&&x[1] ? 'success' : 'warning'}">${s?(x[1] ? (x[0]==='MCP route'?'Advertised':'Configured') : 'Not configured'):'Unknown'}</em></div>`).join('')}</div></section></main>`);
 }
 
 const docs = {
@@ -301,9 +322,43 @@ const stat=(l,v,n,t='')=>`<article class="stat-card ih-panel ih-metric-card ${t}
 
 async function dashOverview(){const d=await api('/api/dashboard'),a=d.account||{},u=d.usage||{},series=d.series||[],max=Math.max(1,...series.map(x=>Number(x.calls)));dashboardShell('overview',`${pageHead('MISSION CONTROL',`Good ${new Date().getHours()<12?'morning':new Date().getHours()<18?'afternoon':'evening'}.`,'Your gateway, wallet, monitoring and security at a glance.',`<span class="badge success">${esc(a.plan_name||'Free')} plan</span>`)}<section class="stats-grid">${stat('Available credits',fmt(Number(a.monthly_credits||0)+Number(a.purchased_credits||0)-Number(a.reserved_credits||0)),`${fmt(a.monthly_credits)} monthly · ${fmt(a.purchased_credits)} rollover`,'accent')}${stat('Requests · 24h',fmt(u.calls_24h),`${fmt(u.calls_30d)} in 30 days`)}${stat('Success · 30d',`${Number(u.success_rate??100).toFixed(1)}%`,'Accepted calls')}${stat('Average latency',`${fmt(u.avg_latency_ms)} ms`,'Metered work')}</section><section class="dashboard-grid"><article class="card chart-card"><header><div><span class="overline">REQUEST VOLUME</span><h2>Last 30 days</h2></div><a data-link href="/dashboard/usage">Open usage ${icon('arrow')}</a></header>${series.length?`<div class="bar-chart">${series.map(x=>`<i title="${esc(x.day)} · ${fmt(x.calls)}" style="height:${Math.max(3,Number(x.calls)/max*100)}%"></i>`).join('')}</div>`:`<div class="smart-empty compact">${icon('activity')}<span><b>No requests yet</b><p>Connect an agent. Your first request appears with latency and cost.</p></span><a class="btn small" data-link href="/dashboard/connections">Connect</a></div>`}</article><article class="card health-card"><header><span><span class="overline">READINESS</span><h2>Account health</h2></span></header>${[['shield','Email verified','Privileged actions unlocked','Ready'],['key','API access','Scoped credentials','Review'],['monitor','Monitoring',`${fmt(a.monitor_limit)} slots`,'Open']].map(x=>`<div><i>${icon(x[0])}</i><span><b>${x[1]}</b><small>${x[2]}</small></span><em>${x[3]}</em></div>`).join('')}</article></section><article class="card quick-card"><header><span><span class="overline">QUICK ACTIONS</span><h2>Move the system</h2></span></header><div>${[['plug','Connect an agent','OAuth or direct key','integrations'],['key','Create API key','Scoped and shown once','api-keys'],['monitor','Add monitor','Web, API, MCP or gaming','monitors']].map(x=>`<a data-link href="/dashboard/${x[3]}">${icon(x[0])}<span><b>${x[1]}</b><small>${x[2]}</small></span>${icon('arrow')}</a>`).join('')}</div></article>`);}
 async function dashUsage(){const d=await api('/api/usage?limit=250'),events=d.events||[],credits=events.reduce((s,x)=>s+Number(x.credits_charged||0),0),ok=events.length?events.filter(x=>['ok','accepted'].includes(x.status)).length/events.length*100:100,lat=events.map(x=>Number(x.latency_ms)).filter(Number.isFinite).sort((a,b)=>a-b),pct=p=>lat.length?lat[Math.min(lat.length-1,Math.floor(lat.length*p))]:0;dashboardShell('usage',`${pageHead('ANALYTICS','Runs & usage','Requests, credits, provider routing and traceable failures.')}<section class="stats-grid">${stat('Requests',fmt(events.length),'Loaded activity')}${stat('Credits',fmt(credits),'Consumed')}${stat('Success',`${ok.toFixed(1)}%`,'OK and accepted')}${stat('p95 latency',`${fmt(pct(.95))} ms`,`p50 ${fmt(pct(.5))} ms`)}</section><article class="card">${events.length?`<div class="table-wrap"><table><thead><tr><th>Time</th><th>Request</th><th>Tool</th><th>Provider</th><th>Status</th><th>Credits</th><th>Latency</th></tr></thead><tbody>${events.map(x=>`<tr><td>${when(x.created_at)}</td><td><code>${esc(x.request_id||'').slice(0,18)}</code></td><td>${esc(x.tool_ref||'—')}</td><td>${esc(x.provider||'—')}</td><td><span class="badge ${['ok','accepted'].includes(x.status)?'success':'danger'}">${esc(x.status)}</span></td><td>${fmt(x.credits_charged)}</td><td>${x.latency_ms==null?'—':`${fmt(x.latency_ms)} ms`}</td></tr>`).join('')}</tbody></table></div>`:`<div class="smart-empty">${icon('activity')}<span><b>Your request log is ready</b><p>Request ID, route, status, cost and latency will appear here.</p></span><a class="btn primary" data-link href="/docs/quickstart">Make first request</a></div>`}</article>`);}
-function modal(content,wide=false){const wrap=document.createElement('div');wrap.className='modal-backdrop';wrap.innerHTML=`<section class="modal ${wide?'wide':''}" role="dialog" aria-modal="true">${content}</section>`;document.body.appendChild(wrap);$$('[data-close]',wrap).forEach(b=>b.onclick=()=>wrap.remove());wrap.onclick=e=>{if(e.target===wrap)wrap.remove();};return wrap;}
+function modal(content,wide=false){
+  const previous=document.activeElement;
+  const wrap=document.createElement('div');wrap.className='modal-backdrop';
+  wrap.innerHTML=`<section class="modal ${wide?'wide':''}" role="dialog" aria-modal="true" aria-label="Dialog" tabindex="-1">${content}</section>`;
+  document.body.appendChild(wrap);
+  const observer=new MutationObserver(()=>{if(!wrap.isConnected){observer.disconnect();if(previous?.isConnected)previous.focus();}});
+  observer.observe(document.body,{childList:true});
+  const close=()=>wrap.remove();
+  $$('[data-close]',wrap).forEach(b=>b.onclick=close);
+  wrap.onclick=e=>{if(e.target===wrap)close();};
+  wrap.addEventListener('keydown',e=>{
+    if(e.key==='Escape'){e.preventDefault();close();return;}
+    if(e.key!=='Tab')return;
+    const focusable=$$('button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])',wrap).filter(el=>el.getClientRects().length);
+    if(!focusable.length){e.preventDefault();return;}
+    if(e.shiftKey&&document.activeElement===focusable[0]){e.preventDefault();focusable.at(-1).focus();}
+    else if(!e.shiftKey&&document.activeElement===focusable.at(-1)){e.preventDefault();focusable[0].focus();}
+  });
+  requestAnimationFrame(()=>{if(wrap.isConnected)(wrap.querySelector('[data-close]')||wrap.querySelector('input,button')||wrap.querySelector('.modal')).focus();});
+  return wrap;
+}
 async function dashKeys(){const d=await api('/api/api-keys'),keys=d.keys||[];dashboardShell('api-keys',`${pageHead('ACCESS','API keys','Credentials for scripts, servers, CI and direct agents.','<button class="btn primary" id="create-key">Create key</button>')}<div class="security-note">${icon('shield')}<span><b>Secrets are shown once.</b><p>Give every integration its own revocable key.</p></span></div><article class="card">${keys.length?`<div class="table-wrap"><table><thead><tr><th>Name</th><th>Prefix</th><th>Scope</th><th>Created</th><th>Last used</th><th></th></tr></thead><tbody>${keys.map(x=>`<tr><td><b>${esc(x.name)}</b><small>${esc(x.environment)}</small></td><td><code>${esc(x.prefix)}…</code></td><td>${(x.scopes||[]).map(s=>`<span class="mini-tag">${esc(s)}</span>`).join(' ')}</td><td>${when(x.created_at)}</td><td>${when(x.last_used_at)}</td><td><button class="btn danger small" data-revoke-key="${x.id}" ${x.revoked_at?'disabled':''}>${x.revoked_at?'Revoked':'Revoke'}</button></td></tr>`).join('')}</tbody></table></div>`:`<div class="smart-empty">${icon('key')}<span><b>No API keys yet</b><p>Create one for a client that cannot use interactive OAuth.</p></span><button class="btn primary" id="empty-key">Create first key</button></div>`}</article>`);const open=()=>showKeyModal();$('#create-key').onclick=open;$('#empty-key')?.addEventListener('click',open);$$('[data-revoke-key]').forEach(b=>b.onclick=async()=>{if(!confirm('Revoke this key?'))return;await api(`/api/api-keys/${b.dataset.revokeKey}/revoke`,{method:'POST'});toast('Key revoked','success');dashKeys();});}
-function showKeyModal(){const wrap=modal(`<div class="modal-head"><span><span class="overline">NEW CREDENTIAL</span><h2>Create API key</h2></span><button data-close>×</button></div><form id="key-form" class="form-stack"><label>Name<input required name="name" maxlength="80" placeholder="Production agent"></label><label>Environment<select name="environment"><option value="live">Live</option><option value="test">Test</option></select></label><fieldset><legend>Scopes</legend>${[['mcp:read','MCP discovery'],['mcp:execute','MCP execution'],['account:read','Account usage'],['monitors:read','Monitor status']].map((x,i)=>`<label class="check"><input type="checkbox" name="scope" value="${x[0]}" ${i<2?'checked':''}>${x[1]}</label>`).join('')}</fieldset><button class="btn primary large">Create secure key</button></form>`);$('#key-form',wrap).onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{const r=await api('/api/api-keys',{method:'POST',body:{name:f.get('name'),environment:f.get('environment'),scopes:f.getAll('scope')}});$('.modal',wrap).innerHTML=`<div class="modal-head"><span><span class="overline">SAVE NOW</span><h2>Your API key</h2></span></div><div class="notice warning">This secret will not appear again.</div>${codeBlock(r.secret,'Secret')}<label class="ack"><input type="checkbox" id="key-saved"> I saved this key securely.</label><button class="btn primary large" id="finish-key" disabled>Finish</button>`;bindCommon();$('#key-saved').onchange=e=>$('#finish-key').disabled=!e.target.checked;$('#finish-key').onclick=()=>{wrap.remove();dashKeys();};}catch(error){toast(error.message,'error');}};}
+function showKeyModal(){
+  const wrap=modal(`<div class="modal-head"><span><span class="overline">NEW CREDENTIAL</span><h2>Create API key</h2></span><button data-close aria-label="Close dialog">×</button></div><form id="key-form" class="form-stack"><label>Name<input required name="name" maxlength="80" placeholder="Production agent"></label><label>Environment<select name="environment"><option value="live">Live</option><option value="test">Test</option></select></label><fieldset><legend>Scopes</legend>${[['mcp:read','MCP discovery'],['mcp:execute','MCP execution'],['account:read','Account usage'],['monitors:read','Monitor status']].map((x,i)=>`<label class="check"><input type="checkbox" name="scope" value="${x[0]}" ${i<2?'checked':''}>${x[1]}</label>`).join('')}</fieldset><button class="btn primary large">Create secure key</button></form>`);
+  $('#key-form',wrap).onsubmit=async e=>{
+    e.preventDefault();
+    const button=e.submitter, f=new FormData(e.currentTarget);
+    busy(button,true,'Creating…');
+    try{
+      const r=await api('/api/api-keys',{method:'POST',body:{name:f.get('name'),environment:f.get('environment'),scopes:f.getAll('scope')}});
+      $('.modal',wrap).innerHTML=`<div class="modal-head"><span><span class="overline">SAVE NOW</span><h2>Your API key</h2></span></div><div class="notice warning">This secret will not appear again.</div>${codeBlock(r.secret,'Secret')}<label class="ack"><input type="checkbox" id="key-saved"> I saved this key securely.</label><button class="btn primary large" id="finish-key" disabled>Finish</button>`;
+      bindCommon();
+      $('#key-saved',wrap).onchange=e=>$('#finish-key',wrap).disabled=!e.target.checked;
+      $('#finish-key',wrap).onclick=()=>{wrap.remove();dashKeys();};
+    }catch(error){busy(button,false);toast(error.message,'error');}
+  };
+}
 async function dashMonitors(){const d=await api('/api/monitors'),items=d.monitors||[];dashboardShell('monitors',`${pageHead('OBSERVE','Monitors','Watch webpages, APIs, MCP endpoints and public identities.','<button class="btn primary" id="new-monitor">New monitor</button>')}<div class="template-row">${[['Web page','HTTP / content','web'],['API endpoint','JSON / status','api'],['MCP endpoint','Streamable HTTP','mcp'],['Gaming identity','Public profile','gaming']].map(x=>`<button data-template="${x[2]}">${icon('monitor')}<b>${x[0]}</b><small>${x[1]}</small></button>`).join('')}</div><article class="card">${items.length?`<div class="monitor-list">${items.map(x=>`<div class="monitor-row"><i class="monitor-state ${x.last_status==='ok'?'ok':''}"></i><span><b>${esc(x.name)}</b><small>${esc(x.type)} · ${esc(x.target)}</small></span><span><small>Last check</small><b>${when(x.last_checked_at)}</b></span><span class="badge ${x.last_status==='ok'?'success':'warning'}">${esc(x.last_status||'Not run')}</span><button class="btn small" data-toggle="${x.id}" data-enabled="${x.enabled}">${x.enabled?'Pause':'Enable'}</button></div>`).join('')}</div>`:`<div class="smart-empty">${icon('monitor')}<span><b>Nothing is watching yet</b><p>Start with a template. Status and incidents collect here.</p></span><button class="btn primary" id="empty-monitor">Create monitor</button></div>`}</article>`);const open=t=>showMonitorModal(t);$('#new-monitor').onclick=()=>open('');$('#empty-monitor')?.addEventListener('click',()=>open(''));$$('[data-template]').forEach(b=>b.onclick=()=>open(b.dataset.template));$$('[data-toggle]').forEach(b=>b.onclick=async()=>{await api(`/api/monitors/${b.dataset.toggle}/toggle`,{method:'POST',body:{enabled:b.dataset.enabled!=='true'}});dashMonitors();});}
 function showMonitorModal(template=''){const labels={web:'Web page',api:'API endpoint',mcp:'MCP endpoint',gaming:'Gaming identity'};const wrap=modal(`<div class="modal-head"><span><span class="overline">MONITOR WIZARD</span><h2>${template?esc(labels[template]||template):'Create monitor'}</h2></span><button data-close>×</button></div><div class="mini-stepper"><b>1</b><i></i><span>2</span><i></i><span>3</span></div><form id="monitor-form" class="form-stack"><label>Name<input required name="name" maxlength="120" placeholder="Production health"></label><div class="field-pair"><label>Type<select name="type"><option value="web" ${template==='web'?'selected':''}>Web page</option><option value="api" ${template==='api'?'selected':''}>API endpoint</option><option value="mcp" ${template==='mcp'?'selected':''}>MCP endpoint</option><option value="gaming" ${template==='gaming'?'selected':''}>Gaming identity</option></select></label><label>Interval<select name="interval_minutes"><option value="15">15 min</option><option value="60" selected>1 hour</option><option value="360">6 hours</option><option value="1440">Daily</option></select></label></div><label>Target<input required name="target" placeholder="https://example.com/health"></label><button class="btn primary large">Create monitor</button></form>`);$('#monitor-form',wrap).onsubmit=async e=>{e.preventDefault();const body=Object.fromEntries(new FormData(e.currentTarget));body.interval_minutes=Number(body.interval_minutes);try{await api('/api/monitors',{method:'POST',body});wrap.remove();toast('Monitor created','success');dashMonitors();}catch(error){toast(error.message,'error');}};}
 async function dashIntegrations(){
@@ -519,7 +574,7 @@ document.addEventListener('click',e=>{
   const href=a.getAttribute('href');
   if(href)go(href);
 });
-window.addEventListener('popstate',()=>{clearTransientUi();renderRoute();});
+window.addEventListener('popstate',()=>{state.activePlayground?.abort();if(!location.pathname.startsWith('/dashboard'))clearInterval(state.gatewayTimer);clearTransientUi();renderRoute();});
 window.addEventListener('pageshow',clearTransientUi);
 
 
@@ -613,8 +668,8 @@ function openRunInspector(event) {
     <div class="ih-run-demo" aria-label="Internet Hands execution preview">
       <div class="ih-run-demo-head">
         <div><span class="ih-window-dot"></span><span class="ih-window-dot"></span><span class="ih-window-dot"></span></div>
-        <span>${statusDot()} LIVE EXECUTION</span>
-        <em>run_7f2c91</em>
+        <span>EXAMPLE EXECUTION</span>
+        <em>Illustrative flow</em>
       </div>
       <div class="ih-demo-command">
         <span>${icon('activity')}</span>
@@ -624,11 +679,11 @@ function openRunInspector(event) {
       <div class="ih-demo-body">
         <div class="ih-demo-timeline">
           ${[
-            ['Route','Intent matched','18 ms'],
-            ['Discover','12 sources found','142 ms'],
-            ['Browse','Dynamic page rendered','1.8 s'],
-            ['Extract','Structured fields captured','326 ms'],
-            ['Evidence','7 citations retained','94 ms']
+            ['Route','Find a suitable capability',''],
+            ['Discover','Find public sources',''],
+            ['Browse','Read permitted pages',''],
+            ['Extract','Structure the response',''],
+            ['Evidence','Keep source references','']
           ].map((x,i)=>`<div class="ih-demo-step ${i<5?'done':''}"><span>${statusDot()}</span><div><b>${x[0]}</b><small>${x[1]}</small></div><em>${x[2]}</em></div>`).join('')}
         </div>
         <div class="ih-demo-inspector">
@@ -636,11 +691,10 @@ function openRunInspector(event) {
           <div class="ih-demo-result">
             <span>RESULT</span>
             <h3>Pricing model extracted</h3>
-            <p>3 public plans · 14 product links · 7 evidence records</p>
+            <p>Public plans · product links · cited evidence</p>
           </div>
-          <div class="ih-demo-metrics"><span><small>Pages</small><b>18</b></span><span><small>Latency</small><b>2.4s</b></span><span><small>Credits</small><b>11</b></span></div>
-          <div class="ih-evidence-row"><i>01</i><span><b>acme.dev/pricing</b><small>HTML · captured now</small></span><em>98%</em></div>
-          <div class="ih-evidence-row"><i>02</i><span><b>docs.acme.dev</b><small>Docs · structured</small></span><em>94%</em></div>
+          <div class="ih-demo-metrics"><span><small>Pages</small><b>after run</b></span><span><small>Latency</small><b>measured</b></span><span><small>Credits</small><b>metered</b></span></div>
+          <div class="ih-evidence-row"><i>01</i><span><b>Source page</b><small>Linked when captured</small></span></div>
         </div>
       </div>
     </div>`;
@@ -657,7 +711,7 @@ function openRunInspector(event) {
               <a class="ih-text-link" data-link href="/docs/quickstart">See how it works ${icon('arrow')}</a>
             </div>
             <div class="ih-hero-proof">
-              <span>${statusDot()} Gateway online</span><span>Evidence retained</span><span>Scoped execution</span>
+              <span>Gateway status in console</span><span>Evidence retained</span><span>Scoped execution</span>
             </div>
           </div>
           ${demoRun()}
@@ -685,12 +739,12 @@ function openRunInspector(event) {
           </div>
           <div class="ih-operation-grid">
             <article class="ih-operation-primary">
-              <div class="ih-panel-head"><span>RUN / 001842</span><em>${statusDot()} complete</em></div>
+              <div class="ih-panel-head"><span>EXAMPLE ROUTE</span><em>Illustrative sequence</em></div>
               <h3>Map every public pricing signal for a target company.</h3>
               <div class="ih-operation-flow">
                 ${['Intent','Route','Browser','Extract','Validate','Evidence'].map((x,i)=>`<span><i>${String(i+1).padStart(2,'0')}</i><b>${x}</b></span>`).join('')}
               </div>
-              <div class="ih-operation-footer"><span>6 execution stages</span><span>3 providers</span><span>12 credits</span><b>2.81 s</b></div>
+              <div class="ih-operation-footer"><span>Discover</span><span>Route</span><span>Execute</span><b>Inspect</b></div>
             </article>
             <div class="ih-operation-stack">
               <article><span>SEARCH + FETCH</span><h3>Public web intelligence</h3><p>Discover, fetch, crawl and preserve provenance instead of returning a dead blob of text.</p></article>
@@ -709,13 +763,9 @@ function openRunInspector(event) {
             <a class="ih-text-link" data-link href="/docs/capabilities">Explore the capability fabric ${icon('arrow')}</a>
           </div>
           <div class="ih-ledger">
-            <div class="ih-ledger-head"><span>LIVE RUN LEDGER</span><span>PROVIDER</span><span>STATE</span><span>LATENCY</span></div>
-            ${[
-              ['req_8ca5f2','web.search','ok','184 ms'],
-              ['req_63d1a0','browser.open','ok','1.2 s'],
-              ['req_a82e19','mesh.execute','ok','426 ms'],
-              ['req_1ed34b','extract.structured','ok','307 ms']
-            ].map(x=>`<div class="ih-ledger-row"><code>${x[0]}</code><span>${x[1]}</span><em>${statusDot()} ${x[2]}</em><b>${x[3]}</b></div>`).join('')}
+            <div class="ih-ledger-head"><span>RUN LEDGER FIELDS</span><span>PROVIDER</span><span>STATE</span><span>LATENCY</span></div>
+            <div class="ih-ledger-row"><code>Request ID</code><span>Selected route</span><em>Measured status</em><b>Elapsed time</b></div>
+            <div class="ih-ledger-row"><code>Capability</code><span>Provider used</span><em>Credit charge</em><b>Timestamp</b></div>
           </div>
         </div>
       </section>
@@ -839,14 +889,14 @@ function openRunInspector(event) {
     const isVerify = /verify|two-factor|email/i.test(title);
     app.innerHTML = `<main class="auth-layout ihx-auth-layout">
       <section class="auth-story ihx-auth-story">
-        <div class="ihx-auth-top">${brand()}<span>${dot()} CONTROL PLANE ONLINE</span></div>
+        <div class="ihx-auth-top">${brand()}<span>SECURE ACCESS</span></div>
         <div class="ihx-auth-copy">
           <span>INTERNET HANDS / SECURE ACCESS</span>
           <h1>${esc(story)}</h1>
           <p>Identity, permissions, execution and evidence stay inside one auditable boundary.</p>
         </div>
         <div class="ihx-auth-console">
-          <div class="ihx-auth-console-head"><span>${dot()} AUTHENTICATED EDGE</span><code>/mcp</code></div>
+          <div class="ihx-auth-console-head"><span>AUTHENTICATED EDGE</span><code>/mcp</code></div>
           <div class="ihx-auth-route"><span>Agent</span><i></i><strong><img src="/assets/mark.svg" alt="">IH</strong><i></i><span>Internet</span></div>
           <div class="ihx-auth-console-foot"><span>${icon('shield')} Verified identity</span><span>${icon('key')} Scoped access</span><span>${icon('activity')} Request ledger</span></div>
         </div>
@@ -864,11 +914,11 @@ function openRunInspector(event) {
   };
 
   dashIntegrations = async function dashIntegrationsV3() {
-    const endpoint=location.origin+'/mcp', d=await api('/api/connections').catch(()=>({connections:[]})), cs=d.connections||[];
+    const endpoint=location.origin+'/mcp', d=await api('/api/connections'), cs=d.connections||[];
     const rows=cs.length?cs.map(c=>'<article class="mcp-row"><div><b>'+esc(c.name)+'</b><code>'+esc(c.endpoint_url)+'</code><small>'+esc(c.transport)+' · '+esc(c.auth_type)+' · '+esc((c.header_names||[]).join(', '))+'</small></div><button class="btn quiet small" data-del-mcp="'+esc(c.id)+'">Delete</button></article>').join(''):'<div class="mcp-empty"><b>No remote MCP connections</b><p>Add one manually or import a cURL command.</p></div>';
     dashboardShell('connections', headline('CONNECTIONS','MCP connections','Connect remote MCP servers with the authentication they actually require.','<button class="btn primary" id="mcp-add">+ Add connection</button>')+
-      '<section class="ihx-endpoint-hero"><div><span>YOUR INTERNET HANDS MCP</span><h2>'+esc(endpoint)+'</h2><p>Use this endpoint when ChatGPT, Claude, Grok or another MCP client connects to Internet Hands.</p></div><div class="ihx-endpoint-meta"><span><small>Transport</small><b>Streamable HTTP</b></span><span><small>Identity</small><b>OAuth / key</b></span><span><small>State</small><b>Operational</b></span></div></section>'+
-      '<section class="agent-connect"><header><span>CONNECT YOUR CODING AGENT</span><h2>Use Internet Hands from your terminal</h2><p>Pick your agent, copy the setup, then verify the MCP connection.</p></header><div class="agent-tabs"><button class="active" data-agent-tab="codex">Codex CLI</button><button data-agent-tab="claude">Claude Code</button><button data-agent-tab="config">MCP config</button><button data-agent-tab="curl">HTTP / cURL</button></div><div id="agent-setup"></div></section><section class="mcp-secondary"><button id="mcp-add2"><b>Connect remote MCP</b><small>Internet Hands → another MCP server</small></button><button id="mcp-curl"><b>Import provider cURL</b><small>Outbound remote MCP setup</small></button></section>'+
+      '<section class="ihx-endpoint-hero"><div><span>YOUR INTERNET HANDS MCP</span><h2>'+esc(endpoint)+'</h2><p>Use this endpoint when ChatGPT, Claude, Grok or another MCP client connects to Internet Hands.</p></div><div class="ihx-endpoint-meta"><span><small>Transport</small><b>Streamable HTTP</b></span><span><small>Identity</small><b>OAuth / key</b></span><span><small>State</small><b>View system status</b></span></div></section>'+
+      '<section class="agent-connect"><header><span>CONNECT YOUR CODING AGENT</span><h2>Use Internet Hands from your terminal</h2><p>Pick your agent, copy the setup, then verify the MCP connection.</p></header><div class="agent-tabs" role="group" aria-label="Agent setup"><button class="active" aria-pressed="true" data-agent-tab="codex">Codex CLI</button><button aria-pressed="false" data-agent-tab="claude">Claude Code</button><button aria-pressed="false" data-agent-tab="config">MCP config</button><button aria-pressed="false" data-agent-tab="curl">HTTP / cURL</button></div><div id="agent-setup"></div></section><section class="mcp-secondary"><button id="mcp-add2"><b>Connect remote MCP</b><small>Internet Hands → another MCP server</small></button><button id="mcp-curl"><b>Import provider cURL</b><small>Outbound remote MCP setup</small></button></section>'+
       '<section class="mcp-saved"><header><span>SAVED CONNECTIONS</span><h2>Remote MCP servers</h2><p>Credential values are never rendered back.</p></header>'+rows+'</section>'+
       '<section class="ihx-connection-modes"><article><span>'+icon('shield')+'</span><div><small>INTERACTIVE CLIENTS</small><h3>OAuth MCP</h3><p>Consent + PKCE + short-lived bearer tokens.</p></div><button class="mcp-link" data-mcp-guide="oauth">OAuth guide →</button></article><article><span>'+icon('key')+'</span><div><small>AUTOMATION</small><h3>Scoped API keys</h3><p>Independent credentials for scripts, CI and servers.</p></div><a data-link href="/dashboard/api-keys">Manage keys →</a></article></section>');
     bindCommon();
@@ -880,12 +930,12 @@ function openRunInspector(event) {
         curl:{title:'Raw HTTP / cURL',desc:'Inspect the endpoint or wire a custom client.',cmd:'curl -i '+endpoint,verify:'curl -i '+endpoint,extra:'Add the issued auth header when required. Never commit secrets.'}
       },x=configs[kind]||configs.codex,box=document.querySelector('#agent-setup');if(!box)return;
       box.innerHTML='<article class="agent-command"><div class="agent-command-head"><div><small>'+esc(x.title)+'</small><h3>'+esc(x.desc)+'</h3></div><button class="btn quiet small" data-copy-agent>Copy setup</button></div><pre><code>'+esc(x.cmd)+'</code></pre><div class="agent-verify"><span>VERIFY</span><code>'+esc(x.verify)+'</code><button class="btn quiet small" data-copy-verify>Copy</button></div><p>'+esc(x.extra)+'</p></article>';
-      box.querySelector('[data-copy-agent]')?.addEventListener('click',()=>navigator.clipboard.writeText(x.cmd).then(()=>toast('Setup copied','success')));
-      box.querySelector('[data-copy-verify]')?.addEventListener('click',()=>navigator.clipboard.writeText(x.verify).then(()=>toast('Verify command copied','success')));
+      box.querySelector('[data-copy-agent]')?.addEventListener('click',e=>copyText(x.cmd,e.currentTarget));
+      box.querySelector('[data-copy-verify]')?.addEventListener('click',e=>copyText(x.verify,e.currentTarget));
     };
-    document.querySelectorAll('[data-agent-tab]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-agent-tab]').forEach(x=>x.classList.remove('active'));b.classList.add('active');agentSetup(b.dataset.agentTab)});
+    document.querySelectorAll('[data-agent-tab]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-agent-tab]').forEach(x=>{x.classList.remove('active');x.setAttribute('aria-pressed','false')});b.classList.add('active');b.setAttribute('aria-pressed','true');agentSetup(b.dataset.agentTab)});
     agentSetup('codex');
-    const panel=(title,body)=>{const w=document.createElement('div');w.className='modal-backdrop open';w.innerHTML='<section class="modal-card mcp-modal"><header><h2>'+esc(title)+'</h2><button class="icon-btn" data-x>×</button></header>'+body+'</section>';document.body.appendChild(w);w.querySelector('[data-x]').onclick=()=>w.remove();w.onclick=e=>{if(e.target===w)w.remove()};return w};
+    const panel=(title,body)=>modal('<div class="modal-head"><h2>'+esc(title)+'</h2><button class="icon-btn" data-close aria-label="Close dialog">×</button></div>'+body,true);
     const fields=t=>t==='api_key'?'<label>Header name<input name="header_name" value="X-API-Key"></label><label>API key<input type="password" name="secret" required autocomplete="new-password"></label>':(t==='bearer'||t==='oauth')?'<label>'+(t==='oauth'?'OAuth access token':'Bearer token')+'<input type="password" name="secret" required autocomplete="new-password"></label>':t==='headers'?'<label>Custom headers<textarea name="headers_text" rows="5" placeholder="X-API-Key: …&#10;X-Workspace: …"></textarea></label>':'<p class="mcp-note">No credentials will be sent.</p>';
     const add=()=>{const w=panel('Add MCP connection','<form id="mcp-form" class="form-stack"><label>Name<input name="name" required maxlength="80" placeholder="Production MCP"></label><label>Server URL<input type="url" name="endpoint_url" required placeholder="https://example.com/mcp"></label><div class="mcp-grid"><label>Transport<select name="transport"><option value="streamable_http">Streamable HTTP</option><option value="sse">SSE</option></select></label><label>Authentication<select name="auth_type"><option value="none">No auth</option><option value="api_key">API key</option><option value="bearer">Bearer token</option><option value="headers">Custom headers</option><option value="oauth">OAuth access token</option></select></label></div><div id="mcp-auth">'+fields('none')+'</div><p class="mcp-note">Credentials are submitted server-side and are not displayed after creation.</p><button class="btn primary" type="submit">Save connection</button></form>');const f=w.querySelector('#mcp-form'),a=f.elements.auth_type;a.onchange=()=>w.querySelector('#mcp-auth').innerHTML=fields(a.value);f.onsubmit=async e=>{e.preventDefault();const body=Object.fromEntries(new FormData(f));if(body.headers_text){body.headers={};body.headers_text.split(/\r?\n/).forEach(x=>{const i=x.indexOf(':');if(i>0)body.headers[x.slice(0,i).trim()]=x.slice(i+1).trim()});delete body.headers_text}try{await api('/api/connections',{method:'POST',body});w.remove();toast('MCP connection saved','success');dashIntegrations()}catch(x){toast(x.message,'error')}}};
     const guide=k=>{const g=k==='curl'?['cURL import guide','<h3>Import, never execute</h3><p>Paste a provider cURL example. Internet Hands parses the URL and supported headers without running shell commands.</p><pre><code>curl https://example.com/mcp -H &quot;Authorization: Bearer YOUR_TOKEN&quot;</code></pre><h3>Safety</h3><p>Client certificates, key files, cookies and unsafe credential-bearing file options are rejected. Imported credential values stay redacted.</p>']:k==='oauth'?['OAuth MCP guide','<h3>Client → Internet Hands</h3><ol><li>Copy <code>'+esc(endpoint)+'</code>.</li><li>Add it as a remote MCP server.</li><li>Follow OAuth discovery and browser consent.</li><li>Approve only required scopes.</li><li>Run a capability discovery test.</li></ol>']:['MCP connection guide','<h3>Two directions</h3><p><b>Client → Internet Hands:</b> use <code>'+esc(endpoint)+'</code>. <b>Internet Hands → remote MCP:</b> Add MCP connection.</p><h3>Transport</h3><p>Prefer Streamable HTTP. Use SSE only for servers that explicitly expose SSE.</p><h3>Authentication</h3><p>No auth, API key, Bearer token, custom headers, or an already-issued OAuth access token are supported by the connection form.</p>'];panel(g[0],'<div class="mcp-guide">'+g[1]+'</div>')};
@@ -905,7 +955,12 @@ function openRunInspector(event) {
       </section>`);
     const open=()=>showKeyModal();
     $('#create-key')?.addEventListener('click',open); $('#empty-key')?.addEventListener('click',open);
-    $$('[data-revoke-key]').forEach(b=>b.addEventListener('click',async()=>{if(!confirm('Revoke this key?'))return;await api(`/api/api-keys/${b.dataset.revokeKey}/revoke`,{method:'POST'});toast('Key revoked','success');dashKeys();}));
+    $$('[data-revoke-key]').forEach(b=>b.addEventListener('click',async()=>{
+      if(!confirm('Revoke this key?'))return;
+      busy(b,true,'Revoking…');
+      try { await api(`/api/api-keys/${b.dataset.revokeKey}/revoke`,{method:'POST'});toast('Key revoked','success');await dashKeys(); }
+      catch(error){busy(b,false);toast(error.message,'error');}
+    }));
   };
 
   dashPlayground = async function dashPlaygroundV4() {
@@ -929,8 +984,8 @@ function openRunInspector(event) {
         '<form id="ihp-form" class="web-search-form">'+
           '<div class="web-search-box">'+
             '<span class="web-search-icon">'+icon('activity')+'</span>'+
-            '<textarea id="research-query" rows="1" autocomplete="off" spellcheck="false" placeholder="Search the web — e.g. latest AI news"></textarea>'+
-            '<button id="ihp-submit" type="submit" class="web-search-submit" aria-label="Search">'+icon('arrow')+'</button>'+
+            '<textarea id="research-query" rows="1" autocomplete="off" spellcheck="false" maxlength="1000" aria-label="Search query or public URL" placeholder="Search the web — e.g. latest AI news"></textarea>'+
+            '<button id="ihp-submit" type="submit" class="web-search-submit" aria-label="Run search">'+icon('arrow')+'</button>'+
           '</div>'+
           '<div class="web-search-actions">'+
             '<label class="deep-toggle"><input id="ihp-deep" type="checkbox"><span></span><b>Deep research</b></label>'+
@@ -957,11 +1012,11 @@ function openRunInspector(event) {
               '<label><input id="ihp-subdomains" type="checkbox"> Include subdomains</label>'+
               '<label><input id="ihp-queryparams" type="checkbox"> Preserve query params</label>'+
             '</div>'+
-            '<p class="search-security">'+icon('shield')+' Public targets only · robots respected · SSRF protected · '+esc(String(available.toLocaleString()))+' credits available</p>'+
+            '<p class="search-security">'+icon('shield')+' Public targets only · robots respected · SSRF protected · <span data-available-credits aria-live="polite">'+esc(String(available.toLocaleString()))+'</span> credits available</p>'+
           '</details>'+
         '</form>'+
       '</section>'+
-      '<section id="ihp-results" class="web-search-results" hidden></section>';
+      '<section id="ihp-results" class="web-search-results" aria-live="polite" aria-atomic="false" hidden></section>';
 
     dashboardShell('playground',html);
 
@@ -1050,12 +1105,13 @@ function openRunInspector(event) {
         ((!answer&&!searchCards&&!crawlCards)?'<div class="search-empty">'+icon('activity')+'<div><h3>No results found</h3><p>Try a broader query or a different public URL.</p></div></div>':'')+
         evidenceBlock+technical;
       results.hidden=false;
-      results.scrollIntoView({behavior:'smooth',block:'start'});
+      results.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});
       $('#ihp-new-search')?.addEventListener('click',()=>{results.hidden=true;queryInput.focus();});
     };
 
     form.addEventListener('submit',async e=>{
       e.preventDefault();
+      if(state.activePlayground)return;
       const inputValue=queryInput.value.trim();
       if(!inputValue){toast('Type something to search','error');queryInput.focus();return;}
       const urlMode=isUrl(inputValue);
@@ -1074,18 +1130,40 @@ function openRunInspector(event) {
       };
       if(urlMode) body.url=inputValue; else body.query=inputValue;
 
+      const controller=new AbortController();
+      state.activePlayground=controller;
       submit.disabled=true;
+      submit.setAttribute('aria-label','Request running');
       submit.innerHTML=icon('activity');
       results.hidden=false;
-      results.innerHTML='<div class="search-loading"><span class="search-loader"></span><div><b>'+(urlMode?'Crawling website…':deep.checked?'Researching the web…':'Searching the web…')+'</b><p>'+(urlMode?'Following public pages and links.':deep.checked?'Searching, reading sources and building evidence.':'Finding relevant public sources.')+'</p></div></div>';
+      results.innerHTML='<div class="ih-execution-progress" role="status"><div class="ih-execution-head"><span class="ih-execution-symbol" aria-hidden="true">⚙️</span><div><b>Request prepared</b><p>'+esc(operation.toUpperCase())+' · '+esc(inputValue)+'</p></div><button class="btn small" type="button" id="ihp-cancel">Stop waiting</button></div><ol class="ih-execution-stages"><li class="done">Queued in this browser</li><li class="done">Request sent to gateway</li><li class="current">Awaiting routing and execution</li><li>Reading response</li><li>Complete</li></ol><p class="ih-execution-note">The gateway returns one response when work finishes. Provider steps and credits appear only after it responds.</p></div>';
+      $('#ihp-cancel').onclick=()=>controller.abort();
       try{
-        const data=await api('/api/playground/run',{method:'POST',body:JSON.stringify(body)});
+        const data=await api('/api/playground/run',{method:'POST',body,signal:controller.signal});
+        if(controller.signal.aborted)return;
+        const stages=$$('.ih-execution-stages li',results);
+        stages[2].className='done';
+        stages[3].className='current';
+        $('.ih-execution-head b',results).textContent='Response received';
         await renderResult(data,inputValue,operation);
+        api('/api/dashboard').then(d=>{
+          const a=d.account||{}, updated=Number(a.monthly_credits||0)+Number(a.purchased_credits||0)-Number(a.reserved_credits||0);
+          const credits=$('[data-available-credits]');
+          if(credits)credits.textContent=updated.toLocaleString();
+        }).catch(()=>{});
       }catch(err){
+        if(controller.signal.aborted){
+          results.innerHTML='<div class="search-error" role="status">'+icon('activity')+'<div><h3>Stopped waiting for this request</h3><p>The gateway may still finish and charge for work already started. Check Runs for its result.</p><a class="btn small" data-link href="/dashboard/usage">Open Runs</a></div></div>';
+          return;
+        }
         const message=String(err?.message||err||'Search failed');
-        results.innerHTML='<div class="search-error">'+icon('shield')+'<div><h3>Could not complete this search</h3><p>'+esc(message)+'</p></div></div>';
+        const destination=err?.code==='api_key_required'||err?.code==='invalid_api_key'?'<a class="btn small" data-link href="/dashboard/api-keys">Manage API keys</a>':err?.status===402?'<a class="btn small" data-link href="/dashboard/wallet">View credits</a>':'';
+        results.innerHTML='<div class="search-error" role="alert">'+icon('shield')+'<div><h3>Could not complete this search</h3><p>'+esc(message)+'</p>'+destination+'<button class="btn small" id="ihp-retry">Retry</button></div></div>';
+        $('#ihp-retry').onclick=()=>form.requestSubmit();
       }finally{
+        if(state.activePlayground===controller)state.activePlayground=null;
         submit.disabled=false;
+        submit.setAttribute('aria-label','Run search');
         submit.innerHTML=icon('arrow');
       }
     });
@@ -1241,7 +1319,7 @@ function openRunInspector(event) {
         </nav>
 
         <div class="cos-sidebar-bottom">
-          <a class="cos-gateway" data-link href="/status"><span>${statusDot()}</span><div><b>Gateway online</b><small>All systems operational</small></div>${icon('chevron')}</a>
+          <a class="cos-gateway" data-link href="/status"><span data-gateway-indicator>${statusDot()}</span><div><b data-gateway-label>Checking gateway</b><small data-gateway-detail>Waiting for status response</small></div>${icon('chevron')}</a>
           <div class="cos-sidebar-links"><a data-link href="/docs">${icon('docs')} Docs</a><a href="https://github.com/sphangcho203-afk/Web-Scrapping-CLI" target="_blank" rel="noreferrer">${icon('external')} GitHub</a></div>
         </div>
       </aside>
@@ -1301,6 +1379,9 @@ function openRunInspector(event) {
     </div>`;
 
     bindCommon();
+    refreshGatewayStatus();
+    clearInterval(state.gatewayTimer);
+    state.gatewayTimer=setInterval(()=>refreshGatewayStatus(true),30000);
 
     const sidebar = $('.cos-sidebar');
     const sheet = $('[data-more-sheet]');

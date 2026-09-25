@@ -14,8 +14,8 @@
       <form id="monitor-lifecycle-form" class="form-stack">
         <label>Name<input required name="name" maxlength="120" value="${esc(monitor?.name || '')}" placeholder="Production health"></label>
         <div class="field-pair"><label>Type<select name="type">${['web','api','mcp','gaming'].map(x => `<option value="${x}" ${x===type?'selected':''}>${x.toUpperCase()}</option>`).join('')}</select></label><label>Interval<select name="interval_minutes">${[15,60,360,1440].map(x => `<option value="${x}" ${Number(monitor?.interval_minutes || 60)===x?'selected':''}>${schedule(x)}</option>`).join('')}</select></label></div>
-        <label>Target<input required name="target" maxlength="2000" value="${esc(monitor?.target || '')}" placeholder="https://example.com/health"></label>
-        <div id="monitor-preflight-state" class="notice">Target and schedule are validated before anything is saved.</div>
+        <label>Target<input required name="target" maxlength="2000" inputmode="url" autocomplete="url" value="${esc(monitor?.target || '')}" placeholder="https://example.com/health"></label>
+        <div id="monitor-preflight-state" class="notice" role="status" aria-live="polite">Target and schedule are validated before anything is saved.</div>
         <button class="btn primary large" type="submit">${monitor ? 'Validate and save' : 'Validate and create'}</button>
       </form>`);
     $('#monitor-lifecycle-form', wrap).onsubmit = async e => {
@@ -56,19 +56,25 @@
       <div class="ih-inspector-section"><span>CHECK HISTORY</span><div id="monitor-history">${historyMarkup(runs)}</div>${page.has_more ? '<button class="btn small" id="monitor-history-more">Load older checks</button>' : ''}</div>
       ${!runs.length ? '<div class="notice">No persisted checks yet. The lifecycle is configured, but execution history will remain empty until the scheduler/executor records a run.</div>' : ''}`, true);
     $('#monitor-edit', wrap).onclick = () => { wrap.remove(); monitorForm(monitor); };
-    $('#monitor-toggle', wrap).onclick = async () => {
-      await api(`/api/monitors/${monitor.id}/toggle`, { method:'POST', body:{enabled:!monitor.enabled} });
-      wrap.remove(); toast(monitor.enabled ? 'Monitor paused' : 'Monitor resumed', 'success'); dashMonitors();
+    $('#monitor-toggle', wrap).onclick = async e => {
+      const button=e.currentTarget;
+      busy(button,true,'Updating…');
+      try {
+        await api(`/api/monitors/${monitor.id}/toggle`, { method:'POST', body:{enabled:!monitor.enabled} });
+        wrap.remove(); toast(monitor.enabled ? 'Monitor paused' : 'Monitor resumed', 'success'); dashMonitors();
+      } catch(error) { busy(button,false); toast(error.message,'error'); }
     };
     $('#monitor-history-more', wrap)?.addEventListener('click', async e => {
       const current = monitorState.history.get(id);
       if (!current?.next_before) return;
       e.currentTarget.disabled = true;
-      const next = await api(`/api/monitors/${encodeURIComponent(id)}/history?limit=25&before=${encodeURIComponent(current.next_before)}`);
-      const combined = { runs:[...(current.runs||[]), ...(next.runs||[])], has_more:next.has_more, next_before:next.next_before };
-      monitorState.history.set(id, combined);
-      $('#monitor-history', wrap).innerHTML = historyMarkup(combined.runs);
-      if (!combined.has_more) e.currentTarget.remove(); else e.currentTarget.disabled = false;
+      try {
+        const next = await api(`/api/monitors/${encodeURIComponent(id)}/history?limit=25&before=${encodeURIComponent(current.next_before)}`);
+        const combined = { runs:[...(current.runs||[]), ...(next.runs||[])], has_more:next.has_more, next_before:next.next_before };
+        monitorState.history.set(id, combined);
+        $('#monitor-history', wrap).innerHTML = historyMarkup(combined.runs);
+        if (!combined.has_more) e.currentTarget.remove(); else e.currentTarget.disabled = false;
+      } catch(error) { e.currentTarget.disabled=false; toast(error.message,'error'); }
     });
   }
 
