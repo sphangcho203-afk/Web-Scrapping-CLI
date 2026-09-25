@@ -2034,8 +2034,10 @@ html.ih-overlay-open,html.ih-overlay-open body{overflow:hidden}
 :is(.btn,.web-search-submit,.agent-tabs button,.search-examples button):active:not(:disabled){transform:translateY(1px)!important}
 :is(button,a)[aria-current="page"],.cos-nav-group>a.active,.cos-mobile-bottom>a.active{font-weight:700}
 :is(button,.btn):disabled{opacity:.5!important;cursor:not-allowed!important;box-shadow:none!important}
+:is(a,button)[aria-disabled="true"]{opacity:.5!important;cursor:not-allowed!important;pointer-events:none!important}
 .cos-gateway [data-gateway-indicator].is-unavailable .cos-live-dot{background:var(--ih-danger);box-shadow:0 0 0 3px rgba(255,107,114,.12)}
 .cos-gateway [data-gateway-detail]{overflow-wrap:anywhere}
+.cos-more-sheet a.active{background:var(--ih-accent-soft)!important;color:var(--ih-accent)!important;box-shadow:inset 2px 0 var(--ih-accent)}
 .status-summary.is-unavailable i{background:var(--ih-danger);box-shadow:0 0 0 4px rgba(239,118,128,.1)}
 .modal-backdrop{padding:max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))!important;overscroll-behavior:contain}
 .modal-backdrop .modal{max-height:calc(100dvh - max(24px,env(safe-area-inset-top)) - max(24px,env(safe-area-inset-bottom)))!important;max-width:100%!important;min-width:0;overflow-x:hidden}

@@ -3,18 +3,23 @@ from pathlib import Path
 
 def test_authenticated_shell_uses_canonical_labels_and_routes() -> None:
     app = Path("web/app.js").read_text(encoding="utf-8")
+    usage = Path("web/usage-intelligence.js").read_text(encoding="utf-8")
     assert "['overview','terminal','Overview']" in app
     assert "['connections','plug','Connections']" in app
     assert "['billing','billing','Billing & Plans']" in app
     assert "['settings','settings','Settings & Security']" in app
     assert "dashboardShell('connections'" in app
+    assert 'data-link href="/dashboard/playground"' in app
+    assert "go('/dashboard/playground')" in usage
 
 
 def test_mobile_shell_has_single_overlay_controller() -> None:
     app = Path("web/app.js").read_text(encoding="utf-8")
-    assert "const closeOverlays = () =>" in app
+    assert "const closeOverlays = " in app
     assert "ih-overlay-open" in app
     assert "window.__ihShellEscape" in app
+    assert "sheet.inert=" in app
+    assert "sidebar.inert=" in app
 
 
 def test_final_shell_css_owns_mobile_spacing() -> None:

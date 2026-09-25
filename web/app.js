@@ -149,7 +149,7 @@ function go(path, replace = false) {
   if(!path.startsWith('/dashboard'))clearInterval(state.gatewayTimer);
   clearTransientUi();
   history[replace ? 'replaceState' : 'pushState']({}, '', path);
-  renderRoute();
+  return renderRoute();
 }
 function brand() { return `<a class="brand" data-link href="/" aria-label="Internet Hands home"><img src="/assets/mark.svg" width="38" height="38" alt=""><span>INTERNET <b>HANDS</b></span></a>`; }
 function bindCommon() {
@@ -231,7 +231,28 @@ function renderDocs() {
 function authShell(title, sub, content, story = 'Infrastructure for agents that need reach.') {
   app.innerHTML = `<main class="auth-layout"><section class="auth-story">${brand()}<div class="auth-story-copy"><span class="eyebrow">INTERNET HANDS CONTROL PLANE</span><h1>${story}</h1><p>One secure operating layer for identity, live web access, usage and MCP authorization.</p><div class="auth-capabilities"><span>${icon('shield')} Verified identity</span><span>${icon('key')} Scoped access</span><span>${icon('activity')} Live observability</span></div></div><div class="auth-system-card"><div><span class="live-dot"></span><b>Gateway online</b><small>Policy · route · meter</small></div><div class="auth-system-flow"><span>Agent</span><i></i><strong><img src="/assets/mark.svg" alt="">IH</strong><i></i><span>Internet</span></div></div></section><section class="auth-main"><div class="auth-card"><div class="auth-mobile-brand">${brand()}</div><header><span class="auth-kicker">${title === 'Welcome back' ? 'ACCOUNT ACCESS' : title.includes('Verify') ? 'IDENTITY CHECK' : 'CREATE WORKSPACE'}</span><h2>${title}</h2><p>${sub}</p></header>${content}<footer class="auth-secure">${icon('shield')} Protected with encrypted, HTTP-only sessions</footer></div></section></main>`; bindCommon();
 }
-function busy(button, on, label) { if (on) { button.dataset.old = button.innerHTML; button.disabled = true; button.textContent = label; } else { button.disabled = false; button.innerHTML = button.dataset.old; } }
+function busy(button, on, label) {
+  if(!button)return false;
+  if(on){
+    if(button.dataset.ihBusy==='true')return false;
+    button.dataset.old=button.innerHTML;
+    button.dataset.wasDisabled=String(Boolean(button.disabled));
+    button.dataset.ihBusy='true';
+    button.disabled=true;
+    button.setAttribute('aria-busy','true');
+    if(button.tagName==='A')button.setAttribute('aria-disabled','true');
+    button.textContent=label;
+    return true;
+  }
+  button.disabled=button.dataset.wasDisabled==='true';
+  if('old' in button.dataset)button.innerHTML=button.dataset.old;
+  button.removeAttribute('aria-busy');
+  button.removeAttribute('aria-disabled');
+  delete button.dataset.old;
+  delete button.dataset.wasDisabled;
+  delete button.dataset.ihBusy;
+  return true;
+}
 function authDestination(result) {
   const next=result.next||(result.verification_required?'/verify-email':'/dashboard');
   if(!result.verification_required)return next;
@@ -268,9 +289,10 @@ async function renderVerify(seed=null) {
       : `Supabase sent a secure confirmation link to ${esc(email)}. Open it in this browser or any browser, then this page will unlock automatically.`;
   authShell('Verify your email',verificationMessage,`<div class="verify-mark">${icon('mail')}</div><div class="notice">Email verification is now handled by Supabase Auth. Confirmation links are single-use; request a new one if the previous link expired.</div><div class="verify-actions"><button id="resend">Resend verification email <span></span></button><button id="other-account">Use another account</button></div>`,'One small gate before the internet opens up.');
   let seconds=0;
-  const tick=()=>{const b=$('#resend');$('span',b).textContent=seconds?`(${seconds}s)`:'';b.disabled=seconds>0;if(seconds-->0)setTimeout(tick,1000);};
-  $('#resend').onclick=async()=>{try{const result=await api('/api/auth/email-verification/send',{method:'POST'});if(!result.sent&&!result.already_verified)throw new Error('Verification email could not be sent. Try again shortly.');if(result.already_verified){state.me=null;return go('/verify-email?verified=1',true);}seconds=60;tick();toast('New verification email sent','success');}catch(error){toast(error.message,'error');}};
-  $('#other-account').onclick=async()=>{await api('/api/auth/logout',{method:'POST'});state.me=null;go('/login');};
+  const resend=$('#resend');
+  const tick=()=>{if(!resend.isConnected)return;$('span',resend).textContent=seconds?`(${seconds}s)`:'';resend.disabled=seconds>0;if(seconds-->0)setTimeout(tick,1000);};
+  resend.onclick=async()=>{if(!busy(resend,true,'Sending…'))return;try{const result=await api('/api/auth/email-verification/send',{method:'POST'});if(!result.sent&&!result.already_verified)throw new Error('Verification email could not be sent. Try again shortly.');if(result.already_verified){state.me=null;return go('/verify-email?verified=1',true);}busy(resend,false);seconds=60;tick();toast('New verification email sent','success');}catch(error){busy(resend,false);toast(error.message,'error');}};
+  $('#other-account').onclick=async e=>{const button=e.currentTarget;busy(button,true,'Signing out…');try{await api('/api/auth/logout',{method:'POST'});state.me=null;go('/login');}catch(error){busy(button,false);toast(error.message,'error');}};
   const pollVerification=async()=>{if(location.pathname!=='/verify-email')return;try{const latest=await api('/api/auth/me');if(latest.user.email_verified){state.me=latest;go('/verify-email?verified=1',true);return;}}catch{}setTimeout(pollVerification,3000);};
   setTimeout(pollVerification,1500);
 }
@@ -286,10 +308,11 @@ function renderRecovery(reset=false){
     reset?'A successful reset signs every web session out.':'Enter the email connected to your account. Supabase Auth will send the recovery link after the account has migrated.',
     `<form id="recovery-form" class="form-stack">${reset?'<label>New password<input required minlength="8" type="password" name="password" autocomplete="new-password"></label><label>Confirm password<input required minlength="8" type="password" name="confirm" autocomplete="new-password"></label>':'<label>Account email<input required type="email" name="email" autocomplete="email" placeholder="you@example.com"></label>'}<button class="btn primary large" ${reset&&!hasResetCredential?'disabled':''}>${reset?'Update password':'Send reset link'} ${icon('arrow')}</button></form>${reset&&!hasResetCredential?'<div class="notice warning">This reset link is missing its recovery credential. Request a new one.</div>':''}<p class="auth-foot"><a data-link href="/login">Back to sign in</a></p>`
   );
+  if(reset)$('#recovery-form [name="confirm"]').addEventListener('input',e=>e.currentTarget.setCustomValidity(''));
   $('#recovery-form').onsubmit=async e=>{
     e.preventDefault();
     const button=$('button',e.currentTarget),values=Object.fromEntries(new FormData(e.currentTarget));
-    if(reset&&values.password!==values.confirm)return toast('Passwords do not match','error');
+    if(reset&&values.password!==values.confirm){const confirmInput=e.currentTarget.elements.namedItem('confirm');confirmInput.setCustomValidity('Passwords do not match');confirmInput.reportValidity();confirmInput.focus();return;}
     busy(button,true,reset?'Updating password…':'Sending reset link…');
     try{
       const result=await api(reset?'/api/auth/password-reset/confirm':'/api/auth/password-reset/request',{
@@ -406,14 +429,34 @@ async function dashIntegrations(){
     detail.hidden=!opening;b.ariaExpanded=String(opening);card.classList.toggle('open',opening);
   });
 }
-async function dashWallet(){const [d,p]=await Promise.all([api('/api/wallet?limit=150'),getPlans()]),w=d.wallet||{};dashboardShell('wallet',`${pageHead('CREDITS','Wallet','Monthly credits spend first. Purchased credits roll over.')}<div class="wallet-hero">${[['MONTHLY',w.monthly_credits,'Refreshes with plan'],['PURCHASED',w.purchased_credits,'Rollover balance'],['RESERVED',w.reserved_credits,'Work currently held']].map(x=>`<article><span>${x[0]}</span><b>${fmt(x[1])}</b><small>${x[2]}</small></article>`).join('')}</div><header class="subhead"><span><span class="overline">TOP UP</span><h2>Add rollover credits</h2></span></header><div class="pack-grid">${(p.credit_packs||[]).map(x=>`<article><span>${esc(x.name)}</span><b>${fmt(x.credits)} credits</b><em>${money(x.price_inr)}</em><button class="btn primary small" data-buy="${x.slug}">Purchase</button></article>`).join('')||'<div class="notice">Credit packs unavailable.</div>'}</div><article class="card"><header><span><span class="overline">LEDGER</span><h2>Wallet activity</h2></span></header>${d.ledger.length?`<div class="table-wrap"><table><thead><tr><th>Time</th><th>Kind</th><th>Bucket</th><th>Amount</th><th>Source</th></tr></thead><tbody>${d.ledger.map(x=>`<tr><td>${when(x.created_at)}</td><td>${esc(x.kind)}</td><td>${esc(x.bucket)}</td><td class="${Number(x.amount)>=0?'positive':''}">${Number(x.amount)>0?'+':''}${fmt(x.amount)}</td><td>${esc(x.source)}</td></tr>`).join('')}</tbody></table></div>`:'<div class="smart-empty compact"><span><b>No wallet activity yet</b><p>Grants and purchases appear here.</p></span></div>'}</article>`);$$('[data-buy]').forEach(b=>b.onclick=()=>startCheckout('credits',b.dataset.buy));}
-async function dashBilling(){const [p,s,pay]=await Promise.all([getPlans(),api('/api/billing/status'),api('/api/billing/payments')]),a=state.me.account||{};dashboardShell('billing',`${pageHead('COMMERCIAL','Billing & plans','Plan limits, renewal state and captured-payment history.',`<span class="badge ${s.configured?'success':'warning'}">Razorpay ${s.configured?'ready':'pending'}</span>`)}<div class="current-plan card"><span><span class="overline">CURRENT PLAN</span><h2>${esc(a.plan_name||'Free')}</h2><p>${fmt(a.monthly_credits)} monthly credits · resets ${when(a.current_period_end)}</p></span><div><span>Keys <b>${fmt(a.api_key_limit)}</b></span><span>Monitors <b>${fmt(a.monitor_limit)}</b></span><span>RPM <b>${fmt(a.rpm_limit)}</b></span></div></div>${planCards(p.plans)}<article class="card"><header><span><span class="overline">PAYMENTS</span><h2>Purchase history</h2></span><em>${icon('shield')} Verified server-side</em></header>${pay.payments.length?`<div class="table-wrap"><table><thead><tr><th>Created</th><th>Purpose</th><th>Amount</th><th>Status</th><th>Reference</th></tr></thead><tbody>${pay.payments.map(x=>`<tr><td>${when(x.created_at)}</td><td>${esc(x.purpose)}</td><td>${money(Number(x.amount_paise)/100)}</td><td><span class="badge ${['paid','captured'].includes(x.status)?'success':'warning'}">${esc(x.status)}</span></td><td><code>${esc(x.order_id||'—')}</code></td></tr>`).join('')}</tbody></table></div>`:'<div class="smart-empty compact"><span><b>No purchases yet</b><p>Captured payments appear here.</p></span></div>'}</article>`);$$('.plan-card a[href*="plan="]').forEach(a=>a.onclick=e=>{e.preventDefault();startCheckout('subscription',new URL(a.href).searchParams.get('plan'));});}
-async function startCheckout(purpose,slug){try{const r=await api('/api/billing/create-order',{method:'POST',body:{purpose,slug}});if(!window.Razorpay)await new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://checkout.razorpay.com/v1/checkout.js';s.onload=ok;s.onerror=no;document.head.appendChild(s);});new Razorpay({key:r.key_id,order_id:r.order.id,amount:r.order.amount,currency:'INR',name:'Internet Hands',description:purpose==='credits'?'Credit top-up':'Plan',theme:{color:'#5de1e6'},handler:async response=>{try{await api('/api/billing/verify',{method:'POST',body:response});toast('Payment verified','success');state.me=null;go(`/dashboard/${purpose==='credits'?'wallet':'billing'}`);}catch(error){toast(error.message,'error');}}}).open();}catch(error){toast(error.message,'error');}}
-async function dashSettings(){const [s,sessions]=await Promise.all([api('/api/security/status'),api('/api/account/sessions')]),u=state.me.user;dashboardShell('settings',`${pageHead('ACCOUNT','Settings & security','Identity, login protection, active sessions and recovery.')}<div class="settings-grid"><section class="card"><header><span><span class="overline">PROFILE</span><h2>Account details</h2></span><span class="badge success">Verified</span></header><form id="profile-form" class="form-stack"><label>Email<input value="${esc(u.email)}" disabled></label><label>Display name<input name="display_name" value="${esc(u.display_name||'')}" maxlength="80" required></label><div class="linked-row"><i>GH</i><span><b>GitHub</b><small>${u.github_connected?'Connected':'Not connected'}</small></span><em class="badge ${u.github_connected?'success':'neutral'}">${u.github_connected?'Linked':'Optional'}</em></div><button class="btn">Save profile</button></form></section><section class="card"><header><span><span class="overline">SECURITY</span><h2>Protection status</h2></span><span class="badge ${s.two_factor_enabled?'success':'warning'}">${s.two_factor_enabled?'2FA enabled':s.two_factor_available?'2FA available':'2FA needs server configuration'}</span></header><div class="security-status"><div>${icon('check')}<span><b>Email verified</b><small>Privileged actions unlocked</small></span><em>On</em></div><div>${icon('shield')}<span><b>Authenticator 2FA</b><small>${s.two_factor_enabled?'Required after primary sign-in':'Add a second factor'}</small></span><button class="btn ${s.two_factor_enabled?'danger':'primary'} small" id="toggle-2fa">${s.two_factor_enabled?'Disable':'Set up'}</button></div>${s.two_factor_enabled?`<div>${icon('activity')}<span><b>Recovery codes</b><small>Regenerate when needed</small></span><button class="btn small" id="regen">Regenerate</button></div>`:''}</div></section><section class="card full"><header><span><span class="overline">SESSIONS</span><h2>Active web sessions</h2></span><button class="btn danger small" id="revoke-all">Sign out everywhere</button></header><div class="session-list">${sessions.sessions.map(x=>`<div>${icon('activity')}<span><b>${x.current?'This session':'Web session'}</b><small>Created ${when(x.created_at)} · expires ${when(x.expires_at)}</small></span><em class="badge ${x.current?'success':'neutral'}">${x.current?'Current':'Active'}</em><button class="btn small" data-session="${x.id}">Revoke</button></div>`).join('')}</div></section><section class="card full"><header><span><span class="overline">PASSWORD</span><h2>Change password</h2></span></header><form id="password-form" class="inline-form"><label>Current password<input type="password" name="current_password" required></label><label>New password<input type="password" name="new_password" minlength="8" required></label><button class="btn">Change and sign out</button></form></section></div>`);$('#profile-form').onsubmit=async e=>{e.preventDefault();try{const r=await api('/api/account/profile',{method:'PATCH',body:Object.fromEntries(new FormData(e.currentTarget))});state.me.user=r.user;toast('Profile updated','success');}catch(error){toast(error.message,'error');}};$('#toggle-2fa').onclick=()=>s.two_factor_enabled?showDisable2fa():showSetup2fa();$('#regen')?.addEventListener('click',showRegenerate);$$('[data-session]').forEach(b=>b.onclick=async()=>{const r=await api(`/api/account/sessions/${b.dataset.session}/revoke`,{method:'POST'});if(r.signed_out){state.me=null;go('/login');}else dashSettings();});$('#revoke-all').onclick=async()=>{if(!confirm('Sign out every web session?'))return;await api('/api/account/sessions/revoke-all',{method:'POST'});state.me=null;go('/login');};$('#password-form').onsubmit=async e=>{e.preventDefault();try{await api('/api/account/password',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))});state.me=null;toast('Password changed; sessions revoked','success');go('/login');}catch(error){toast(error.message,'error');}};}
-function showSetup2fa(){api('/api/auth/2fa/setup',{method:'POST'}).then(setup=>{const wrap=modal(`<div class="modal-head"><span><span class="overline">STEP 1 OF 2</span><h2>Set up authenticator</h2></span><button data-close aria-label="Close">×</button></div><div class="setup-panel"><div class="qr-panel"><img src="${esc(setup.qr_data_uri)}" width="176" height="176" alt="Authenticator setup QR code"><small>Scan with your authenticator</small></div><span><p>Add Internet Hands in your authenticator app.</p>${codeBlock(setup.secret,'Manual key')}${codeBlock(setup.otpauth_uri,'Authenticator URI')}</span></div><form id="confirm-2fa" class="form-stack"><label>Current 6-digit code<input class="code-input" name="code" required maxlength="6" pattern="[0-9]{6}" inputmode="numeric" autocomplete="one-time-code"></label><button class="btn primary large">Verify and enable</button></form>`,true);$('#confirm-2fa',wrap).onsubmit=async e=>{e.preventDefault();try{const r=await api('/api/auth/2fa/confirm',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))});showCodes(wrap,r.recovery_codes);}catch(error){toast(error.message,'error');}};}).catch(error=>toast(error.message,'error'));}
-function showCodes(wrap,codes){$('.modal',wrap).innerHTML=`<div class="modal-head"><span><span class="overline">FINAL STEP</span><h2>Save recovery codes</h2></span></div><div class="notice warning">Each code works once and will not appear again.</div><div class="recovery-grid">${codes.map(x=>`<code>${esc(x)}</code>`).join('')}</div><button class="btn" data-copy="${esc(codes.join('\n'))}">${icon('copy')} Copy all</button><label class="ack"><input type="checkbox" id="codes-saved"> I stored these separately.</label><button class="btn primary large" id="finish-2fa" disabled>Finish</button>`;bindCommon();$('#codes-saved').onchange=e=>$('#finish-2fa').disabled=!e.target.checked;$('#finish-2fa').onclick=()=>{wrap.remove();dashSettings();};}
-function showDisable2fa(){const wrap=modal(`<div class="modal-head"><span><span class="overline">SECURITY CHANGE</span><h2>Disable 2FA</h2></span><button data-close>×</button></div><div class="notice warning">Existing recovery codes will be invalidated.</div><form id="disable-2fa" class="form-stack"><label>Authenticator or recovery code<input name="code" required></label><button class="btn danger large">Disable 2FA</button></form>`);$('#disable-2fa',wrap).onsubmit=async e=>{e.preventDefault();try{await api('/api/auth/2fa/disable',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))});wrap.remove();dashSettings();}catch(error){toast(error.message,'error');}};}
-function showRegenerate(){const wrap=modal(`<div class="modal-head"><span><span class="overline">RECOVERY</span><h2>Regenerate codes</h2></span><button data-close>×</button></div><form id="regen-form" class="form-stack"><label>Authenticator code<input name="code" required maxlength="6"></label><button class="btn primary">Generate new codes</button></form>`);$('#regen-form',wrap).onsubmit=async e=>{e.preventDefault();try{const r=await api('/api/auth/2fa/recovery/regenerate',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))});showCodes(wrap,r.recovery_codes);}catch(error){toast(error.message,'error');}};}
+async function dashWallet(){const [d,p]=await Promise.all([api('/api/wallet?limit=150'),getPlans()]),w=d.wallet||{};dashboardShell('wallet',`${pageHead('CREDITS','Wallet','Monthly credits spend first. Purchased credits roll over.')}<div class="wallet-hero">${[['MONTHLY',w.monthly_credits,'Refreshes with plan'],['PURCHASED',w.purchased_credits,'Rollover balance'],['RESERVED',w.reserved_credits,'Work currently held']].map(x=>`<article><span>${x[0]}</span><b>${fmt(x[1])}</b><small>${x[2]}</small></article>`).join('')}</div><header class="subhead"><span><span class="overline">TOP UP</span><h2>Add rollover credits</h2></span></header><div class="pack-grid">${(p.credit_packs||[]).map(x=>`<article><span>${esc(x.name)}</span><b>${fmt(x.credits)} credits</b><em>${money(x.price_inr)}</em><button class="btn primary small" data-buy="${x.slug}">Purchase</button></article>`).join('')||'<div class="notice">Credit packs unavailable.</div>'}</div><article class="card"><header><span><span class="overline">LEDGER</span><h2>Wallet activity</h2></span></header>${d.ledger.length?`<div class="table-wrap"><table><thead><tr><th>Time</th><th>Kind</th><th>Bucket</th><th>Amount</th><th>Source</th></tr></thead><tbody>${d.ledger.map(x=>`<tr><td>${when(x.created_at)}</td><td>${esc(x.kind)}</td><td>${esc(x.bucket)}</td><td class="${Number(x.amount)>=0?'positive':''}">${Number(x.amount)>0?'+':''}${fmt(x.amount)}</td><td>${esc(x.source)}</td></tr>`).join('')}</tbody></table></div>`:'<div class="smart-empty compact"><span><b>No wallet activity yet</b><p>Grants and purchases appear here.</p></span></div>'}</article>`);$$('[data-buy]').forEach(b=>b.onclick=()=>startCheckout('credits',b.dataset.buy,b));}
+async function dashBilling(){const [p,s,pay]=await Promise.all([getPlans(),api('/api/billing/status'),api('/api/billing/payments')]),a=state.me.account||{};dashboardShell('billing',`${pageHead('COMMERCIAL','Billing & plans','Plan limits, renewal state and captured-payment history.',`<span class="badge ${s.configured?'success':'warning'}">Razorpay ${s.configured?'ready':'pending'}</span>`)}<div class="current-plan card"><span><span class="overline">CURRENT PLAN</span><h2>${esc(a.plan_name||'Free')}</h2><p>${fmt(a.monthly_credits)} monthly credits · resets ${when(a.current_period_end)}</p></span><div><span>Keys <b>${fmt(a.api_key_limit)}</b></span><span>Monitors <b>${fmt(a.monitor_limit)}</b></span><span>RPM <b>${fmt(a.rpm_limit)}</b></span></div></div>${planCards(p.plans)}<article class="card"><header><span><span class="overline">PAYMENTS</span><h2>Purchase history</h2></span><em>${icon('shield')} Verified server-side</em></header>${pay.payments.length?`<div class="table-wrap"><table><thead><tr><th>Created</th><th>Purpose</th><th>Amount</th><th>Status</th><th>Reference</th></tr></thead><tbody>${pay.payments.map(x=>`<tr><td>${when(x.created_at)}</td><td>${esc(x.purpose)}</td><td>${money(Number(x.amount_paise)/100)}</td><td><span class="badge ${['paid','captured'].includes(x.status)?'success':'warning'}">${esc(x.status)}</span></td><td><code>${esc(x.order_id||'—')}</code></td></tr>`).join('')}</tbody></table></div>`:'<div class="smart-empty compact"><span><b>No purchases yet</b><p>Captured payments appear here.</p></span></div>'}</article>`);$$('.plan-card a[href*="plan="]').forEach(a=>a.onclick=e=>{e.preventDefault();startCheckout('subscription',new URL(a.href).searchParams.get('plan'),a);});}
+async function startCheckout(purpose,slug,trigger){
+  if(trigger&&!busy(trigger,true,'Opening checkout…'))return;
+  try{
+    const r=await api('/api/billing/create-order',{method:'POST',body:{purpose,slug}});
+    if(!window.Razorpay)await new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://checkout.razorpay.com/v1/checkout.js';s.onload=ok;s.onerror=()=>no(new Error('Checkout could not load. Please try again.'));document.head.appendChild(s);});
+    new Razorpay({key:r.key_id,order_id:r.order.id,amount:r.order.amount,currency:'INR',name:'Internet Hands',description:purpose==='credits'?'Credit top-up':'Plan',theme:{color:'#5de1e6'},handler:async response=>{toast('Verifying payment with the server…');try{await api('/api/billing/verify',{method:'POST',body:response});toast('Payment verified','success');state.me=null;go(`/dashboard/${purpose==='credits'?'wallet':'billing'}`);}catch(error){toast(error.message,'error');}}}).open();
+  }catch(error){toast(error.message,'error');}
+  finally{if(trigger?.isConnected)busy(trigger,false);}
+}
+async function dashSettings(){const [s,sessions]=await Promise.all([api('/api/security/status'),api('/api/account/sessions')]),u=state.me.user;dashboardShell('settings',`${pageHead('ACCOUNT','Settings & security','Identity, login protection, active sessions and recovery.')}<div class="settings-grid"><section class="card"><header><span><span class="overline">PROFILE</span><h2>Account details</h2></span><span class="badge success">Verified</span></header><form id="profile-form" class="form-stack"><label>Email<input value="${esc(u.email)}" disabled></label><label>Display name<input name="display_name" value="${esc(u.display_name||'')}" maxlength="80" required></label><div class="linked-row"><i>GH</i><span><b>GitHub</b><small>${u.github_connected?'Connected':'Not connected'}</small></span><em class="badge ${u.github_connected?'success':'neutral'}">${u.github_connected?'Linked':'Optional'}</em></div><button class="btn">Save profile</button></form></section><section class="card"><header><span><span class="overline">SECURITY</span><h2>Protection status</h2></span><span class="badge ${s.two_factor_enabled?'success':'warning'}">${s.two_factor_enabled?'2FA enabled':s.two_factor_available?'2FA available':'2FA needs server configuration'}</span></header><div class="security-status"><div>${icon('check')}<span><b>Email verified</b><small>Privileged actions unlocked</small></span><em>On</em></div><div>${icon('shield')}<span><b>Authenticator 2FA</b><small>${s.two_factor_enabled?'Required after primary sign-in':'Add a second factor'}</small></span><button class="btn ${s.two_factor_enabled?'danger':'primary'} small" id="toggle-2fa">${s.two_factor_enabled?'Disable':'Set up'}</button></div>${s.two_factor_enabled?`<div>${icon('activity')}<span><b>Recovery codes</b><small>Regenerate when needed</small></span><button class="btn small" id="regen">Regenerate</button></div>`:''}</div></section><section class="card full"><header><span><span class="overline">SESSIONS</span><h2>Active web sessions</h2></span><button class="btn danger small" id="revoke-all">Sign out everywhere</button></header><div class="session-list">${sessions.sessions.map(x=>`<div>${icon('activity')}<span><b>${x.current?'This session':'Web session'}</b><small>Created ${when(x.created_at)} · expires ${when(x.expires_at)}</small></span><em class="badge ${x.current?'success':'neutral'}">${x.current?'Current':'Active'}</em><button class="btn small" data-session="${x.id}">Revoke</button></div>`).join('')}</div></section><section class="card full"><header><span><span class="overline">PASSWORD</span><h2>Change password</h2></span></header><form id="password-form" class="inline-form"><label>Current password<input type="password" name="current_password" required></label><label>New password<input type="password" name="new_password" minlength="8" required></label><button class="btn">Change and sign out</button></form></section></div>`);$('#profile-form').onsubmit=async e=>{e.preventDefault();try{const r=await api('/api/account/profile',{method:'PATCH',body:Object.fromEntries(new FormData(e.currentTarget))});state.me.user=r.user;toast('Profile updated','success');}catch(error){toast(error.message,'error');}};$('#toggle-2fa').onclick=()=>s.two_factor_enabled?showDisable2fa():showSetup2fa($('#toggle-2fa'));$('#regen')?.addEventListener('click',showRegenerate);$$('[data-session]').forEach(b=>b.onclick=async()=>{const r=await api(`/api/account/sessions/${b.dataset.session}/revoke`,{method:'POST'});if(r.signed_out){state.me=null;go('/login');}else dashSettings();});$('#revoke-all').onclick=async()=>{if(!confirm('Sign out every web session?'))return;await api('/api/account/sessions/revoke-all',{method:'POST'});state.me=null;go('/login');};$('#password-form').onsubmit=async e=>{e.preventDefault();try{await api('/api/account/password',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))});state.me=null;toast('Password changed; sessions revoked','success');go('/login');}catch(error){toast(error.message,'error');}};}
+async function showSetup2fa(trigger){
+  if(trigger&&!busy(trigger,true,'Preparing…'))return;
+  try{
+    const setup=await api('/api/auth/2fa/setup',{method:'POST'});
+    const wrap=modal(`<div class="modal-head"><span><span class="overline">STEP 1 OF 2</span><h2>Set up authenticator</h2></span><button data-close aria-label="Close">×</button></div><div class="setup-panel"><div class="qr-panel"><img src="${esc(setup.qr_data_uri)}" width="176" height="176" alt="Authenticator setup QR code"><small>Scan with your authenticator</small></div><span><p>Add Internet Hands in your authenticator app.</p>${codeBlock(setup.secret,'Manual key')}${codeBlock(setup.otpauth_uri,'Authenticator URI')}</span></div><form id="confirm-2fa" class="form-stack"><label>Current 6-digit code<input class="code-input" name="code" required maxlength="6" pattern="[0-9]{6}" inputmode="numeric" autocomplete="one-time-code"></label><button class="btn primary large">Verify and enable</button></form>`,true);
+    $('#confirm-2fa',wrap).onsubmit=async e=>{
+      e.preventDefault();const button=e.submitter||e.currentTarget.querySelector('button');busy(button,true,'Verifying…');
+      try{const r=await api('/api/auth/2fa/confirm',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))});showCodes(wrap,r.recovery_codes);}
+      catch(error){busy(button,false);toast(error.message,'error');}
+    };
+  }catch(error){toast(error.message,'error');}
+  finally{if(trigger?.isConnected)busy(trigger,false);}
+}
+function showCodes(wrap,codes){$('.modal',wrap).innerHTML=`<div class="modal-head"><span><span class="overline">FINAL STEP</span><h2>Save recovery codes</h2></span></div><div class="notice warning">Each code works once and will not appear again.</div><div class="recovery-grid">${codes.map(x=>`<code>${esc(x)}</code>`).join('')}</div><button class="btn" data-copy="${esc(codes.join('\n'))}">${icon('copy')} Copy all</button><label class="ack"><input type="checkbox" id="codes-saved"> I stored these separately.</label><button class="btn primary large" id="finish-2fa" disabled>Finish</button>`;bindCommon();$('.modal',wrap).focus();$('#codes-saved',wrap).onchange=e=>$('#finish-2fa',wrap).disabled=!e.target.checked;$('#finish-2fa',wrap).onclick=()=>{wrap.remove();dashSettings();};}
+function showDisable2fa(){const wrap=modal(`<div class="modal-head"><span><span class="overline">SECURITY CHANGE</span><h2>Disable 2FA</h2></span><button data-close aria-label="Close dialog">×</button></div><div class="notice warning">Existing recovery codes will be invalidated.</div><form id="disable-2fa" class="form-stack"><label>Authenticator or recovery code<input name="code" required autocomplete="one-time-code"></label><button class="btn danger large">Disable 2FA</button></form>`);$('#disable-2fa',wrap).onsubmit=async e=>{e.preventDefault();const button=e.submitter||e.currentTarget.querySelector('button');busy(button,true,'Disabling…');try{await api('/api/auth/2fa/disable',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))});wrap.remove();dashSettings();}catch(error){busy(button,false);toast(error.message,'error');}};}
+function showRegenerate(){const wrap=modal(`<div class="modal-head"><span><span class="overline">RECOVERY</span><h2>Regenerate codes</h2></span><button data-close aria-label="Close dialog">×</button></div><form id="regen-form" class="form-stack"><label>Authenticator code<input name="code" required maxlength="6" pattern="[0-9]{6}" inputmode="numeric" autocomplete="one-time-code"></label><button class="btn primary">Generate new codes</button></form>`);$('#regen-form',wrap).onsubmit=async e=>{e.preventDefault();const button=e.submitter||e.currentTarget.querySelector('button');busy(button,true,'Generating…');try{const r=await api('/api/auth/2fa/recovery/regenerate',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))});showCodes(wrap,r.recovery_codes);}catch(error){busy(button,false);toast(error.message,'error');}};}
 
 
 const LEGAL_ALIASES={'/terms':'terms','/privacy':'privacy','/acceptable-use':'acceptable-use','/cookies':'cookies','/billing-policy':'billing','/security':'security'};
@@ -1215,7 +1258,7 @@ function openRunInspector(event) {
       <section class="ihx-credit-hero"><div><span>${dot()} AVAILABLE NOW</span><b>${fmt(available)}</b><p>credits ready for execution</p></div><div class="ihx-credit-split"><span><small>MONTHLY</small><b>${fmt(w.monthly_credits)}</b><em>refreshes with plan</em></span><span><small>PURCHASED</small><b>${fmt(w.purchased_credits)}</b><em>rolls over</em></span><span><small>RESERVED</small><b>${fmt(w.reserved_credits)}</b><em>held by active work</em></span></div></section>
       <section class="ihx-credit-packs"><header><div><span>ROLLOVER CAPACITY</span><h2>Add credits without changing plan.</h2></div><p>Purchased credits persist until used.</p></header><div>${(p.credit_packs||[]).map(x=>`<article><span>${esc(x.name)}</span><b>${fmt(x.credits)}</b><small>credits</small><em>${money(x.price_inr)}</em><button class="btn primary small" data-buy="${x.slug}">Purchase</button></article>`).join('')||'<div class="notice">Credit packs unavailable.</div>'}</div></section>
       <section class="ihx-ledger-panel"><header><div><span>LEDGER</span><h2>Wallet activity</h2></div><small>${fmt(ledger.length)} entries loaded</small></header>${ledger.length?`<div class="ihx-ledger-table"><div class="ihx-ledger-table-head"><span>TIME</span><span>KIND</span><span>BUCKET</span><span>SOURCE</span><span>AMOUNT</span></div>${ledger.map(x=>`<div><span>${esc(when(x.created_at))}</span><span>${esc(x.kind)}</span><span>${esc(x.bucket)}</span><span>${esc(x.source)}</span><b class="${Number(x.amount)>=0?'positive':'negative'}">${Number(x.amount)>0?'+':''}${fmt(x.amount)}</b></div>`).join('')}</div>`:empty('wallet','No wallet activity yet','Grants, reservations and purchases will appear here.')}</section>`);
-    $$('[data-buy]').forEach(b=>b.addEventListener('click',()=>startCheckout('credits',b.dataset.buy)));
+    $$('[data-buy]').forEach(b=>b.addEventListener('click',()=>startCheckout('credits',b.dataset.buy,b)));
   };
 
   dashBilling = async function dashBillingV3() {
@@ -1225,7 +1268,7 @@ function openRunInspector(event) {
       <section class="ihx-plan-current"><div><span>CURRENT PLAN</span><h2>${esc(a.plan_name||'Free')}</h2><p>${fmt(a.monthly_credits)} monthly credits · resets ${esc(when(a.current_period_end))}</p></div><div><span><small>API KEYS</small><b>${fmt(a.api_key_limit)}</b></span><span><small>MONITORS</small><b>${fmt(a.monitor_limit)}</b></span><span><small>RATE LIMIT</small><b>${fmt(a.rpm_limit)}<em> rpm</em></b></span></div></section>
       <section class="ihx-plan-grid">${(p.plans||[]).map(plan=>`<article class="${plan.slug==='pro'?'featured':''}"><header><span>${esc(plan.name)}</span>${plan.slug==='pro'?'<em>RECOMMENDED</em>':''}</header><div class="ihx-plan-price">${money(plan.monthly_price_inr)}<small>/month</small></div><p>${fmt(plan.included_credits)} monthly credits</p><ul><li>${icon('check')} ${fmt(plan.rpm_limit)} requests / minute</li><li>${icon('check')} ${fmt(plan.api_key_limit)} API keys</li><li>${icon('check')} ${fmt(plan.monitor_limit)} monitors</li><li>${icon('check')} ${plan.browser_enabled?'Browser access':'Public data tools'}</li><li>${icon('check')} ${plan.sandbox_enabled?'Sandbox execution':'Core execution'}</li></ul>${plan.slug==='free'?'<span class="ihx-current-label">Base tier</span>':`<button class="btn ${plan.slug==='pro'?'primary':''}" data-plan="${plan.slug}">Choose ${esc(plan.name)}</button>`}</article>`).join('')}</section>
       <section class="ihx-payment-panel"><header><div><span>PAYMENTS</span><h2>Captured purchase history</h2></div><small>${icon('shield')} server verified</small></header>${payments.length?`<div class="ihx-payment-table"><div class="ihx-payment-head"><span>CREATED</span><span>PURPOSE</span><span>AMOUNT</span><span>STATUS</span><span>REFERENCE</span></div>${payments.map(x=>`<div><span>${esc(when(x.created_at))}</span><span>${esc(x.purpose)}</span><b>${money(Number(x.amount_paise)/100)}</b><span class="ihx-state ${['paid','captured'].includes(x.status)?'on':'idle'}">${dot(['paid','captured'].includes(x.status)?'ok':'warn')} ${esc(x.status)}</span><code>${esc(x.order_id||'—')}</code></div>`).join('')}</div>`:empty('wallet','No purchases yet','Captured payments will appear here after server verification.')}</section>`);
-    $$('[data-plan]').forEach(b=>b.addEventListener('click',()=>startCheckout('subscription',b.dataset.plan)));
+    $$('[data-plan]').forEach(b=>b.addEventListener('click',()=>startCheckout('subscription',b.dataset.plan,b)));
   };
 
   dashSettings = async function dashSettingsV3() {
@@ -1239,7 +1282,7 @@ function openRunInspector(event) {
         <article class="ihx-password-panel"><header><div><span>PASSWORD</span><h2>Change primary credential</h2></div><p>Changing your password revokes existing sessions.</p></header><form id="password-form" class="ihx-password-form"><label>Current password<input type="password" name="current_password" autocomplete="current-password" required></label><label>New password<input type="password" name="new_password" autocomplete="new-password" minlength="8" required></label><button class="btn">Change and sign out</button></form></article>
       </section>`);
     $('#profile-form').onsubmit=async e=>{e.preventDefault();const button=e.submitter||e.currentTarget.querySelector('button');busy(button,true,'Saving…');try{const r=await api('/api/account/profile',{method:'PATCH',body:Object.fromEntries(new FormData(e.currentTarget))});state.me.user=r.user;toast('Profile updated','success');}catch(error){toast(error.message,'error');}finally{busy(button,false);}};
-    $('#toggle-2fa').onclick=()=>s.two_factor_enabled?showDisable2fa():showSetup2fa(); $('#regen')?.addEventListener('click',showRegenerate);
+    $('#toggle-2fa').onclick=()=>s.two_factor_enabled?showDisable2fa():showSetup2fa($('#toggle-2fa')); $('#regen')?.addEventListener('click',showRegenerate);
     $$('[data-session]').forEach(b=>b.onclick=async()=>{busy(b,true,'Revoking…');try{const r=await api(`/api/account/sessions/${b.dataset.session}/revoke`,{method:'POST'});if(r.signed_out){state.me=null;go('/login');}else await dashSettings();}catch(error){busy(b,false);toast(error.message,'error');}});
     $('#revoke-all').onclick=async e=>{if(!confirm('Sign out every web session?'))return;const button=e.currentTarget;busy(button,true,'Signing out…');try{await api('/api/account/sessions/revoke-all',{method:'POST'});state.me=null;go('/login');}catch(error){busy(button,false);toast(error.message,'error');}};
     $('#password-form').onsubmit=async e=>{e.preventDefault();const button=e.submitter||e.currentTarget.querySelector('button');busy(button,true,'Changing…');try{await api('/api/account/password',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))});state.me=null;toast('Password changed; sessions revoked','success');go('/login');}catch(error){busy(button,false);toast(error.message,'error');}};
@@ -1305,20 +1348,20 @@ function openRunInspector(event) {
     const initials = esc((u.display_name || u.email || 'I')[0].toUpperCase());
 
     app.innerHTML = `<div class="cos-app">
-      <aside class="cos-sidebar ih-sidebar sidebar">
+      <aside class="cos-sidebar ih-sidebar sidebar" id="ih-sidebar">
         <div class="cos-sidebar-head">
           <div class="cos-sidebar-brand">${brand()}</div>
           <button class="cos-sidebar-close" type="button" data-sidebar-close aria-label="Close navigation"><span aria-hidden="true">×</span></button>
         </div>
 
-        <a class="cos-launch ${active === 'overview' ? 'active' : ''}" data-link href="/dashboard">
+        <a class="cos-launch ${active === 'playground' ? 'active' : ''}" data-link href="/dashboard/playground">
           <span>${icon('terminal')}</span><b>New run</b><kbd>⌘ K</kbd>
         </a>
 
         <nav class="cos-nav">
           ${nav.map(([group, items]) => `<div class="cos-nav-group">
             <span>${group}</span>
-            ${items.map(([slug, ico, label]) => `<a class="${slug === active ? 'active' : ''}" data-link href="${hrefFor(slug)}">
+            ${items.map(([slug, ico, label]) => `<a class="${slug === active ? 'active' : ''}" ${slug === active ? 'aria-current="page"' : ''} data-link href="${hrefFor(slug)}">
               <span class="cos-nav-icon">${icon(ico)}</span><b>${label}</b>${slug === active ? '<i></i>' : ''}
             </a>`).join('')}
           </div>`).join('')}
@@ -1333,11 +1376,11 @@ function openRunInspector(event) {
       <section class="cos-workspace workspace ih-workspace">
         <header class="cos-topbar topbar ih-topbar">
           <div class="cos-topbar-left">
-            <button class="cos-mobile-menu icon-btn" data-sidebar-toggle aria-label="Open navigation">${icon('menu')}</button>
+            <button class="cos-mobile-menu icon-btn" data-sidebar-toggle aria-controls="ih-sidebar" aria-expanded="false" aria-label="Open navigation">${icon('menu')}</button>
             <div class="cos-breadcrumb"><span>Internet Hands</span><i>/</i><b>${esc(title)}</b></div>
           </div>
           <div class="cos-topbar-right">
-            ${active === 'overview' ? '' : `<a class="cos-command-cta" data-link href="/dashboard">${icon('terminal')}<span>Run command</span><kbd>⌘ K</kbd></a>`}
+            ${active === 'playground' ? '' : `<a class="cos-command-cta" data-link href="/dashboard/playground">${icon('terminal')}<span>New run</span><kbd>⌘ K</kbd></a>`}
             <a class="cos-docs-link" data-link href="/docs">Docs</a>
             <button class="cos-account" type="button" data-account-toggle popovertarget="ih-account-menu" popovertargetaction="toggle" aria-expanded="false"><i>${initials}</i><span><b>${esc(u.display_name || 'Account')}</b><small>${esc(u.email || '')}</small></span>${icon('chevron')}</button>
           </div>
@@ -1362,21 +1405,16 @@ function openRunInspector(event) {
           ['usage','activity','Runs'],
           ['connections','plug','Connections'],
           ['more','more','More']
-        ].map(([slug, ico, label]) => `<a ${slug === 'more' ? 'data-more' : 'data-link'} href="${slug === 'more' ? '#' : hrefFor(slug)}" class="${slug === active ? 'active' : ''}">${icon(ico)}<span>${label}</span></a>`).join('')}
+        ].map(([slug, ico, label]) => `<a ${slug === 'more' ? 'data-more aria-controls="ih-more-sheet" aria-expanded="false"' : `data-link ${slug === active ? 'aria-current="page"' : ''}`} href="${slug === 'more' ? '#' : hrefFor(slug)}" class="${slug === active || slug === 'more' && !['overview','playground','usage','connections'].includes(active) ? 'active' : ''}">${icon(ico)}<span>${label}</span></a>`).join('')}
       </nav>
 
-      <div class="cos-more-sheet more-sheet" data-more-sheet aria-label="More navigation">
+      <div class="cos-more-sheet more-sheet" id="ih-more-sheet" data-more-sheet role="navigation" aria-label="More navigation" inert>
         <div class="cos-sheet-handle"></div>
         <div class="cos-sheet-title"><b>More</b><small>Workspace navigation</small></div>
         <span class="cos-sheet-label">Build & observe</span>
-        <a data-link href="/dashboard/api-keys">${icon('key')} API Keys</a>
-        <a data-link href="/dashboard/games">${icon('activity')} Game Intelligence</a>
-        <a data-link href="/dashboard/repositories">${icon('api')} Repositories</a>
-        <a data-link href="/dashboard/monitors">${icon('monitor')} Monitors</a>
+        ${[['api-keys','key','API Keys'],['games','activity','Game Intelligence'],['repositories','api','Repositories'],['monitors','monitor','Monitors']].map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${icon(ico)} ${label}</a>`).join('')}
         <span class="cos-sheet-label">Account & product</span>
-        <a data-link href="/dashboard/wallet">${icon('wallet')} Credits</a>
-        <a data-link href="/dashboard/billing">${icon('billing')} Billing & Plans</a>
-        <a data-link href="/dashboard/settings">${icon('settings')} Settings & Security</a>
+        ${[['wallet','wallet','Credits'],['billing','billing','Billing & Plans'],['settings','settings','Settings & Security']].map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${icon(ico)} ${label}</a>`).join('')}
         <a data-link href="/docs">${icon('docs')} Documentation</a>
         <a data-link href="/status">${icon('activity')} System Status</a>
         <button id="mobile-logout">Sign out</button>
@@ -1402,6 +1440,8 @@ function openRunInspector(event) {
     const accountOpen = () => Boolean(accountMenu && (nativeAccountPopover ? accountMenu.matches(':popover-open') : !accountMenu.hasAttribute('hidden')));
     const syncOverlayState = () => {
       const modalOpen = Boolean(sidebar?.classList.contains('open') || sheet?.classList.contains('open') || (!nativeAccountPopover && mobileShell() && accountOpen()));
+      if(sidebar)sidebar.inert=mobileShell()&&!sidebar.classList.contains('open');
+      if(sheet)sheet.inert=!mobileShell()||!sheet.classList.contains('open');
       backdrop?.classList.toggle('open', modalOpen);
       document.documentElement.classList.toggle('ih-overlay-open', modalOpen);
       sidebarToggle?.setAttribute('aria-expanded', String(Boolean(sidebar?.classList.contains('open'))));
@@ -1416,19 +1456,22 @@ function openRunInspector(event) {
       }
       accountToggle?.setAttribute('aria-expanded','false');
     };
-    const closeOverlays = () => {
+    const closeOverlays = (restoreFocus=false) => {
+      const returnTo=sheet?.classList.contains('open')?moreToggle:sidebar?.classList.contains('open')?sidebarToggle:null;
       sidebar?.classList.remove('open');
       sheet?.classList.remove('open');
       closeAccount();
       syncOverlayState();
+      if(restoreFocus)returnTo?.focus();
     };
 
     sidebarToggle?.setAttribute('aria-expanded','false');
     moreToggle?.setAttribute('aria-expanded','false');
+    syncOverlayState();
     $('[data-sidebar-close]')?.addEventListener('click', e => {
       e.preventDefault();
       e.stopPropagation();
-      closeOverlays();
+      closeOverlays(true);
     });
 
     sidebarToggle?.addEventListener('click', () => {
@@ -1437,6 +1480,7 @@ function openRunInspector(event) {
       closeAccount();
       sidebar?.classList.toggle('open', opening);
       syncOverlayState();
+      if(opening)sidebar?.querySelector('a[href],button')?.focus();
     });
 
     moreToggle?.addEventListener('click', e => {
@@ -1446,6 +1490,7 @@ function openRunInspector(event) {
       closeAccount();
       sheet?.classList.toggle('open', opening);
       syncOverlayState();
+      if(opening)sheet?.querySelector('a[href],button')?.focus();
     });
 
     if (nativeAccountPopover) {
@@ -1477,7 +1522,7 @@ function openRunInspector(event) {
     const dismissOverlayPointer = e => {
       e.preventDefault();
       e.stopPropagation();
-      closeOverlays();
+      closeOverlays(true);
     };
     backdrop?.addEventListener('pointerdown', blockOverlayPointer);
     backdrop?.addEventListener('pointerup', dismissOverlayPointer);
@@ -1508,13 +1553,25 @@ function openRunInspector(event) {
     window.addEventListener('resize', window.__ihShellResize);
 
     if (window.__ihShellEscape) document.removeEventListener('keydown', window.__ihShellEscape);
-    window.__ihShellEscape = e => { if (e.key === 'Escape') closeOverlays(); };
+    window.__ihShellEscape = e => {
+      if(e.key==='Escape'){closeOverlays(true);return;}
+      if(e.key!=='Tab')return;
+      const region=sheet?.classList.contains('open')?sheet:sidebar?.classList.contains('open')?sidebar:null;
+      if(!region)return;
+      const items=$$('a[href],button:not([disabled])',region).filter(el=>el.getClientRects().length);
+      if(!items.length)return;
+      const first=items[0],last=items.at(-1);
+      if(!region.contains(document.activeElement)){e.preventDefault();first.focus();}
+      else if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}
+      else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
+    };
     document.addEventListener('keydown', window.__ihShellEscape);
 
-    const logout = async () => {
-      await api('/api/auth/logout', { method:'POST' });
-      state.me = null;
-      go('/login');
+    const logout = async e => {
+      const button=e.currentTarget;
+      if(!busy(button,true,'Signing out…'))return;
+      try { await api('/api/auth/logout', { method:'POST' });state.me=null;go('/login'); }
+      catch(error){busy(button,false);toast(error.message,'error');}
     };
     $('#account-logout')?.addEventListener('click', logout);
     $('#mobile-logout')?.addEventListener('click', logout);
@@ -1523,8 +1580,13 @@ function openRunInspector(event) {
     window.__ihCommandShortcut = e => {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'k') return;
       e.preventDefault();
-      if (location.pathname !== '/dashboard') return go('/dashboard');
-      $('#ih-run-input')?.focus();
+      if (location.pathname !== '/dashboard/playground') {
+        go('/dashboard/playground').then(()=>{
+          if(location.pathname==='/dashboard/playground')($('#research-query')||$('.search-key-lock a'))?.focus();
+        });
+        return;
+      }
+      ($('#research-query')||$('.search-key-lock a'))?.focus();
     };
     document.addEventListener('keydown', window.__ihCommandShortcut);
   };

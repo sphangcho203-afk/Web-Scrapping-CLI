@@ -94,6 +94,6 @@
       <section class="ih-command-grid">${trend(series)}${breakdown('By status',b.status||[])}</section>
       <section class="ih-command-grid">${breakdown('By tool',b.tool||[])}${breakdown('By provider',b.provider||[])}</section>
       <section class="ih-run-table-wrap"><div class="ih-run-table-head"><span>STATE</span><span>RUN</span><span>PROVIDER</span><span>CREDITS</span><span>LATENCY</span><span>TIME</span><span></span></div>${runRows(events)}</section>`);
-    bindWindows(dashUsage); $('[data-new-run-inline]')?.addEventListener('click',()=>go('/dashboard')); bindRunDetails(events);
+    bindWindows(dashUsage); $('[data-new-run-inline]')?.addEventListener('click',()=>go('/dashboard/playground')); bindRunDetails(events);
   };
 })();
