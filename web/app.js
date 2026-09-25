@@ -489,7 +489,7 @@ function renderLegal(){const path=location.pathname.replace(/\/+$/,'')||'/';cons
 async function dashGames(){
   const [data,keyData]=await Promise.all([api('/api/games'),api('/api/api-keys')]);
   const games=data.games||[],keys=(keyData.keys||[]).filter(k=>!k.revoked_at&&(!k.expires_at||new Date(k.expires_at)>new Date()));
-  dashboardShell('games',`${pageHead('GAME INTELLIGENCE','Games & public data','Explore the capabilities currently registered for each game. Provider readiness is checked live.')}<section class="game-catalog"><label class="game-filter">Find a game<input id="game-search" type="search" placeholder="Search games" autocomplete="off"></label><div id="game-list" class="game-list"></div><div id="game-detail" class="game-detail" aria-live="polite"></div></section>`);
+  dashboardShell('games',`${pageHead('GAME INTELLIGENCE','Games & public data','Explore registered capabilities. Internet Hands checks each operation when you open it.')}<section class="game-catalog"><label class="game-filter">Find a game<input id="game-search" type="search" placeholder="Search games" autocomplete="off"></label><div id="game-list" class="game-list"></div><div id="game-detail" class="game-detail" aria-live="polite"></div></section>`);
   const list=$('#game-list'),detail=$('#game-detail'),filter=$('#game-search');
   const draw=()=>{
     const q=filter.value.trim().toLowerCase();
@@ -506,7 +506,7 @@ async function dashGames(){
     try{
       const {game}=await api('/api/games/'+encodeURIComponent(id));
       if(run!==selectedRun)return;
-      detail.innerHTML=`<header><div><span class="overline">${esc(game.game_id)}</span><h2>${esc(game.name)}</h2><p>${fmt(game.capability_count)} registered capabilities · ${fmt(game.provider_ready_count)} directly connected. Discover public operations and run them below.</p></div><div class="game-actions"><a class="btn primary" data-link href="/dashboard/playground?query=${encodeURIComponent(game.name+' latest patch and competitive meta')}">Research this game ${icon('arrow')}</a><a class="btn" data-link href="/dashboard/repositories?query=${encodeURIComponent(game.name+' public api tools')}">Find open-source tools</a></div></header><div class="game-capabilities">${(game.capabilities||[]).map(cap=>`<article><span class="game-cap-status ${cap.provider_ready?'ready':''}">${cap.provider_ready?(cap.providers.includes('gamecore')?(cap.id.startsWith('league.reference')?'Public data · no key':'Runs locally'):'Provider configured'):cap.availability==='key_required'?'Provider key required':cap.availability==='discovery_required'?'Discover public operations':'Provider unavailable'}</span><h3>${esc(cap.name)}</h3><p>${esc(cap.description)}</p><small>${esc(cap.providers.join(' · '))}</small>${cap.providers.includes('gamecore')&&cap.provider_ready?`<button type="button" class="game-run-button" data-game-tool="${esc(cap.id)}">Run tool ${icon('arrow')}</button>`:cap.availability==='ready'||cap.availability==='discovery_required'?`<button type="button" class="game-run-button" data-game-discover="${esc(cap.id)}">${cap.provider_ready?'Run tool':'Find operations'} ${icon('arrow')}</button>`:''}</article>`).join('')}</div><div id="game-tool-panel" aria-live="polite"></div>`;
+      detail.innerHTML=`<header><div><span class="overline">${esc(game.game_id)}</span><h2>${esc(game.name)}</h2><p>${fmt(game.capability_count)} registered capabilities · ${fmt(game.provider_ready_count)} ready to run. Open a capability to inspect its current operations.</p></div><div class="game-actions"><a class="btn primary" data-link href="/dashboard/playground?query=${encodeURIComponent(game.name+' latest patch and competitive meta')}">Research this game ${icon('arrow')}</a><a class="btn" data-link href="/dashboard/repositories?query=${encodeURIComponent(game.name+' public api tools')}">Find open-source tools</a></div></header><div class="game-capabilities">${(game.capabilities||[]).map(cap=>`<article><span class="game-cap-status ${cap.provider_ready?'ready':''}">${cap.provider_ready?(cap.providers.includes('gamecore')?(cap.id.startsWith('league.reference')?'Live reference':'Bundled reference'):'Ready to run'):cap.availability==='key_required'?'Access required':cap.availability==='discovery_required'?'Explore operations':'Currently unavailable'}</span><h3>${esc(cap.name)}</h3><p>${cap.providers.includes('gamecore')?esc(cap.description):'Read public game data through a validated Internet Hands operation.'}</p><small>${cap.provider_ready?'Execution available':cap.availability==='discovery_required'?'Operations checked on open':'No operation ready'}</small>${cap.providers.includes('gamecore')&&cap.provider_ready?`<button type="button" class="game-run-button" data-game-tool="${esc(cap.id)}">Run tool ${icon('arrow')}</button>`:cap.availability==='ready'||cap.availability==='discovery_required'?`<button type="button" class="game-run-button" data-game-discover="${esc(cap.id)}">${cap.provider_ready?'Run tool':'Find operations'} ${icon('arrow')}</button>`:''}</article>`).join('')}</div><div id="game-tool-panel" aria-live="polite"></div>`;
       const cards=$$('.game-capabilities > article',detail),grid=$('.game-capabilities',detail);
       const ready=cards.filter(card=>card.querySelector('.game-cap-status.ready'));
       const other=cards.filter(card=>!card.querySelector('.game-cap-status.ready'));
@@ -514,7 +514,7 @@ async function dashGames(){
       if(other.length){
         const disclosure=document.createElement('details');
         disclosure.className='game-more-capabilities';
-        disclosure.innerHTML=`<summary>${fmt(other.length)} more capabilities · discover operations or connect providers ${icon('arrow')}</summary><div class="game-capabilities"></div>`;
+        disclosure.innerHTML=`<summary>${fmt(other.length)} more capabilities · inspect availability ${icon('arrow')}</summary><div class="game-capabilities"></div>`;
         other.forEach(card=>disclosure.querySelector('.game-capabilities').appendChild(card));
         grid.after(disclosure);
       }
@@ -526,15 +526,15 @@ async function dashGames(){
     if(toolRunning)return;
     const currentPanel=++panelRun;
     const panel=$('#game-tool-panel',detail),cap=(game.capabilities||[]).find(c=>c.id===capability);
-    panel.innerHTML=`<section class="game-tool-runner"><header><div><span class="overline">DISCOVER READ-ONLY OPERATIONS</span><h3>${esc(cap?.name||capability)}</h3><p>Checking current provider operations and required inputs…</p></div><button type="button" class="game-tool-close" aria-label="Close tool">×</button></header><div id="game-tool-options"></div></section>`;
+    panel.innerHTML=`<section class="game-tool-runner"><header><div><span class="game-agent-mark" aria-hidden="true">👾</span><span class="overline">INTERNET HANDS / OPERATIONS</span><h3>${esc(cap?.name||capability)}</h3><p>Checking current read-only operations and required inputs…</p></div><button type="button" class="game-tool-close" aria-label="Close tool">×</button></header><div id="game-tool-options"></div></section>`;
     panel.querySelector('.game-tool-close').onclick=()=>{panelRun++;panel.replaceChildren();};
     panel.scrollIntoView({behavior:'smooth',block:'nearest'});
     try{
       const response=await api('/api/games/'+encodeURIComponent(game.game_id)+'/tools/'+encodeURIComponent(capability));
       if(currentPanel!==panelRun||!panel.isConnected)return;
       const tools=response.tools||[],box=$('#game-tool-options',panel);
-      if(!tools.length){box.innerHTML=`<p class="game-empty">${esc((response.reasons||[]).join(' · ')||'No public read-only operation is available right now.')}</p>`;return;}
-      box.innerHTML=`<label>Published operation<select id="game-operation">${tools.map((tool,index)=>`<option value="${index}">${esc(tool.name)} · ${esc(tool.metadata?.method||'GET')} ${esc(tool.metadata?.path||'')}</option>`).join('')}</select></label><div id="game-operation-form"></div>`;
+      if(!tools.length){box.innerHTML='<p class="game-empty">No read-only operation is available right now. The connection or its access may need attention.</p>';return;}
+      box.innerHTML=`<label>Choose an operation<select id="game-operation">${tools.map((tool,index)=>`<option value="${index}">${esc(tool.name)}</option>`).join('')}</select></label><div id="game-operation-form"></div>`;
       const selector=$('#game-operation',box);
       function renderOperation(){
         const tool=tools[Number(selector.value)],properties=tool.input_schema?.properties||{},required=tool.input_schema?.required||[];
@@ -548,7 +548,7 @@ async function dashGames(){
           const number=['integer','number'].includes(schema.type);
           return `<input ${attr} ${number?'type="number"':'type="text"'} ${number?`step="${schema.type==='integer'?'1':'any'}"`:''} ${number&&Number.isFinite(schema.minimum)?`min="${esc(schema.minimum)}"`:''} ${number&&Number.isFinite(schema.maximum)?`max="${esc(schema.maximum)}"`:''} maxlength="512" placeholder="${esc(schema.description||name)}">`;
         };
-        $('#game-operation-form',box).innerHTML=`<p>${esc(tool.description||'Read public data from the selected provider.')}</p><small>${esc(tool.provider)} · ${esc(tool.metadata?.server||tool.metadata?.base_url||'')} · ${esc(tool.metadata?.path||'')}${tool.metadata?.source==='rone-mlbb'?' · Rone Arena community API':''}</small>${keys.length?`<form id="game-discovered-form">${fields.map(([name,schema],index)=>`<label>${esc(name)}${required.includes(name)?' *':''}${fieldInput(name,schema,index)}</label>`).join('')}<label>Internet Hands API key<select name="api_key_id">${keys.map(key=>`<option value="${esc(key.id)}">${esc(key.name)} · ${esc(key.prefix)}…</option>`).join('')}</select></label><button class="btn primary" type="submit">Run read-only operation ${icon('arrow')}</button></form>`:`<p>Create an Internet Hands API key to run this operation.</p><a data-link class="btn primary" href="/dashboard/api-keys">Create API key</a>`}<div id="game-discovered-output" aria-live="polite"></div>`;
+        $('#game-operation-form',box).innerHTML=`<p>Read public game data. Internet Hands validates these inputs before execution.</p><details class="game-operation-trace"><summary>Operation details</summary><p>${esc(tool.description||'Read-only public operation.')}</p><code>${esc(tool.metadata?.method||'GET')} ${esc(tool.metadata?.path||'')}</code></details>${keys.length?`<form id="game-discovered-form">${fields.map(([name,schema],index)=>`<label>${esc(name)}${required.includes(name)?' *':''}${fieldInput(name,schema,index)}</label>`).join('')}<label>Internet Hands API key<select name="api_key_id">${keys.map(key=>`<option value="${esc(key.id)}">${esc(key.name)} · ${esc(key.prefix)}…</option>`).join('')}</select></label><button class="btn primary" type="submit">Run read-only operation ${icon('arrow')}</button></form>`:`<p>Create an Internet Hands API key to run this operation.</p><a data-link class="btn primary" href="/dashboard/api-keys">Create API key</a>`}<div id="game-discovered-output" aria-live="polite"></div>`;
         const form=$('#game-discovered-form',box);if(!form)return;
         form.onsubmit=async event=>{
           event.preventDefault();if(toolRunning)return;
@@ -566,9 +566,9 @@ async function dashGames(){
             });
           }catch(error){output.innerHTML=`<p class="game-error" role="alert">${esc(error.message)}</p>`;return;}
           toolRunning=true;draw();selector.disabled=true;panel.querySelector('.game-tool-close').disabled=true;
-          output.innerHTML='<p class="game-progress" role="status">Operation sent · waiting for provider response…</p>';submit.disabled=true;submit.setAttribute('aria-busy','true');
+          output.innerHTML='<p class="game-progress" role="status">Operation sent · waiting for the execution result…</p>';submit.disabled=true;submit.setAttribute('aria-busy','true');
           try{const result=await api('/api/games/'+encodeURIComponent(game.game_id)+'/tools/'+encodeURIComponent(capability),{method:'POST',body:{ref:tool.ref,arguments:arguments_,api_key_id:form.elements.api_key_id.value}});
-            output.innerHTML=`<div class="game-tool-output" role="status"><small>Complete · ${esc(result.ref)} · ${fmt(result.usage?.credits_charged)} credits · ${esc(result.request_id||'')}${tool.metadata?.source==='rone-mlbb'?' · Data: <a href="https://arena.rone.dev" target="_blank" rel="noopener noreferrer">Rone Arena</a>':''}</small><pre>${esc(JSON.stringify(result.result,null,2))}</pre></div>`;
+            output.innerHTML=`<div class="game-tool-output" role="status"><small>Complete · ${fmt(result.usage?.credits_charged)} credits · ${esc(result.request_id||'')}</small><pre>${esc(JSON.stringify(result.result,null,2))}</pre><details class="game-operation-trace"><summary>Execution trace & data origin</summary><code>${esc(result.ref||tool.ref)}</code><p>${esc(tool.provider)} · ${esc(tool.metadata?.server||tool.metadata?.base_url||'')}${tool.metadata?.source==='rone-mlbb'?' · <a href="https://arena.rone.dev" target="_blank" rel="noopener noreferrer">Rone Arena data</a>':''}</p></details></div>`;
           }catch(error){output.innerHTML=`<p class="game-error" role="alert">${esc(error.message)}${error.requestId?` · ${esc(error.requestId)}`:''}</p>`;}
           finally{toolRunning=false;draw();selector.disabled=false;panel.querySelector('.game-tool-close').disabled=false;submit.disabled=false;submit.removeAttribute('aria-busy');}
         };
@@ -581,7 +581,7 @@ async function dashGames(){
     panelRun++;
     const panel=$('#game-tool-panel',detail),match=capability==='game.matches.analyze';
     const hero=capability==='mlbb.reference.hero',items=capability.endsWith('.items'),league=capability.startsWith('league.reference');
-    panel.innerHTML=`<section class="game-tool-runner"><header><div><span class="overline">RUN INSIDE INTERNET HANDS</span><h3>${esc((game.capabilities||[]).find(c=>c.id===capability)?.name||capability)}</h3><p>${match?'Paste your own matches, oldest first. This works for any game.':league?'Fetch Riot’s published patch reference; no Riot API key required.':'Bundled historical MLBB data; dates and attribution appear with the result.'}</p></div><button type="button" class="game-tool-close" aria-label="Close tool">×</button></header>${keys.length?`<form id="game-tool-form"><label>${match?'Match results (JSON array)':hero?'Hero name or ID':items?'Item name or category':'Name, role or lane'}${match?'<textarea name="match_results" rows="7" required spellcheck="false" placeholder=\'[{&quot;win&quot;:true,&quot;hero&quot;:&quot;Fanny&quot;,&quot;kills&quot;:8,&quot;deaths&quot;:2,&quot;assists&quot;:5}]\'></textarea>':`<input name="query" maxlength="60" ${hero?'required':''} placeholder="${hero?'Lancelot':items?'Blade':league?'Ahri':'jungle'}">`}</label><label>Internet Hands API key<select name="api_key_id">${keys.map(k=>`<option value="${esc(k.id)}">${esc(k.name)} · ${esc(k.prefix)}…</option>`).join('')}</select></label><button class="btn primary" type="submit">Run · 1 credit ${icon('arrow')}</button></form>`:`<p>Create an Internet Hands API key to record and run this tool.</p><a data-link class="btn primary" href="/dashboard/api-keys">Create API key</a>`}<div id="game-tool-output" aria-live="polite"></div></section>`;
+    panel.innerHTML=`<section class="game-tool-runner"><header><div><span class="overline">RUN INSIDE INTERNET HANDS</span><h3>${esc((game.capabilities||[]).find(c=>c.id===capability)?.name||capability)}</h3><p>${match?'Paste your own matches, oldest first. This works for any game.':league?'Fetch the published patch reference; no extra game key required.':'Bundled historical MLBB data; dates and attribution appear with the result.'}</p></div><button type="button" class="game-tool-close" aria-label="Close tool">×</button></header>${keys.length?`<form id="game-tool-form"><label>${match?'Match results (JSON array)':hero?'Hero name or ID':items?'Item name or category':'Name, role or lane'}${match?'<textarea name="match_results" rows="7" required spellcheck="false" placeholder=\'[{&quot;win&quot;:true,&quot;hero&quot;:&quot;Fanny&quot;,&quot;kills&quot;:8,&quot;deaths&quot;:2,&quot;assists&quot;:5}]\'></textarea>':`<input name="query" maxlength="60" ${hero?'required':''} placeholder="${hero?'Lancelot':items?'Blade':league?'Ahri':'jungle'}">`}</label><label>Internet Hands API key<select name="api_key_id">${keys.map(k=>`<option value="${esc(k.id)}">${esc(k.name)} · ${esc(k.prefix)}…</option>`).join('')}</select></label><button class="btn primary" type="submit">Run · 1 credit ${icon('arrow')}</button></form>`:`<p>Create an Internet Hands API key to record and run this tool.</p><a data-link class="btn primary" href="/dashboard/api-keys">Create API key</a>`}<div id="game-tool-output" aria-live="polite"></div></section>`;
     panel.querySelector('.game-tool-close').onclick=()=>{panelRun++;panel.replaceChildren();};
     panel.scrollIntoView({behavior:'smooth',block:'nearest'});
     const form=$('#game-tool-form',panel);if(!form)return;
@@ -637,6 +637,10 @@ async function dashRepositories(){
       }else{
         const url=source(data.repository),specs=data.api_specs||[],files=data.candidate_files||[];
         results.innerHTML=`<header class="repo-result-head"><div><span class="overline">PUBLIC REPOSITORY</span><h2>${esc(data.repository||value)}</h2><p>${esc(data.description||'No description provided.')}</p><small>${esc(data.language||'Language unknown')} · ${fmt(data.stars)} stars · ${esc(data.license||'License not declared')}${esc(pushed(data.pushed_at))} · ${esc(metric)}</small></div>${url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">View on GitHub ${icon('arrow')}</a>`:''}</header>${data.tree_truncated?'<p class="repo-note">The file tree was truncated; findings cover the inspected portion.</p>':''}<section class="repo-findings"><h3>Documented API specs</h3>${specs.length?specs.map(spec=>`<article><a href="${esc(spec.url)}" target="_blank" rel="noopener noreferrer">${esc(spec.path)}</a><small>${spec.parsed?`${fmt((spec.endpoints||[]).length)} endpoint examples · ${fmt((spec.oauth_scopes||[]).length)} OAuth scope names`:'Specification could not be parsed'}</small>${(spec.endpoints||[]).length?`<div class="repo-endpoints">${spec.endpoints.slice(0,20).map(ep=>`<code>${esc(ep.method)} ${esc(ep.path)}</code>`).join('')}</div>`:''}${(spec.oauth_scopes||[]).length?`<p>Documented scopes: ${esc(spec.oauth_scopes.join(', '))}</p>`:''}</article>`).join(''):'<p class="repo-empty">No small OpenAPI spec was found in the inspected tree.</p>'}<h3>Promising source paths</h3>${files.length?`<div class="repo-files">${files.slice(0,35).map(file=>`<a href="${esc(file.url)}" target="_blank" rel="noopener noreferrer">${esc(file.path)}</a>`).join('')}</div>`:'<p class="repo-empty">No API related paths found in the inspected tree.</p>'}</section>${url?`<button class="btn" id="repo-clone">Copy public clone command</button>`:''}`;
+        const operations=specs.flatMap(spec=>(spec.operations||[]).map(operation=>({...operation,spec_url:spec.url}))).slice(0,30);
+        if(operations.length){
+          $('.repo-findings',results)?.insertAdjacentHTML('afterbegin',`<section class="repo-operations"><h3>Documented read operations</h3><p>GET and HEAD paths found in public API specifications. Discovery only; these are not executed from this page.</p><div>${operations.map(op=>`<article><div><strong>${esc(op.name||'Read operation')}</strong><code>${esc(op.method)} ${esc(op.path)}</code><small>${(op.inputs||[]).length?'Inputs: '+esc(op.inputs.join(', ')):'No path or query inputs documented'} · ${op.requires_auth?'Access declared':'No authentication declared'}</small></div><a href="${esc(op.spec_url||'#')}" target="_blank" rel="noopener noreferrer">Specification</a></article>`).join('')}</div></section>`);
+        }
         $('#repo-clone')?.addEventListener('click',event=>copyText('git clone '+url+'.git',event.currentTarget));
       }
     }catch(error){if(run===activeRun)results.innerHTML=`<p class="repo-error" role="alert">${esc(error.message)}${error.requestId?` · ${esc(error.requestId)}`:''}</p>`;}
@@ -663,19 +667,40 @@ window.addEventListener('pageshow',clearTransientUi);
 // Shared by the product and telemetry renderers in this canonical runtime.
 const statusDot = (tone = 'ok') => `<i class="ih-status-dot ${tone}"></i>`;
 const runStatus = status => ['ok','accepted'].includes(String(status||'').toLowerCase()) ? 'ok' : 'warn';
-const runLabel = e => (e.tool_ref || 'Internet operation').replace(/^.*?:/,'');
+const runLabel = e => {
+  const ref=String(e?.capability||e?.tool_ref||'').trim();
+  const named={'repo:search':'Repository search','repo:inspect':'Repository inspection',
+    'mesh_execute':'Tool execution','mesh_capability_execute':'Capability execution',
+    'game.matches.analyze':'Match analysis','playground:search':'Web search',
+    'playground:research':'Deep research','playground:crawl':'Web crawl'};
+  if(!ref)return 'Internet operation';
+  if(named[ref])return named[ref];
+  if(!/[.:_-]/.test(ref))return ref;
+  return ref.replace(/^.*?:/,'').replace(/[._-]+/g,' ').replace(/\b\w/g,c=>c.toUpperCase())
+    .replace(/\bMlbb\b/g,'MLBB').replace(/\bMcp\b/g,'MCP').replace(/\bApi\b/g,'API');
+};
+const runWorkflow = e => {
+  const ref=String(e?.capability||e?.tool_ref||'').toLowerCase();
+  if(/^(repo:|githubpublic:)/.test(ref))return 'Repository intelligence';
+  if(/^(gamecore:|mlbb[.:]|valorant[.:]|league[.:]|dota2[.:]|minecraft[.:]|genshin[.:]|hsr[.:]|zzz[.:]|roblox[.:]|osu[.:]|brawlstars[.:]|clashofclans[.:]|clashroyale[.:]|tft[.:]|steam[.:]|riot[.:]|game[.:])/.test(ref))return 'Game intelligence';
+  if(/browser|sandbox/.test(ref))return 'Browser & compute';
+  if(/monitor/.test(ref))return 'Monitoring';
+  if(/search|scrape|crawl|fetch|research|nativeweb|firecrawl/.test(ref))return 'Web intelligence';
+  return 'Tool execution';
+};
 
 function openRunInspector(event) {
   const wrap = modal(`<div class="ih-run-modal">
     <div class="modal-head"><span><span class="overline">RUN INSPECTOR</span><h2>${esc(runLabel(event))}</h2></span><button data-close aria-label="Close">×</button></div>
     <div class="ih-inspector-status"><span>${statusDot(runStatus(event.status))}<b>${esc(event.status||'unknown')}</b></span><code>${esc(event.request_id||'No request id')}</code></div>
     <div class="ih-inspector-grid">
-      <div><small>Provider</small><b>${esc(event.provider||'—')}</b></div>
+      <div><small>Workflow</small><b>${esc(runWorkflow(event))}</b></div>
       <div><small>Credits</small><b>${fmt(event.credits_charged||0)}</b></div>
       <div><small>Latency</small><b>${event.latency_ms==null?'—':`${fmt(event.latency_ms)} ms`}</b></div>
       <div><small>Created</small><b>${esc(when(event.created_at))}</b></div>
     </div>
-    <div class="ih-inspector-section"><span>EXECUTION REFERENCE</span><div class="ih-code-line"><code>${esc(event.tool_ref||'—')}</code><button class="btn small" data-copy="${esc(event.request_id||'')}">${icon('copy')} Copy ID</button></div></div>
+    <div class="ih-inspector-section"><span>REQUEST REFERENCE</span><div class="ih-code-line"><code>${esc(event.request_id||'—')}</code><button class="btn small" data-copy="${esc(event.request_id||'')}">${icon('copy')} Copy ID</button></div></div>
+    <details class="ih-run-diagnostics"><summary>Technical routing</summary><div><span>Execution reference</span><code>${esc(event.tool_ref||'—')}</code><span>Adapter</span><code>${esc(event.provider||'—')}</code></div></details>
     <div class="ih-inspector-note"><b>Why this view matters</b><p>This run comes from your real metered request ledger. A future web-run endpoint can attach payload, browser trace and evidence to this same inspector without changing the information architecture.</p></div>
   </div>`, true);
   bindCommon();
@@ -1166,11 +1191,10 @@ function openRunInspector(event) {
         '<section class="search-results-list"><div class="search-section-head"><div><div class="search-section-kicker">WEB RESULTS</div><h3>'+searches.length+' sources found</h3></div></div>'+
         searches.map((item,i)=>{
           const url=String(item.url||'');
-          const source=String(item.source||'').replaceAll('_',' ');
           return '<article class="search-result-card">'+
             '<div class="search-result-rank">'+(i+1)+'</div>'+
             '<div class="search-result-body">'+
-              '<div class="search-result-domain">'+esc(domainOf(url)||'web')+(source?' · '+esc(source):'')+'</div>'+
+              '<div class="search-result-domain">'+esc(domainOf(url)||'web')+'</div>'+
               '<a class="search-result-title" href="'+esc(url)+'" target="_blank" rel="noopener">'+esc(String(item.title||url||'Untitled source'))+'</a>'+
               (item.description?'<p>'+esc(String(item.description))+'</p>':'')+
               '<a class="search-result-url" href="'+esc(url)+'" target="_blank" rel="noopener">'+esc(url)+'</a>'+
@@ -1197,13 +1221,13 @@ function openRunInspector(event) {
 
       const evidenceBlock=evidence.length?(
         '<details class="search-details"><summary>Evidence & provenance <span>'+evidence.length+'</span></summary><div class="evidence-list">'+
-          evidence.map((item,i)=>'<div class="evidence-row"><b>['+(i+1)+']</b><div><a href="'+esc(item.url||'#')+'" target="_blank" rel="noopener">'+esc(item.title||item.url||'Source')+'</a><small>'+esc(String(item.source||item.discovery_source||'web'))+(item.fallback?' · recovered':'')+'</small></div></div>').join('')+
+          evidence.map((item,i)=>'<div class="evidence-row"><b>['+(i+1)+']</b><div><a href="'+esc(item.url||'#')+'" target="_blank" rel="noopener">'+esc(item.title||item.url||'Source')+'</a><small>'+esc(domainOf(item.url)||'Public source')+(item.fallback?' · recovered':'')+'</small></div></div>').join('')+
         '</div></details>'
       ):'';
 
       const technical=
         '<details class="search-details technical"><summary>Run details</summary>'+
-          '<div class="run-detail-grid"><span>Request</span><code>'+esc(data.request_id||'—')+'</code><span>Provider</span><b>'+esc(String(summary.search_provider||'native'))+'</b><span>Evidence</span><b>'+esc(String(summary.evidence_successful||0))+'</b><span>Recovered</span><b>'+esc(String(summary.fallback_recovered||0))+'</b></div>'+
+          '<div class="run-detail-grid"><span>Request</span><code>'+esc(data.request_id||'—')+'</code><span>Evidence</span><b>'+esc(String(summary.evidence_successful||0))+'</b><span>Recovered</span><b>'+esc(String(summary.fallback_recovered||0))+'</b></div>'+
           '<details class="raw-json"><summary>Raw JSON</summary><pre>'+esc(JSON.stringify(data,null,2))+'</pre></details>'+
         '</details>';
 
@@ -1245,7 +1269,7 @@ function openRunInspector(event) {
       submit.setAttribute('aria-label','Request running');
       submit.innerHTML=icon('activity');
       results.hidden=false;
-      results.innerHTML='<div class="ih-execution-progress" role="status"><div class="ih-execution-head"><span class="ih-execution-symbol" aria-hidden="true">⚙️</span><div><b>Request prepared</b><p>'+esc(operation.toUpperCase())+' · '+esc(inputValue)+'</p></div><button class="btn small" type="button" id="ihp-cancel">Stop waiting</button></div><ol class="ih-execution-stages"><li class="done">Queued in this browser</li><li class="done">Request sent to gateway</li><li class="current">Awaiting routing and execution</li><li>Reading response</li><li>Complete</li></ol><p class="ih-execution-note">The gateway returns one response when work finishes. Provider steps and credits appear only after it responds.</p></div>';
+      results.innerHTML='<div class="ih-execution-progress" role="status"><div class="ih-execution-head"><span class="ih-execution-symbol" aria-hidden="true">⚙️</span><div><b>Request prepared</b><p>'+esc(operation.toUpperCase())+' · '+esc(inputValue)+'</p></div><button class="btn small" type="button" id="ihp-cancel">Stop waiting</button></div><ol class="ih-execution-stages"><li class="done">Queued in this browser</li><li class="done">Request sent to gateway</li><li class="current">Awaiting routing and execution</li><li>Reading response</li><li>Complete</li></ol><p class="ih-execution-note">Internet Hands returns the work and measured credits when this request completes.</p></div>';
       $('#ihp-cancel').onclick=()=>controller.abort();
       try{
         const data=await api('/api/playground/run',{method:'POST',body,signal:controller.signal});

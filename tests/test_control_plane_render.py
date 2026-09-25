@@ -264,8 +264,11 @@ def test_game_discovery_schema_execution_and_mobile_state(frontend_url):
         page.route("**/api/**", respond)
         page.goto(frontend_url + "/dashboard/games")
         page.locator('[data-game="mlbb"][aria-pressed="true"]').wait_for()
+        assert "openapi" not in page.locator(".game-capabilities").inner_text()
         page.locator('[data-game-discover="mlbb.reference.rank"]').click()
         page.locator("#game-discovered-form").wait_for()
+        assert page.locator("#game-operation").input_value() == "0"
+        assert "/rank" not in page.locator("#game-operation").inner_text()
         fields = page.locator("[data-game-arg]")
         fields.nth(0).select_option("false")
         fields.nth(1).fill('{"tier":"gold"}')
@@ -274,6 +277,9 @@ def test_game_discovery_schema_execution_and_mobile_state(frontend_url):
         fields.nth(4).select_option(label="historical")
         page.locator("#game-discovered-form button[type=submit]").click()
         page.get_by_text("req_rank").wait_for()
+        assert not page.locator(".game-tool-output .game-operation-trace p").is_visible()
+        page.get_by_text("Execution trace & data origin").click()
+        assert "openapi" in page.locator(".game-tool-output .game-operation-trace p").inner_text()
         assert calls[0]["arguments"] == {"enabled": False, "filters": {"tier": "gold"},
                                           "regions": ["NA"], "limit": 12, "mode": "historical"}
         assert calls[0]["api_key_id"] == "key_fixture"
@@ -314,6 +320,15 @@ def test_repository_investigation_blocks_duplicate_metered_requests(frontend_url
                 calls.append(route.request.post_data_json)
                 data = {"request_id": "req_search", "result": {"repositories": []},
                         "usage": {"credits_charged": 2, "github_api_calls": 1}}
+            elif path == "/api/repos/inspect":
+                calls.append(route.request.post_data_json)
+                data = {"request_id": "req_inspect", "result": {"repository": "sample/game-api",
+                        "api_specs": [{"path": "openapi.json", "url": "https://github.com/sample/game-api/blob/main/openapi.json",
+                                       "parsed": True, "endpoints": [{"method": "GET", "path": "/heroes"}],
+                                       "operations": [{"method": "GET", "path": "/heroes", "name": "List heroes",
+                                                       "inputs": ["region"], "requires_auth": False}],
+                                       "oauth_scopes": []}], "candidate_files": []},
+                        "usage": {"credits_charged": 3, "github_api_calls": 3}}
             else:
                 data = {}
             route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
@@ -328,6 +343,54 @@ def test_repository_investigation_blocks_duplicate_metered_requests(frontend_url
         }""")
         page.get_by_text("req_search").wait_for()
         assert calls == [{"query": "public game api", "api_key_id": "key_fixture"}]
+        page.locator("#repo-query").fill("sample/game-api")
+        page.locator("#repo-submit").click()
+        page.get_by_text("req_inspect").wait_for()
+        assert page.locator(".repo-operations article").count() == 1
+        assert "List heroes" in page.locator(".repo-operations").inner_text()
+        assert "Discovery only" in page.locator(".repo-operations").inner_text()
+        assert calls[1] == {"repository": "sample/game-api", "api_key_id": "key_fixture"}
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        assert not errors, errors
+        browser.close()
+
+
+def test_usage_leads_with_workflows_and_retains_technical_trace(frontend_url):
+    run = {"request_id": "req_fixture", "tool_ref": "openapi:rank", "capability": "mlbb.reference.rank",
+           "provider": "openapi", "status": "ok", "credits_charged": 2, "latency_ms": 100,
+           "created_at": "2026-09-25T12:00:00Z", "input_bytes": 50, "output_bytes": 80}
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 320, "height": 740})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if path == "/api/auth/me":
+                data = {"user": {"email": "fixture@example.test", "email_verified": True}, "account": {}}
+            elif path == "/api/usage/intelligence":
+                data = {"totals": {"requests": 1, "credits": 2}, "account": {}, "series": [],
+                        "breakdowns": {"tool": [{"name": "openapi:rank", "requests": 1,
+                                                 "credits": 2, "avg_latency_ms": 100}],
+                                       "status": [], "provider": [{"name": "openapi", "requests": 1}]},
+                        "recent_runs": [run], "recent_failures": []}
+            elif path == "/api/usage/runs/req_fixture":
+                data = {"run": run}
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/usage")
+        page.locator(".ih-run-table-row").wait_for()
+        assert "Game intelligence" in page.locator(".ih-run-table-row").inner_text()
+        assert "openapi" not in page.locator(".ih-run-table-wrap").inner_text()
+        page.locator(".ih-run-table-row").click()
+        page.locator(".ih-run-modal").wait_for()
+        assert "Game intelligence" in page.locator(".ih-inspector-grid").inner_text()
+        page.get_by_text("Technical routing and provenance").click()
+        assert "openapi:rank" in page.locator(".ih-run-diagnostics").inner_text()
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
         assert not errors, errors
         browser.close()
