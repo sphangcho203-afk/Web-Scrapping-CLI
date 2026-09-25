@@ -283,11 +283,11 @@ def test_game_discovery_schema_execution_and_mobile_state(frontend_url):
         assert len(calls) == 1
 
         page.locator('[data-game-tool="game.matches.analyze"]').click()
-        page.locator('#game-tool-form textarea[name="matches"]').fill('{}')
+        page.locator('#game-tool-form textarea[name="match_results"]').fill('{}')
         page.locator("#game-tool-form button[type=submit]").click()
         assert "JSON array" in page.locator("#game-tool-output").inner_text()
         assert len(calls) == 1
-        page.locator('#game-tool-form textarea[name="matches"]').fill('[{"win":true}]')
+        page.locator('#game-tool-form textarea[name="match_results"]').fill('[{"win":true}]')
         page.locator("#game-tool-form button[type=submit]").click()
         page.get_by_text("req_match").wait_for()
         assert calls[1]["arguments"]["matches"] == [{"win": True}]
