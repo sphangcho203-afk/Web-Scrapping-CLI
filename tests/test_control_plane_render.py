@@ -467,6 +467,7 @@ def test_public_data_workspace_validates_executes_and_reports_partial_results(fr
         page.goto(frontend_url + "/dashboard/data")
         form = page.locator("#public-data-form")
         form.wait_for()
+        form.locator('[name="operation"]').select_option("research")
         form.locator('[name="urls"]').fill("file:///etc/passwd")
         form.locator('button[type="submit"]').click()
         assert not calls
