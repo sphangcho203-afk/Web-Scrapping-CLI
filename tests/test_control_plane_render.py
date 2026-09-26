@@ -250,7 +250,9 @@ def test_game_discovery_schema_execution_and_mobile_state(frontend_url):
                 data = {"tools": [tool]}
             elif path.endswith("/tools/mlbb.reference.rank"):
                 calls.append(route.request.post_data_json)
-                data = {"request_id": "req_rank", "ref": tool["ref"], "result": {"ranks": [1]},
+                data = {"request_id": "req_rank", "ref": tool["ref"],
+                        "result": {"ranks": [1], "source_url": "https://example.test/ranks",
+                                   "captured_at": "2026-09-26T00:00:00Z"},
                         "usage": {"credits_charged": 1}}
             elif path.endswith("/tools/game.matches.analyze"):
                 calls.append(route.request.post_data_json)
@@ -278,8 +280,9 @@ def test_game_discovery_schema_execution_and_mobile_state(frontend_url):
         page.locator("#game-discovered-form button[type=submit]").click()
         page.get_by_text("req_rank").wait_for()
         assert not page.locator(".game-tool-output .game-operation-trace p").is_visible()
-        page.get_by_text("Execution trace & data origin").click()
-        assert "openapi" in page.locator(".game-tool-output .game-operation-trace p").inner_text()
+        page.get_by_text("Source evidence").click()
+        assert page.locator(".game-tool-output .game-operation-trace a").get_attribute("href") == "https://example.test/ranks"
+        assert "openapi" not in page.locator(".game-tool-output .game-operation-trace").inner_text()
         assert calls[0]["arguments"] == {"enabled": False, "filters": {"tier": "gold"},
                                           "regions": ["NA"], "limit": 12, "mode": "historical"}
         assert calls[0]["api_key_id"] == "key_fixture"
