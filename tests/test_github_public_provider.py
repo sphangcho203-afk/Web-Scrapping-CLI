@@ -10,6 +10,7 @@ from internet_hands.capability_economics import estimate_call, settle_measured_c
 from internet_hands.github_public_provider import (
     GitHubPublicProvider,
     PublicRepositoryError,
+    _spec_summary,
     repository_parts,
 )
 
@@ -65,3 +66,22 @@ def test_repository_measured_cost_is_capped_and_failed_work_releases_base() -> N
                                 execution_usage={"completed": True, "counters": {"github_api_calls": 3}}) == 4
     assert settle_measured_cost("repo:inspect", arguments, "free", reserved_credits=reserved,
                                 execution_usage={"completed": False, "counters": {"github_api_calls": 0}}) == 0
+
+
+def test_spec_inventory_is_bounded_to_documented_reads_and_public_inputs() -> None:
+    document = {"openapi": "3.1.0", "security": [{"token": []}], "paths": {
+        "/heroes/{id}": {"parameters": [{"name": "id", "in": "path"}],
+                         "get": {"summary": "Read hero", "security": [], "parameters": [
+                             {"name": "locale", "in": "query"},
+                             {"name": "Authorization", "in": "header"}]},
+                         "post": {"summary": "Update hero"}},
+        "/rank": {"head": {"operationId": "checkRank"}},
+    }}
+    summary = _spec_summary(json.dumps(document).encode())
+    assert summary["operations"] == [
+        {"method": "GET", "path": "/heroes/{id}", "name": "Read hero",
+         "inputs": ["id", "locale"], "requires_auth": False},
+        {"method": "HEAD", "path": "/rank", "name": "checkRank",
+         "inputs": [], "requires_auth": True},
+    ]
+    assert {row["method"] for row in summary["endpoints"]} == {"GET", "HEAD", "POST"}

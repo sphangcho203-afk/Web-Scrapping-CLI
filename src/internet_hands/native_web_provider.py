@@ -5,6 +5,7 @@ import os
 from typing import Any
 
 from .crawler import crawl
+from .execution_meter import record_usage
 from .fetcher import extract_links, fetch_url
 from .tool_mesh import ToolDescriptor
 from .web_search import SearchKind, brave_search
@@ -170,6 +171,7 @@ class NativeWebToolProvider:
         await self.describe(tool_id)
 
         if tool_id == "fetch":
+            record_usage("native_web_requests")
             result = await fetch_url(
                 str(arguments["url"]),
                 timeout=min(float(arguments.get("timeout_seconds", timeout_seconds)), 60.0),
@@ -179,6 +181,7 @@ class NativeWebToolProvider:
             return {"status": "completed", "data": result.model_dump(mode="json")}
 
         if tool_id == "search":
+            record_usage("native_web_requests")
             result = await brave_search(
                 str(arguments["query"]),
                 kind=SearchKind.WEB,
@@ -190,6 +193,7 @@ class NativeWebToolProvider:
             return {"status": "completed", "data": result}
 
         if tool_id == "map":
+            record_usage("native_web_requests")
             result = await fetch_url(
                 str(arguments["url"]),
                 timeout=min(float(arguments.get("timeout_seconds", timeout_seconds)), 60.0),
@@ -233,6 +237,7 @@ class NativeWebToolProvider:
             async def one(index: int, url: object) -> dict[str, Any]:
                 async with semaphore:
                     try:
+                        record_usage("native_web_requests")
                         result = await fetch_url(
                             str(url),
                             timeout=min(float(timeout_seconds), 60.0),

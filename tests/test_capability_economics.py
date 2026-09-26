@@ -94,9 +94,49 @@ def test_raw_provider_costs_are_not_flat() -> None:
         {"ref": "apify:actor"},
         "pro",
     )
-    assert local.credits == 2
-    assert firecrawl.credits == 7
-    assert apify.credits == 12
+    assert local.credits == 5
+    assert firecrawl.credits == 252
+    assert apify.credits == 1502
+
+
+def test_semantic_fallback_reserves_all_eligible_attempts_and_settles_measured_work() -> None:
+    args = {"capability": "web.fetch.page", "arguments": {"url": "https://example.com"}}
+    free = estimate_call("mesh_capability_execute", args, "free")
+    pro = estimate_call("mesh_capability_execute", args, "pro")
+    assert free.allowed and free.credits >= 4
+    assert pro.allowed and pro.credits >= 254
+    assert settle_measured_cost(
+        "mesh_capability_execute", args, "pro", reserved_credits=pro.credits,
+        execution_usage={"provider_calls": {"firecrawl": 1, "nativeweb": 1},
+                         "counters": {"firecrawl_work_units": 1}},
+    ) == 256
+
+
+def test_semantic_unknown_or_unbounded_work_is_not_one_credit() -> None:
+    unknown = estimate_call("mesh_capability_execute", {"capability": "missing"}, "pro")
+    assert unknown.allowed is False
+    assert estimate_call("mesh_execute", {
+        "ref": "firecrawl:crawl", "arguments": {"limit": 20},
+    }, "pro").credits == 5002
+    assert estimate_call("mesh_execute", {
+        "ref": "firecrawl:crawl", "arguments": {"limit": 21},
+    }, "pro").allowed is False
+    assert estimate_call("mesh_execute", {
+        "ref": "firecrawl:extract", "arguments": {"urls": ["https://example.com"]},
+    }, "pro").allowed is False
+
+
+def test_gaming_batches_reserve_each_operation_and_refund_unrun_work() -> None:
+    args = {"requests": [
+        {"capability": "mlbb.reference.heroes", "arguments": {}},
+        {"capability": "mlbb.hero.list", "arguments": {}},
+    ]}
+    quote = estimate_call("gaming_intel", args, "pro")
+    assert quote.credits >= 6
+    assert settle_measured_cost(
+        "gaming_intel", args, "pro", reserved_credits=quote.credits,
+        execution_usage={"provider_calls": {"gamecore": 1}},
+    ) == 4
 
 
 def test_free_plan_can_use_public_raw_tools_but_not_metered_backends() -> None:
@@ -221,7 +261,7 @@ def test_batch_pricing_sums_nested_provider_costs() -> None:
         "pro",
     )
     assert estimate.allowed is True
-    assert estimate.credits == 11
+    assert estimate.credits == 259
 
 
 def test_caller_lookup_requires_builder_or_higher() -> None:
@@ -488,14 +528,14 @@ def test_measured_firecrawl_provider_settles_to_its_actual_route() -> None:
             "arguments": {"url": "https://example.com"},
         },
         "pro",
-        reserved_credits=7,
+        reserved_credits=252,
         execution_usage={
-            "counters": {},
+            "counters": {"firecrawl_work_units": 1},
             "provider_calls": {"firecrawl": 1},
         },
         latency_ms=500,
     )
-    assert settled == 7
+    assert settled == 252
 
 
 def test_deep_caller_investigation_pricing_is_plan_bounded() -> None:

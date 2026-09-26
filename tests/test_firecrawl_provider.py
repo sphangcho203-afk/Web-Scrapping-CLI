@@ -5,6 +5,11 @@ import json
 import httpx
 import pytest
 
+from internet_hands.execution_meter import (
+    execution_usage_snapshot,
+    reset_execution_meter,
+    start_execution_meter,
+)
 from internet_hands.firecrawl_provider import FirecrawlToolProvider
 
 
@@ -114,7 +119,7 @@ async def test_firecrawl_crawl_job_polling_and_paged_results(
         provider = FirecrawlToolProvider(api_key="fc-test", client=client)
         started = await provider.execute(
             "crawl",
-            {"url": "https://example.com", "limit": 40},
+            {"url": "https://example.com", "limit": 20},
             wait_seconds=0,
         )
         assert started["status"] == "running"
@@ -131,6 +136,34 @@ async def test_firecrawl_crawl_job_polling_and_paged_results(
         "GET /v2/crawl/crawl-123",
         "GET /v2/crawl/crawl-123",
     ]
+
+
+@pytest.mark.asyncio
+async def test_firecrawl_rejects_unquoted_fanout_before_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    _disable_public_url_validation(monkeypatch)
+    provider = FirecrawlToolProvider(api_key="fc-test")
+    with pytest.raises(ValueError, match="between 1 and 20"):
+        await provider.execute("crawl", {"url": "https://example.com", "limit": 21})
+    with pytest.raises(ValueError, match="bounded agent"):
+        await provider.execute("extract", {"urls": ["https://example.com"]})
+
+
+@pytest.mark.asyncio
+async def test_crawl_records_the_bounded_work_commitment(monkeypatch: pytest.MonkeyPatch) -> None:
+    _disable_public_url_validation(monkeypatch)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert json.loads(request.content)["limit"] == 3
+        return httpx.Response(200, json={"success": True, "id": "crawl-1"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        token = start_execution_meter()
+        try:
+            provider = FirecrawlToolProvider(api_key="fc-test", client=client)
+            await provider.execute("crawl", {"url": "https://example.com", "limit": 3}, wait_seconds=0)
+            assert execution_usage_snapshot()["counters"]["firecrawl_work_units"] == 3
+        finally:
+            reset_execution_meter(token)
 
 
 @pytest.mark.asyncio

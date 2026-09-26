@@ -43,9 +43,9 @@ def _spec_summary(content: bytes) -> dict[str, Any]:
     try:
         document = json.loads(content) if content.lstrip().startswith(b"{") else yaml.safe_load(content)
     except (ValueError, yaml.YAMLError, UnicodeDecodeError):
-        return {"parsed": False, "endpoints": [], "oauth_scopes": []}
+        return {"parsed": False, "endpoints": [], "operations": [], "oauth_scopes": []}
     if not isinstance(document, dict) or not ("openapi" in document or "swagger" in document):
-        return {"parsed": False, "endpoints": [], "oauth_scopes": []}
+        return {"parsed": False, "endpoints": [], "operations": [], "oauth_scopes": []}
     paths = document.get("paths") or {}
     methods = {"get", "post", "put", "patch", "delete", "head", "options"}
     endpoints = [
@@ -55,6 +55,31 @@ def _spec_summary(content: bytes) -> dict[str, Any]:
         for method in operations
         if isinstance(method, str) and method.lower() in methods
     ][:40]
+    operations: list[dict[str, Any]] = []
+    for path, path_item in (paths.items() if isinstance(paths, dict) else []):
+        if not isinstance(path, str) or not isinstance(path_item, dict):
+            continue
+        for method in ("get", "head"):
+            operation = path_item.get(method)
+            if not isinstance(operation, dict):
+                continue
+            path_parameters = path_item.get("parameters")
+            operation_parameters = operation.get("parameters")
+            parameters = (path_parameters if isinstance(path_parameters, list) else []) + (
+                operation_parameters if isinstance(operation_parameters, list) else [])
+            inputs = sorted({str(item["name"])[:80] for item in parameters
+                             if isinstance(item, dict) and isinstance(item.get("name"), str)
+                             and item.get("in") in {"path", "query"}})[:8]
+            security = operation.get("security", document.get("security", []))
+            operations.append({
+                "method": method.upper(), "path": path[:240],
+                "name": str(operation.get("summary") or operation.get("operationId") or f"Read {path}")[:120],
+                "inputs": inputs, "requires_auth": bool(security),
+            })
+            if len(operations) >= 20:
+                break
+        if len(operations) >= 20:
+            break
     schemes = ((document.get("components") or {}).get("securitySchemes") or {}) if isinstance(document.get("components"), dict) else {}
     if not schemes and isinstance(document.get("securityDefinitions"), dict):
         schemes = document["securityDefinitions"]
@@ -67,7 +92,8 @@ def _spec_summary(content: bytes) -> dict[str, Any]:
                 scopes.update(str(name)[:100] for name in flow["scopes"])
         if isinstance(scheme.get("scopes"), dict):
             scopes.update(str(name)[:100] for name in scheme["scopes"])
-    return {"parsed": True, "endpoints": endpoints, "oauth_scopes": sorted(scopes)[:40]}
+    return {"parsed": True, "endpoints": endpoints, "operations": operations,
+            "oauth_scopes": sorted(scopes)[:40]}
 
 
 class GitHubPublicProvider:

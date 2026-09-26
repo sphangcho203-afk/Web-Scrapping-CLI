@@ -6,8 +6,19 @@
   const metric = (label, value, note='') => `<div><span>${esc(label)}</span><b>${value}</b>${note ? `<small>${esc(note)}</small>` : ''}</div>`;
   const windows = active => `<div class="ih-run-hints" data-usage-windows><span>Window</span>${['24h','7d','30d','90d'].map(w => `<button type="button" data-usage-window="${w}" aria-pressed="${String(w===active)}">${w}</button>`).join('')}</div>`;
   const bindWindows = rerender => $$('[data-usage-window]').forEach(button => button.addEventListener('click', () => { setUsageWindow(button.dataset.usageWindow); rerender(); }));
-  const runRows = events => events.length ? events.map((e,i)=>`<button class="ih-run-table-row" data-run-index="${i}"><span>${statusDot(statusTone(e.status))}<b>${esc(e.status||'unknown')}</b></span><span><b>${esc(runLabel(e))}</b><code>${esc((e.request_id||'—').slice(0,22))}</code></span><span>${esc(e.provider||'—')}</span><span>${fmt(e.credits_charged||0)}</span><span>${e.latency_ms==null?'—':`${fmt(e.latency_ms)} ms`}</span><span>${esc(when(e.created_at))}</span><span>${icon('arrow')}</span></button>`).join('') : `<div class="ih-empty-run large"><span>${icon('activity')}</span><div><b>No telemetry in this window</b><p>Nothing is fabricated. Execute a metered request or choose a wider time window.</p></div></div>`;
+  const runRows = events => events.length ? events.map((e,i)=>`<button class="ih-run-table-row" data-run-index="${i}"><span>${statusDot(statusTone(e.status))}<b>${esc(e.status||'unknown')}</b></span><span><b>${esc(runLabel(e))}</b><code>${esc((e.request_id||'—').slice(0,22))}</code></span><span data-label="Workflow">${esc(runWorkflow(e))}</span><span data-label="Credits">${fmt(e.credits_charged||0)}</span><span data-label="Latency">${e.latency_ms==null?'—':`${fmt(e.latency_ms)} ms`}</span><span data-label="Time">${esc(when(e.created_at))}</span><span>${icon('arrow')}</span></button>`).join('') : `<div class="ih-empty-run large"><span>${icon('activity')}</span><div><b>No telemetry in this window</b><p>Nothing is fabricated. Execute a metered request or choose a wider time window.</p></div></div>`;
   const breakdown = (title, rows) => `<article class="ih-system-panel"><header><span>BREAKDOWN</span><h2>${esc(title)}</h2></header>${rows.length ? rows.map(row=>`<div class="ih-system-row"><span>${statusDot(statusTone(row.name))}</span><div><b>${esc(row.name)}</b><small>${fmt(row.requests)} requests · ${fmt(row.credits)} credits</small></div><em>${fmt(row.avg_latency_ms)} ms</em></div>`).join('') : `<div class="ih-empty-run"><div><b>Unavailable</b><p>No metered events in this window.</p></div></div>`}</article>`;
+  const workflowBreakdown = rows => {
+    const grouped=new Map();
+    rows.forEach(row=>{
+      const name=runWorkflow({tool_ref:row.name}), current=grouped.get(name)||{name,requests:0,credits:0,weightedLatency:0};
+      const requests=Number(row.requests||0);
+      current.requests+=requests;current.credits+=Number(row.credits||0);
+      current.weightedLatency+=requests*Number(row.avg_latency_ms||0);
+      grouped.set(name,current);
+    });
+    return [...grouped.values()].map(row=>({...row,avg_latency_ms:row.requests?Math.round(row.weightedLatency/row.requests):0})).sort((a,b)=>b.requests-a.requests);
+  };
 
   const trendGlyph = (value, max) => {
     if (!max || !value) return '▁';
@@ -42,16 +53,16 @@
         <div class="modal-head"><span><span class="overline">RUN DETAIL</span><h2>${esc(runLabel(event))}</h2></span><button data-close aria-label="Close">×</button></div>
         <div class="ih-inspector-status"><span>${statusDot(statusTone(event.status))}<b>${esc(event.status||'unknown')}</b></span><code>${esc(event.request_id)}</code></div>
         <div class="ih-inspector-grid">
-          <div><small>Capability</small><b>${esc(event.capability||'—')}</b></div><div><small>Provider</small><b>${esc(event.provider||'—')}</b></div>
+          <div><small>Workflow</small><b>${esc(runWorkflow(event))}</b></div><div><small>Operation</small><b>${esc(runLabel(event))}</b></div>
           <div><small>Credits</small><b>${fmt(event.credits_charged||0)}</b></div><div><small>Latency</small><b>${event.latency_ms==null?'—':`${fmt(event.latency_ms)} ms`}</b></div>
           <div><small>Input</small><b>${fmt(event.input_bytes||0)} bytes</b></div><div><small>Output</small><b>${fmt(event.output_bytes||0)} bytes</b></div>
           <div><small>Created</small><b>${esc(when(event.created_at))}</b></div><div><small>Credential</small><b>${esc(event.api_key_name ? `${event.api_key_name} · ${event.api_key_prefix||''}…` : 'Session / system')}</b></div>
         </div>
-        <div class="ih-inspector-section"><span>EXECUTION REFERENCE</span><div class="ih-code-line"><code>${esc(event.tool_ref||'—')}</code><button class="btn small" data-copy="${esc(event.request_id)}">${icon('copy')} Copy ID</button></div></div>
-        ${rows.length ? `<div class="ih-inspector-section"><span>RUN METADATA</span><div class="ih-run-metadata">${rows.map(([key,value])=>`<div><small>${esc(key)}</small><code>${esc(value)}</code></div>`).join('')}</div></div>` : '<div class="ih-inspector-note"><b>No additional execution metadata</b><p>This run is still fully traceable through its request ID, capability, provider, byte counts, latency and credit charge.</p></div>'}
+        <div class="ih-inspector-section"><span>REQUEST REFERENCE</span><div class="ih-code-line"><code>${esc(event.request_id||'—')}</code><button class="btn small" data-copy="${esc(event.request_id)}">${icon('copy')} Copy ID</button></div></div>
+        <details class="ih-run-diagnostics"><summary>Technical routing and provenance</summary><div><span>Execution reference</span><code>${esc(event.tool_ref||'—')}</code><span>Adapter</span><code>${esc(event.provider||'—')}</code>${event.capability?`<span>Capability ID</span><code>${esc(event.capability)}</code>`:''}</div>${rows.length?`<section><h3>RUN METADATA</h3><div class="ih-run-metadata">${rows.map(([key,value])=>`<div><small>${esc(key)}</small><code>${esc(value)}</code></div>`).join('')}</div></section>`:''}</details>
       </div>`, true);
       bindCommon();
-      wrap.querySelector('[data-close]')?.addEventListener('click', clearRunDeepLink, {once:true});
+      wrap.onClose=clearRunDeepLink;
       return wrap;
     } catch (error) {
       clearRunDeepLink();
@@ -77,8 +88,8 @@
       <section class="ih-command-head"><div><span>COMMAND CENTER</span><h1>Operational intelligence, from real runs.</h1><p>Requests, reliability, latency and credit burn come directly from the metering ledger.</p></div><div class="ih-command-health"><span>${statusDot(t.success_rate==null?'':'ok')} ${t.success_rate==null?'Awaiting telemetry':'Telemetry live'}</span><b>${t.success_rate==null?'—':`${Number(t.success_rate).toFixed(1)}%`}</b><small>${esc(window)} success</small></div></section>
       ${windows(window)}
       <section class="ih-command-stats">${metric('REQUESTS',fmt(t.requests||0),window)}${metric('SUCCESS',t.success_rate==null?'—':`${Number(t.success_rate).toFixed(1)}%`,`${fmt(t.failed||0)} failed`)}${metric('P95 LATENCY',`${fmt(t.p95_latency_ms||0)} ms`,'metered requests')}${metric('CREDITS BURNED',fmt(t.credits||0),`${fmt(credits)} available`)}</section>
-      <section class="ih-command-grid"><article class="ih-runs-panel"><header><div><span>RECENT RUNS</span><h2>Execution ledger</h2></div><a data-link href="/dashboard/usage">Open usage ${icon('arrow')}</a></header><div class="ih-run-list">${recent.length ? recent.map((e,i)=>`<button class="ih-run-row" data-run-index="${i}"><span>${statusDot(statusTone(e.status))}</span><div><b>${esc(runLabel(e))}</b><small>${esc(e.provider||'Unattributed')} · ${esc(when(e.created_at))}</small></div><code>${esc((e.request_id||'run').slice(0,16))}</code><em>${e.latency_ms==null?'—':`${fmt(e.latency_ms)} ms`}</em>${icon('arrow')}</button>`).join('') : `<div class="ih-empty-run"><span>${icon('activity')}</span><div><b>No runs in ${esc(window)}</b><p>The dashboard will not invent activity. Choose a wider window or execute a metered request.</p></div></div>`}</div></article>
-      <aside class="ih-system-panel"><header><span>FAILURES</span><h2>Needs attention</h2></header>${failures.length ? failures.slice(0,5).map((e,i)=>`<button class="ih-system-row" data-failure-index="${i}"><span>${statusDot('bad')}</span><div><b>${esc(runLabel(e))}</b><small>${esc(e.provider||'Unattributed')} · ${esc(when(e.created_at))}</small></div><em>${esc(e.status||'failed')}</em></button>`).join('') : `<div class="ih-empty-run"><div><b>No failures in this window</b><p>There are no failed metered events to show.</p></div></div>`}</aside></section>`);
+      <section class="ih-command-grid"><article class="ih-runs-panel"><header><div><span>RECENT RUNS</span><h2>Execution ledger</h2></div><a data-link href="/dashboard/usage">Open usage ${icon('arrow')}</a></header><div class="ih-run-list">${recent.length ? recent.map((e,i)=>`<button class="ih-run-row" data-run-index="${i}"><span>${statusDot(statusTone(e.status))}</span><div><b>${esc(runLabel(e))}</b><small>${esc(runWorkflow(e))} · ${esc(when(e.created_at))}</small></div><code>${esc((e.request_id||'run').slice(0,16))}</code><em>${e.latency_ms==null?'—':`${fmt(e.latency_ms)} ms`}</em>${icon('arrow')}</button>`).join('') : `<div class="ih-empty-run"><span>${icon('activity')}</span><div><b>No runs in ${esc(window)}</b><p>The dashboard will not invent activity. Choose a wider window or execute a metered request.</p></div></div>`}</div></article>
+      <aside class="ih-system-panel"><header><span>FAILURES</span><h2>Needs attention</h2></header>${failures.length ? failures.slice(0,5).map((e,i)=>`<button class="ih-system-row" data-failure-index="${i}"><span>${statusDot('bad')}</span><div><b>${esc(runLabel(e))}</b><small>${esc(runWorkflow(e))} · ${esc(when(e.created_at))}</small></div><em>${esc(e.status||'failed')}</em></button>`).join('') : `<div class="ih-empty-run"><div><b>No failures in this window</b><p>There are no failed metered events to show.</p></div></div>`}</aside></section>`);
     bindWindows(dashOverview); bindRunDetails(recent);
     $$('[data-failure-index]').forEach(b=>b.addEventListener('click',()=>showRunDetail(failures[Number(b.dataset.failureIndex)])));
   };
@@ -92,8 +103,8 @@
       ${windows(window)}
       <section class="ih-runs-summary">${metric('REQUESTS',fmt(t.requests||0))}${metric('SUCCESS',t.success_rate==null?'—':`${Number(t.success_rate).toFixed(1)}%`)}${metric('CREDITS',fmt(t.credits||0))}${metric('P95 LATENCY',`${fmt(t.p95_latency_ms||0)} ms`)}</section>
       <section class="ih-command-grid">${trend(series)}${breakdown('By status',b.status||[])}</section>
-      <section class="ih-command-grid">${breakdown('By tool',b.tool||[])}${breakdown('By provider',b.provider||[])}</section>
-      <section class="ih-run-table-wrap"><div class="ih-run-table-head"><span>STATE</span><span>RUN</span><span>PROVIDER</span><span>CREDITS</span><span>LATENCY</span><span>TIME</span><span></span></div>${runRows(events)}</section>`);
-    bindWindows(dashUsage); $('[data-new-run-inline]')?.addEventListener('click',()=>go('/dashboard')); bindRunDetails(events);
+      <section class="ih-command-grid">${breakdown('Top operations',(b.tool||[]).map(row=>({...row,name:runLabel({tool_ref:row.name})})))}${breakdown('Workflow of top operations',workflowBreakdown(b.tool||[]))}</section>
+      <section class="ih-run-table-wrap"><div class="ih-run-table-head"><span>STATE</span><span>RUN</span><span>WORKFLOW</span><span>CREDITS</span><span>LATENCY</span><span>TIME</span><span></span></div>${runRows(events)}</section>`);
+    bindWindows(dashUsage); $('[data-new-run-inline]')?.addEventListener('click',()=>go('/dashboard/playground')); bindRunDetails(events);
   };
 })();

@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from .capability_economics import settle_measured_cost
 from .control_api import _require_user, _require_verified
 from .control_store import ControlError
+from .execution_meter import execution_usage_snapshot, reset_execution_meter, start_execution_meter
 from .game_catalog import build_game_adapters
 from .game_execution import discover_game_tools, validate_game_arguments
 from .playground_api import _playground_identity, store
@@ -141,20 +142,30 @@ async def _run_mesh_game_tool(request: Request, body: dict, capability):
     started = time.monotonic()
     completed = False
     response_bytes = 0
+    meter = start_execution_meter()
     try:
         execution = await get_tool_mesh().execute(supplied_ref, arguments, timeout_seconds=18)
+        charged = settle_measured_cost("mesh_execute", metered_arguments, identity.plan_slug,
+                                       reserved_credits=reserved, execution_usage=execution_usage_snapshot())
         if execution.get("status") not in {"completed", "ok"}:
-            raise HTTPException(status_code=502, detail={"message": execution.get("error") or "Provider could not complete the request.", "request_id": request_id})
+            raise HTTPException(status_code=502, detail={"message": execution.get("error") or "The operation could not complete.",
+                                "request_id": request_id, "usage": {"credits_charged": charged, "credits_reserved": reserved}})
         completed = True
         response = {"ok": True, "request_id": request_id, "ref": supplied_ref,
                     "result": execution.get("data"),
-                    "usage": {"credits_charged": reserved, "credits_reserved": reserved}}
+                    "usage": {"credits_charged": charged, "credits_reserved": reserved}}
         response_bytes = len(json.dumps(response, default=str).encode())
         return response
     finally:
-        store.finish_usage(
-            request_id, status="ok" if completed else "error",
-            latency_ms=max(0, int((time.monotonic() - started) * 1000)),
-            output_bytes=response_bytes, actual_credits=reserved if completed else 0,
-            execution_usage={"completed": completed, "counters": {"provider_calls": 1}},
-        )
+        usage = {**execution_usage_snapshot(), "completed": completed}
+        try:
+            store.finish_usage(
+                request_id, status="ok" if completed else "error",
+                latency_ms=max(0, int((time.monotonic() - started) * 1000)),
+                output_bytes=response_bytes,
+                actual_credits=settle_measured_cost("mesh_execute", metered_arguments, identity.plan_slug,
+                                                   reserved_credits=reserved, execution_usage=usage),
+                execution_usage=usage,
+            )
+        finally:
+            reset_execution_meter(meter)

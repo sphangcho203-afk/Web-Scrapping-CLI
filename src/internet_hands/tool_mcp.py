@@ -22,6 +22,8 @@ from .mcp_server import sandbox_mcp
 from .native_sandbox_provider import NativeSandboxToolProvider
 from .native_web_provider import NativeWebToolProvider
 from .phone_intelligence import PhoneIntelligenceProvider
+from .public_data_provider import PublicDataProvider, build_public_data_capabilities
+from .public_game_provider import PublicGameProvider, build_public_game_capabilities
 from .remote_mcp_provider import build_remote_mcp_provider
 from .tool_mesh import ToolMesh
 from .tool_providers import build_default_providers
@@ -39,6 +41,8 @@ def get_tool_mesh() -> ToolMesh:
             NativeWebToolProvider(),
             GitHubPublicProvider(),
             GameCoreProvider(),
+            PublicGameProvider(),
+            PublicDataProvider(),
             NativeSandboxToolProvider(),
             PhoneIntelligenceProvider(),
             *build_catalog_providers(),
@@ -58,6 +62,8 @@ def get_capability_registry() -> CapabilityRegistry:
             *build_firecrawl_capabilities(),
             *build_gaming_capabilities(),
             *build_extra_gaming_capabilities(),
+            *build_public_game_capabilities(),
+            *build_public_data_capabilities(),
         ],
     )
 

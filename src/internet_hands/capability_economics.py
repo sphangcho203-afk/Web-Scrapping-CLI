@@ -121,6 +121,7 @@ TOOL_ECONOMICS: tuple[ToolEconomics, ...] = (
     ToolEconomics("gaming_profile_plan", "gaming", 1, provider_class="public"),
     ToolEconomics("gaming_profile", "gaming", 5, provider_class="public"),
     ToolEconomics("gaming_intel", "gaming", 2, provider_class="public"),
+    ToolEconomics("mesh_capability_execute", "provider", 2, provider_class="public"),
     ToolEconomics("playground:*", "playground", 1, provider_class="public"),
     ToolEconomics("repo:*", "repository", 1, provider_class="public"),
     ToolEconomics("gamecore:*", "gaming", 1, provider_class="local"),
@@ -164,6 +165,8 @@ PHONE_PROVIDER_ECONOMICS: dict[str, tuple[str, int]] = {
 
 RAW_PROVIDER_SURCHARGES: dict[str, tuple[str, int]] = {
     "nativeweb": ("local", 0),
+    "publicdata": ("public", 0),
+    "gamepublic": ("public", 0),
     "phoneintel": ("local", 0),
     "callerintel": ("free_tier", 4),
     "callerresearch": ("free_tier", 6),
@@ -171,10 +174,47 @@ RAW_PROVIDER_SURCHARGES: dict[str, tuple[str, int]] = {
     "openapi": ("public", 1),
     "mcp": ("public", 2),
     "composio": ("metered", 3),
-    "firecrawl": ("metered", 5),
+    "firecrawl": ("metered", 250),
     "rapidapi": ("metered", 5),
-    "apify": ("metered", 10),
+    # The run is capped at $0.10 in ApifyToolProvider. At the least expensive
+    # credit-pack rate, 1,500 credits represent INR 15 before payment fees.
+    "apify": ("metered", 1500),
+    "nativesandbox": ("metered", 10),
+    "gamecore": ("local", 0),
+    "githubpublic": ("public", 1),
 }
+
+FIRECRAWL_CREDITS_PER_UNIT = 250
+FIRECRAWL_WORK_BUDGETS = {
+    "crawl": ("limit", 10, 20),
+    "map": ("limit", 10, 20),
+    "search": ("limit", 5, 10),
+    "agent": ("maxCredits", 10, 20),
+}
+
+
+def _semantic_calls(
+    capability_id: str, arguments: dict[str, Any], plan: PlanPrivileges,
+) -> tuple[list[CostEstimate], str | None]:
+    # Resolve the same registered candidates used by execution. Price every
+    # eligible fallback: a failed first attempt can still incur real work.
+    from .tool_mcp import get_capability_registry
+
+    registry = get_capability_registry()
+    capability = registry.capabilities.get(capability_id)
+    if capability is None:
+        return [], f"unknown capability: {capability_id}"
+    quotes: list[CostEstimate] = []
+    for candidate in capability.candidates:
+        if not registry._candidate_matches(arguments, candidate):
+            continue
+        ref = candidate.ref or f"{candidate.provider}:discovered"
+        quote = estimate_call("mesh_execute", {"ref": ref, "arguments": registry._map_arguments(arguments, candidate)}, plan.slug)
+        if quote.allowed:
+            quotes.append(quote)
+    if not quotes:
+        return [], f"{capability_id} has no execution route on the {plan.slug} plan"
+    return quotes, None
 
 
 @dataclass(frozen=True, slots=True)
@@ -507,6 +547,79 @@ def estimate_call(
             reason=reason, breakdown=tuple(breakdown), limits=plan.to_dict(),
         )
 
+    if tool_name in {"mesh_capability_execute", "gaming_intel", "gaming_profile"}:
+        reason: str | None = None
+        phone_capabilities = {
+            "phone.number.lookup", "phone.caller.lookup", "phone.caller.investigate",
+        }
+        if tool_name == "mesh_capability_execute":
+            requests = [args]
+        elif tool_name == "gaming_intel":
+            requests = args.get("requests") or []
+        else:
+            from .gaming_profiles import build_gaming_profile_plan
+
+            try:
+                profile = build_gaming_profile_plan(
+                    str(args.get("game") or ""), dict(args.get("identity") or {}),
+                    include_recent=bool(args.get("include_recent", True)),
+                    include_history=bool(args.get("include_history", True)),
+                )
+                requests = profile.requests
+            except (ValueError, TypeError) as exc:
+                requests = []
+                reason = str(exc)
+        if not isinstance(requests, list):
+            requests, reason = [], "requests must be a list"
+        if len(requests) > min(plan.max_batch_calls, 20):
+            reason = f"plan allows at most {min(plan.max_batch_calls, 20)} capability calls"
+        base = 0 if tool_name == "mesh_capability_execute" and str(args.get("capability")) in phone_capabilities else rule.base_credits
+        cost = base
+        breakdown = [{"kind": "base", "credits": base}]
+        highest_class = rule.provider_class
+        for index, request in enumerate(requests):
+            if reason:
+                break
+            if not isinstance(request, dict):
+                reason = f"capability call {index} must be an object"
+                break
+            capability = str(request.get("capability") or "").strip()
+            nested_args = request.get("arguments") or {}
+            if not isinstance(nested_args, dict):
+                reason = f"capability call {index} arguments must be an object"
+                break
+            if capability in phone_capabilities:
+                direct = {
+                    "phone.number.lookup": "phone_number_lookup",
+                    "phone.caller.lookup": "phone_caller_lookup",
+                    "phone.caller.investigate": "phone_caller_investigate",
+                }[capability]
+                quotes = [estimate_call(direct, nested_args, plan.slug)]
+            else:
+                quotes, reason = _semantic_calls(capability, nested_args, plan)
+            if reason:
+                break
+            for quote in quotes:
+                if not quote.allowed:
+                    reason = quote.reason
+                    break
+                cost += quote.credits
+                breakdown.append({
+                    "kind": "capability_attempt", "index": index,
+                    "capability": capability, "credits": quote.credits,
+                    "provider_class": quote.provider_class,
+                })
+                if PROVIDER_CLASS_ORDER[quote.provider_class] > PROVIDER_CLASS_ORDER[highest_class]:
+                    highest_class = quote.provider_class
+        if not requests and not reason and tool_name == "mesh_capability_execute":
+            reason = "capability is required"
+        return CostEstimate(
+            allowed=reason is None, plan=plan.slug, tool_name=tool_name,
+            category=rule.category, credits=cost, minimum_plan=rule.minimum_plan,
+            provider_class=highest_class, reason=reason,
+            breakdown=tuple(breakdown), limits=plan.to_dict(),
+        )
+
     cost = rule.base_credits
     provider_class = rule.provider_class
 
@@ -558,6 +671,95 @@ def estimate_call(
                     {"kind": "routed_tool", "ref": ref, "credits": 0},
                     *nested.breakdown,
                 ),
+                limits=plan.to_dict(),
+            )
+
+        if ref == "callerresearch:investigate":
+            nested = estimate_call("phone_caller_investigate", nested_arguments, plan.slug)
+            return CostEstimate(
+                nested.allowed, plan.slug, tool_name, nested.category, nested.credits,
+                nested.minimum_plan, nested.provider_class, nested.reason,
+                ({"kind": "routed_tool", "ref": ref, "credits": 0}, *nested.breakdown),
+                plan.to_dict(),
+            )
+
+        if ref in {"githubpublic:search", "githubpublic:inspect"}:
+            nested = estimate_call("repo:" + ref.split(":", 1)[1], nested_arguments, plan.slug)
+            return CostEstimate(
+                nested.allowed, plan.slug, tool_name, nested.category, nested.credits,
+                nested.minimum_plan, nested.provider_class, nested.reason,
+                ({"kind": "routed_tool", "ref": ref, "credits": 0}, *nested.breakdown),
+                plan.to_dict(),
+            )
+
+        if ref.startswith("nativeweb:"):
+            operation = ref.split(":", 1)[1]
+            reason = None
+            if operation == "crawl":
+                units = nested_arguments.get("max_pages", nested_arguments.get("limit", 25))
+                if isinstance(units, bool) or not isinstance(units, int) or not 1 <= units <= 500:
+                    reason, units = "crawl requires 1 to 500 pages", 0
+                else:
+                    units *= 2  # A distinct origin may require its own robots fetch.
+            elif operation == "batch-fetch":
+                urls = nested_arguments.get("urls")
+                units = len(urls) if isinstance(urls, list) else 0
+                if not 1 <= units <= 20:
+                    reason = "batch fetch requires 1 to 20 URLs"
+            elif operation in {"fetch", "map", "search"}:
+                units = 1
+            else:
+                reason, units = "unknown native web operation", 0
+            return CostEstimate(
+                reason is None, plan.slug, tool_name, "public_data", 2 + units * 3,
+                "free", "local", reason,
+                ({"kind": "base", "credits": 2},
+                 {"kind": "request_budget", "requests": units, "credits": units * 3}),
+                plan.to_dict(),
+            )
+
+        if ref.startswith(("publicdata:", "gamepublic:")):
+            from .public_data_provider import request_budget
+
+            try:
+                units = request_budget(ref.split(":", 1)[1], nested_arguments) if ref.startswith("publicdata:") else 1
+                reason = None
+            except ValueError as exc:
+                units, reason = 0, str(exc)
+            return CostEstimate(
+                reason is None, plan.slug, tool_name, "public_data", 2 + units * 3,
+                "free", "public", reason,
+                ({"kind": "base", "credits": 2},
+                 {"kind": "public_request_budget", "requests": units, "credits": units * 3}),
+                plan.to_dict(),
+            )
+
+        if ref.startswith("firecrawl:"):
+            operation = ref.split(":", 1)[1]
+            if operation == "batch-scrape":
+                urls = nested_arguments.get("urls")
+                units = len(urls) if isinstance(urls, list) else 0
+                reason = "batch scrape requires 1 to 20 URLs" if not 1 <= units <= 20 else None
+            elif operation in FIRECRAWL_WORK_BUDGETS:
+                field, default, maximum = FIRECRAWL_WORK_BUDGETS[operation]
+                try:
+                    units = int(nested_arguments.get(field, default))
+                except (ValueError, TypeError):
+                    units = 0
+                reason = f"{operation} requires {field} between 1 and {maximum}" if not 1 <= units <= maximum else None
+            else:
+                units, reason = 1, None
+            if operation == "extract":
+                reason = "unbounded extraction cannot be quoted; use bounded agent execution"
+            total = 2 + FIRECRAWL_CREDITS_PER_UNIT * units
+            return CostEstimate(
+                allowed=reason is None and _provider_allowed(plan, "metered"),
+                plan=plan.slug, tool_name=tool_name, category=rule.category,
+                credits=total, minimum_plan=rule.minimum_plan, provider_class="metered",
+                reason=reason or (None if _provider_allowed(plan, "metered") else "this route requires metered access"),
+                breakdown=({"kind": "base", "credits": 2},
+                           {"kind": "work_budget", "units": units,
+                            "credits": FIRECRAWL_CREDITS_PER_UNIT * units}),
                 limits=plan.to_dict(),
             )
 
@@ -649,57 +851,6 @@ def estimate_call(
                 ):
                     provider_class = nested.provider_class
 
-    if tool_name == "mesh_capability_execute":
-        capability = str(args.get("capability") or "").strip()
-        nested_arguments = (
-            dict(args.get("arguments") or {})
-            if isinstance(args.get("arguments"), dict)
-            else {}
-        )
-        if capability == "phone.caller.lookup":
-            nested = estimate_call("phone_caller_lookup", nested_arguments, plan.slug)
-            return CostEstimate(
-                allowed=nested.allowed,
-                plan=plan.slug,
-                tool_name=tool_name,
-                category="caller_intelligence",
-                credits=nested.credits,
-                minimum_plan=nested.minimum_plan,
-                provider_class=nested.provider_class,
-                reason=nested.reason,
-                breakdown=(
-                    {
-                        "kind": "semantic_capability",
-                        "capability": capability,
-                        "credits": 0,
-                    },
-                    *nested.breakdown,
-                ),
-                limits=plan.to_dict(),
-            )
-
-        if capability == "phone.number.lookup":
-            nested = estimate_call("phone_number_lookup", nested_arguments, plan.slug)
-            return CostEstimate(
-                allowed=nested.allowed,
-                plan=plan.slug,
-                tool_name=tool_name,
-                category="phone_intelligence",
-                credits=nested.credits,
-                minimum_plan=nested.minimum_plan,
-                provider_class=nested.provider_class,
-                reason=nested.reason,
-                breakdown=(
-                    {
-                        "kind": "semantic_capability",
-                        "capability": capability,
-                        "credits": 0,
-                    },
-                    *nested.breakdown,
-                ),
-                limits=plan.to_dict(),
-            )
-
     units = _bounded_units(rule, args)
     if units:
         surcharge = units * rule.credits_per_unit
@@ -759,6 +910,30 @@ def _measured_provider_surcharge(
     return total
 
 
+def _measured_mesh_attempts(provider_calls: dict[str, Any], counters: dict[str, Any]) -> int:
+    total = 0
+    for provider, raw_count in provider_calls.items():
+        try:
+            count = max(0, int(raw_count))
+        except (TypeError, ValueError):
+            continue
+        _, surcharge = RAW_PROVIDER_SURCHARGES.get(str(provider).lower(), ("public", 0))
+        if provider == "githubpublic":
+            total += count
+        elif provider == "firecrawl":
+            total += count * 2
+        else:
+            total += count * (2 + surcharge)
+    try:
+        units = max(0, int(counters.get("firecrawl_work_units") or 0))
+    except (ValueError, TypeError):
+        units = 0
+    total += units * FIRECRAWL_CREDITS_PER_UNIT
+    for counter in ("public_data_requests", "public_game_requests", "native_web_requests"):
+        total += max(0, int(counters.get(counter) or 0)) * 3
+    return total
+
+
 def settle_measured_cost(
     tool_name: str,
     arguments: dict[str, Any] | None,
@@ -806,6 +981,30 @@ def settle_measured_cost(
     if tool_name.startswith("gamecore:"):
         return min(reserved, 1 if usage.get("completed") else 0)
 
+    if tool_name in {"mesh_capability_execute", "gaming_intel", "gaming_profile", "mesh_batch_execute"}:
+        if tool_name == "mesh_capability_execute":
+            capability = str(args.get("capability") or "").strip()
+            nested_args = args.get("arguments") or {}
+            phone_tools = {
+                "phone.number.lookup": "phone_number_lookup",
+                "phone.caller.lookup": "phone_caller_lookup",
+                "phone.caller.investigate": "phone_caller_investigate",
+            }
+            if capability in phone_tools:
+                return settle_measured_cost(
+                    phone_tools[capability], nested_args, plan_slug,
+                    reserved_credits=reserved, execution_usage=usage, latency_ms=latency_ms,
+                )
+        base = _rule_for(tool_name).base_credits if provider_calls else 0
+        actual = base + _measured_mesh_attempts(provider_calls, counters)
+        if provider_calls.get("githubpublic"):
+            try:
+                github_requests = max(0, int(counters.get("github_api_calls") or 0))
+            except (TypeError, ValueError):
+                github_requests = 0
+            actual += github_requests
+        return min(reserved, actual)
+
     if tool_name == "mesh_execute":
         ref = str(args.get("ref") or args.get("tool") or "").strip().lower()
         nested_args = (
@@ -836,8 +1035,15 @@ def settle_measured_cost(
                 "phone_caller_investigate", nested_args, plan_slug,
                 reserved_credits=reserved, execution_usage=usage, latency_ms=latency_ms,
             )
+        if ref in {"githubpublic:search", "githubpublic:inspect"}:
+            return settle_measured_cost(
+                "repo:" + ref.split(":", 1)[1], nested_args, plan_slug,
+                reserved_credits=reserved, execution_usage=usage, latency_ms=latency_ms,
+            )
 
         prefix = ref.split(":", 1)[0] if ":" in ref else ""
+        if prefix in {"firecrawl", "publicdata", "gamepublic", "nativeweb"}:
+            return min(reserved, _measured_mesh_attempts(provider_calls, counters))
         economics = RAW_PROVIDER_SURCHARGES.get(prefix)
         if economics is not None:
             _, surcharge = economics
@@ -847,37 +1053,6 @@ def settle_measured_cost(
                 calls = 0
             actual = 2 + surcharge * calls
             return min(reserved, actual)
-
-    if tool_name == "mesh_capability_execute":
-        capability = str(args.get("capability") or "").strip()
-        nested_args = (
-            dict(args.get("arguments") or {})
-            if isinstance(args.get("arguments"), dict)
-            else {}
-        )
-        if capability == "phone.number.lookup":
-            return settle_measured_cost(
-                "phone_number_lookup",
-                nested_args,
-                plan_slug,
-                reserved_credits=reserved,
-                execution_usage=usage,
-                latency_ms=latency_ms,
-            )
-        if capability == "phone.caller.lookup":
-            return settle_measured_cost(
-                "phone_caller_lookup",
-                nested_args,
-                plan_slug,
-                reserved_credits=reserved,
-                execution_usage=usage,
-                latency_ms=latency_ms,
-            )
-        if capability == "phone.caller.investigate":
-            return settle_measured_cost(
-                "phone_caller_investigate", nested_args, plan_slug,
-                reserved_credits=reserved, execution_usage=usage, latency_ms=latency_ms,
-            )
 
     if tool_name == "phone_number_lookup":
         actual = 2 + _measured_provider_surcharge(provider_calls)

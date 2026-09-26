@@ -1,0 +1,72 @@
+"""Stable application IDs; catalog coverage is not a live availability guarantee.
+
+Each entry links to its public catalog record. Operations report unsupported or
+unavailable data explicitly. Profiles and matches remain separate capabilities.
+"""
+
+# App IDs are immutable; titles can change independently of the ID.
+PUBLIC_GAMES = {
+    730: "Counter-Strike 2", 570: "Dota 2", 440: "Team Fortress 2",
+    578080: "PUBG: BATTLEGROUNDS", 1172470: "Apex Legends", 252490: "Rust",
+    271590: "Grand Theft Auto V Legacy", 1245620: "ELDEN RING",
+    1086940: "Baldur's Gate 3", 1091500: "Cyberpunk 2077",
+    292030: "The Witcher 3: Wild Hunt", 413150: "Stardew Valley",
+    105600: "Terraria", 892970: "Valheim", 1623730: "Palworld",
+    553850: "HELLDIVERS 2", 108600: "Project Zomboid", 294100: "RimWorld",
+    427520: "Factorio",  526870: "Satisfactory",
+    4000: "Garry's Mod", 550: "Left 4 Dead 2", 620: "Portal 2",
+    400: "Portal", 220: "Half-Life 2", 70: "Half-Life",
+    250900: "The Binding of Isaac: Rebirth", 646570: "Slay the Spire",
+    1145360: "Hades", 1145350: "Hades II", 367520: "Hollow Knight",
+    588650: "Dead Cells", 588430: "Fallout Shelter", 377160: "Fallout 4",
+    22380: "Fallout: New Vegas", 1151340: "Fallout 76",
+    489830: "The Elder Scrolls V: Skyrim Special Edition",
+    306130: "The Elder Scrolls Online", 582010: "Monster Hunter: World",
+    1446780: "Monster Hunter Rise", 1174180: "Red Dead Redemption 2",
+    1172620: "Sea of Thieves", 346110: "ARK: Survival Evolved",
+    2399830: "ARK: Survival Ascended", 381210: "Dead by Daylight",
+    359550: "Tom Clancy's Rainbow Six Siege", 230410: "Warframe",
+    1085660: "Destiny 2", 236390: "War Thunder", 394360: "Hearts of Iron IV",
+    281990: "Stellaris", 236850: "Europa Universalis IV",
+    1158310: "Crusader Kings III", 289070: "Sid Meier's Civilization VI",
+    8930: "Sid Meier's Civilization V", 255710: "Cities: Skylines",
+    949230: "Cities: Skylines II", 1142710: "Total War: WARHAMMER III",
+    594570: "Total War: WARHAMMER II", 34330: "Total War: SHOGUN 2",
+    1466860: "Age of Empires IV", 813780: "Age of Empires II: Definitive Edition",
+    227300: "Euro Truck Simulator 2", 270880: "American Truck Simulator",
+    244210: "Assetto Corsa", 805550: "Assetto Corsa Competizione",
+    1551360: "Forza Horizon 5", 1293830: "Forza Horizon 4",
+    284160: "BeamNG.drive", 646910: "The Crew 2", 252950: "Rocket League",
+    493520: "GTFO", 548430: "Deep Rock Galactic", 1966720: "Lethal Company",
+    739630: "Phasmophobia", 242760: "The Forest", 1326470: "Sons Of The Forest",
+    552500: "Warhammer: Vermintide 2", 1361210: "Warhammer 40,000: Darktide",
+    218620: "PAYDAY 2", 1272080: "PAYDAY 3", 881100: "Noita",
+    322170: "Geometry Dash", 960090: "Bloons TD 6", 1794680: "Vampire Survivors",
+    2379780: "Balatro", 653530: "Return of the Obra Dinn",
+    1057090: "Ori and the Will of the Wisps", 387290: "Ori and the Blind Forest: Definitive Edition",
+    504230: "Celeste", 268910: "Cuphead", 391540: "Undertale",
+    1151640: "Horizon Zero Dawn Complete Edition", 1593500: "God of War",
+    1817070: "Marvel's Spider-Man Remastered", 1817190: "Marvel's Spider-Man: Miles Morales",
+    1659420: "UNCHARTED: Legacy of Thieves Collection", 1888930: "The Last of Us Part I",
+    814380: "Sekiro: Shadows Die Twice", 374320: "DARK SOULS III",
+    570940: "DARK SOULS: REMASTERED", 335300: "DARK SOULS II: Scholar of the First Sin",
+    740130: "Tales of Arise", 524220: "NieR:Automata", 1113560: "NieR Replicant ver.1.22474487139...",
+    1687950: "Persona 5 Royal", 2161700: "Persona 3 Reload",
+    638970: "Yakuza 0", 1235140: "Yakuza: Like a Dragon",
+    2072450: "Like a Dragon: Infinite Wealth", 990080: "Hogwarts Legacy",
+    534380: "Dying Light 2 Stay Human", 239140: "Dying Light",
+    883710: "Resident Evil 2", 952060: "Resident Evil 3",
+    2050650: "Resident Evil 4", 1196590: "Resident Evil Village",
+    418370: "Resident Evil 7 Biohazard", 782330: "DOOM Eternal",
+    379720: "DOOM", 435150: "Divinity: Original Sin 2",
+    268500: "XCOM 2", 200510: "XCOM: Enemy Unknown",
+    1286830: "STAR WARS: The Old Republic", 208580: "STAR WARS Knights of the Old Republic II",
+    1237970: "Titanfall 2", 1222140: "Detroit: Become Human",
+    412020: "Metro Exodus", 286690: "Metro 2033 Redux",
+    287390: "Metro: Last Light Redux", 261550: "Mount & Blade II: Bannerlord",
+    48700: "Mount & Blade: Warband",
+}
+
+
+def game_pack(app_id: int) -> str:
+    return "dota2" if app_id == 570 else f"game-{app_id}"
