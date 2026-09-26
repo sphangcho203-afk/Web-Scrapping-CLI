@@ -450,10 +450,16 @@ def test_public_data_workspace_validates_executes_and_reports_partial_results(fr
                 data = {"keys": [{"id": "key_fixture", "name": "Research key", "scopes": []}]}
             elif path.startswith("/api/public-data/"):
                 calls.append(route.request.post_data_json)
-                data = {"request_id": "req_public", "usage": {"credits_charged": 8},
-                        "result": {"partial": True, "evidence": [{"source_url": "https://source.example/report",
-                        "title": "Public report", "captured_at": "2026-09-26T00:00:00Z", "snippets": ["A won by three points."]}],
-                        "errors": [{"code": "robots_disallowed"}]}}
+                if path.endswith("/search"):
+                    data = {"request_id": "req_search", "usage": {"credits_charged": 8},
+                            "result": {"results": [{"url": "https://doi.org/10.1234/test",
+                            "title": "Public agent research", "snippet": "Publication evidence",
+                            "sources": ["openalex", "crossref"]}], "errors": [], "partial": False}}
+                else:
+                    data = {"request_id": "req_public", "usage": {"credits_charged": 8},
+                            "result": {"partial": True, "evidence": [{"source_url": "https://source.example/report",
+                            "title": "Public report", "captured_at": "2026-09-26T00:00:00Z", "snippets": ["A won by three points."]}],
+                            "errors": [{"code": "robots_disallowed"}]}}
             else:
                 data = {}
             route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
@@ -475,6 +481,13 @@ def test_public_data_workspace_validates_executes_and_reports_partial_results(fr
         form.locator('[name="operation"]').select_option("extract")
         assert not page.locator("#public-data-research-fields").is_visible()
         assert "5 credits" in page.locator("#public-data-budget").inner_text()
+        form.locator('[name="operation"]').select_option("search")
+        assert not page.locator("#public-data-urls-field").is_visible()
+        form.locator('[name="search_query"]').fill("agent research")
+        form.locator('button[type="submit"]').click()
+        page.get_by_role("link", name="Open source", exact=True).wait_for()
+        assert calls[-1]["arguments"] == {"query": "agent research", "sources": ["wikipedia", "openalex", "crossref"], "limit": 5}
+        assert "Publication evidence" in page.locator("#public-data-output").inner_text()
         for width in [320, 360, 390, 430, 768, 1024, 1366, 1440, 1920]:
             page.set_viewport_size({"width": width, "height": 900})
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width

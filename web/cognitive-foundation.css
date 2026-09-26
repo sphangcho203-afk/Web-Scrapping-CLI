@@ -2304,7 +2304,7 @@ html.ih-overlay-open,html.ih-overlay-open body{overflow:hidden}
 }
 
 /* Public evidence shares the execution form's geometry and focus treatment. */
-#public-data-research-fields[hidden]{display:none!important}
+#public-data-research-fields[hidden],#public-data-search-fields[hidden],#public-data-urls-field[hidden]{display:none!important}
 #public-data-form,#public-data-form label,#public-data-form input,#public-data-form select,#public-data-form textarea,#public-data-output{min-width:0;max-width:100%}
 #public-data-output h4{margin:0 0 8px;overflow-wrap:anywhere}
 #game-pagination{margin-block:14px}

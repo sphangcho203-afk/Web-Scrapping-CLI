@@ -22,6 +22,7 @@ from .capability_packs import Capability, CapabilityCandidate
 from .discovery import discover_from_html, discover_frontier_urls
 from .execution_meter import record_usage
 from .extractor import extract_document
+from .federated_search import federated_search, validate_search
 from .fetcher import DEFAULT_UA, extract_links, fetch_url
 from .models import FetchResult
 from .tool_mesh import ToolDescriptor
@@ -138,6 +139,8 @@ def structured_document(result: FetchResult) -> dict[str, Any]:
 
 
 def request_budget(operation: str, arguments: dict[str, Any]) -> int:
+    if operation == "search":
+        return len(validate_search(arguments)[1])
     if operation not in {"extract", "discover", "research"}:
         raise ValueError("Unknown public data operation")
     allowed = {"url"} if operation != "research" else {"urls", "query", "max_pages"}
@@ -252,6 +255,7 @@ class PublicDataProvider:
 
     async def describe(self, tool_id: str) -> ToolDescriptor:
         descriptions = {
+            "search": "Search independent public indexes and return normalized, deduplicated results with source evidence.",
             "extract": "Extract public HTML, tables, JSON-LD, JSON, CSV, RSS, Atom and sitemaps with source evidence.",
             "discover": "Inspect a public document for published links, feeds, sitemaps and machine-readable interfaces.",
             "research": "Collect ranked evidence from supplied public URLs and same-origin links with robots, page and time bounds. No search API key required.",
@@ -259,6 +263,10 @@ class PublicDataProvider:
         if tool_id not in descriptions:
             raise ValueError("Unknown public data operation")
         properties = {"url": {"type": "string"}}
+        if tool_id == "search":
+            properties = {"query": {"type": "string", "minLength": 2, "maxLength": 200},
+                          "sources": {"type": "array", "items": {"type": "string", "enum": ["wikipedia", "openalex", "crossref"]}, "uniqueItems": True, "minItems": 1, "maxItems": 3},
+                          "limit": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5}}
         if tool_id == "research":
             properties = {"urls": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 10},
                           "query": {"type": "string", "maxLength": 500},
@@ -266,19 +274,23 @@ class PublicDataProvider:
         return ToolDescriptor(ref=f"publicdata:{tool_id}", provider=self.name, tool_id=tool_id,
                               name=f"Public data {tool_id}", description=descriptions[tool_id],
                               input_schema={"type": "object", "properties": properties,
-                                            "required": ["urls" if tool_id == "research" else "url"], "additionalProperties": False},
+                                            "required": ["query" if tool_id == "search" else "urls" if tool_id == "research" else "url"], "additionalProperties": False},
                               tags=["web", "public", "data", tool_id], side_effecting=False,
                               requires_auth=False, metadata={"method": "GET"})
 
     async def search(self, query: str, *, limit=10):
-        descriptors = [await self.describe(op) for op in ("extract", "discover", "research")]
+        descriptors = [await self.describe(op) for op in ("extract", "discover", "research", "search")]
         words = query.casefold().split()
         return [item for item in descriptors if not words or any(word in f"{item.name} {item.description}".casefold() for word in words)][:limit]
 
     async def execute(self, tool_id, arguments, *, account=None, wait_seconds=30, timeout_seconds=60, options=None):
         request_budget(tool_id, arguments)
         started = time.monotonic()
-        if tool_id == "research":
+        if tool_id == "search":
+            data = await federated_search(arguments, fetch=_fetch, timeout=timeout_seconds)
+            if len(data["errors"]) == len(data["sources_attempted"]):
+                return {"status": "failed", "data": data, "error": "All public indexes are unavailable; inspect source errors."}
+        elif tool_id == "research":
             data = await research(arguments, timeout=timeout_seconds)
             if not data["evidence"]:
                 return {"status": "failed", "data": data, "error": "No public source could be collected; inspect source errors."}
@@ -297,7 +309,7 @@ class PublicDataProvider:
 
 
 def build_public_data_capabilities() -> list[Capability]:
-    return [Capability(id=f"web.public.{op}", name=f"Public data {op}",
+    return ([Capability(id=f"web.public.{op}", name=f"Public data {op}",
                        description=description, pack="public-data", tags=("web", "public", "data", op),
                        candidates=(CapabilityCandidate(provider="publicdata", ref=f"publicdata:{op}", priority=10,
                                                        passthrough_arguments=True),),
@@ -309,3 +321,16 @@ def build_public_data_capabilities() -> list[Capability]:
             for op, description in (("extract", "Extract structured public documents with provenance."),
                                     ("discover", "Discover published data interfaces, feeds and links."),
                                     ("research", "Research supplied URLs and same-origin links without a search API key."))]
+            + [Capability(id="web.public.search", name="Federated public search",
+                          description="Search public knowledge and scholarly indexes with source evidence.",
+                          pack="public-data", tags=("web", "public", "search", "research"),
+                          candidates=(CapabilityCandidate(provider="publicdata", ref="publicdata:search", priority=10),),
+                          input_schema={"type": "object", "required": ["query"], "properties": {
+                              "query": {"type": "string", "minLength": 2, "maxLength": 200},
+                              "sources": {"type": "array", "items": {"type": "string", "enum": ["wikipedia", "openalex", "crossref"]}, "minItems": 1, "maxItems": 3, "uniqueItems": True},
+                              "limit": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5}},
+                              "additionalProperties": False},
+                          output_schema={"type": "object", "required": ["query", "results", "sources_attempted", "errors", "partial"],
+                                         "properties": {"results": {"type": "array", "items": {"type": "object", "required": ["title", "url", "sources", "evidence"]}},
+                                                        "sources_attempted": {"type": "array", "items": {"type": "string"}},
+                                                        "partial": {"type": "boolean"}, "errors": {"type": "array"}}})])

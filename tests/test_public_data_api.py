@@ -57,3 +57,31 @@ def test_public_data_refuses_missing_identity_before_network_or_reservation(monk
     with TestClient(app) as client:
         response = client.post("/api/public-data/research", json={"arguments": {"urls": ["https://source.example/"]}})
         assert response.status_code == 401
+
+
+def test_public_search_api_reserves_selected_indexes_and_returns_partial_evidence(monkeypatch):
+    ledger = []
+    monkeypatch.setattr(module, "_playground_identity", lambda request, body: SimpleNamespace(plan_slug="free"))
+    monkeypatch.setattr(module, "store", SimpleNamespace(
+        reserve_tool_call=lambda **kwargs: estimate_call(kwargs["tool_name"], kwargs["arguments"], "free").credits,
+        finish_usage=lambda request_id, **kwargs: ledger.append(kwargs),
+    ))
+    monkeypatch.setattr(module, "get_tool_mesh", lambda: ToolMesh([public_data_provider.PublicDataProvider()]))
+
+    async def fetch(url, **kwargs):
+        assert kwargs["url_guard"](url)
+        if "crossref.org" in url:
+            raise RuntimeError("index unavailable")
+        return fetched('{"results":[{"id":"https://openalex.org/W42","title":"Research paper"}]}', "application/json", url)
+
+    monkeypatch.setattr(public_data_provider, "fetch_url", fetch)
+    app = FastAPI()
+    app.include_router(module.router)
+    with TestClient(app) as client:
+        response = client.post("/api/public-data/search", json={"api_key_id": "key_test", "arguments": {
+            "query": "Research paper", "sources": ["openalex", "crossref"], "limit": 3}})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["result"]["partial"] and data["result"]["results"][0]["title"] == "Research paper"
+    assert data["usage"] == {"credits_reserved": 8, "credits_charged": 8}
+    assert ledger[0]["execution_usage"]["counters"]["public_data_requests"] == 2

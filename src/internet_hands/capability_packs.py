@@ -33,6 +33,7 @@ class Capability:
     candidates: tuple[CapabilityCandidate, ...]
     read_only: bool = True
     input_schema: dict[str, Any] = field(default_factory=dict)
+    output_schema: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -43,6 +44,7 @@ class Capability:
             "tags": list(self.tags),
             "read_only": self.read_only,
             "input_schema": self.input_schema,
+            "output_schema": self.output_schema,
             "candidates": [candidate.to_dict() for candidate in self.candidates],
         }
 
