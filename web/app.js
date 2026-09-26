@@ -117,7 +117,7 @@ async function api(path, options = {}) {
   if (init.body && typeof init.body !== 'string') init.body = JSON.stringify(init.body);
   const response = await fetch(path, init); let data = {};
   try { data = await response.json(); } catch {}
-  if (!response.ok) { const detail = data?.detail; const error = new Error(typeof detail === 'string' ? detail : detail?.message || data?.error || `Request failed (${response.status})`); error.status = response.status; error.code = detail?.code; error.requestId = detail?.request_id; throw error; }
+  if (!response.ok) { const detail = data?.detail; const error = new Error(typeof detail === 'string' ? detail : detail?.message || data?.error || `Request failed (${response.status})`); error.status = response.status; error.code = detail?.code; error.requestId = detail?.request_id; error.usage = detail?.usage; error.result = detail?.result; throw error; }
   return (init.method || 'GET').toUpperCase() === 'GET' ? normalizeCollections(path, data) : data;
 }
 async function hydrateOptionalSession() {
@@ -489,15 +489,22 @@ function renderLegal(){const path=location.pathname.replace(/\/+$/,'')||'/';cons
 async function dashGames(){
   const [data,keyData]=await Promise.all([api('/api/games'),api('/api/api-keys')]);
   const games=data.games||[],keys=(keyData.keys||[]).filter(k=>!k.revoked_at&&(!k.expires_at||new Date(k.expires_at)>new Date()));
-  dashboardShell('games',`${pageHead('GAME INTELLIGENCE','Games & public data','Explore registered capabilities. Internet Hands checks each operation when you open it.')}<section class="game-catalog"><label class="game-filter">Find a game<input id="game-search" type="search" placeholder="Search games" autocomplete="off"></label><div id="game-list" class="game-list"></div><div id="game-detail" class="game-detail" aria-live="polite"></div></section>`);
+  dashboardShell('games',`${pageHead('GAME INTELLIGENCE','Games & public data','Explore registered capabilities. Internet Hands checks each operation when you open it.')}<section class="game-catalog"><label class="game-filter">Find a game<input id="game-search" type="search" placeholder="Search games" autocomplete="off"></label><p id="game-count" class="muted" role="status"></p><div id="game-list" class="game-list"></div><nav id="game-pagination" class="game-actions" aria-label="Game catalog pages"></nav><div id="game-detail" class="game-detail" aria-live="polite"></div></section>`);
   const list=$('#game-list'),detail=$('#game-detail'),filter=$('#game-search');
   const draw=()=>{
     const q=filter.value.trim().toLowerCase();
     const matches=games.filter(g=>g.name.toLowerCase().includes(q)||g.game_id.includes(q));
-    list.innerHTML=matches.length?matches.map(g=>`<button class="game-tile" type="button" data-game="${esc(g.game_id)}" aria-pressed="${g.game_id===selectedId}" ${toolRunning?'disabled':''}><strong>${esc(g.name)}</strong><span>${fmt(g.capability_count)} capabilities · ${fmt(g.provider_ready_count)} ready</span>${icon('arrow')}</button>`).join(''):'<p class="game-empty">No registered game matches that search.</p>';
+    const pages=Math.max(1,Math.ceil(matches.length/24));
+    gamePage=Math.min(gamePage,pages-1);
+    $('#game-count').textContent=`${fmt(matches.length)} games · page ${gamePage+1} of ${pages}. Availability is checked when you run an operation.`;
+    const pager=$('#game-pagination');
+    pager.innerHTML=pages>1?`<button type="button" class="btn" data-game-prev ${gamePage===0?'disabled':''}>Previous</button><button type="button" class="btn" data-game-next ${gamePage===pages-1?'disabled':''}>Next</button>`:'';
+    pager.querySelector('[data-game-prev]')?.addEventListener('click',()=>{gamePage--;draw();filter.focus();});
+    pager.querySelector('[data-game-next]')?.addEventListener('click',()=>{gamePage++;draw();filter.focus();});
+    list.innerHTML=matches.length?matches.slice(gamePage*24,(gamePage+1)*24).map(g=>`<button class="game-tile" type="button" data-game="${esc(g.game_id)}" aria-pressed="${g.game_id===selectedId}" ${toolRunning?'disabled':''}><strong>${esc(g.name)}</strong><span>${fmt(g.capability_count)} capabilities · ${fmt(g.provider_ready_count)} ready</span>${icon('arrow')}</button>`).join(''):'<p class="game-empty">No registered game matches that search.</p>';
     $$('[data-game]',list).forEach(button=>button.onclick=()=>select(button.dataset.game));
   };
-  let selectedRun=0,selectedId='',panelRun=0,toolRunning=false;
+  let selectedRun=0,selectedId='',panelRun=0,toolRunning=false,gamePage=0;
   async function select(id){
     if(toolRunning)return;
     const run=++selectedRun;
@@ -506,7 +513,7 @@ async function dashGames(){
     try{
       const {game}=await api('/api/games/'+encodeURIComponent(id));
       if(run!==selectedRun)return;
-      detail.innerHTML=`<header><div><span class="overline">${esc(game.game_id)}</span><h2>${esc(game.name)}</h2><p>${fmt(game.capability_count)} registered capabilities · ${fmt(game.provider_ready_count)} ready to run. Open a capability to inspect its current operations.</p></div><div class="game-actions"><a class="btn primary" data-link href="/dashboard/playground?query=${encodeURIComponent(game.name+' latest patch and competitive meta')}">Research this game ${icon('arrow')}</a><a class="btn" data-link href="/dashboard/repositories?query=${encodeURIComponent(game.name+' public api tools')}">Find open-source tools</a></div></header><div class="game-capabilities">${(game.capabilities||[]).map(cap=>`<article><span class="game-cap-status ${cap.provider_ready?'ready':''}">${cap.provider_ready?(cap.providers.includes('gamecore')?(cap.id.startsWith('league.reference')?'Live reference':'Bundled reference'):'Ready to run'):cap.availability==='key_required'?'Access required':cap.availability==='discovery_required'?'Explore operations':'Currently unavailable'}</span><h3>${esc(cap.name)}</h3><p>${cap.providers.includes('gamecore')?esc(cap.description):'Read public game data through a validated Internet Hands operation.'}</p><small>${cap.provider_ready?'Execution available':cap.availability==='discovery_required'?'Operations checked on open':'No operation ready'}</small>${cap.providers.includes('gamecore')&&cap.provider_ready?`<button type="button" class="game-run-button" data-game-tool="${esc(cap.id)}">Run tool ${icon('arrow')}</button>`:cap.availability==='ready'||cap.availability==='discovery_required'?`<button type="button" class="game-run-button" data-game-discover="${esc(cap.id)}">${cap.provider_ready?'Run tool':'Find operations'} ${icon('arrow')}</button>`:''}</article>`).join('')}</div><div id="game-tool-panel" aria-live="polite"></div>`;
+      detail.innerHTML=`<header><div><span class="overline">${esc(game.game_id)}</span><h2>${esc(game.name)}</h2><p>${fmt(game.capability_count)} registered capabilities · ${fmt(game.provider_ready_count)} ready to run. Open a capability to inspect its current operations.</p></div><div class="game-actions"><a class="btn primary" data-link href="/dashboard/playground?query=${encodeURIComponent(game.name+' latest patch and competitive meta')}">Research this game ${icon('arrow')}</a><a class="btn" data-link href="/dashboard/repositories?query=${encodeURIComponent(game.name+' public api tools')}">Find open-source tools</a></div></header><div class="game-capabilities">${(game.capabilities||[]).map(cap=>`<article><span class="game-cap-status ${cap.provider_ready?'ready':''}">${cap.provider_ready?(cap.providers.includes('gamecore')?(cap.id.startsWith('league.reference')?'Live reference':'Bundled reference'):'Ready to run'):cap.availability==='key_required'?'Access required':cap.availability==='discovery_required'?'Explore operations':'Currently unavailable'}</span><h3>${esc(cap.name)}</h3><p>${cap.providers.some(p=>['gamecore','gamepublic'].includes(p))?esc(cap.description):'Read public game data through a validated Internet Hands operation.'}</p><small>${cap.provider_ready?'Execution available':cap.availability==='discovery_required'?'Operations checked on open':'No operation ready'}</small>${cap.providers.includes('gamecore')&&cap.provider_ready?`<button type="button" class="game-run-button" data-game-tool="${esc(cap.id)}">Run tool ${icon('arrow')}</button>`:cap.availability==='ready'||cap.availability==='discovery_required'?`<button type="button" class="game-run-button" data-game-discover="${esc(cap.id)}">${cap.provider_ready?'Run tool':'Find operations'} ${icon('arrow')}</button>`:''}</article>`).join('')}</div><div id="game-tool-panel" aria-live="polite"></div>`;
       const cards=$$('.game-capabilities > article',detail),grid=$('.game-capabilities',detail);
       const ready=cards.filter(card=>card.querySelector('.game-cap-status.ready'));
       const other=cards.filter(card=>!card.querySelector('.game-cap-status.ready'));
@@ -568,8 +575,8 @@ async function dashGames(){
           toolRunning=true;draw();selector.disabled=true;panel.querySelector('.game-tool-close').disabled=true;
           output.innerHTML='<p class="game-progress" role="status">Operation sent · waiting for the execution result…</p>';submit.disabled=true;submit.setAttribute('aria-busy','true');
           try{const result=await api('/api/games/'+encodeURIComponent(game.game_id)+'/tools/'+encodeURIComponent(capability),{method:'POST',body:{ref:tool.ref,arguments:arguments_,api_key_id:form.elements.api_key_id.value}});
-            output.innerHTML=`<div class="game-tool-output" role="status"><small>Complete · ${fmt(result.usage?.credits_charged)} credits · ${esc(result.request_id||'')}</small><pre>${esc(JSON.stringify(result.result,null,2))}</pre><details class="game-operation-trace"><summary>Execution trace & data origin</summary><code>${esc(result.ref||tool.ref)}</code><p>${esc(tool.provider)} · ${esc(tool.metadata?.server||tool.metadata?.base_url||'')}${tool.metadata?.source==='rone-mlbb'?' · <a href="https://arena.rone.dev" target="_blank" rel="noopener noreferrer">Rone Arena data</a>':''}</p></details></div>`;
-          }catch(error){output.innerHTML=`<p class="game-error" role="alert">${esc(error.message)}${error.requestId?` · ${esc(error.requestId)}`:''}</p>`;}
+            output.innerHTML=`<div class="game-tool-output" role="status"><small>Complete · ${fmt(result.usage?.credits_charged)} credits · ${esc(result.request_id||'')}</small><pre>${esc(JSON.stringify(result.result,null,2))}</pre><details class="game-operation-trace"><summary>Source evidence</summary><p>${/^https?:\/\//.test(result.result?.source_url||'')?`<a href="${esc(result.result.source_url)}" target="_blank" rel="noopener noreferrer">Open source</a>`:'Source URL unavailable for this operation.'} · ${esc(result.result?.captured_at||'')}</p></details></div>`;
+          }catch(error){output.innerHTML=`<p class="game-error" role="alert">${esc(error.message)}${error.requestId?` · ${esc(error.requestId)}`:''}${error.usage?` · ${fmt(error.usage.credits_charged)} credits charged`:''}</p>`;}
           finally{toolRunning=false;draw();selector.disabled=false;panel.querySelector('.game-tool-close').disabled=false;submit.disabled=false;submit.removeAttribute('aria-busy');}
         };
       }
@@ -603,7 +610,7 @@ async function dashGames(){
       finally{toolRunning=false;draw();panel.querySelector('.game-tool-close').disabled=false;submit.disabled=false;submit.removeAttribute('aria-busy');}
     };
   }
-  filter.oninput=draw;draw();if(games.length)select(games[0].game_id);
+  filter.oninput=()=>{gamePage=0;draw();};draw();if(games.length)select(games[0].game_id);
 }
 async function dashRepositories(){
   const keyData=await api('/api/api-keys');
@@ -649,7 +656,43 @@ async function dashRepositories(){
   $('#repo-form').onsubmit=e=>{e.preventDefault();investigate(field.value)};
   $$('[data-repo-example]').forEach(item=>item.onclick=()=>{if(requestPending)return;field.value=item.dataset.repoExample;investigate(field.value)});
 }
-async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,games:dashGames,repositories:dashRepositories,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
+async function dashPublicData(){
+  const keyData=await api('/api/api-keys');
+  const keys=(keyData.keys||[]).filter(k=>!k.revoked_at&&(!k.expires_at||new Date(k.expires_at)>new Date()));
+  dashboardShell('data',`${pageHead('PUBLIC DATA','Read the source. Follow the evidence.','Extract documents or collect evidence across the public URLs you choose.')}<section class="game-tool-runner"><form id="public-data-form" class="form-stack"><label>Operation<select name="operation"><option value="research">Research linked sources</option><option value="extract">Extract a document</option><option value="discover">Discover published interfaces</option></select></label><label>Source URLs<textarea name="urls" rows="4" required maxlength="8000" spellcheck="false" placeholder="https://example.com/public-report"></textarea><small id="public-data-url-help">One URL per line, up to 10. Research stays within these origins.</small></label><div id="public-data-research-fields" class="form-stack"><label>Evidence to look for<input name="query" maxlength="500" placeholder="Topic, question, or terms"></label><label>Page budget<input name="max_pages" type="number" min="1" max="20" value="5" required></label></div><label>Execution key<select name="api_key_id" required>${keys.map(k=>`<option value="${esc(k.id)}">${esc(k.name||k.prefix)}</option>`).join('')}</select></label><p id="public-data-budget" role="status"></p><button type="submit" class="btn primary" ${keys.length?'':'disabled'}>Run public data tool ${icon('arrow')}</button>${keys.length?'':'<p>Create an active API key to execute. <a data-link href="/dashboard/api-keys">Open API Keys</a></p>'}</form><div id="public-data-output" class="game-tool-output" aria-live="polite"></div></section>`);
+  const form=$('#public-data-form'),output=$('#public-data-output'),button=form.querySelector('button[type=submit]');
+  let running=false;
+  const update=()=>{
+    const research=form.elements.operation.value==='research';
+    $('#public-data-research-fields').hidden=!research;
+    form.elements.max_pages.disabled=!research;
+    $('#public-data-url-help').textContent=research?'One URL per line, up to 10. Research follows links within these origins.':'Enter one public HTTP(S) URL.';
+    const budget=research?Math.max(1,Math.min(20,Number(form.elements.max_pages.value)||5))*2:1;
+    $('#public-data-budget').textContent=`Reserve up to ${2+budget*3} credits. Final charge: 2 credits + 3 per attempted source fetch, including crawl-policy checks. Unused credits are released.`;
+  };
+  form.elements.operation.onchange=update;form.elements.max_pages.oninput=update;update();
+  form.onsubmit=async event=>{
+    event.preventDefault();if(running)return;
+    const operation=form.elements.operation.value,urls=form.elements.urls.value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+    try{urls.forEach(value=>{const url=new URL(value);if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw new Error();});}
+    catch{output.textContent='Use complete HTTP(S) URLs without embedded credentials.';return;}
+    const pages=Number(form.elements.max_pages.value);
+    if(!urls.length||(operation==='research'&&(urls.length>10||urls.length>pages))||(operation!=='research'&&urls.length!==1)){output.textContent='Use one URL for extraction or discovery. Research accepts up to 10 URLs within its page budget.';return;}
+    const args=operation==='research'?{urls,query:form.elements.query.value,max_pages:pages}:{url:urls[0]};
+    running=true;busy(button,true,'Collecting public sources…');form.setAttribute('aria-busy','true');
+    output.innerHTML='<p role="status">Request submitted. Waiting for source evidence; collection is bounded to 25 seconds.</p>';
+    try{
+      const response=await api('/api/public-data/'+operation,{method:'POST',body:{api_key_id:form.elements.api_key_id.value,arguments:args}});
+      if(!output.isConnected)return;
+      const result=response.result||{},sources=result.evidence||(result.source_url?[result]:[]);
+      output.innerHTML=`<h3>${result.partial?'Partial evidence collected':'Collection complete'}</h3><p>${fmt(response.usage?.credits_charged||0)} credits charged · <code>${esc(response.request_id)}</code></p>${sources.map(source=>`<article><h4>${esc(source.title||source.source_url)}</h4><p>${esc((source.snippets||[source.text||'']).join(' ').slice(0,1600))}</p><a href="${esc(source.source_url)}" target="_blank" rel="noopener noreferrer">Open source</a><small> · ${esc(source.captured_at||'')}</small></article>`).join('')}<details class="game-operation-trace"><summary>Structured results &amp; source diagnostics</summary><pre>${esc(JSON.stringify(result,null,2))}</pre></details>`;
+    }catch(error){if(output.isConnected){
+      output.innerHTML=`<p>${esc(error.message)}</p>${error.requestId?`<p>Request <code>${esc(error.requestId)}</code>${error.usage?` · ${fmt(error.usage.credits_charged)} credits charged`:''}</p>`:''}${error.result?`<details><summary>Source diagnostics</summary><pre>${esc(JSON.stringify(error.result,null,2))}</pre></details>`:''}`;
+    }}
+    finally{running=false;busy(button,false);form.removeAttribute('aria-busy');}
+  };
+}
+async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,games:dashGames,repositories:dashRepositories,data:dashPublicData,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
 async function renderRoute(){clearTransientUi();window.scrollTo(0,0);const p=location.pathname;try{if(p==='/'||p==='/pricing'||p==='/status'||p.startsWith('/docs')||p.startsWith('/legal')||LEGAL_ALIASES[p])await hydrateOptionalSession();if(p.startsWith('/dashboard'))return await renderDashboard();if(p==='/verify-email')return await renderVerify();if(p==='/login')return renderAuth('login');if(p==='/signup')return renderAuth('signup');if(p==='/forgot-password')return renderRecovery();if(p==='/reset-password')return renderRecovery(true);if(p.startsWith('/legal')||LEGAL_ALIASES[p])return renderLegal();if(p.startsWith('/docs'))return renderDocs();if(p==='/pricing')return await renderPricing();if(p==='/status')return await renderStatus();return await renderHome();}catch(error){console.error(error);if(error.status===401)return go('/login',true);app.innerHTML=`<main class="fatal"><div>${brand()}<span class="eyebrow">REQUEST FAILED</span><h1>The control plane did not answer cleanly.</h1><p>${esc(error.message)}</p><button class="btn primary" onclick="location.reload()">Try again</button></div></main>`;}}
 document.addEventListener('click',e=>{
   if(e.defaultPrevented)return;
@@ -675,6 +718,8 @@ const runLabel = e => {
     'playground:research':'Deep research','playground:crawl':'Web crawl'};
   if(!ref)return 'Internet operation';
   if(named[ref])return named[ref];
+  if(/^gamepublic:\d+\/(news|activity|achievements)$/.test(ref))
+    return 'Game '+ref.split('/').at(-1).replace(/^./,letter=>letter.toUpperCase());
   if(!/[.:_-]/.test(ref))return ref;
   return ref.replace(/^.*?:/,'').replace(/[._-]+/g,' ').replace(/\b\w/g,c=>c.toUpperCase())
     .replace(/\bMlbb\b/g,'MLBB').replace(/\bMcp\b/g,'MCP').replace(/\bApi\b/g,'API');
@@ -682,10 +727,10 @@ const runLabel = e => {
 const runWorkflow = e => {
   const ref=String(e?.capability||e?.tool_ref||'').toLowerCase();
   if(/^(repo:|githubpublic:)/.test(ref))return 'Repository intelligence';
-  if(/^(gamecore:|mlbb[.:]|valorant[.:]|league[.:]|dota2[.:]|minecraft[.:]|genshin[.:]|hsr[.:]|zzz[.:]|roblox[.:]|osu[.:]|brawlstars[.:]|clashofclans[.:]|clashroyale[.:]|tft[.:]|steam[.:]|riot[.:]|game[.:])/.test(ref))return 'Game intelligence';
+  if(/^(gamepublic:|gamecore:|mlbb[.:]|valorant[.:]|league[.:]|dota2[.:]|minecraft[.:]|genshin[.:]|hsr[.:]|zzz[.:]|roblox[.:]|osu[.:]|brawlstars[.:]|clashofclans[.:]|clashroyale[.:]|tft[.:]|steam[.:]|riot[.:]|game[.:])/.test(ref))return 'Game intelligence';
   if(/browser|sandbox/.test(ref))return 'Browser & compute';
   if(/monitor/.test(ref))return 'Monitoring';
-  if(/search|scrape|crawl|fetch|research|nativeweb|firecrawl/.test(ref))return 'Web intelligence';
+  if(/search|scrape|crawl|fetch|research|nativeweb|publicdata|firecrawl/.test(ref))return 'Web intelligence';
   return 'Tool execution';
 };
 
@@ -700,8 +745,7 @@ function openRunInspector(event) {
       <div><small>Created</small><b>${esc(when(event.created_at))}</b></div>
     </div>
     <div class="ih-inspector-section"><span>REQUEST REFERENCE</span><div class="ih-code-line"><code>${esc(event.request_id||'—')}</code><button class="btn small" data-copy="${esc(event.request_id||'')}">${icon('copy')} Copy ID</button></div></div>
-    <details class="ih-run-diagnostics"><summary>Technical routing</summary><div><span>Execution reference</span><code>${esc(event.tool_ref||'—')}</code><span>Adapter</span><code>${esc(event.provider||'—')}</code></div></details>
-    <div class="ih-inspector-note"><b>Why this view matters</b><p>This run comes from your real metered request ledger. A future web-run endpoint can attach payload, browser trace and evidence to this same inspector without changing the information architecture.</p></div>
+    <div class="ih-inspector-note"><b>Recorded execution</b><p>This request ID connects the operation, status, latency and credit charge in your usage ledger.</p></div>
   </div>`, true);
   bindCommon();
   return wrap;
@@ -943,7 +987,7 @@ function openRunInspector(event) {
         <article class="ih-runs-panel">
           <header><div><span>RECENT RUNS</span><h2>Execution ledger</h2></div><a data-link href="/dashboard/usage">View all ${icon('arrow')}</a></header>
           <div class="ih-run-list">
-            ${events.length ? events.map((e,i)=>`<button class="ih-run-row" data-run-index="${i}"><span>${statusDot(runStatus(e.status))}</span><div><b>${esc(runLabel(e))}</b><small>${esc(e.provider||'Provider pending')} · ${esc(when(e.created_at))}</small></div><code>${esc((e.request_id||'run').slice(0,16))}</code><em>${e.latency_ms==null?'—':`${fmt(e.latency_ms)} ms`}</em>${icon('arrow')}</button>`).join('') : `<div class="ih-empty-run"><span>${icon('activity')}</span><div><b>No runs yet</b><p>Connect an agent and execute your first internet task. Its real request trace will appear here.</p></div><a class="btn" data-link href="/dashboard/connections">Connect client</a></div>`}
+            ${events.length ? events.map((e,i)=>`<button class="ih-run-row" data-run-index="${i}"><span>${statusDot(runStatus(e.status))}</span><div><b>${esc(runLabel(e))}</b><small>${esc(runWorkflow(e))} · ${esc(when(e.created_at))}</small></div><code>${esc((e.request_id||'run').slice(0,16))}</code><em>${e.latency_ms==null?'—':`${fmt(e.latency_ms)} ms`}</em>${icon('arrow')}</button>`).join('') : `<div class="ih-empty-run"><span>${icon('activity')}</span><div><b>No runs yet</b><p>Connect an agent and execute your first internet task. Its real request trace will appear here.</p></div><a class="btn" data-link href="/dashboard/connections">Connect client</a></div>`}
           </div>
         </article>
         <aside class="ih-system-panel">
@@ -968,11 +1012,11 @@ function openRunInspector(event) {
     const latency=events.map(x=>Number(x.latency_ms)).filter(Number.isFinite).sort((a,b)=>a-b);
     const p95=latency.length ? latency[Math.min(latency.length-1,Math.floor(latency.length*.95))] : 0;
     dashboardShell('usage',`
-      <section class="ih-runs-head"><div><span>RUNS</span><h1>Every internet operation, traceable.</h1><p>Requests, providers, status, credits and latency from the real metered execution ledger.</p></div><button class="btn primary" data-new-run-inline>${icon('activity')} New run</button></section>
+      <section class="ih-runs-head"><div><span>RUNS</span><h1>Every internet operation, traceable.</h1><p>Requests, workflows, status, credits and latency from the metered execution ledger.</p></div><button class="btn primary" data-new-run-inline>${icon('activity')} New run</button></section>
       <section class="ih-runs-summary"><div><span>RUNS LOADED</span><b>${fmt(events.length)}</b></div><div><span>SUCCESS</span><b>${success.toFixed(1)}%</b></div><div><span>CREDITS</span><b>${fmt(credits)}</b></div><div><span>P95 LATENCY</span><b>${fmt(p95)} <small>ms</small></b></div></section>
       <section class="ih-run-table-wrap">
-        <div class="ih-run-table-head"><span>STATE</span><span>RUN</span><span>PROVIDER</span><span>CREDITS</span><span>LATENCY</span><span>TIME</span><span></span></div>
-        ${events.length ? events.map((e,i)=>`<button class="ih-run-table-row" data-run-index="${i}"><span>${statusDot(runStatus(e.status))}<b>${esc(e.status||'unknown')}</b></span><span><b>${esc(runLabel(e))}</b><code>${esc((e.request_id||'—').slice(0,22))}</code></span><span>${esc(e.provider||'—')}</span><span>${fmt(e.credits_charged||0)}</span><span>${e.latency_ms==null?'—':`${fmt(e.latency_ms)} ms`}</span><span>${esc(when(e.created_at))}</span><span>${icon('arrow')}</span></button>`).join('') : `<div class="ih-empty-run large"><span>${icon('activity')}</span><div><b>Your run ledger is empty</b><p>Requests executed through your connected clients appear here automatically.</p></div><a class="btn primary" data-link href="/dashboard/connections">Connect a client</a></div>`}
+        <div class="ih-run-table-head"><span>STATE</span><span>RUN</span><span>WORKFLOW</span><span>CREDITS</span><span>LATENCY</span><span>TIME</span><span></span></div>
+        ${events.length ? events.map((e,i)=>`<button class="ih-run-table-row" data-run-index="${i}"><span>${statusDot(runStatus(e.status))}<b>${esc(e.status||'unknown')}</b></span><span><b>${esc(runLabel(e))}</b><code>${esc((e.request_id||'—').slice(0,22))}</code></span><span>${esc(runWorkflow(e))}</span><span>${fmt(e.credits_charged||0)}</span><span>${e.latency_ms==null?'—':`${fmt(e.latency_ms)} ms`}</span><span>${esc(when(e.created_at))}</span><span>${icon('arrow')}</span></button>`).join('') : `<div class="ih-empty-run large"><span>${icon('activity')}</span><div><b>Your run ledger is empty</b><p>Requests executed through your connected clients appear here automatically.</p></div><a class="btn primary" data-link href="/dashboard/connections">Connect a client</a></div>`}
       </section>`);
     $('[data-new-run-inline]')?.addEventListener('click',()=>go('/dashboard'));
     $$('[data-run-index]').forEach(b=>b.addEventListener('click',()=>openRunInspector(events[Number(b.dataset.runIndex)])));
@@ -1407,6 +1451,7 @@ function openRunInspector(event) {
     ['Build', [
       ['overview','terminal','Overview'],
       ['playground','activity','Playground'],
+      ['data','search','Public data'],
       ['games','activity','Game Intelligence'],
       ['repositories','api','Repositories'],
       ['api-keys','key','API Keys']
@@ -1496,7 +1541,7 @@ function openRunInspector(event) {
         <div class="cos-sheet-handle"></div>
         <div class="cos-sheet-title"><b>More</b><small>Workspace navigation</small></div>
         <span class="cos-sheet-label">Build & observe</span>
-        ${[['api-keys','key','API Keys'],['games','activity','Game Intelligence'],['repositories','api','Repositories'],['monitors','monitor','Monitors']].map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${icon(ico)} ${label}</a>`).join('')}
+        ${[['api-keys','key','API Keys'],['data','search','Public data'],['games','activity','Game Intelligence'],['repositories','api','Repositories'],['monitors','monitor','Monitors']].map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${icon(ico)} ${label}</a>`).join('')}
         <span class="cos-sheet-label">Account & product</span>
         ${[['wallet','wallet','Credits'],['billing','billing','Billing & Plans'],['settings','settings','Settings & Security']].map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${icon(ico)} ${label}</a>`).join('')}
         <a data-link href="/docs">${icon('docs')} Documentation</a>

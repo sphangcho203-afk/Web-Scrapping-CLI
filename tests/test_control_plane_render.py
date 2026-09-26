@@ -394,3 +394,86 @@ def test_usage_leads_with_workflows_and_retains_technical_trace(frontend_url):
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
         assert not errors, errors
         browser.close()
+
+
+def test_expanded_catalog_paginates_and_searches_at_narrow_widths(frontend_url):
+    games = [{"game_id": f"game-{index}", "name": f"Public Game {index:03}",
+              "capability_count": 3, "provider_ready_count": 3, "capabilities": []} for index in range(132)]
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 320, "height": 800})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if path == "/api/auth/me":
+                data = {"user": {"email": "fixture@example.test", "email_verified": True}, "account": {}}
+            elif path == "/api/games":
+                data = {"games": games}
+            elif path.startswith("/api/games/"):
+                data = {"game": next(game for game in games if game["game_id"] == path.rsplit("/", 1)[-1])}
+            else:
+                data = {"keys": []}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/games")
+        page.locator('[data-game="game-0"][aria-pressed="true"]').wait_for()
+        assert page.locator(".game-tile").count() == 24
+        page.locator("[data-game-next]").click()
+        assert page.locator('[data-game="game-24"]').count() == 1
+        page.locator("#game-search").fill("Public Game 131")
+        assert page.locator(".game-tile").count() == 1
+        page.locator('[data-game="game-131"]').click()
+        page.locator("#game-detail h2").get_by_text("Public Game 131").wait_for()
+        for width in [320, 360, 390, 430, 768, 1024, 1280, 1366, 1440, 1920]:
+            page.set_viewport_size({"width": width, "height": 900})
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
+        assert not errors
+        browser.close()
+
+
+def test_public_data_workspace_validates_executes_and_reports_partial_results(frontend_url):
+    calls = []
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 320, "height": 800})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if path == "/api/auth/me":
+                data = {"user": {"email": "fixture@example.test", "email_verified": True}, "account": {}}
+            elif path == "/api/api-keys":
+                data = {"keys": [{"id": "key_fixture", "name": "Research key", "scopes": []}]}
+            elif path.startswith("/api/public-data/"):
+                calls.append(route.request.post_data_json)
+                data = {"request_id": "req_public", "usage": {"credits_charged": 8},
+                        "result": {"partial": True, "evidence": [{"source_url": "https://source.example/report",
+                        "title": "Public report", "captured_at": "2026-09-26T00:00:00Z", "snippets": ["A won by three points."]}],
+                        "errors": [{"code": "robots_disallowed"}]}}
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/data")
+        form = page.locator("#public-data-form")
+        form.wait_for()
+        form.locator('[name="urls"]').fill("file:///etc/passwd")
+        form.locator('button[type="submit"]').click()
+        assert not calls
+        form.locator('[name="urls"]').fill("https://source.example/report")
+        form.locator('[name="query"]').fill("scores")
+        form.locator('button[type="submit"]').click()
+        page.get_by_text("Partial evidence collected", exact=True).wait_for()
+        assert len(calls) == 1 and calls[0]["arguments"]["max_pages"] == 5
+        assert calls[0]["api_key_id"] == "key_fixture"
+        assert "8 credits charged" in page.locator("#public-data-output").inner_text()
+        assert page.get_by_role("link", name="Open source", exact=True).get_attribute("href") == "https://source.example/report"
+        form.locator('[name="operation"]').select_option("extract")
+        assert not page.locator("#public-data-research-fields").is_visible()
+        assert "5 credits" in page.locator("#public-data-budget").inner_text()
+        for width in [320, 360, 390, 430, 768, 1024, 1366, 1440, 1920]:
+            page.set_viewport_size({"width": width, "height": 900})
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
+        assert not errors
+        browser.close()

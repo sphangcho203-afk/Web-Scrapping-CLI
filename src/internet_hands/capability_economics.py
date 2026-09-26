@@ -165,6 +165,8 @@ PHONE_PROVIDER_ECONOMICS: dict[str, tuple[str, int]] = {
 
 RAW_PROVIDER_SURCHARGES: dict[str, tuple[str, int]] = {
     "nativeweb": ("local", 0),
+    "publicdata": ("public", 0),
+    "gamepublic": ("public", 0),
     "phoneintel": ("local", 0),
     "callerintel": ("free_tier", 4),
     "callerresearch": ("free_tier", 6),
@@ -207,7 +209,7 @@ def _semantic_calls(
         if not registry._candidate_matches(arguments, candidate):
             continue
         ref = candidate.ref or f"{candidate.provider}:discovered"
-        quote = estimate_call("mesh_execute", {"ref": ref, "arguments": arguments}, plan.slug)
+        quote = estimate_call("mesh_execute", {"ref": ref, "arguments": registry._map_arguments(arguments, candidate)}, plan.slug)
         if quote.allowed:
             quotes.append(quote)
     if not quotes:
@@ -690,6 +692,48 @@ def estimate_call(
                 plan.to_dict(),
             )
 
+        if ref.startswith("nativeweb:"):
+            operation = ref.split(":", 1)[1]
+            reason = None
+            if operation == "crawl":
+                units = nested_arguments.get("max_pages", nested_arguments.get("limit", 25))
+                if isinstance(units, bool) or not isinstance(units, int) or not 1 <= units <= 500:
+                    reason, units = "crawl requires 1 to 500 pages", 0
+                else:
+                    units *= 2  # A distinct origin may require its own robots fetch.
+            elif operation == "batch-fetch":
+                urls = nested_arguments.get("urls")
+                units = len(urls) if isinstance(urls, list) else 0
+                if not 1 <= units <= 20:
+                    reason = "batch fetch requires 1 to 20 URLs"
+            elif operation in {"fetch", "map", "search"}:
+                units = 1
+            else:
+                reason, units = "unknown native web operation", 0
+            return CostEstimate(
+                reason is None, plan.slug, tool_name, "public_data", 2 + units * 3,
+                "free", "local", reason,
+                ({"kind": "base", "credits": 2},
+                 {"kind": "request_budget", "requests": units, "credits": units * 3}),
+                plan.to_dict(),
+            )
+
+        if ref.startswith(("publicdata:", "gamepublic:")):
+            from .public_data_provider import request_budget
+
+            try:
+                units = request_budget(ref.split(":", 1)[1], nested_arguments) if ref.startswith("publicdata:") else 1
+                reason = None
+            except ValueError as exc:
+                units, reason = 0, str(exc)
+            return CostEstimate(
+                reason is None, plan.slug, tool_name, "public_data", 2 + units * 3,
+                "free", "public", reason,
+                ({"kind": "base", "credits": 2},
+                 {"kind": "public_request_budget", "requests": units, "credits": units * 3}),
+                plan.to_dict(),
+            )
+
         if ref.startswith("firecrawl:"):
             operation = ref.split(":", 1)[1]
             if operation == "batch-scrape":
@@ -885,6 +929,8 @@ def _measured_mesh_attempts(provider_calls: dict[str, Any], counters: dict[str, 
     except (ValueError, TypeError):
         units = 0
     total += units * FIRECRAWL_CREDITS_PER_UNIT
+    for counter in ("public_data_requests", "public_game_requests", "native_web_requests"):
+        total += max(0, int(counters.get(counter) or 0)) * 3
     return total
 
 
@@ -996,7 +1042,7 @@ def settle_measured_cost(
             )
 
         prefix = ref.split(":", 1)[0] if ":" in ref else ""
-        if prefix == "firecrawl":
+        if prefix in {"firecrawl", "publicdata", "gamepublic", "nativeweb"}:
             return min(reserved, _measured_mesh_attempts(provider_calls, counters))
         economics = RAW_PROVIDER_SURCHARGES.get(prefix)
         if economics is not None:

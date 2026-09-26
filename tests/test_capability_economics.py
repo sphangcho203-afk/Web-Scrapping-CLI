@@ -94,7 +94,7 @@ def test_raw_provider_costs_are_not_flat() -> None:
         {"ref": "apify:actor"},
         "pro",
     )
-    assert local.credits == 2
+    assert local.credits == 5
     assert firecrawl.credits == 252
     assert apify.credits == 1502
 
@@ -261,7 +261,7 @@ def test_batch_pricing_sums_nested_provider_costs() -> None:
         "pro",
     )
     assert estimate.allowed is True
-    assert estimate.credits == 256
+    assert estimate.credits == 259
 
 
 def test_caller_lookup_requires_builder_or_higher() -> None:

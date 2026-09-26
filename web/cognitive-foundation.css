@@ -2302,3 +2302,9 @@ html.ih-overlay-open,html.ih-overlay-open body{overflow:hidden}
   .monitor-history-table td:nth-child(4){grid-column:2;grid-row:2}
   .monitor-history-table td:nth-child(5){grid-column:1/-1;grid-row:3;border-top:1px solid var(--ih-border);padding-top:.55rem}
 }
+
+/* Public evidence shares the execution form's geometry and focus treatment. */
+#public-data-research-fields[hidden]{display:none!important}
+#public-data-form,#public-data-form label,#public-data-form input,#public-data-form select,#public-data-form textarea,#public-data-output{min-width:0;max-width:100%}
+#public-data-output h4{margin:0 0 8px;overflow-wrap:anywhere}
+#game-pagination{margin-block:14px}

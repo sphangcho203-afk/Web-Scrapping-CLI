@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from html.parser import HTMLParser
 from pathlib import Path
@@ -12,7 +13,12 @@ from urllib.parse import unquote, urljoin, urlsplit
 import httpx
 
 from .models import ApiEnvelope, DownloadInfo, FetchResult, HealthResult, LinkResult
-from .policy import resolve_public_http_url, validate_public_http_url, validate_public_ip
+from .policy import (
+    PolicyError,
+    resolve_public_http_url,
+    validate_public_http_url,
+    validate_public_ip,
+)
 
 DEFAULT_UA = "InternetHands/0.2 (+https://github.com/sphangcho203-afk/Web-Scrapping-CLI)"
 REDIRECT_CODES = {301, 302, 303, 307, 308}
@@ -47,6 +53,7 @@ async def fetch_url(
     include_body: bool = True,
     user_agent: str = DEFAULT_UA,
     max_redirects: int = 10,
+    url_guard: Callable[[str], bool] | None = None,
 ) -> FetchResult:
     started = time.perf_counter()
     current = url
@@ -57,6 +64,8 @@ async def fetch_url(
         headers={"User-Agent": user_agent, "Accept": "*/*"},
     ) as client:
         for _ in range(max_redirects + 1):
+            if url_guard is not None and not url_guard(current):
+                raise PolicyError("URL is outside the allowed crawl scope or robots policy")
             snapshot = resolve_public_http_url(current)
             async with client.stream("GET", current) as response:
                 peer_ip = _peer_ip(response)
