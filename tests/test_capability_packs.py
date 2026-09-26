@@ -4,11 +4,13 @@ from typing import Any
 
 import pytest
 
+from internet_hands.auth import current_auth
 from internet_hands.capability_packs import (
     Capability,
     CapabilityCandidate,
     CapabilityRegistry,
 )
+from internet_hands.control_store import AuthIdentity
 from internet_hands.tool_mesh import ToolDescriptor, ToolMesh
 
 
@@ -65,6 +67,29 @@ class CapabilityProvider:
         self, result_id: str, *, offset: int = 0, limit: int = 100
     ) -> dict[str, Any]:
         return {"id": result_id, "offset": offset, "limit": limit}
+
+
+@pytest.mark.asyncio
+async def test_free_semantic_fallback_skips_metered_route() -> None:
+    mesh = ToolMesh([CapabilityProvider("apify"), CapabilityProvider("nativeweb")])
+    registry = CapabilityRegistry(mesh, [Capability(
+        id="web.fetch.test", name="Fetch", description="Fetch", pack="web", tags=("web",),
+        candidates=(
+            CapabilityCandidate(provider="apify", ref="apify:fetch", priority=1),
+            CapabilityCandidate(provider="nativeweb", ref="nativeweb:fetch", priority=2),
+        ),
+    )])
+    identity = AuthIdentity(
+        user_id="usr_test", api_key_id="key_test", scopes=["mcp:execute"],
+        plan_slug="free", rpm_limit=10, source="api_key",
+    )
+    token = current_auth.set(identity)
+    try:
+        result = await registry.execute("web.fetch.test", {"url": "https://example.com"})
+    finally:
+        current_auth.reset(token)
+    assert result["selected"] == "nativeweb:fetch"
+    assert [item["status"] for item in result["attempts"]] == ["skipped", "completed"]
 
 
 @pytest.mark.asyncio

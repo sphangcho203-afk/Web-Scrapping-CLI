@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .public_game_manifest import PUBLIC_GAMES, game_pack
+
 GAME_PACKS: dict[str, tuple[str, tuple[str, ...]]] = {
     "mlbb": ("Mobile Legends: Bang Bang", ("mlbb",)),
     "valorant": ("VALORANT", ("valorant",)),
@@ -27,6 +29,10 @@ GAME_PACKS: dict[str, tuple[str, tuple[str, ...]]] = {
     "steam": ("Steam", ("steam",)),
     "riot": ("Riot Games", ("riot",)),
 }
+
+
+GAME_PACKS.update({game_pack(app_id): (name, (game_pack(app_id),))
+                   for app_id, name in PUBLIC_GAMES.items() if game_pack(app_id) not in GAME_PACKS})
 
 
 @dataclass(frozen=True, slots=True)

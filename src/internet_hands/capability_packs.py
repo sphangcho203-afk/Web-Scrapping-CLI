@@ -33,6 +33,7 @@ class Capability:
     candidates: tuple[CapabilityCandidate, ...]
     read_only: bool = True
     input_schema: dict[str, Any] = field(default_factory=dict)
+    output_schema: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -43,6 +44,7 @@ class Capability:
             "tags": list(self.tags),
             "read_only": self.read_only,
             "input_schema": self.input_schema,
+            "output_schema": self.output_schema,
             "candidates": [candidate.to_dict() for candidate in self.candidates],
         }
 
@@ -139,6 +141,15 @@ class CapabilityRegistry:
         timeout_seconds: int = 60,
     ) -> dict[str, Any]:
         capability = self._get(capability_id)
+        from .auth import current_auth
+        from .capability_economics import (
+            RAW_PROVIDER_SURCHARGES,
+            _provider_allowed,
+            plan_privileges,
+        )
+
+        identity = current_auth.get()
+        plan = plan_privileges(identity.plan_slug) if identity else None
         if not capability.read_only and not dry_run and not allow_side_effects:
             raise PermissionError(
                 "side-effecting capability requires allow_side_effects=true or dry_run=true"
@@ -154,6 +165,13 @@ class CapabilityRegistry:
         statuses = await self.mesh.provider_status()
 
         for candidate in candidates:
+            provider_class = RAW_PROVIDER_SURCHARGES.get(candidate.provider, ("public", 0))[0]
+            if plan and not _provider_allowed(plan, provider_class):
+                attempts.append({
+                    "provider": candidate.provider, "ref": candidate.ref,
+                    "status": "skipped", "error": "route unavailable on this plan",
+                })
+                continue
             if not self._candidate_matches(arguments, candidate):
                 attempts.append(
                     {

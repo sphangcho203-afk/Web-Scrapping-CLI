@@ -16,6 +16,7 @@ from .monitor_executor import router as monitor_executor_router
 from .monitor_lifecycle import router as monitor_lifecycle_router
 from .oauth_compat import router as oauth_compat_router
 from .playground_api import router as playground_router
+from .public_data_api import router as public_data_router
 from .repository_api import router as repository_router
 from .security_api import router as security_router
 from .security_hardening import router as security_hardening_router
@@ -54,6 +55,7 @@ app.include_router(control_router)
 app.include_router(usage_router)
 app.include_router(playground_router)
 app.include_router(repository_router)
+app.include_router(public_data_router)
 app.include_router(game_router)
 app.include_router(site_router)
 app.mount("/mcp", customer_streamable_http_app())

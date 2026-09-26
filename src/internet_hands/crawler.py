@@ -7,6 +7,7 @@ from collections import deque
 from urllib.parse import urlsplit
 from urllib.robotparser import RobotFileParser
 
+from .execution_meter import record_usage
 from .fetcher import DEFAULT_UA, extract_links, fetch_url
 from .models import CrawlPage, CrawlResult
 from .policy import validate_public_http_url
@@ -101,11 +102,16 @@ async def crawl(
         if parser is not None and not parser.can_fetch(DEFAULT_UA, url):
             return CrawlPage(url=url, depth=depth, error="blocked by robots.txt"), []
         try:
+            record_usage("native_web_requests")
             result = await fetch_url(
                 url,
                 include_body=True,
                 max_bytes=max_bytes_per_page,
                 timeout=min(20.0, max_seconds),
+                url_guard=lambda target: (
+                    urlsplit(target).netloc.lower() == urlsplit(url).netloc.lower()
+                    and (parser is None or parser.can_fetch(DEFAULT_UA, target))
+                ),
             )
             links = extract_links(result).links if result.body_text else []
             return (
@@ -180,6 +186,7 @@ async def _robots_for(seed_url: str) -> RobotFileParser:
     parser = RobotFileParser()
     parser.set_url(robots_url)
     try:
+        record_usage("native_web_requests")
         result = await fetch_url(robots_url, max_bytes=512_000, include_body=True)
         parser.parse((result.body_text or "").splitlines())
     except Exception:  # noqa: BLE001 -- unavailable robots.txt defaults to an empty policy

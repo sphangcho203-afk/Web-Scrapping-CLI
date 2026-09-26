@@ -194,6 +194,13 @@ class ApifyToolProvider(_HttpProvider):
             "maxTotalChargeUsd",
         }
         params = {key: value for key, value in options.items() if key in allowed_options}
+        # Actor costs vary by marketplace listing. Bound our exposure for every
+        # run, including routes that do not supply caller options.
+        try:
+            requested_cap = float(params.get("maxTotalChargeUsd", 0.10))
+        except (TypeError, ValueError):
+            requested_cap = 0.10
+        params["maxTotalChargeUsd"] = max(0.0, min(requested_cap, 0.10))
         response = await self._request(
             "POST",
             f"{self.base_url}/actors/{actor_id}/runs",

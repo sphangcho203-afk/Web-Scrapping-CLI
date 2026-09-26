@@ -8,6 +8,8 @@ from urllib.parse import quote
 
 import httpx
 
+from .capability_economics import FIRECRAWL_WORK_BUDGETS
+from .execution_meter import record_usage
 from .policy import validate_public_http_url
 from .tool_mesh import ToolDescriptor
 
@@ -382,6 +384,19 @@ class FirecrawlToolProvider:
         descriptor = await self.describe(tool_id)
         payload = dict(arguments)
         self._validate_arguments(tool_id, payload)
+        if tool_id in FIRECRAWL_WORK_BUDGETS:
+            field, default, maximum = FIRECRAWL_WORK_BUDGETS[tool_id]
+            try:
+                units = int(payload.get(field, default))
+            except (ValueError, TypeError) as exc:
+                raise ValueError(f"{field} must be an integer") from exc
+            if not 1 <= units <= maximum:
+                raise ValueError(f"{field} must be between 1 and {maximum}")
+            payload[field] = units
+        if tool_id == "batch-scrape" and not 1 <= len(payload.get("urls") or []) <= 20:
+            raise ValueError("batch scrape requires 1 to 20 URLs")
+        if tool_id == "extract":
+            raise ValueError("unbounded extraction is unavailable; use a bounded agent job")
 
         if tool_id == "interact":
             scrape_id = str(payload.pop("scrape_id"))
@@ -398,6 +413,13 @@ class FirecrawlToolProvider:
         body = response.json()
         if not isinstance(body, dict):
             raise TypeError("Firecrawl returned a non-object response")
+        if body.get("success") is False:
+            raise RuntimeError(str(body.get("error") or "web operation failed"))
+        record_usage("firecrawl_work_units", (
+            len(payload["urls"]) if tool_id == "batch-scrape" else
+            payload.get("limit", 1) if tool_id in {"crawl", "map", "search"} else
+            payload.get("maxCredits", 1) if tool_id == "agent" else 1
+        ))
 
         if descriptor.metadata.get("mode") != "async":
             return {
