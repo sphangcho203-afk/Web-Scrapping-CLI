@@ -496,3 +496,27 @@ def test_measured_firecrawl_provider_settles_to_its_actual_route() -> None:
         latency_ms=500,
     )
     assert settled == 7
+
+
+def test_deep_caller_investigation_pricing_is_plan_bounded() -> None:
+    builder = estimate_call("phone_caller_investigate", {"number": "+14155552671", "max_sources": 3}, "builder")
+    assert builder.allowed is True
+    assert builder.credits == 13
+    too_deep = estimate_call("phone_caller_investigate", {"number": "+14155552671", "max_sources": 4}, "builder")
+    assert too_deep.allowed is False
+    assert "at most 3" in (too_deep.reason or "")
+
+
+def test_deep_caller_investigation_measured_settlement_refunds_unused_fetches() -> None:
+    settled = settle_measured_cost("phone_caller_investigate", {"number": "+14155552671", "max_sources": 3}, "builder", reserved_credits=13, execution_usage={"counters": {"public_search_call": 1, "public_search_result": 4, "caller_source_fetch": 1}, "provider_calls": {"nativeweb": 1}})
+    assert settled == 12
+
+
+def test_deep_caller_investigation_measured_settlement_survives_raw_mesh_route() -> None:
+    settled = settle_measured_cost("mesh_execute", {"ref": "callerresearch:investigate", "arguments": {"number": "+14155552671", "max_sources": 3}}, "builder", reserved_credits=13, execution_usage={"counters": {"public_search_call": 1, "public_search_result": 4, "caller_source_fetch": 1}, "provider_calls": {"callerresearch": 1, "nativeweb": 1}})
+    assert settled == 12
+
+
+def test_deep_caller_investigation_measured_settlement_survives_semantic_route() -> None:
+    settled = settle_measured_cost("mesh_capability_execute", {"capability": "phone.caller.investigate", "arguments": {"number": "+14155552671", "max_sources": 3}}, "builder", reserved_credits=13, execution_usage={"counters": {"public_search_call": 1, "public_search_result": 4, "caller_source_fetch": 1}, "provider_calls": {"callerresearch": 1, "nativeweb": 1}})
+    assert settled == 12
