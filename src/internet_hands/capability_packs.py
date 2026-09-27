@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -221,9 +222,36 @@ class CapabilityRegistry:
 
         attempts: list[dict[str, Any]] = []
         started = time.time()
-        statuses = await self.mesh.provider_status()
+        total_timeout = max(0.05, min(float(timeout_seconds), 600.0))
+        deadline = time.monotonic() + total_timeout
+        try:
+            statuses = await asyncio.wait_for(
+                self.mesh.provider_status(),
+                timeout=total_timeout,
+            )
+        except TimeoutError:
+            return {
+                "capability": capability_id,
+                "selected": None,
+                "attempts": [],
+                "execution": None,
+                "routing": {"order": routing_order},
+                "duration_ms": max(0, int((time.time() - started) * 1000)),
+                "error": "capability execution deadline exceeded during provider discovery",
+            }
 
         for candidate in candidates:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                attempts.append(
+                    {
+                        "provider": candidate.provider,
+                        "ref": candidate.ref,
+                        "status": "deadline_exceeded",
+                        "error": "capability execution deadline exceeded",
+                    }
+                )
+                break
             reliability = provider_reliability.routing_state(candidate.provider)
             explicitly_preferred = bool(
                 provider_preference and candidate.provider == provider_preference
@@ -284,8 +312,30 @@ class CapabilityRegistry:
             # Resolution and schema inspection are preflight-only operations. It is safe
             # to try a later provider when this stage fails, even for write capabilities.
             try:
-                ref = await self._resolve_candidate(candidate)
-                descriptor = await self.mesh.describe(ref)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("capability execution deadline exceeded")
+                ref = await asyncio.wait_for(
+                    self._resolve_candidate(candidate),
+                    timeout=remaining,
+                )
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("capability execution deadline exceeded")
+                descriptor = await asyncio.wait_for(
+                    self.mesh.describe(ref),
+                    timeout=remaining,
+                )
+            except TimeoutError:
+                attempts.append(
+                    {
+                        "provider": candidate.provider,
+                        "ref": candidate.ref,
+                        "status": "deadline_exceeded",
+                        "error": "capability execution deadline exceeded",
+                    }
+                )
+                break
             except Exception as exc:  # noqa: BLE001 - provider preflight boundary
                 attempts.append(
                     {
@@ -322,14 +372,25 @@ class CapabilityRegistry:
 
             mapped = self._map_arguments(arguments, candidate)
             try:
-                execution = await self.mesh.execute(
-                    ref,
-                    mapped,
-                    account=account,
-                    wait_seconds=wait_seconds,
-                    timeout_seconds=timeout_seconds,
-                    dry_run=dry_run,
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("capability execution deadline exceeded")
+                execution = await asyncio.wait_for(
+                    self.mesh.execute(
+                        ref,
+                        mapped,
+                        account=account,
+                        wait_seconds=wait_seconds,
+                        timeout_seconds=max(1, int(remaining)),
+                        dry_run=dry_run,
+                    ),
+                    timeout=remaining,
                 )
+            except TimeoutError:
+                execution = {
+                    "status": "failed",
+                    "error": "capability execution deadline exceeded",
+                }
             except Exception as exc:  # noqa: BLE001 - provider execution boundary
                 execution = {"status": "failed", "error": str(exc)}
 
