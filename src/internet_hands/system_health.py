@@ -313,6 +313,7 @@ async def system_health(
             int((time.monotonic() - health_started) * 1000),
         ),
         "provider_discovery_timeout_seconds": mesh.discovery_timeout_seconds,
+        "provider_status_cache_seconds": mesh.provider_status_cache_seconds,
         "provider_default_max_concurrency": mesh.provider_max_concurrency,
         "capability_health_timeout_seconds": _env_float(
             "OPENCRAWL_HEALTH_CAPABILITY_TIMEOUT_SECONDS",
