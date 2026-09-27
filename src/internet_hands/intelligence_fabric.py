@@ -171,6 +171,8 @@ async def resilient_public_fetch(
                     "error": f"{type(exc).__name__}: {exc}"[:500],
                 }
             )
+            if backend != "auto":
+                raise
             continue
         break
 
