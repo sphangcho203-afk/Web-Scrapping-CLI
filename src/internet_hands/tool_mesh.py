@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 
 from .execution_meter import record_provider_call
+from .provider_reliability import provider_reliability
 
 _RESTRICTED_MARKETPLACE_TERMS = (
     "ammunition",
@@ -312,16 +313,30 @@ class ToolMesh:
                 options=options,
             )
         except Exception as exc:  # noqa: BLE001 - normalize provider execution failures
-            return execution.finish(status="failed", error=str(exc)).to_dict()
+            finished = execution.finish(status="failed", error=str(exc))
+            provider_reliability.record(
+                provider_name,
+                status=finished.status,
+                duration_ms=finished.duration_ms,
+                error=finished.error,
+            )
+            return finished.to_dict()
 
-        return execution.finish(
+        finished = execution.finish(
             status=str(result.get("status") or "completed"),
             data=self._bounded(result.get("data")),
             error=result.get("error"),
             job_id=result.get("job_id"),
             result_id=result.get("result_id"),
             metadata=result.get("metadata") or {},
-        ).to_dict()
+        )
+        provider_reliability.record(
+            provider_name,
+            status=finished.status,
+            duration_ms=finished.duration_ms,
+            error=finished.error,
+        )
+        return finished.to_dict()
 
     async def batch_execute(
         self,
