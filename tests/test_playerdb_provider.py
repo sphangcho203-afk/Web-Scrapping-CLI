@@ -9,7 +9,8 @@ from internet_hands.playerdb_provider import PlayerDbProvider
 @pytest.mark.asyncio
 async def test_playerdb_cross_platform_lookup_is_bounded_and_identified() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/api/player/xbox/Some%20Gamer"
+        assert request.url.path == "/api/player/xbox/Some Gamer"
+        assert b"Some%20Gamer" in request.url.raw_path
         assert request.headers["user-agent"].startswith("OpenCrawl/")
         return httpx.Response(
             200,
