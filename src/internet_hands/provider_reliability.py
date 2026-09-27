@@ -136,14 +136,14 @@ class ProviderReliabilityTracker:
             return {}
         if (
             not force
-            and self._shared_cache
+            and self._shared_cache_at > 0
             and current - self._shared_cache_at < self._shared_refresh_seconds()
         ):
             return self._shared_cache
         with self._shared_lock:
             if (
                 not force
-                and self._shared_cache
+                and self._shared_cache_at > 0
                 and current - self._shared_cache_at < self._shared_refresh_seconds()
             ):
                 return self._shared_cache
