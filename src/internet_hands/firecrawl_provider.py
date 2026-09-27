@@ -429,7 +429,9 @@ class FirecrawlToolProvider:
             ):
                 raise ValueError("Firecrawl search categories contain an unsupported value")
             if "developer" in categories and len(categories) > 1:
-                raise ValueError("Firecrawl developer category cannot be combined with other categories")
+                raise ValueError(
+                    "Firecrawl developer category cannot be combined with other categories"
+                )
             if payload.get("includeDomains") and payload.get("excludeDomains"):
                 raise ValueError("includeDomains and excludeDomains cannot be combined")
             payload["sources"] = sources[:3]
