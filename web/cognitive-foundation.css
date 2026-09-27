@@ -767,6 +767,22 @@ body::before{opacity:.018;background-size:64px 64px;}
 .ihx-custom-topup form>div{display:flex;align-items:center;justify-content:flex-end;gap:16px}.ihx-custom-topup form>div small{max-width:330px;color:var(--ihx-dim);font-size:9px;line-height:1.5}.ihx-custom-topup form>div .btn{min-width:145px}
 @media(max-width:760px){.ihx-custom-topup{padding:1rem}.ihx-custom-topup>header{align-items:flex-start;flex-direction:column;gap:.45rem}.ihx-custom-topup form{grid-template-columns:1fr;gap:1rem}.ihx-custom-topup form>div{align-items:stretch;flex-direction:column}.ihx-custom-topup form>div small{max-width:none}.ihx-custom-topup form>div .btn{width:100%}}
 
+/* Contextual explanation surfaces */
+.ihx-connection-direction{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 18px}
+.ihx-connection-direction article{padding:20px;border:1px solid var(--ihx-line-2,var(--line));background:#091014}
+.ihx-connection-direction article>span{color:var(--ihx-cyan,var(--accent));font:700 9px var(--mono);letter-spacing:.12em}
+.ihx-connection-direction h3{margin:7px 0 8px;font-size:17px}
+.ihx-connection-direction p{margin:0 0 12px;color:var(--ihx-text-muted,#86959e);font-size:11px;line-height:1.65}
+.ihx-connection-direction a,.mcp-doc-strip a,.ihx-context-help a{color:var(--ihx-cyan,var(--accent));font-size:10px;text-decoration:none}
+.mcp-doc-strip{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin:12px 0 22px;padding:13px 16px;border:1px solid var(--ihx-line-2,var(--line));background:#080d10}
+.mcp-doc-strip span{color:var(--ihx-text-muted,#86959e);font:700 9px var(--mono);letter-spacing:.08em}
+.ihx-context-help{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:14px 18px;border-top:1px solid var(--ihx-line,var(--line));background:rgba(255,255,255,.012)}
+.ihx-context-help span{max-width:430px;color:var(--ihx-text-muted,#86959e);font-size:10px;line-height:1.55}
+@media(max-width:760px){
+  .ihx-connection-direction{grid-template-columns:1fr}
+  .mcp-doc-strip,.ihx-context-help{align-items:flex-start;flex-direction:column}
+}
+
 /* Documentation system */
 .docs-search-empty{margin:16px 0;padding:12px;border:1px dashed var(--line);border-radius:8px;color:var(--muted-2);font-size:11px}
 .docs-group[hidden]{display:none}
