@@ -9,13 +9,13 @@ from typing import Any
 
 _SENSITIVE_QUERY_RE = re.compile(
     r"(?i)([?&](?:api[_-]?key|key|token|access_token|client_secret|secret|"
-    r"signature|password|auth|authorization)=)([^&#\\s]+)"
+    r"signature|password|auth|authorization)=)([^&#\s]+)"
 )
 _SENSITIVE_ASSIGNMENT_RE = re.compile(
-    r"(?i)\\b(api[_-]?key|access[_-]?token|client[_-]?secret|password|"
-    r"authorization)\\s*[:=]\\s*([^\\s,&]+)"
+    r"(?i)\b(api[_-]?key|access[_-]?token|client[_-]?secret|password|"
+    r"authorization)\s*[:=]\s*([^\s,&]+)"
 )
-_BEARER_RE = re.compile(r"(?i)\\bbearer\\s+[A-Za-z0-9._~+/=-]+")
+_BEARER_RE = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+")
 
 
 def safe_provider_error(value: Any, *, maximum: int = 500) -> str | None:
