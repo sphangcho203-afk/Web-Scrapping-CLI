@@ -622,9 +622,32 @@ class ControlStore:
             conn.commit()
 
     def get_user_by_email(self, email: str) -> dict[str, Any] | None:
+        """Return public account fields only; never return password or provider subjects."""
         self.ensure_schema()
         with self._connect() as conn, conn.cursor() as cur:
-            cur.execute("SELECT * FROM ih_users WHERE lower(email)=lower(%s)", (email.strip(),))
+            cur.execute(
+                """
+                SELECT id,email,display_name,avatar_url,email_verified,created_at,updated_at,
+                       (github_id IS NOT NULL) AS github_connected
+                FROM ih_users WHERE lower(email)=lower(%s)
+                """,
+                (email.strip(),),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def get_user_credentials_by_email(self, email: str) -> dict[str, Any] | None:
+        """Internal-only legacy credential lookup used during Auth adoption."""
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id,email,password_hash,display_name,avatar_url,email_verified,
+                       created_at,updated_at
+                FROM ih_users WHERE lower(email)=lower(%s)
+                """,
+                (email.strip(),),
+            )
             row = cur.fetchone()
             return dict(row) if row else None
 
