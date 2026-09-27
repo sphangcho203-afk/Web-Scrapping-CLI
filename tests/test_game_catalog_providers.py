@@ -107,8 +107,9 @@ async def test_igdb_search_escapes_query_instead_of_accepting_raw_apicalypse() -
                 json={"access_token": "token", "expires_in": 3600},
             )
         body = request.content.decode()
-        assert 'search "Halo\\\"; fields *;";' in body
-        assert body.count("fields ") == 1
+        assert body.startswith('search "Halo\\\"  fields * "; ')
+        assert '; fields *;' not in body
+        assert "fields id,name,slug,summary,first_release_date" in body
         return httpx.Response(200, json=[])
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
