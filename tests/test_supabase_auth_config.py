@@ -4,8 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from internet_hands import supabase_auth
-from internet_hands.security_api import _mail_origin
+from internet_hands import security_api, supabase_auth
 
 
 _ENV_NAMES = (
@@ -92,10 +91,10 @@ def test_mail_origin_stays_on_preview_by_default(monkeypatch: pytest.MonkeyPatch
     monkeypatch.delenv("INTERNET_HANDS_PUBLIC_ORIGIN", raising=False)
     monkeypatch.setenv("VERCEL_PROJECT_PRODUCTION_URL", "old-production.example.test")
 
-    assert _mail_origin(_request()) == "https://preview.example.test"
+    assert security_api._mail_origin(_request()) == "https://preview.example.test"
 
 
 def test_mail_origin_can_be_explicitly_pinned(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("INTERNET_HANDS_PUBLIC_ORIGIN", "https://opencrawl.example.test")
 
-    assert _mail_origin(_request()) == "https://opencrawl.example.test"
+    assert security_api._mail_origin(_request()) == "https://opencrawl.example.test"
