@@ -9,7 +9,12 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 
-from .execution_meter import record_provider_call
+from .execution_meter import record_provider_call, record_provider_outcome
+from .provider_errors import (
+    classify_provider_failure,
+    read_retry_budget,
+    retry_delay_seconds,
+)
 from .provider_reliability import provider_reliability
 
 _RESTRICTED_MARKETPLACE_TERMS = (
@@ -302,41 +307,130 @@ class ToolMesh:
                 },
             ).to_dict()
 
-        try:
-            record_provider_call(provider_name)
-            result = await provider.execute(
-                tool_id,
-                arguments,
-                account=account,
-                wait_seconds=max(0, min(wait_seconds, 300)),
-                timeout_seconds=max(1, min(timeout_seconds, 600)),
-                options=options,
+        max_attempts = 1 + (0 if descriptor.side_effecting else read_retry_budget())
+        attempt_rows: list[dict[str, Any]] = []
+
+        for attempt in range(1, max_attempts + 1):
+            attempt_started = time.monotonic()
+            try:
+                record_provider_call(provider_name)
+                result = await provider.execute(
+                    tool_id,
+                    arguments,
+                    account=account,
+                    wait_seconds=max(0, min(wait_seconds, 300)),
+                    timeout_seconds=max(1, min(timeout_seconds, 600)),
+                    options=options,
+                )
+            except Exception as exc:  # noqa: BLE001 - normalize provider execution failures
+                duration_ms = max(0, int((time.monotonic() - attempt_started) * 1000))
+                failure = classify_provider_failure(exc=exc)
+                delay = (
+                    retry_delay_seconds(failure, attempt=attempt)
+                    if not descriptor.side_effecting and attempt < max_attempts
+                    else None
+                )
+                attempt_rows.append(
+                    {
+                        "attempt": attempt,
+                        "status": "failed",
+                        "duration_ms": duration_ms,
+                        "error_class": failure.category,
+                        "retryable": failure.retryable,
+                        "retry_delay_seconds": delay,
+                    }
+                )
+                record_provider_outcome(
+                    provider_name,
+                    ref=ref,
+                    status="failed",
+                    duration_ms=duration_ms,
+                    error=str(exc),
+                    error_class=failure.category,
+                    retryable=failure.retryable,
+                    attempt=attempt,
+                )
+                provider_reliability.record(
+                    provider_name,
+                    status="failed",
+                    duration_ms=duration_ms,
+                    error=str(exc),
+                )
+                if delay is not None:
+                    await asyncio.sleep(delay)
+                    continue
+                finished = execution.finish(
+                    status="failed",
+                    error=str(exc),
+                    metadata={
+                        "provider_attempts": attempt_rows,
+                        "failure": failure.to_dict(),
+                    },
+                )
+                return finished.to_dict()
+
+            duration_ms = max(0, int((time.monotonic() - attempt_started) * 1000))
+            raw_status = str(result.get("status") or "completed")
+            normalized_status = raw_status.strip().lower()
+            result_error = result.get("error")
+            final_status = "failed" if normalized_status == "error" else raw_status
+            failure = (
+                classify_provider_failure(status=final_status, error=result_error)
+                if normalized_status in {"failed", "error", "blocked"}
+                else None
             )
-        except Exception as exc:  # noqa: BLE001 - normalize provider execution failures
-            finished = execution.finish(status="failed", error=str(exc))
+            delay = (
+                retry_delay_seconds(failure, attempt=attempt)
+                if failure is not None
+                and not descriptor.side_effecting
+                and attempt < max_attempts
+                else None
+            )
+            attempt_rows.append(
+                {
+                    "attempt": attempt,
+                    "status": final_status,
+                    "duration_ms": duration_ms,
+                    "error_class": failure.category if failure else None,
+                    "retryable": failure.retryable if failure else False,
+                    "retry_delay_seconds": delay,
+                }
+            )
+            record_provider_outcome(
+                provider_name,
+                ref=ref,
+                status=final_status,
+                duration_ms=duration_ms,
+                error=result_error,
+                error_class=failure.category if failure else None,
+                retryable=failure.retryable if failure else False,
+                attempt=attempt,
+            )
             provider_reliability.record(
                 provider_name,
-                status=finished.status,
-                duration_ms=finished.duration_ms,
-                error=finished.error,
+                status=final_status,
+                duration_ms=duration_ms,
+                error=result_error,
+            )
+            if delay is not None:
+                await asyncio.sleep(delay)
+                continue
+
+            metadata = dict(result.get("metadata") or {})
+            metadata["provider_attempts"] = attempt_rows
+            if failure is not None:
+                metadata["failure"] = failure.to_dict()
+            finished = execution.finish(
+                status=final_status,
+                data=self._bounded(result.get("data")),
+                error=result_error,
+                job_id=result.get("job_id"),
+                result_id=result.get("result_id"),
+                metadata=metadata,
             )
             return finished.to_dict()
 
-        finished = execution.finish(
-            status=str(result.get("status") or "completed"),
-            data=self._bounded(result.get("data")),
-            error=result.get("error"),
-            job_id=result.get("job_id"),
-            result_id=result.get("result_id"),
-            metadata=result.get("metadata") or {},
-        )
-        provider_reliability.record(
-            provider_name,
-            status=finished.status,
-            duration_ms=finished.duration_ms,
-            error=finished.error,
-        )
-        return finished.to_dict()
+        raise RuntimeError("provider retry loop ended without a result")
 
     async def batch_execute(
         self,
