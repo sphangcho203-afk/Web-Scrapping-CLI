@@ -380,6 +380,38 @@ class ComposioConnectionService:
             allow_multiple=True,
         )
 
+    async def update_alias(
+        self,
+        *,
+        user_id: str,
+        account_id: str,
+        alias: str,
+    ) -> None:
+        owned = await self.user_connections(user_id, account_id=account_id)
+        if not any(str(item.get("id") or "") == account_id for item in owned):
+            raise HTTPException(status_code=404, detail="connected account not found")
+        await self._request(
+            "PATCH",
+            f"/connected_accounts/{account_id}",
+            json={"alias": alias[:80]},
+        )
+
+    async def set_enabled(
+        self,
+        *,
+        user_id: str,
+        account_id: str,
+        enabled: bool,
+    ) -> None:
+        owned = await self.user_connections(user_id, account_id=account_id)
+        if not any(str(item.get("id") or "") == account_id for item in owned):
+            raise HTTPException(status_code=404, detail="connected account not found")
+        await self._request(
+            "PATCH",
+            f"/connected_accounts/{account_id}/status",
+            json={"enabled": enabled},
+        )
+
     async def disconnect(self, *, user_id: str, account_id: str) -> None:
         owned = await self.user_connections(user_id, account_id=account_id)
         if not any(str(item.get("id") or "") == account_id for item in owned):
@@ -494,6 +526,37 @@ async def integration_connections(request: Request):
         return {"configured": False, "connections": []}
     rows = await service.user_connections(str(user["id"]))
     return {"configured": True, "connections": [_public_connection(item) for item in rows]}
+
+
+@router.patch("/api/integrations/connections/{account_id}")
+async def integration_update(account_id: str, request: Request):
+    user = _require_verified(_require_user(request))
+    if not re.fullmatch(r"[A-Za-z0-9_-]{3,128}", account_id):
+        raise HTTPException(status_code=400, detail="invalid connected account id")
+    body = await request.json()
+    alias_present = "alias" in body
+    enabled_present = "enabled" in body
+    if not alias_present and not enabled_present:
+        raise HTTPException(status_code=400, detail="alias or enabled is required")
+    service = ComposioConnectionService()
+    if alias_present:
+        alias = str(body.get("alias") or "").strip()
+        if len(alias) > 80:
+            raise HTTPException(status_code=400, detail="alias must be 80 characters or fewer")
+        await service.update_alias(
+            user_id=str(user["id"]),
+            account_id=account_id,
+            alias=alias,
+        )
+    if enabled_present:
+        if not isinstance(body.get("enabled"), bool):
+            raise HTTPException(status_code=400, detail="enabled must be a boolean")
+        await service.set_enabled(
+            user_id=str(user["id"]),
+            account_id=account_id,
+            enabled=body["enabled"],
+        )
+    return {"ok": True}
 
 
 @router.post("/api/integrations/connections/{account_id}/reconnect")
