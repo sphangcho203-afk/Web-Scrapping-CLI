@@ -976,8 +976,12 @@ def _measured_mesh_attempts(provider_calls: dict[str, Any], counters: dict[str, 
             count = max(0, int(raw_count))
         except (TypeError, ValueError):
             continue
-        _, surcharge = RAW_PROVIDER_SURCHARGES.get(str(provider).lower(), ("public", 0))
-        if provider == "githubpublic":
+        provider_name = str(provider).lower()
+        if provider_name == "composio":
+            # Connected-app execution is supplied by the user's linked account.
+            continue
+        _, surcharge = RAW_PROVIDER_SURCHARGES.get(provider_name, ("public", 0))
+        if provider_name == "githubpublic":
             total += count
         elif provider == "firecrawl":
             total += count * 2
@@ -1062,8 +1066,33 @@ def settle_measured_cost(
                     phone_tools[capability], nested_args, plan_slug,
                     reserved_credits=reserved, execution_usage=usage, latency_ms=latency_ms,
                 )
-        base = _rule_for(tool_name).base_credits if provider_calls else 0
-        actual = base + _measured_mesh_attempts(provider_calls, counters)
+        billable_provider_calls = dict(provider_calls)
+        billable_provider_calls.pop("composio", None)
+        if tool_name == "mesh_batch_execute":
+            calls = args.get("calls")
+            if isinstance(calls, list):
+                mcp_calls = [
+                    call
+                    for call in calls
+                    if isinstance(call, dict)
+                    and str(call.get("ref") or call.get("tool") or "").strip().lower().startswith("mcp:")
+                ]
+                if mcp_calls:
+                    billable_mcp_calls = sum(
+                        1
+                        for call in mcp_calls
+                        if not _is_byo_route(str(call.get("ref") or call.get("tool") or ""))
+                    )
+                    if billable_mcp_calls:
+                        try:
+                            observed_mcp = max(0, int(billable_provider_calls.get("mcp") or 0))
+                        except (TypeError, ValueError):
+                            observed_mcp = 0
+                        billable_provider_calls["mcp"] = min(observed_mcp, billable_mcp_calls)
+                    else:
+                        billable_provider_calls.pop("mcp", None)
+        base = _rule_for(tool_name).base_credits if billable_provider_calls else 0
+        actual = base + _measured_mesh_attempts(billable_provider_calls, counters)
         if provider_calls.get("githubpublic"):
             try:
                 github_requests = max(0, int(counters.get("github_api_calls") or 0))
