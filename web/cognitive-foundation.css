@@ -783,6 +783,29 @@ body::before{opacity:.018;background-size:64px 64px;}
   .mcp-doc-strip,.ihx-context-help{align-items:flex-start;flex-direction:column}
 }
 
+
+/* Remote MCP lifecycle */
+.mcp-row-live{align-items:stretch!important;gap:18px!important}
+.mcp-row-main{min-width:0;display:grid;gap:5px;flex:1}
+.mcp-row-main>.ihx-state{width:max-content;margin-bottom:3px}
+.mcp-row-main>em{font-style:normal;color:var(--muted-2);font-size:10px;line-height:1.45}
+.mcp-row-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.mcp-probe-summary{display:flex;gap:14px;align-items:flex-start;padding:16px;border:1px solid var(--line);border-radius:10px;background:#091014}
+.mcp-probe-summary>span{margin-top:3px}
+.mcp-probe-summary b{display:block;font-size:15px}
+.mcp-probe-summary p{margin:5px 0 0;color:var(--muted);font-size:11px;line-height:1.55}
+.mcp-probe-summary.error{border-color:rgba(255,120,120,.28)}
+.mcp-tool-preview{display:grid;gap:8px;margin-top:14px;max-height:55vh;overflow:auto}
+.mcp-tool-preview article{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;padding:13px 14px;border:1px solid var(--line);border-radius:9px;background:#080d10}
+.mcp-tool-preview article>div{min-width:0;display:grid;gap:4px}
+.mcp-tool-preview article code{overflow:hidden;text-overflow:ellipsis;color:var(--muted-2);font-size:9px}
+.mcp-tool-preview article p{grid-column:1/-1;margin:0;color:var(--muted);font-size:10px;line-height:1.5}
+@media(max-width:760px){
+  .mcp-row-live{flex-direction:column}
+  .mcp-row-actions{justify-content:flex-start}
+  .mcp-row-actions .btn{flex:1 1 auto}
+}
+
 /* Documentation system */
 .docs-search-empty{margin:16px 0;padding:12px;border:1px dashed var(--line);border-radius:8px;color:var(--muted-2);font-size:11px}
 .docs-group[hidden]{display:none}
