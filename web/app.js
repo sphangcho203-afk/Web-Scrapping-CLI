@@ -151,7 +151,7 @@ function go(path, replace = false) {
   history[replace ? 'replaceState' : 'pushState']({}, '', path);
   return renderRoute();
 }
-function brand() { return `<a class="brand oc-brand" data-link href="/" aria-label="OpenCrawl home"><img class="oc-brand-mark" src="/assets/opencrawl-robot.png" width="44" height="44" alt=""><span class="oc-wordmark"><b>Open<span>Crawl</span></b><small>INTERNET INTELLIGENCE</small></span></a>`; }
+function brand() { return `<a class="brand oc-brand" data-link href="/" aria-label="OpenCrawl home"><img class="oc-brand-mark" src="/assets/opencrawl-crab.png" width="44" height="44" alt=""><span class="oc-wordmark"><b>Open<span>Crawl</span></b><small>PUBLIC WEB ENGINE</small></span></a>`; }
 function bindCommon() {
   $$('[data-copy]').forEach(b => b.onclick = () => copyText(b.dataset.copy, b));
   const navToggle = $('[data-nav-toggle]');
@@ -181,7 +181,7 @@ function publicShell(content) {
 }
 async function getPlans() { if (state.plans) return state.plans; try { state.plans = await api('/api/public/plans'); } catch { state.plans = {plans:[],credit_packs:[]}; } return state.plans; }
 
-function gatewayVisual() { return `<div class="gateway-visual"><span class="visual-label">ROUTING FABRIC</span><div class="agent-node"><i></i>AGENT</div><div class="route a"></div><div class="core-node"><img src="/assets/opencrawl-robot.png" width="52" height="52" alt=""><b>OPENCRAWL</b><small>Policy · route · meter</small></div><div class="route b"></div><div class="mesh-nodes"><span>Browser</span><span>Web data</span><span>APIs</span><span>Remote MCP</span><span>Monitors</span><span>Sandbox</span></div></div>`; }
+function gatewayVisual() { return `<div class="gateway-visual"><span class="visual-label">ROUTING FABRIC</span><div class="agent-node"><i></i>AGENT</div><div class="route a"></div><div class="core-node"><img src="/assets/opencrawl-crab.png" width="52" height="52" alt=""><b>OPENCRAWL</b><small>Policy · route · meter</small></div><div class="route b"></div><div class="mesh-nodes"><span>Browser</span><span>Web data</span><span>APIs</span><span>Remote MCP</span><span>Monitors</span><span>Sandbox</span></div></div>`; }
 function feature(kicker, title, body) { return `<article class="feature-card"><span>${kicker}</span><h3>${title}</h3><p>${body}</p><a data-link href="/docs/capabilities">Explore ${icon('arrow')}</a></article>`; }
 function integrationTiles() { return `<div class="integration-grid">${[['OpenAI','ChatGPT clients','OAuth MCP'],['Anthropic','Claude clients','OAuth MCP'],['xAI','Grok workflows','API key'],['Hermes','Self-hosted agents','MCP'],['Generic MCP','Streamable HTTP','OAuth / key'],['REST API','Scripts and CI','Bearer key']].map(x => `<article><b>${x[0]}</b><p>${x[1]}</p><span>${x[2]}</span></article>`).join('')}</div>`; }
 function planCards(plans) {
@@ -229,7 +229,7 @@ function renderDocs() {
 }
 
 function authShell(title, sub, content, story = 'Infrastructure for agents that need reach.') {
-  app.innerHTML = `<main class="auth-layout"><section class="auth-story">${brand()}<div class="auth-story-copy"><span class="eyebrow">OPENCRAWL CONTROL PLANE</span><h1>${story}</h1><p>One secure operating layer for identity, live web access, usage and MCP authorization.</p><div class="auth-capabilities"><span>${icon('shield')} Verified identity</span><span>${icon('key')} Scoped access</span><span>${icon('activity')} Live observability</span></div></div><div class="auth-system-card"><div><span class="live-dot"></span><b>Gateway online</b><small>Policy · route · meter</small></div><div class="auth-system-flow"><span>Agent</span><i></i><strong><img src="/assets/opencrawl-robot.png" alt="">OC</strong><i></i><span>Internet</span></div></div></section><section class="auth-main"><div class="auth-card"><div class="auth-mobile-brand">${brand()}</div><header><span class="auth-kicker">${title === 'Welcome back' ? 'ACCOUNT ACCESS' : title.includes('Verify') ? 'IDENTITY CHECK' : 'CREATE WORKSPACE'}</span><h2>${title}</h2><p>${sub}</p></header>${content}<footer class="auth-secure">${icon('shield')} Protected with encrypted, HTTP-only sessions</footer></div></section></main>`; bindCommon();
+  app.innerHTML = `<main class="auth-layout"><section class="auth-story">${brand()}<div class="auth-story-copy"><span class="eyebrow">OPENCRAWL CONTROL PLANE</span><h1>${story}</h1><p>One secure operating layer for identity, live web access, usage and MCP authorization.</p><div class="auth-capabilities"><span>${icon('shield')} Verified identity</span><span>${icon('key')} Scoped access</span><span>${icon('activity')} Live observability</span></div></div><div class="auth-system-card"><div><span class="live-dot"></span><b>Gateway online</b><small>Policy · route · meter</small></div><div class="auth-system-flow"><span>Agent</span><i></i><strong><img src="/assets/opencrawl-crab.png" alt="">OC</strong><i></i><span>Internet</span></div></div></section><section class="auth-main"><div class="auth-card"><div class="auth-mobile-brand">${brand()}</div><header><span class="auth-kicker">${title === 'Welcome back' ? 'ACCOUNT ACCESS' : title.includes('Verify') ? 'IDENTITY CHECK' : 'CREATE WORKSPACE'}</span><h2>${title}</h2><p>${sub}</p></header>${content}<footer class="auth-secure">${icon('shield')} Protected with encrypted, HTTP-only sessions</footer></div></section></main>`; bindCommon();
 }
 function busy(button, on, label) {
   if(!button)return false;
@@ -768,8 +768,8 @@ function openRunInspector(event) {
 (() => {
   brand = function brandV2() {
     return `<a class="brand ih-brand oc-brand" data-link href="/" aria-label="OpenCrawl home">
-      <img class="oc-brand-mark" src="/assets/opencrawl-robot.png" width="44" height="44" alt="">
-      <span class="oc-wordmark"><b>Open<span>Crawl</span></b><small>INTERNET INTELLIGENCE</small></span>
+      <img class="oc-brand-mark" src="/assets/opencrawl-crab.png" width="44" height="44" alt="">
+      <span class="oc-wordmark"><b>Open<span>Crawl</span></b><small>PUBLIC WEB ENGINE</small></span>
     </a>`;
   };
 
@@ -857,7 +857,7 @@ function openRunInspector(event) {
       <section class="ih-hero">
         <div class="container ih-hero-grid">
           <div class="ih-hero-copy">
-            <div class="oc-hero-kicker"><span class="oc-crawler-glyph" aria-hidden="true">▦</span> PUBLIC WEB · AGENT EXECUTION</div>
+            <div class="oc-hero-kicker"><img src="/assets/opencrawl-crab.png" width="24" height="24" alt="" aria-hidden="true"> OPENCRAWL / PUBLIC WEB OPERATIONS</div>
             <h1>The internet,<br><span>as an executable workspace.</span></h1>
             <p>Search it. Browse it. Extract from it. Monitor it. Route into APIs and remote tools. OpenCrawl gives agents one controlled surface for real internet work.</p>
             <div class="ih-hero-actions">
@@ -1047,7 +1047,7 @@ function openRunInspector(event) {
         </div>
         <div class="ihx-auth-console">
           <div class="ihx-auth-console-head"><span>AUTHENTICATED EDGE</span><code>/mcp</code></div>
-          <div class="ihx-auth-route"><span>Agent</span><i></i><strong><img src="/assets/opencrawl-robot.png" alt="">OC</strong><i></i><span>Internet</span></div>
+          <div class="ihx-auth-route"><span>Agent</span><i></i><strong><img src="/assets/opencrawl-crab.png" alt="">OC</strong><i></i><span>Internet</span></div>
           <div class="ihx-auth-console-foot"><span>${icon('shield')} Verified identity</span><span>${icon('key')} Scoped access</span><span>${icon('activity')} Request ledger</span></div>
         </div>
       </section>
@@ -1442,8 +1442,8 @@ function openRunInspector(event) {
 
   brand = function commandBrand() {
     return `<a class="brand ih-brand cos-brand oc-brand" data-link href="/" aria-label="OpenCrawl home">
-      <img class="oc-brand-mark" src="/assets/opencrawl-robot.png" width="44" height="44" alt="">
-      <span class="oc-wordmark"><b>Open<span>Crawl</span></b><small>INTERNET INTELLIGENCE</small></span>
+      <img class="oc-brand-mark" src="/assets/opencrawl-crab.png" width="44" height="44" alt="">
+      <span class="oc-wordmark"><b>Open<span>Crawl</span></b><small>PUBLIC WEB ENGINE</small></span>
     </a>`;
   };
 

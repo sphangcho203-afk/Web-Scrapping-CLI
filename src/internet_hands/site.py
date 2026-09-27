@@ -24,6 +24,7 @@ ASSET_MEDIA_TYPES = {
     "internet-hands-mark.webp": "image/webp",
     "internet-hands-logo.webp": "image/webp",
     "opencrawl-robot.png": "image/png",
+    "opencrawl-crab.png": "image/png",
 }
 
 

@@ -57,6 +57,7 @@ def test_opencrawl_mark_and_wordmark_at_phone_and_desktop_widths(frontend_url):
             mark.wait_for()
             assert page.get_by_role("link", name="OpenCrawl home").count() >= 1
             assert mark.evaluate("image => image.complete && image.naturalWidth > 0")
+            assert mark.get_attribute("src") == "/assets/opencrawl-crab.png"
             for width in (320, 390, 768, 1366):
                 page.set_viewport_size({"width": width, "height": 740})
                 assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), (path, width)

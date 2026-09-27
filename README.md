@@ -10,8 +10,9 @@ authorized internet sources.
 OpenCrawl is the product name formerly shown as Internet Hands. The Python package
 `internet_hands`, CLI commands, API key prefix, MCP endpoint, environment variables,
 database tables, and existing credentials retain their names for compatibility.
-The previous `/assets/mark.svg` and `internet-hands-*.webp` URLs remain served for
-existing embeds; the active interface uses `/assets/opencrawl-robot.png`.
+The previous `/assets/mark.svg`, `internet-hands-*.webp`, and
+`/assets/opencrawl-robot.png` URLs remain served for existing embeds; the active
+interface uses `/assets/opencrawl-crab.png`.
 
 > Find the source. Fetch the evidence. Keep the provenance. Route to the right engine.
 
