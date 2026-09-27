@@ -369,6 +369,7 @@ class AuthIdentity:
     plan_slug: str
     rpm_limit: int
     source: str
+    concurrent_limit: int = 1
 
 
 def _db_connect_timeout_seconds() -> int:
@@ -1119,6 +1120,7 @@ class ControlStore:
             plan_slug=row["plan_slug"],
             rpm_limit=int(row["rpm_limit"]),
             source=source,
+            concurrent_limit=max(1, int(row.get("concurrent_limit") or 1)),
         )
 
     def api_key_identity_for_user(self, user_id: str, key_id: str) -> AuthIdentity | None:
@@ -1127,7 +1129,7 @@ class ControlStore:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT k.user_id,k.id AS api_key_id,k.scopes,p.slug AS plan_slug,p.rpm_limit
+                SELECT k.user_id,k.id AS api_key_id,k.scopes,p.slug AS plan_slug,p.rpm_limit,p.concurrent_limit
                 FROM ih_api_keys k
                 LEFT JOIN LATERAL (
                     SELECT plan_slug FROM ih_subscriptions s
@@ -1153,7 +1155,7 @@ class ControlStore:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT k.user_id,k.id AS api_key_id,k.scopes,p.slug AS plan_slug,p.rpm_limit
+                SELECT k.user_id,k.id AS api_key_id,k.scopes,p.slug AS plan_slug,p.rpm_limit,p.concurrent_limit
                 FROM ih_api_keys k
                 LEFT JOIN LATERAL (
                     SELECT plan_slug FROM ih_subscriptions s
@@ -1178,7 +1180,7 @@ class ControlStore:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT t.user_id,t.api_key_id,t.scopes,p.slug AS plan_slug,p.rpm_limit
+                SELECT t.user_id,t.api_key_id,t.scopes,p.slug AS plan_slug,p.rpm_limit,p.concurrent_limit
                 FROM ih_oauth_tokens t
                 LEFT JOIN LATERAL (
                     SELECT plan_slug FROM ih_subscriptions s
@@ -1331,6 +1333,25 @@ class ControlStore:
                 wallet = cur.fetchone()
                 if not wallet:
                     raise ControlError("wallet_missing", "wallet not found", 500)
+
+                cur.execute(
+                    """
+                    SELECT count(*) AS n
+                    FROM ih_usage_events
+                    WHERE user_id=%s AND status='reserved'
+                    """,
+                    (identity.user_id,),
+                )
+                active_reservations = int(cur.fetchone()["n"])
+                if active_reservations >= max(1, int(identity.concurrent_limit)):
+                    raise ControlError(
+                        "concurrency_limited",
+                        (
+                            "concurrent request limit reached "
+                            f"({identity.concurrent_limit})"
+                        ),
+                        429,
+                    )
 
                 total = int(wallet["monthly_credits"]) + int(wallet["purchased_credits"])
                 already_reserved = int(wallet["reserved_credits"])
