@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
@@ -217,6 +218,43 @@ def parse_curl_connection(command: str, *, name: str = "imported") -> dict[str, 
         "headers": headers,
         "request_method": method,
         "request_body": body,
+    }
+
+
+async def probe_saved_connection(
+    row: dict[str, Any],
+    *,
+    timeout_seconds: int = 15,
+    validate_urls: bool = True,
+) -> dict[str, Any]:
+    """Perform a real MCP initialize/list-tools handshake for one saved connection."""
+    source = _source_from_connection(row)
+    if validate_urls:
+        validate_public_http_url(source.url)
+
+    provider = RemoteMcpToolProvider(
+        sources=[source],
+        validate_urls=validate_urls,
+        connection_loader=lambda _user_id: [],
+    )
+    async with asyncio.timeout(max(3, min(int(timeout_seconds), 30))):
+        tools = await provider._tools(source)
+
+    preview = [
+        {
+            "ref": tool.ref,
+            "name": tool.name,
+            "description": tool.description[:240],
+            "side_effecting": bool(tool.side_effecting),
+            "requires_auth": bool(tool.requires_auth),
+        }
+        for tool in tools[:25]
+    ]
+    return {
+        "ok": True,
+        "source": source.public_dict(),
+        "tool_count": len(tools),
+        "tools": preview,
     }
 
 
