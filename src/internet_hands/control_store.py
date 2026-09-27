@@ -1702,6 +1702,15 @@ class ControlStore:
                                 "custom wallet top-up metadata is invalid",
                                 409,
                             )
+                        if (
+                            str(payment.get("currency") or "").upper() != "USD"
+                            or int(payment.get("amount_paise") or 0) != usd_cents
+                        ):
+                            raise ControlError(
+                                "wallet_payment_mismatch",
+                                "custom wallet top-up does not match the captured payment amount",
+                                409,
+                            )
                         expected_units = usd_cents * WALLET_UNITS_PER_USD // 100
                         if credits != expected_units:
                             raise ControlError(
