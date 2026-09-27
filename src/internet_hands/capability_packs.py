@@ -175,14 +175,17 @@ class CapabilityRegistry:
                 if provider_preference and candidate.provider == provider_preference
                 else 1 if provider_preference else 0
             )
+            adaptive_enabled = capability.read_only and not dry_run
             circuit_rank = (
                 0
-                if provider_preference and candidate.provider == provider_preference
+                if not adaptive_enabled
+                or (provider_preference and candidate.provider == provider_preference)
                 else 1 if state["circuit_open"] else 0
             )
             adaptive_priority = candidate.priority + (
                 0
-                if provider_preference and candidate.provider == provider_preference
+                if not adaptive_enabled
+                or (provider_preference and candidate.provider == provider_preference)
                 else int(state["routing_penalty"])
             )
             return (preferred_rank, circuit_rank, adaptive_priority, candidate.provider)
@@ -197,8 +200,12 @@ class CapabilityRegistry:
                     candidate.priority
                     + (
                         0
-                        if provider_preference
-                        and candidate.provider == provider_preference
+                        if not capability.read_only
+                        or dry_run
+                        or (
+                            provider_preference
+                            and candidate.provider == provider_preference
+                        )
                         else int(reliability_before[candidate.provider]["routing_penalty"])
                     )
                 ),
