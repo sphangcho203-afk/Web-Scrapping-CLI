@@ -50,7 +50,14 @@ async def test_signup_enters_dedicated_verification_flow(monkeypatch) -> None:
     async def send_verification(*_args):
         return True
     monkeypatch.setattr(security_api, "_send_verification", send_verification)
-    monkeypatch.setattr(security_api.store, "get_user_by_email", lambda _email: user)
+
+    def ensure_auth_user(**kwargs):
+        assert kwargs["provider"] == "supabase"
+        assert kwargs["subject"] == "auth_pending"
+        assert kwargs["email"] == user["email"]
+        return user
+
+    monkeypatch.setattr(security_api.store, "ensure_auth_user", ensure_auth_user)
     monkeypatch.setattr(security_api.store, "create_session", lambda **_kwargs: None)
 
     response = await security_api.signup_secure(
