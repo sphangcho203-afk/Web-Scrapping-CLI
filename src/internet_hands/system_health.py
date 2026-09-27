@@ -68,8 +68,14 @@ async def provider_reliability_status(
 ) -> dict[str, Any]:
     await _scheduler_authorized(authorization)
     if provider:
-        return {"provider": provider_reliability.snapshot(provider)}
-    return {"providers": provider_reliability.snapshot()}
+        return {
+            "provider": provider_reliability.snapshot(provider),
+            "diagnostics": provider_reliability.diagnostics(),
+        }
+    return {
+        "providers": provider_reliability.snapshot(),
+        "diagnostics": provider_reliability.diagnostics(),
+    }
 
 
 @router.post("/api/internal/providers/reliability/reset")
@@ -82,7 +88,11 @@ async def provider_reliability_reset(
     return {
         "ok": True,
         "provider": provider,
-        "scope": "runtime-local",
+        "scope": (
+            "runtime+shared"
+            if provider_reliability.shared_configured()
+            else "runtime-local"
+        ),
     }
 
 
@@ -175,9 +185,14 @@ async def system_health(
             ],
             "adaptive_provider_routing": {
                 "enabled": provider_reliability.enabled(),
-                "scope": "runtime-local",
+                "scope": (
+                    "runtime+shared"
+                    if provider_reliability.shared_configured()
+                    else "runtime-local"
+                ),
                 "read_only_only": True,
                 "write_replay": False,
+                "diagnostics": provider_reliability.diagnostics(),
             },
             "single_provider_capabilities": single_provider,
         },
