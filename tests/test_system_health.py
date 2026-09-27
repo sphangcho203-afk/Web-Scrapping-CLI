@@ -9,6 +9,9 @@ from internet_hands import system_health
 
 
 class _Mesh:
+    discovery_timeout_seconds = 5
+    provider_max_concurrency = 8
+
     async def provider_status(self):
         return {
             "nativeweb": {
@@ -112,9 +115,10 @@ async def test_system_health_reports_provider_and_fallback_coverage(monkeypatch)
         return None
 
     async def list_tools():
+        names = sorted(system_health._REQUIRED_MCP_TOOLS) + ["future_additive_tool"]
         return [
-            SimpleNamespace(name=f"tool_{index}", input_schema={}, description="tool")
-            for index in range(56)
+            SimpleNamespace(name=name, input_schema={}, description="tool")
+            for name in names
         ]
 
     monkeypatch.setattr(system_health, "_scheduler_authorized", authorized)
@@ -131,8 +135,11 @@ async def test_system_health_reports_provider_and_fallback_coverage(monkeypatch)
     result = await system_health.system_health("Bearer test", deep=False)
     assert result["status"] == "healthy"
     assert result["summary"]["provider_count"] == 2
-    assert result["mcp"]["registered_tools"] == 56
+    assert result["mcp"]["registered_tools"] == len(system_health._REQUIRED_MCP_TOOLS) + 1
     assert result["mcp"]["surface_ok"] is True
+    assert result["mcp"]["missing_required_tools"] == []
+    assert result["mcp"]["extra_tools"] == ["future_additive_tool"]
+    assert result["stability"]["provider_default_max_concurrency"] == 8
     assert result["summary"]["semantic_capabilities"] == 2
     assert result["summary"]["multi_provider_capabilities"] == 1
     assert result["summary"]["open_provider_circuits"] == 1
@@ -158,9 +165,10 @@ async def test_strict_health_returns_503_when_degraded(monkeypatch):
         return None
 
     async def list_tools():
+        names = sorted(system_health._REQUIRED_MCP_TOOLS)[1:]
         return [
-            SimpleNamespace(name=f"tool_{index}", input_schema={}, description="tool")
-            for index in range(55)
+            SimpleNamespace(name=name, input_schema={}, description="tool")
+            for name in names
         ]
 
     monkeypatch.setattr(system_health, "_scheduler_authorized", authorized)
@@ -204,3 +212,40 @@ async def test_provider_reliability_status_and_reset_are_authorized(monkeypatch)
         "scope": "runtime+shared",
     }
     assert reliability.reset_calls == ["firecrawl"]
+
+
+
+@pytest.mark.asyncio
+async def test_deep_health_times_out_one_capability_without_hanging(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class SlowRegistry:
+        def __init__(self):
+            self.capabilities = {
+                "slow": SimpleNamespace(
+                    id="slow",
+                    candidates=(SimpleNamespace(provider="nativeweb"),),
+                )
+            }
+
+        async def resolve(self, _capability_id):
+            await __import__("asyncio").sleep(60)
+            return {"resolved": []}
+
+    monkeypatch.setenv("OPENCRAWL_HEALTH_CAPABILITY_TIMEOUT_SECONDS", "0.25")
+    monkeypatch.setattr(
+        system_health,
+        "get_capability_registry",
+        lambda: SlowRegistry(),
+    )
+
+    rows = await system_health._deep_capability_health(limit=1)
+
+    assert rows == [
+        {
+            "id": "slow",
+            "available": False,
+            "error": "capability health check timed out",
+            "error_class": "timeout",
+        }
+    ]
