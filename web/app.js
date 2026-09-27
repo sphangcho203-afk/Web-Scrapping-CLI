@@ -212,7 +212,7 @@ async function renderPricing() {
 }
 async function renderStatus() {
   let s = null; try { s = await api('/api/status'); } catch {}
-  const rows = [['MCP route',!!s?.mcp,'/mcp'],['Control database',!!s?.control_database,'Accounts and usage'],['OAuth authorization',!!s?.oauth,'PKCE'],['Billing',!!s?.billing,'Razorpay'],['GitHub sign-in',!!s?.github_oauth,'OAuth']];
+  const rows = [['MCP route',!!s?.mcp,'/mcp'],['Control database',!!s?.control_database,'Accounts and usage'],['Identity service',!!s?.supabase_auth?.configured,s?.supabase_auth?.configured?'Supabase Auth ready':'Supabase Auth configuration invalid'],['OAuth authorization',!!s?.oauth,'PKCE'],['Billing',!!s?.billing,'Razorpay'],['GitHub sign-in',!!s?.github_oauth,'OAuth']];
   publicShell(`<main class="page"><section class="page-hero container"><span class="eyebrow">SYSTEM STATUS</span><h1>Configuration state, without exposing secrets.</h1><p>This endpoint reports configuration and reachability. It does not verify individual providers.</p></section><section class="container"><div class="card status-panel"><div class="status-summary ${s?'':'is-unavailable'}"><i></i><span><b>${s?'Status endpoint responding':'Status endpoint unavailable'}</b><small>Checked ${new Date().toLocaleTimeString()}</small></span></div>${rows.map(x => `<div class="status-row"><span><b>${x[0]}</b><small>${x[2]}</small></span><em class="badge ${s&&x[1] ? 'success' : 'warning'}">${s?(x[1] ? (x[0]==='MCP route'?'Advertised':'Configured') : 'Not configured'):'Unknown'}</em></div>`).join('')}</div></section></main>`);
 }
 
