@@ -132,7 +132,7 @@ class PlayerDbProvider:
         if response.status_code == 429:
             retry_after = response.headers.get("retry-after")
             raise RuntimeError(
-                f"PlayerDB rate limited the request"
+                "PlayerDB rate limited the request"
                 + (f"; retry after {retry_after}s" if retry_after else "")
             )
         response.raise_for_status()
