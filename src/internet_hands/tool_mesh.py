@@ -355,6 +355,7 @@ class ToolMesh:
                     status="failed",
                     duration_ms=duration_ms,
                     error=str(exc),
+                    error_class=failure.category,
                 )
                 if delay is not None:
                     await asyncio.sleep(delay)
@@ -411,6 +412,7 @@ class ToolMesh:
                 status=final_status,
                 duration_ms=duration_ms,
                 error=result_error,
+                error_class=failure.category if failure else None,
             )
             if delay is not None:
                 await asyncio.sleep(delay)
