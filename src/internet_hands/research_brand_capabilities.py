@@ -58,6 +58,59 @@ def build_research_brand_capabilities() -> list[Capability]:
             },
         ),
         Capability(
+            id="web.context.agent",
+            name="Agent-ready web grounding context",
+            description=(
+                "Retrieve extracted public-web grounding context for an agent or RAG pipeline, "
+                "preferring Brave LLM Context and falling back to semantic research providers."
+            ),
+            pack="web",
+            tags=("web", "context", "rag", "agent", "brave", "exa", "tavily"),
+            candidates=(
+                CapabilityCandidate(
+                    provider="nativeweb",
+                    ref="nativeweb:context",
+                    priority=5,
+                    argument_map={"limit": "count"},
+                    passthrough_arguments=True,
+                ),
+                CapabilityCandidate(
+                    provider="exa",
+                    ref="exa:search",
+                    priority=10,
+                    argument_map={"limit": "numResults"},
+                    defaults={"text": True, "highlights": True},
+                    passthrough_arguments=True,
+                ),
+                CapabilityCandidate(
+                    provider="tavily",
+                    ref="tavily:search",
+                    priority=15,
+                    argument_map={"limit": "max_results"},
+                    defaults={
+                        "search_depth": "advanced",
+                        "include_raw_content": True,
+                    },
+                    passthrough_arguments=True,
+                ),
+            ),
+            input_schema={
+                "type": "object",
+                "required": ["query"],
+                "properties": {
+                    "query": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 20},
+                    "country": {"type": "string"},
+                    "freshness": {"type": "string"},
+                    "maximum_number_of_tokens": {
+                        "type": "integer",
+                        "minimum": 1024,
+                        "maximum": 32768,
+                    },
+                },
+            },
+        ),
+        Capability(
             id="web.extract.urls",
             name="Multi-provider public URL extraction",
             description=(
