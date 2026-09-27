@@ -47,6 +47,7 @@ def _public_connection(item: dict[str, Any]) -> dict[str, Any]:
         "toolkit": str(toolkit.get("slug") or item.get("toolkit_slug") or ""),
         "alias": str(item.get("alias") or item.get("name") or "") or None,
         "status": str(item.get("status") or "UNKNOWN").upper(),
+        "status_reason": str(item.get("status_reason") or "")[:240] or None,
         "created_at": item.get("created_at"),
         "updated_at": item.get("updated_at"),
         "auth_config": {
@@ -287,17 +288,33 @@ async def integration_apps(request: Request):
             slug,
             {
                 "toolkit": slug,
-                "name": str(item.get("name") or slug.replace("_", " ").title()),
+                "name": str(
+                    toolkit.get("name")
+                    or item.get("name")
+                    or slug.replace("_", " ").title()
+                ),
                 "logo": toolkit.get("logo"),
                 "auth_schemes": [],
+                "auth_configs": [],
                 "auth_config_count": 0,
                 "connected_accounts": 0,
+                "active_accounts": 0,
             },
         )
         entry["auth_config_count"] += 1
         scheme = str(item.get("auth_scheme") or "")
         if scheme and scheme not in entry["auth_schemes"]:
             entry["auth_schemes"].append(scheme)
+        config_id = str(item.get("id") or "").strip()
+        if config_id:
+            entry["auth_configs"].append(
+                {
+                    "id": config_id,
+                    "name": str(item.get("name") or config_id),
+                    "auth_scheme": scheme or None,
+                    "is_composio_managed": bool(item.get("is_composio_managed")),
+                }
+            )
     public_connections = [_public_connection(item) for item in connections]
     for connection in public_connections:
         entry = by_toolkit.get(str(connection["toolkit"]))
