@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 
 from .mcp_server import sandbox_mcp
 from .monitor_executor import _scheduler_authorized
+from .provider_reliability import provider_reliability
 from .tool_mcp import get_capability_registry, get_tool_mesh
 
 router = APIRouter()
@@ -60,6 +61,31 @@ async def _deep_capability_health(limit: int = 100) -> list[dict[str, Any]]:
     return await asyncio.gather(*(one(capability_id) for capability_id in capability_ids))
 
 
+@router.get("/api/internal/providers/reliability")
+async def provider_reliability_status(
+    authorization: str | None = Header(default=None),
+    provider: str | None = Query(default=None),
+) -> dict[str, Any]:
+    await _scheduler_authorized(authorization)
+    if provider:
+        return {"provider": provider_reliability.snapshot(provider)}
+    return {"providers": provider_reliability.snapshot()}
+
+
+@router.post("/api/internal/providers/reliability/reset")
+async def provider_reliability_reset(
+    authorization: str | None = Header(default=None),
+    provider: str | None = Query(default=None),
+) -> dict[str, Any]:
+    await _scheduler_authorized(authorization)
+    provider_reliability.reset(provider)
+    return {
+        "ok": True,
+        "provider": provider,
+        "scope": "runtime-local",
+    }
+
+
 @router.get("/api/internal/system/health")
 async def system_health(
     authorization: str | None = Header(default=None),
@@ -72,12 +98,17 @@ async def system_health(
     mesh = get_tool_mesh()
     registry = get_capability_registry()
     providers = await mesh.provider_status()
+    reliability = provider_reliability.snapshot()
     provider_rows = {
         name: {
             **status,
             "available": _provider_available(status),
             "execution_ready": _provider_available(status),
             "discoverable": _provider_discoverable(status),
+            "runtime_reliability": reliability.get(
+                name,
+                provider_reliability.snapshot(name),
+            ),
         }
         for name, status in providers.items()
     }
@@ -120,16 +151,33 @@ async def system_health(
             "semantic_capabilities": len(capabilities),
             "single_provider_capabilities": len(single_provider),
             "multi_provider_capabilities": len(capabilities) - len(single_provider),
+            "open_provider_circuits": sum(
+                1
+                for row in provider_rows.values()
+                if (row.get("runtime_reliability") or {}).get("circuit_open")
+            ),
+            "degraded_runtime_providers": sum(
+                1
+                for row in provider_rows.values()
+                if int((row.get("runtime_reliability") or {}).get("samples") or 0) > 0
+                and int((row.get("runtime_reliability") or {}).get("score") or 0) < 50
+            ),
         },
         "fallbacks": {
             "native_web_provider": "nativeweb",
             "native_web_tools": [
                 "nativeweb:fetch",
                 "nativeweb:search",
+                "nativeweb:context",
                 "nativeweb:map",
                 "nativeweb:crawl",
                 "nativeweb:batch-fetch",
             ],
+            "adaptive_provider_routing": {
+                "enabled": True,
+                "scope": "runtime-local",
+                "write_replay": False,
+            },
             "single_provider_capabilities": single_provider,
         },
     }
