@@ -218,7 +218,15 @@ class SharedProviderReliabilityStore:
     def _connect(self):
         if not self.dsn:
             raise RuntimeError("provider reliability database is not configured")
-        options: dict[str, Any] = {"row_factory": dict_row}
+        options: dict[str, Any] = {
+            "row_factory": dict_row,
+            "connect_timeout": _env_int(
+                "OPENCRAWL_DB_CONNECT_TIMEOUT_SECONDS",
+                5,
+                minimum=1,
+                maximum=30,
+            ),
+        }
         if "pooler.supabase.com" in self.dsn:
             options["prepare_threshold"] = None
         return psycopg.connect(self.dsn, **options)
