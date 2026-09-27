@@ -216,7 +216,7 @@ async function renderStatus() {
   publicShell(`<main class="page"><section class="page-hero container"><span class="eyebrow">SYSTEM STATUS</span><h1>Configuration state, without exposing secrets.</h1><p>This endpoint reports configuration and reachability. It does not verify individual providers.</p></section><section class="container"><div class="card status-panel"><div class="status-summary ${s?'':'is-unavailable'}"><i></i><span><b>${s?'Status endpoint responding':'Status endpoint unavailable'}</b><small>Checked ${new Date().toLocaleTimeString()}</small></span></div>${rows.map(x => `<div class="status-row"><span><b>${x[0]}</b><small>${x[2]}</small></span><em class="badge ${s&&x[1] ? 'success' : 'warning'}">${s?(x[1] ? (x[0]==='MCP route'?'Advertised':'Configured') : 'Not configured'):'Unknown'}</em></div>`).join('')}</div></section></main>`);
 }
 
-const docs = {
+const docs = window.OPENCRAWL_DOCS || {
   introduction:['Introduction','Get started',`<p>OpenCrawl gives agents a compact authenticated interface to internet-facing capabilities. The MCP URL is stable while providers evolve behind it.</p><h2 id="model">Operating model</h2><p>Route intent, inspect the selected tool, execute, then retain request IDs and provenance.</p>${codeBlock('mesh_route("research a public company")\nmesh_describe("selected.tool")\nmesh_execute("selected.tool", {...})','Agent pattern')}`],
   concepts:['Core concepts','Get started','<h2 id="gateway">Gateway</h2><p>The gateway authenticates, meters and routes calls without loading every provider schema.</p><h2 id="credits">Credits</h2><p>Monthly and purchased USD balances are separate wallet buckets.</p><h2 id="provenance">Provenance</h2><p>Collection retains source, timing and request identifiers.</p>'],
   quickstart:['Quickstart','Get started',`<p>Your first request takes four steps: create an account, verify the email, create a scoped key, then connect a client.</p>${codeBlock(`${location.origin}/mcp\nAuthorization: Bearer ih_live_…`,'Connection')}`],
@@ -233,13 +233,38 @@ const docs = {
   errors:['Errors & limits','Reference','<div class="table-wrap"><table><thead><tr><th>Code</th><th>Meaning</th></tr></thead><tbody><tr><td><code>invalid_api_key</code></td><td>Invalid or revoked</td></tr><tr><td><code>email_verification_required</code></td><td>Identity gate</td></tr><tr><td><code>insufficient_credits</code></td><td>Wallet cannot fund work</td></tr><tr><td><code>rate_limited</code></td><td>Plan limit reached</td></tr><tr><td><code>scope_denied</code></td><td>Scope missing</td></tr></tbody></table></div>'],
   troubleshooting:['Troubleshooting','Reference','<h2 id="401">MCP returns 401</h2><p>Follow protected-resource metadata or send an active Bearer key.</p><h2 id="email">Email did not arrive</h2><p>Check the address, wait for cooldown, then request a new challenge.</p><h2 id="config">Config clips</h2><p>Use the copy control. Code scrolls internally and never widens the page.</p>'],
 };
+function docSearchText(value='') {
+  const node=document.createElement('div');node.innerHTML=String(value);return (node.textContent||'').replace(/\s+/g,' ').trim().toLowerCase();
+}
 function docsNav(active) {
-  return [...new Set(Object.values(docs).map(x => x[1]))].map(group => `<div class="docs-group"><span>${group}</span>${Object.entries(docs).filter(([,x]) => x[1] === group).map(([slug,x]) => `<a class="${slug === active ? 'active' : ''}" data-link href="/docs/${slug}">${x[0]}</a>`).join('')}</div>`).join('');
+  return [...new Set(Object.values(docs).map(x => x[1]))].map(group => `<div class="docs-group"><span>${group}</span>${Object.entries(docs).filter(([,x]) => x[1] === group).map(([slug,x]) => `<a class="${slug === active ? 'active' : ''}" data-doc-search="${esc(`${x[0]} ${x[1]} ${docSearchText(x[2])}`)}" data-link href="/docs/${slug}">${x[0]}</a>`).join('')}</div>`).join('');
 }
 function renderDocs() {
-  const slug = location.pathname.split('/')[2] || 'introduction'; const d = docs[slug] || docs.introduction; const keys = Object.keys(docs); const i = keys.indexOf(slug); const prev = i > 0 ? keys[i-1] : null; const next = i >= 0 && i < keys.length-1 ? keys[i+1] : null;
-  app.innerHTML = `<div class="docs-layout"><header class="docs-top">${brand()}<button class="btn small" data-docs-toggle>${icon('menu')} Sections</button><a class="btn primary small" data-link href="${state.me?.user?.email_verified?'/dashboard':'/signup'}">${state.me?.user?.email_verified?'Back to dashboard':'Open console'}</a></header><aside class="docs-sidebar" data-docs-sidebar><label>Search docs<input id="docs-search" placeholder="Filter sections…"></label>${docsNav(slug)}</aside><article class="docs-article"><div class="breadcrumb">Docs / ${d[1]}</div><h1>${d[0]}</h1>${d[2]}<nav class="docs-pager">${prev ? `<a data-link href="/docs/${prev}"><small>Previous</small>${docs[prev][0]}</a>` : '<span></span>'}${next ? `<a data-link href="/docs/${next}"><small>Next</small>${docs[next][0]}</a>` : ''}</nav></article><aside class="docs-toc"><b>On this page</b>${[...d[2].matchAll(/<h2 id="([^"]+)">([^<]+)<\/h2>/g)].map(m => `<a href="#${m[1]}">${m[2]}</a>`).join('')}</aside></div>`;
-  bindCommon(); $('[data-docs-toggle]').onclick = () => $('[data-docs-sidebar]').classList.toggle('open'); $('#docs-search').oninput = e => $$('.docs-group a').forEach(a => a.hidden = !a.textContent.toLowerCase().includes(e.target.value.toLowerCase()));
+  const slug = location.pathname.split('/')[2] || 'introduction';
+  const d = docs[slug] || docs.introduction;
+  const body = String(d[2]||'').replaceAll('{{ORIGIN}}',location.origin);
+  const keys = Object.keys(docs);
+  const actualSlug = docs[slug] ? slug : 'introduction';
+  const i = keys.indexOf(actualSlug);
+  const prev = i > 0 ? keys[i-1] : null;
+  const next = i >= 0 && i < keys.length-1 ? keys[i+1] : null;
+  document.title = `${d[0]} — OpenCrawl Docs`;
+  const toc=[...body.matchAll(/<h2 id="([^"]+)">([^<]+)<\/h2>/g)].map(m => `<a href="#${m[1]}">${m[2]}</a>`).join('');
+  app.innerHTML = `<div class="docs-layout"><header class="docs-top">${brand()}<button class="btn small" data-docs-toggle>${icon('menu')} Sections</button><a class="btn primary small" data-link href="${state.me?.user?.email_verified?'/dashboard':'/signup'}">${state.me?.user?.email_verified?'Back to dashboard':'Open console'}</a></header><aside class="docs-sidebar" data-docs-sidebar><label>Search documentation<input id="docs-search" placeholder="MCP, OAuth, 2FA, wallet…"></label><div class="docs-search-empty" hidden>No matching documentation pages.</div>${docsNav(actualSlug)}</aside><article class="docs-article"><div class="breadcrumb">Docs / ${d[1]}</div><h1>${d[0]}</h1>${body}<nav class="docs-pager">${prev ? `<a data-link href="/docs/${prev}"><small>Previous</small>${docs[prev][0]}</a>` : '<span></span>'}${next ? `<a data-link href="/docs/${next}"><small>Next</small>${docs[next][0]}</a>` : ''}</nav></article><aside class="docs-toc"><b>On this page</b>${toc||'<span>Overview</span>'}</aside></div>`;
+  bindCommon();
+  $('[data-docs-toggle]').onclick = () => $('[data-docs-sidebar]').classList.toggle('open');
+  $('#docs-search').oninput = e => {
+    const q=e.target.value.trim().toLowerCase();let visible=0;
+    $('.docs-group a').forEach(a=>{a.hidden=Boolean(q)&&!a.dataset.docSearch.includes(q);if(!a.hidden)visible++;});
+    $('.docs-group').forEach(g=>g.hidden=!$('a:not([hidden])',g).length);
+    $('.docs-search-empty').hidden=visible!==0;
+  };
+  requestAnimationFrame(()=>{
+    if(location.hash){
+      const id=decodeURIComponent(location.hash.slice(1));
+      document.getElementById(id)?.scrollIntoView({block:'start'});
+    }
+  });
 }
 
 function authShell(title, sub, content, story = 'Infrastructure for agents that need reach.') {
