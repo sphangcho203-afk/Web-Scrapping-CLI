@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import httpx
@@ -320,3 +321,98 @@ def test_default_tool_mesh_registers_search_and_game_catalog_providers() -> None
         "games.catalog.search",
         "games.platform.search",
     }.issubset(registry.capabilities)
+
+
+
+@pytest.mark.asyncio
+async def test_provider_status_timeout_is_isolated() -> None:
+    class HangingStatusProvider(FakeProvider):
+        async def status(self) -> dict[str, Any]:
+            await asyncio.sleep(60)
+            return {"configured": True}
+
+    mesh = ToolMesh([HangingStatusProvider("slow-status", "x")])
+    mesh.discovery_timeout_seconds = 0.01
+
+    result = await mesh.provider_status()
+
+    assert result["slow-status"]["configured"] is False
+    assert result["slow-status"]["error_class"] == "timeout"
+    assert result["slow-status"]["error"] == "provider status timed out"
+
+
+@pytest.mark.asyncio
+async def test_provider_search_timeout_does_not_block_other_catalogs() -> None:
+    class HangingSearchProvider(FakeProvider):
+        async def search(self, query: str, *, limit: int = 10) -> list[ToolDescriptor]:
+            await asyncio.sleep(60)
+            return []
+
+    mesh = ToolMesh(
+        [
+            HangingSearchProvider("slow-search", "s"),
+            FakeProvider("fast-search", "f"),
+        ]
+    )
+    mesh.discovery_timeout_seconds = 0.01
+
+    result = await mesh.search("maps", limit=2)
+
+    assert result["errors"]["slow-search"] == "provider search timed out"
+    assert [tool["provider"] for tool in result["tools"]] == [
+        "fast-search",
+        "fast-search",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_provider_bulkhead_limits_parallel_execution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class CountingProvider(FakeProvider):
+        def __init__(self, name: str, prefix: str) -> None:
+            super().__init__(name, prefix)
+            self.active = 0
+            self.max_active = 0
+
+        async def execute(self, tool_id: str, arguments: dict[str, Any], **kwargs):
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+            try:
+                await asyncio.sleep(0.02)
+                return await super().execute(tool_id, arguments, **kwargs)
+            finally:
+                self.active -= 1
+
+    monkeypatch.setenv("OPENCRAWL_PROVIDER_MAX_CONCURRENCY_COUNTED", "2")
+    provider = CountingProvider("counted", "x")
+    mesh = ToolMesh([provider])
+
+    result = await mesh.batch_execute(
+        [
+            {"ref": f"counted:x{index}", "arguments": {"n": index}}
+            for index in range(6)
+        ],
+        max_concurrency=6,
+    )
+
+    assert all(row["status"] == "completed" for row in result["results"])
+    assert provider.max_active == 2
+
+
+@pytest.mark.asyncio
+async def test_retry_delay_never_extends_past_execution_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENCRAWL_PROVIDER_READ_RETRIES", "3")
+    monkeypatch.setenv("OPENCRAWL_PROVIDER_RETRY_BASE_MS", "5000")
+    monkeypatch.setenv("OPENCRAWL_PROVIDER_RETRY_MAX_WAIT_MS", "5000")
+    provider = RetryProvider("deadline", "x", statuses=[503, "completed"])
+    mesh = ToolMesh([provider])
+
+    result = await mesh.execute("deadline:x0", {}, timeout_seconds=1)
+
+    assert result["status"] == "failed"
+    assert provider.execute_calls == 1
+    assert result["metadata"]["failure"]["category"] == "upstream_unavailable"
+    assert result["metadata"]["provider_attempts"][0]["retry_delay_seconds"] == 5.0
