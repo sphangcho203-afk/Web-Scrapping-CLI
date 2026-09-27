@@ -118,3 +118,21 @@ async def test_external_backend_requires_explicit_server_opt_in(monkeypatch) -> 
     status = await provider.status()
     assert status["challenge_bypass"] is False
     assert status["optional_backends_enabled"] is False
+
+
+
+@pytest.mark.asyncio
+async def test_provider_propagates_challenge_as_blocked_execution(monkeypatch) -> None:
+    async def fetch(*args, **kwargs):
+        return _fetch("<html><body>Checking your browser - CAPTCHA</body></html>", status=403)
+
+    monkeypatch.setattr(module, "fetch_url", fetch)
+    provider = module.IntelligenceFabricProvider()
+    result = await provider.execute(
+        "smart-fetch",
+        {"url": "https://example.com/", "render": "auto"},
+    )
+
+    assert result["status"] == "blocked"
+    assert result["data"]["blocked"] is True
+    assert "blocked by upstream challenge" in result["error"]
