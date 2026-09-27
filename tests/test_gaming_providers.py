@@ -128,7 +128,7 @@ async def test_roblox_public_profile_expansion_uses_read_only_endpoints() -> Non
     assert wearing["data"]["assetIds"] == [1, 2, 3]
     assert groups["data"]["data"][0]["role"]["name"] == "Member"
     assert games["data"]["data"][0]["name"] == "Public Game"
-    assert all(path.startswith("/v1/") or path.startswith("/v2/") for path in requests)
+    assert all(path.startswith(("/v1/", "/v2/")) for path in requests)
 
 
 @pytest.mark.asyncio
