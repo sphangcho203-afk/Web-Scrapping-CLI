@@ -175,6 +175,12 @@ RAW_PROVIDER_SURCHARGES: dict[str, tuple[str, int]] = {
     "mcp": ("public", 2),
     "composio": ("public", 0),
     "firecrawl": ("metered", 250),
+    # Tavily basic search is one upstream API credit. With 5,000 internal wallet
+    # units per displayed USD, $0.008 maps to roughly 40 wallet units.
+    "tavily": ("metered", 40),
+    # Exa reports dollar cost in responses; 100 units is conservative reservation
+    # headroom for the bounded search/contents shapes exposed by OpenCrawl.
+    "exa": ("metered", 100),
     "rapidapi": ("metered", 5),
     # The run is capped at $0.10 in ApifyToolProvider. At the least expensive
     # credit-pack rate, 1,500 credits represent INR 15 before payment fees.
@@ -747,7 +753,7 @@ def estimate_call(
                 units = len(urls) if isinstance(urls, list) else 0
                 if not 1 <= units <= 20:
                     reason = "batch fetch requires 1 to 20 URLs"
-            elif operation in {"fetch", "map", "search"}:
+            elif operation in {"fetch", "map", "search", "context"}:
                 units = 1
             else:
                 reason, units = "unknown native web operation", 0
@@ -829,6 +835,123 @@ def estimate_call(
                 False, plan.slug, tool_name, "web_intelligence", 2,
                 "free", "public", "unknown intelligence operation",
                 ({"kind": "base", "credits": 2},), plan.to_dict(),
+            )
+
+        if ref.startswith("tavily:"):
+            operation = ref.split(":", 1)[1]
+            reason: str | None = None
+            upstream_credits = 1
+
+            if operation == "search":
+                depth = str(nested_arguments.get("search_depth") or "basic").strip().lower()
+                if depth not in {"basic", "advanced"}:
+                    reason = "Tavily search_depth must be basic or advanced"
+                upstream_credits = 2 if depth == "advanced" else 1
+            elif operation == "extract":
+                urls = nested_arguments.get("urls")
+                count = len(urls) if isinstance(urls, list) else 0
+                if not 1 <= count <= 20:
+                    reason = "Tavily extract requires 1 to 20 URLs"
+                    upstream_credits = 0
+                else:
+                    depth = str(nested_arguments.get("extract_depth") or "basic").strip().lower()
+                    if depth not in {"basic", "advanced"}:
+                        reason = "Tavily extract_depth must be basic or advanced"
+                    multiplier = 2 if depth == "advanced" else 1
+                    upstream_credits = math.ceil(count / 5) * multiplier
+            elif operation in {"map", "crawl"}:
+                try:
+                    limit = int(nested_arguments.get("limit", 50))
+                except (TypeError, ValueError):
+                    limit = 0
+                if not 1 <= limit <= 100:
+                    reason = f"Tavily {operation} requires limit between 1 and 100"
+                    upstream_credits = 0
+                else:
+                    mapping_multiplier = 2 if str(nested_arguments.get("instructions") or "").strip() else 1
+                    mapping_credits = math.ceil(limit / 10) * mapping_multiplier
+                    if operation == "crawl":
+                        depth = str(nested_arguments.get("extract_depth") or "basic").strip().lower()
+                        if depth not in {"basic", "advanced"}:
+                            reason = "Tavily extract_depth must be basic or advanced"
+                        extraction_multiplier = 2 if depth == "advanced" else 1
+                        extraction_credits = math.ceil(limit / 5) * extraction_multiplier
+                        upstream_credits = mapping_credits + extraction_credits
+                    else:
+                        upstream_credits = mapping_credits
+            else:
+                reason = "unknown Tavily operation"
+
+            allowed = reason is None and _provider_allowed(plan, "metered")
+            total = 2 + upstream_credits * 40
+            return CostEstimate(
+                allowed=allowed,
+                plan=plan.slug,
+                tool_name=tool_name,
+                category="web_research",
+                credits=total,
+                minimum_plan=rule.minimum_plan,
+                provider_class="metered",
+                reason=reason or (
+                    None if _provider_allowed(plan, "metered")
+                    else "this route requires metered access"
+                ),
+                breakdown=(
+                    {"kind": "base", "credits": 2},
+                    {
+                        "kind": "tavily_credit_budget",
+                        "upstream_credits": upstream_credits,
+                        "credits": upstream_credits * 40,
+                    },
+                ),
+                limits=plan.to_dict(),
+            )
+
+        if ref.startswith("exa:"):
+            operation = ref.split(":", 1)[1]
+            reason: str | None = None
+            # Exa reports exact dollars after execution. Reserve bounded headroom
+            # and settle down to measured costDollars afterwards.
+            if operation == "search":
+                try:
+                    results = int(nested_arguments.get("numResults", 10))
+                except (TypeError, ValueError):
+                    results = 0
+                if not 1 <= results <= 25:
+                    reason = "Exa search requires numResults between 1 and 25"
+                headroom = 500
+            elif operation == "contents":
+                urls = nested_arguments.get("urls")
+                count = len(urls) if isinstance(urls, list) else 0
+                if not 1 <= count <= 20:
+                    reason = "Exa contents requires 1 to 20 URLs"
+                headroom = 100 * max(1, math.ceil(count / 5))
+            else:
+                reason = "unknown Exa operation"
+                headroom = 0
+
+            allowed = reason is None and _provider_allowed(plan, "metered")
+            total = 2 + headroom
+            return CostEstimate(
+                allowed=allowed,
+                plan=plan.slug,
+                tool_name=tool_name,
+                category="web_research",
+                credits=total,
+                minimum_plan=rule.minimum_plan,
+                provider_class="metered",
+                reason=reason or (
+                    None if _provider_allowed(plan, "metered")
+                    else "this route requires metered access"
+                ),
+                breakdown=(
+                    {"kind": "base", "credits": 2},
+                    {
+                        "kind": "exa_cost_headroom",
+                        "credits": headroom,
+                    },
+                ),
+                limits=plan.to_dict(),
             )
 
         if ref.startswith("firecrawl:"):
@@ -1224,6 +1347,23 @@ def settle_measured_cost(
             return min(reserved, actual)
         if prefix in {"firecrawl", "publicdata", "gamepublic", "nativeweb"}:
             return min(reserved, _measured_mesh_attempts(provider_calls, counters))
+        if prefix == "tavily":
+            try:
+                upstream_credits = max(0, int(counters.get("tavily_credits") or 0))
+            except (TypeError, ValueError):
+                upstream_credits = 0
+            if upstream_credits:
+                return min(reserved, 2 + upstream_credits * 40)
+
+        if prefix == "exa":
+            try:
+                micro_usd = max(0, int(counters.get("exa_cost_microusd") or 0))
+            except (TypeError, ValueError):
+                micro_usd = 0
+            if micro_usd:
+                # 1 USD = 5,000 internal wallet units -> 1 unit per 200 micro-USD.
+                return min(reserved, 2 + math.ceil(micro_usd / 200))
+
         economics = RAW_PROVIDER_SURCHARGES.get(prefix)
         if economics is not None:
             _, surcharge = economics

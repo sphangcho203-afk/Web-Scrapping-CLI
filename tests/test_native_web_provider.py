@@ -60,6 +60,30 @@ async def test_native_search_uses_brave_adapter(monkeypatch: pytest.MonkeyPatch)
 
 
 @pytest.mark.asyncio
+async def test_native_context_uses_brave_agent_context_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_context(query: str, **kwargs):
+        assert query == "internet hands"
+        assert kwargs["maximum_number_of_tokens"] == 4096
+        return {
+            "provider": "brave",
+            "capability": "llm-context",
+            "data": {"response": {"grounding": {"generic": []}}},
+        }
+
+    monkeypatch.setattr(
+        "internet_hands.native_web_provider.brave_llm_context",
+        fake_context,
+    )
+    provider = NativeWebToolProvider()
+    result = await provider.execute(
+        "context",
+        {"query": "internet hands", "maximum_number_of_tokens": 4096},
+    )
+    assert result["status"] == "completed"
+    assert result["data"]["capability"] == "llm-context"
+
+
+@pytest.mark.asyncio
 async def test_native_crawl_accepts_firecrawl_limit_alias(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: dict[str, object] = {}
 
@@ -96,11 +120,12 @@ async def test_native_batch_fetch_isolates_failures(monkeypatch: pytest.MonkeyPa
     assert rows[1]["status"] == "failed"
 
 
-def test_native_provider_exposes_five_bounded_tools() -> None:
+def test_native_provider_exposes_six_bounded_tools() -> None:
     provider = NativeWebToolProvider()
     assert set(provider._descriptors()) == {
         "fetch",
         "search",
+        "context",
         "map",
         "crawl",
         "batch-fetch",

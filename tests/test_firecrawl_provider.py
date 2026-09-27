@@ -255,3 +255,49 @@ async def test_firecrawl_rejects_private_target_url() -> None:
     provider = FirecrawlToolProvider(api_key="fc-test")
     with pytest.raises((ValueError, PermissionError)):
         await provider.execute("scrape", {"url": "http://127.0.0.1/admin"})
+
+
+
+@pytest.mark.asyncio
+async def test_firecrawl_search_exposes_v2_source_category_and_safety_controls() -> None:
+    provider = FirecrawlToolProvider(api_key="")
+    descriptor = await provider.describe("search")
+    properties = descriptor.input_schema["properties"]
+    assert {
+        "sources",
+        "categories",
+        "safe",
+        "timeout",
+        "ignoreInvalidURLs",
+        "highlights",
+        "threatProtection",
+    }.issubset(properties)
+
+
+@pytest.mark.asyncio
+async def test_firecrawl_nested_scrape_options_cannot_smuggle_auth_or_actions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _disable_public_url_validation(monkeypatch)
+    provider = FirecrawlToolProvider(api_key="fc-test")
+
+    with pytest.raises(PermissionError, match="nested target"):
+        await provider.execute(
+            "search",
+            {
+                "query": "example",
+                "scrapeOptions": {"headers": {"Authorization": "Bearer hidden"}},
+            },
+        )
+
+    with pytest.raises(PermissionError, match="cannot contain browser actions"):
+        await provider.execute(
+            "crawl",
+            {
+                "url": "https://example.com",
+                "limit": 1,
+                "scrapeOptions": {
+                    "actions": [{"type": "click", "selector": "#consent"}],
+                },
+            },
+        )

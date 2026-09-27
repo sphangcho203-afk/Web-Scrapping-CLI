@@ -29,6 +29,14 @@ def test_extra_gaming_capabilities_cover_official_sources() -> None:
         "league.rank.current",
         "league.champion.mastery",
         "league.matches.recent",
+        "league.challenges.player",
+        "league.challenges.catalog",
+        "league.challenges.percentiles",
+        "league.live.current",
+        "league.live.featured",
+        "league.status.platform",
+        "tft.live.current",
+        "tft.status.platform",
         "tft.matches.recent",
     }.issubset(ids)
     assert all(capability.read_only for capability in capabilities)

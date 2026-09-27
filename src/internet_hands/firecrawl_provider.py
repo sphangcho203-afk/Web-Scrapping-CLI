@@ -86,12 +86,27 @@ class FirecrawlToolProvider:
                     {
                         "query": _str_schema("Natural-language web search query"),
                         "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                        "sources": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "maxItems": 5,
+                        },
+                        "categories": {
+                            "type": "array",
+                            "items": {"type": "object"},
+                            "maxItems": 10,
+                        },
                         "scrapeOptions": {"type": "object"},
                         "includeDomains": {"type": "array", "items": {"type": "string"}},
                         "excludeDomains": {"type": "array", "items": {"type": "string"}},
                         "country": {"type": "string"},
                         "tbs": {"type": "string"},
                         "location": {"type": "string"},
+                        "safe": {"type": "boolean"},
+                        "timeout": {"type": "integer", "minimum": 1000, "maximum": 120000},
+                        "ignoreInvalidURLs": {"type": "boolean"},
+                        "highlights": {"type": "boolean"},
+                        "threatProtection": {"type": "object"},
                     },
                     ["query"],
                 ),
@@ -524,6 +539,24 @@ class FirecrawlToolProvider:
             if blocked:
                 raise PermissionError(
                     "Firecrawl target Authorization/Cookie/API-key headers are not accepted through the mesh"
+                )
+
+        scrape_options = payload.get("scrapeOptions")
+        if isinstance(scrape_options, dict):
+            nested_headers = scrape_options.get("headers")
+            if isinstance(nested_headers, dict):
+                blocked = [
+                    name
+                    for name in nested_headers
+                    if str(name).casefold() in _SENSITIVE_HEADER_NAMES
+                ]
+                if blocked:
+                    raise PermissionError(
+                        "Firecrawl nested target Authorization/Cookie/API-key headers are not accepted"
+                    )
+            if scrape_options.get("actions"):
+                raise PermissionError(
+                    "Firecrawl search/crawl scrapeOptions cannot contain browser actions through a read-only route"
                 )
 
         if tool_id == "scrape" and payload.get("actions"):
