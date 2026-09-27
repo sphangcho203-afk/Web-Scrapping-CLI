@@ -121,6 +121,7 @@ def test_research_capabilities_expose_fallback_fabric() -> None:
     capabilities = {item.id: item for item in build_research_brand_capabilities()}
     assert {
         "web.search.semantic",
+        "web.context.agent",
         "web.extract.urls",
         "web.map.smart",
         "web.crawl.smart",
@@ -133,3 +134,16 @@ def test_research_capabilities_expose_fallback_fabric() -> None:
         "nativeweb",
     ]
     assert all(item.read_only for item in capabilities.values())
+
+
+
+def test_agent_context_prefers_brave_then_semantic_paid_fallbacks() -> None:
+    capabilities = {item.id: item for item in build_research_brand_capabilities()}
+    context = capabilities["web.context.agent"]
+    assert [candidate.provider for candidate in context.candidates] == [
+        "nativeweb",
+        "exa",
+        "tavily",
+    ]
+    assert context.candidates[1].defaults["text"] is True
+    assert context.candidates[2].defaults["search_depth"] == "advanced"
