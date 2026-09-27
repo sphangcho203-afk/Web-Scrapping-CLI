@@ -560,3 +560,136 @@ def test_deep_caller_investigation_measured_settlement_survives_raw_mesh_route()
 def test_deep_caller_investigation_measured_settlement_survives_semantic_route() -> None:
     settled = settle_measured_cost("mesh_capability_execute", {"capability": "phone.caller.investigate", "arguments": {"number": "+14155552671", "max_sources": 3}}, "builder", reserved_credits=13, execution_usage={"counters": {"public_search_call": 1, "public_search_result": 4, "caller_source_fetch": 1}, "provider_calls": {"callerresearch": 1, "nativeweb": 1}})
     assert settled == 12
+
+
+
+def test_connected_app_execution_is_free_on_every_plan() -> None:
+    for plan in ("free", "builder", "pro", "scale"):
+        quote = estimate_call(
+            "mesh_execute",
+            {
+                "ref": "composio:GMAIL_SEND_EMAIL",
+                "arguments": {"to": "person@example.com", "subject": "Hello"},
+                "account": "ca_user_owned",
+            },
+            plan,
+        )
+        assert quote.allowed is True
+        assert quote.credits == 0
+        assert quote.category == "byo_external"
+        assert quote.minimum_plan == "free"
+        assert settle_measured_cost(
+            "mesh_execute",
+            {
+                "ref": "composio:GMAIL_SEND_EMAIL",
+                "arguments": {"to": "person@example.com", "subject": "Hello"},
+                "account": "ca_user_owned",
+            },
+            plan,
+            reserved_credits=quote.credits,
+            execution_usage={"provider_calls": {"composio": 1}},
+        ) == 0
+
+
+def test_user_saved_remote_mcp_is_free_but_operator_mcp_can_still_be_metered() -> None:
+    user_owned = estimate_call(
+        "mesh_execute",
+        {
+            "ref": "mcp:con_0123456789abcdef::SEARCH",
+            "arguments": {"query": "example"},
+        },
+        "free",
+    )
+    operator_route = estimate_call(
+        "mesh_execute",
+        {
+            "ref": "mcp:company_search::SEARCH",
+            "arguments": {"query": "example"},
+        },
+        "free",
+    )
+
+    assert user_owned.allowed is True
+    assert user_owned.credits == 0
+    assert user_owned.category == "byo_external"
+
+    assert operator_route.allowed is True
+    assert operator_route.credits == 4
+
+
+def test_pure_byo_batch_has_zero_wallet_charge() -> None:
+    args = {
+        "calls": [
+            {
+                "ref": "composio:GITHUB_CREATE_ISSUE",
+                "arguments": {"title": "Bug"},
+                "account": "ca_github",
+            },
+            {
+                "ref": "mcp:con_abcdef::NOTION_SEARCH",
+                "arguments": {"query": "roadmap"},
+            },
+        ]
+    }
+    quote = estimate_call("mesh_batch_execute", args, "free")
+    assert quote.allowed is True
+    assert quote.credits == 0
+    assert settle_measured_cost(
+        "mesh_batch_execute",
+        args,
+        "free",
+        reserved_credits=quote.credits,
+        execution_usage={"provider_calls": {"composio": 1, "mcp": 1}},
+    ) == 0
+
+
+def test_mixed_batch_only_charges_opencrawl_supplied_work() -> None:
+    args = {
+        "calls": [
+            {
+                "ref": "composio:GMAIL_SEARCH_EMAILS",
+                "arguments": {"query": "invoice"},
+                "account": "ca_mail",
+            },
+            {
+                "ref": "nativeweb:fetch",
+                "arguments": {"url": "https://example.com"},
+            },
+        ]
+    }
+    quote = estimate_call("mesh_batch_execute", args, "free")
+
+    assert quote.allowed is True
+    assert quote.credits == 7
+    assert settle_measured_cost(
+        "mesh_batch_execute",
+        args,
+        "free",
+        reserved_credits=quote.credits,
+        execution_usage={
+            "provider_calls": {"composio": 1, "nativeweb": 1},
+            "counters": {"native_web_requests": 1},
+        },
+    ) == 7
+
+
+def test_semantic_connected_capability_does_not_add_orchestration_fee() -> None:
+    args = {
+        "capability": "messaging.send",
+        "arguments": {
+            "platform": "telegram",
+            "target": "12345",
+            "message": "hello",
+        },
+    }
+    quote = estimate_call("mesh_capability_execute", args, "free")
+
+    assert quote.allowed is True
+    assert quote.credits == 0
+    assert settle_measured_cost(
+        "mesh_capability_execute",
+        args,
+        "free",
+        reserved_credits=quote.credits,
+        execution_usage={"provider_calls": {"composio": 1}},
+    ) == 0
