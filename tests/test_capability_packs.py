@@ -11,6 +11,7 @@ from internet_hands.capability_packs import (
     CapabilityRegistry,
 )
 from internet_hands.control_store import AuthIdentity
+from internet_hands.provider_reliability import provider_reliability
 from internet_hands.tool_mesh import ToolDescriptor, ToolMesh
 
 
@@ -447,3 +448,196 @@ async def test_write_capability_never_falls_back_after_execution_starts() -> Non
     assert primary.execute_calls == 1
     assert fallback.execute_calls == 0
     assert result["attempts"][0]["status"] == "failed"
+
+
+
+@pytest.mark.asyncio
+async def test_runtime_failure_deprioritizes_read_only_provider() -> None:
+    provider_reliability.reset()
+    try:
+        provider_reliability.record(
+            "preferred",
+            status="failed",
+            error="temporary upstream failure",
+        )
+        mesh = ToolMesh(
+            [CapabilityProvider("preferred"), CapabilityProvider("fallback")]
+        )
+        registry = CapabilityRegistry(
+            mesh,
+            [
+                Capability(
+                    id="web.adaptive",
+                    name="Adaptive",
+                    description="Adaptive",
+                    pack="web",
+                    tags=("web",),
+                    candidates=(
+                        CapabilityCandidate(
+                            provider="preferred",
+                            ref="preferred:lookup",
+                            priority=10,
+                        ),
+                        CapabilityCandidate(
+                            provider="fallback",
+                            ref="fallback:lookup",
+                            priority=20,
+                        ),
+                    ),
+                )
+            ],
+        )
+
+        result = await registry.execute("web.adaptive", {"q": "hello"})
+
+        assert result["selected"] == "fallback:lookup"
+        assert [row["provider"] for row in result["routing"]["order"]] == [
+            "fallback",
+            "preferred",
+        ]
+        assert result["routing"]["order"][1]["adaptive_priority"] > 20
+    finally:
+        provider_reliability.reset()
+
+
+@pytest.mark.asyncio
+async def test_open_circuit_is_skipped_for_automatic_read_only_routing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENCRAWL_PROVIDER_CIRCUIT_FAILURES", "2")
+    monkeypatch.setenv("OPENCRAWL_PROVIDER_CIRCUIT_COOLDOWN_SECONDS", "600")
+    provider_reliability.reset()
+    try:
+        provider_reliability.record("only", status="failed", error="one")
+        provider_reliability.record("only", status="failed", error="two")
+        mesh = ToolMesh([CapabilityProvider("only")])
+        registry = CapabilityRegistry(
+            mesh,
+            [
+                Capability(
+                    id="web.circuit",
+                    name="Circuit",
+                    description="Circuit",
+                    pack="web",
+                    tags=("web",),
+                    candidates=(
+                        CapabilityCandidate(
+                            provider="only",
+                            ref="only:lookup",
+                            priority=10,
+                        ),
+                    ),
+                )
+            ],
+        )
+
+        result = await registry.execute("web.circuit", {})
+
+        assert result["selected"] is None
+        assert result["attempts"][0]["status"] == "skipped"
+        assert "circuit" in result["attempts"][0]["error"]
+        assert result["attempts"][0]["reliability"]["circuit_open"] is True
+    finally:
+        provider_reliability.reset()
+
+
+@pytest.mark.asyncio
+async def test_explicit_provider_preference_overrides_open_circuit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENCRAWL_PROVIDER_CIRCUIT_FAILURES", "2")
+    monkeypatch.setenv("OPENCRAWL_PROVIDER_CIRCUIT_COOLDOWN_SECONDS", "600")
+    provider_reliability.reset()
+    try:
+        provider_reliability.record("preferred", status="failed", error="one")
+        provider_reliability.record("preferred", status="failed", error="two")
+        mesh = ToolMesh(
+            [CapabilityProvider("preferred"), CapabilityProvider("fallback")]
+        )
+        registry = CapabilityRegistry(
+            mesh,
+            [
+                Capability(
+                    id="web.pin",
+                    name="Pin",
+                    description="Pin",
+                    pack="web",
+                    tags=("web",),
+                    candidates=(
+                        CapabilityCandidate(
+                            provider="preferred",
+                            ref="preferred:lookup",
+                            priority=10,
+                        ),
+                        CapabilityCandidate(
+                            provider="fallback",
+                            ref="fallback:lookup",
+                            priority=20,
+                        ),
+                    ),
+                )
+            ],
+        )
+
+        result = await registry.execute(
+            "web.pin",
+            {},
+            provider_preference="preferred",
+        )
+
+        assert result["selected"] == "preferred:lookup"
+        assert result["routing"]["order"][0]["provider"] == "preferred"
+        assert result["routing"]["order"][0]["preferred"] is True
+        assert provider_reliability.snapshot("preferred")["circuit_open"] is False
+    finally:
+        provider_reliability.reset()
+
+
+
+@pytest.mark.asyncio
+async def test_write_capability_ignores_runtime_reliability_reordering() -> None:
+    provider_reliability.reset()
+    try:
+        provider_reliability.record("primary", status="failed", error="old failure")
+        primary = CountingSideEffectProvider("primary")
+        fallback = CountingSideEffectProvider("fallback")
+        mesh = ToolMesh([primary, fallback])
+        registry = CapabilityRegistry(
+            mesh,
+            [
+                Capability(
+                    id="messaging.static-order",
+                    name="Static write routing",
+                    description="Static write routing",
+                    pack="connected",
+                    tags=("messaging",),
+                    read_only=False,
+                    candidates=(
+                        CapabilityCandidate(
+                            provider="primary",
+                            ref="primary:send",
+                            priority=10,
+                        ),
+                        CapabilityCandidate(
+                            provider="fallback",
+                            ref="fallback:send",
+                            priority=20,
+                        ),
+                    ),
+                )
+            ],
+        )
+
+        result = await registry.execute(
+            "messaging.static-order",
+            {"message": "hello"},
+            allow_side_effects=True,
+        )
+
+        assert result["selected"] == "primary:send"
+        assert result["routing"]["order"][0]["provider"] == "primary"
+        assert result["routing"]["order"][0]["adaptive_priority"] == 10
+        assert primary.execute_calls == 1
+        assert fallback.execute_calls == 0
+    finally:
+        provider_reliability.reset()
