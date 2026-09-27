@@ -4,6 +4,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from .provider_reliability import provider_reliability
 from .tool_mesh import ToolMesh
 
 
@@ -97,12 +98,14 @@ class CapabilityRegistry:
         resolved: list[dict[str, Any]] = []
         for candidate in sorted(capability.candidates, key=lambda item: item.priority):
             status = statuses.get(candidate.provider, {})
+            reliability = provider_reliability.routing_state(candidate.provider)
             if not status.get("searchable") and not status.get("executable"):
                 resolved.append(
                     {
                         "candidate": candidate.to_dict(),
                         "available": False,
                         "reason": "provider unavailable",
+                        "reliability": reliability,
                     }
                 )
                 continue
@@ -116,6 +119,7 @@ class CapabilityRegistry:
                         and (descriptor.get("metadata") or {}).get("configured", True) is not False,
                         "ref": ref,
                         "tool": descriptor,
+                        "reliability": reliability,
                     }
                 )
             except Exception as exc:  # noqa: BLE001 - third-party provider boundary
@@ -124,6 +128,7 @@ class CapabilityRegistry:
                         "candidate": candidate.to_dict(),
                         "available": False,
                         "reason": str(exc),
+                        "reliability": reliability,
                     }
                 )
         return {"capability": capability.to_dict(), "resolved": resolved}
@@ -154,17 +159,83 @@ class CapabilityRegistry:
             raise PermissionError(
                 "side-effecting capability requires allow_side_effects=true or dry_run=true"
             )
-        candidates = sorted(capability.candidates, key=lambda item: item.priority)
-        if provider_preference:
-            preferred = [item for item in candidates if item.provider == provider_preference]
-            others = [item for item in candidates if item.provider != provider_preference]
-            candidates = preferred + others
+        base_candidates = sorted(
+            capability.candidates,
+            key=lambda item: (item.priority, item.provider, item.ref or item.search or ""),
+        )
+        reliability_before = {
+            candidate.provider: provider_reliability.routing_state(candidate.provider)
+            for candidate in base_candidates
+        }
+
+        def route_key(candidate: CapabilityCandidate) -> tuple[int, int, int, str]:
+            state = reliability_before[candidate.provider]
+            preferred_rank = (
+                0
+                if provider_preference and candidate.provider == provider_preference
+                else 1 if provider_preference else 0
+            )
+            circuit_rank = (
+                0
+                if provider_preference and candidate.provider == provider_preference
+                else 1 if state["circuit_open"] else 0
+            )
+            adaptive_priority = candidate.priority + (
+                0
+                if provider_preference and candidate.provider == provider_preference
+                else int(state["routing_penalty"])
+            )
+            return (preferred_rank, circuit_rank, adaptive_priority, candidate.provider)
+
+        candidates = sorted(base_candidates, key=route_key)
+        routing_order = [
+            {
+                "provider": candidate.provider,
+                "ref": candidate.ref,
+                "priority": candidate.priority,
+                "adaptive_priority": (
+                    candidate.priority
+                    + (
+                        0
+                        if provider_preference
+                        and candidate.provider == provider_preference
+                        else int(reliability_before[candidate.provider]["routing_penalty"])
+                    )
+                ),
+                "reliability": reliability_before[candidate.provider],
+                "preferred": bool(
+                    provider_preference and candidate.provider == provider_preference
+                ),
+            }
+            for candidate in candidates
+        ]
 
         attempts: list[dict[str, Any]] = []
         started = time.time()
         statuses = await self.mesh.provider_status()
 
         for candidate in candidates:
+            reliability = provider_reliability.routing_state(candidate.provider)
+            explicitly_preferred = bool(
+                provider_preference and candidate.provider == provider_preference
+            )
+            if (
+                capability.read_only
+                and not dry_run
+                and reliability["circuit_open"]
+                and not explicitly_preferred
+            ):
+                attempts.append(
+                    {
+                        "provider": candidate.provider,
+                        "ref": candidate.ref,
+                        "status": "skipped",
+                        "error": "provider circuit is temporarily open",
+                        "reliability": reliability,
+                    }
+                )
+                continue
+
             provider_class = RAW_PROVIDER_SURCHARGES.get(candidate.provider, ("public", 0))[0]
             if plan and not _provider_allowed(plan, provider_class):
                 attempts.append({
@@ -259,6 +330,7 @@ class CapabilityRegistry:
                     "ref": ref,
                     "status": execution.get("status"),
                     "error": execution.get("error"),
+                    "reliability": provider_reliability.routing_state(candidate.provider),
                 }
             )
             if execution.get("status") != "failed":
@@ -267,6 +339,7 @@ class CapabilityRegistry:
                     "selected": ref,
                     "attempts": attempts,
                     "execution": execution,
+                    "routing": {"order": routing_order},
                     "duration_ms": max(0, int((time.time() - started) * 1000)),
                 }
 
@@ -280,6 +353,7 @@ class CapabilityRegistry:
             "selected": None,
             "attempts": attempts,
             "execution": None,
+            "routing": {"order": routing_order},
             "duration_ms": max(0, int((time.time() - started) * 1000)),
             "error": "no capability candidate completed successfully",
         }
