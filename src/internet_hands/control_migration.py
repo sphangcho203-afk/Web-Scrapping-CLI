@@ -94,11 +94,14 @@ def _copy_table(source: Any, target: Any, table: str, columns: list[str]) -> int
         identifiers,
     )
 
-    with source.cursor() as source_cur, target.cursor() as target_cur:
-        with source_cur.copy(source_query) as copy_out:
-            with target_cur.copy(target_query) as copy_in:
-                for chunk in copy_out:
-                    copy_in.write(chunk)
+    with (
+        source.cursor() as source_cur,
+        target.cursor() as target_cur,
+        source_cur.copy(source_query) as copy_out,
+        target_cur.copy(target_query) as copy_in,
+    ):
+        for chunk in copy_out:
+            copy_in.write(chunk)
 
     with source.cursor() as cur:
         cur.execute(sql.SQL("SELECT count(*) AS n FROM {}").format(sql.Identifier(table)))
