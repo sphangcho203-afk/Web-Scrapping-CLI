@@ -61,6 +61,10 @@ def test_opencrawl_mark_and_wordmark_at_phone_and_desktop_widths(frontend_url):
             for width in (320, 390, 768, 1366):
                 page.set_viewport_size({"width": width, "height": 740})
                 assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), (path, width)
+                if path == "/" and width == 390:
+                    header = page.locator(".ih-site-header").bounding_box()
+                    kicker = page.locator(".oc-hero-kicker").bounding_box()
+                    assert header and kicker and kicker["y"] - (header["y"] + header["height"]) < 100
         browser.close()
 
 
