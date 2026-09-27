@@ -42,6 +42,10 @@ def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
     return max(minimum, min(value, maximum))
 
 
+class ProviderCapacityError(RuntimeError):
+    """Local admission/backpressure failure before an upstream provider call starts."""
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderFailure:
     category: str
@@ -130,6 +134,15 @@ def classify_provider_failure(
     detail = safe_provider_error(error if error is not None else exc)
     normalized = (detail or "").casefold()
     status_name = str(status or "").strip().casefold()
+
+    if isinstance(exc, ProviderCapacityError):
+        return ProviderFailure(
+            "capacity_limited",
+            False,
+            code,
+            retry_after,
+            detail,
+        )
 
     if status_name in {"blocked"} or any(
         marker in normalized
