@@ -22,7 +22,8 @@ def frontend_url():
             elif path.startswith("/assets/"):
                 asset = WEB_ROOT / path.rsplit("/", 1)[-1]
                 body = asset.read_bytes()
-                content_type = "text/css" if asset.suffix == ".css" else "image/svg+xml"
+                content_type = ({".css": "text/css", ".png": "image/png", ".webp": "image/webp"}
+                                .get(asset.suffix, "image/svg+xml"))
             else:
                 body = (WEB_ROOT / "index.html").read_bytes()
                 content_type = "text/html"
@@ -41,6 +42,25 @@ def frontend_url():
     server.shutdown()
     server.server_close()
     thread.join()
+
+
+def test_opencrawl_mark_and_wordmark_at_phone_and_desktop_widths(frontend_url):
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 320, "height": 740})
+        page.route("**/api/**", lambda route: route.fulfill(
+            status=401, content_type="application/json", body='{"detail":"sign in required"}'
+        ))
+        for path in ("/", "/login"):
+            page.goto(frontend_url + path)
+            mark = page.locator(".oc-brand-mark").first
+            mark.wait_for()
+            assert page.get_by_role("link", name="OpenCrawl home").count() >= 1
+            assert mark.evaluate("image => image.complete && image.naturalWidth > 0")
+            for width in (320, 390, 768, 1366):
+                page.set_viewport_size({"width": width, "height": 740})
+                assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), (path, width)
+        browser.close()
 
 
 @pytest.mark.parametrize("mode", ["null", "missing", "empty", "populated"])
