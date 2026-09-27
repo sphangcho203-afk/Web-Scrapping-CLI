@@ -8,6 +8,7 @@ from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urljoin, urlsplit
 
+from .execution_meter import record_usage
 from .fetcher import fetch_url
 
 OPENAPI_HINTS = ("openapi", "swagger", "api-docs")
@@ -221,6 +222,7 @@ async def discover_public_interfaces(
     *,
     probe_openapi: bool = False,
 ) -> dict[str, Any]:
+    record_usage("intelligence_http_requests")
     page = await fetch_url(url, include_body=True, max_bytes=5_000_000)
     html_result = discover_from_html(page.body_text or "", page.final_url)
     origin = _origin(page.final_url)
@@ -228,6 +230,7 @@ async def discover_public_interfaces(
     sitemaps: list[str] = []
     robots_error: str | None = None
     try:
+        record_usage("intelligence_http_requests")
         robots = await fetch_url(
             f"{origin}/robots.txt",
             include_body=True,
@@ -263,6 +266,7 @@ async def _probe_common_openapi(origin: str) -> list[dict[str, Any]]:
     async def probe(path: str) -> dict[str, Any] | None:
         target = urljoin(origin, path)
         try:
+            record_usage("intelligence_http_requests")
             result = await fetch_url(target, include_body=True, max_bytes=5_000_000)
         except Exception:  # noqa: BLE001 -- one failed bounded probe is non-fatal
             return None
