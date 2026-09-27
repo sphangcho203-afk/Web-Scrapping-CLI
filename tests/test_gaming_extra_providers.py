@@ -138,3 +138,41 @@ async def test_steam_level_and_badges_share_server_side_identity_key() -> None:
 
     assert level["data"]["response"]["player_level"] == 42
     assert badges["data"]["response"]["player_xp"] == 9000
+
+
+
+@pytest.mark.asyncio
+async def test_steam_generic_game_intelligence_routes() -> None:
+    seen: list[tuple[str, dict[str, str]]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.url.path, dict(request.url.params)))
+        assert request.url.params["key"] == "steam-secret"
+        if "GetSchemaForGame" in request.url.path:
+            assert request.url.params["appid"] == "730"
+            return httpx.Response(200, json={"game": {"gameName": "Counter-Strike"}})
+        if "GetGlobalAchievementPercentagesForApp" in request.url.path:
+            assert request.url.params["gameid"] == "730"
+            return httpx.Response(200, json={"achievementpercentages": {"achievements": []}})
+        if "GetNumberOfCurrentPlayers" in request.url.path:
+            assert request.url.params["appid"] == "730"
+            return httpx.Response(200, json={"response": {"player_count": 123456}})
+        if "IStoreService/GetAppList" in request.url.path:
+            assert request.url.params["max_results"] == "50"
+            return httpx.Response(200, json={"response": {"apps": [{"appid": 730, "name": "Counter-Strike 2"}]}})
+        raise AssertionError(str(request.url))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = SteamGamingProvider(
+            api_key="steam-secret", client=client, validate_urls=False
+        )
+        schema = await provider.execute("game-schema", {"appid": 730})
+        global_rates = await provider.execute("global-achievements", {"appid": 730})
+        current = await provider.execute("current-players", {"appid": 730})
+        catalog = await provider.execute("app-catalog", {"max_results": 50})
+
+    assert schema["data"]["game"]["gameName"] == "Counter-Strike"
+    assert "achievementpercentages" in global_rates["data"]
+    assert current["data"]["response"]["player_count"] == 123456
+    assert catalog["data"]["response"]["apps"][0]["appid"] == 730
+    assert len(seen) == 4
