@@ -9,6 +9,8 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 
+from .execution_meter import record_provider_call
+
 _RESTRICTED_MARKETPLACE_TERMS = (
     "ammunition",
     "casino",
@@ -300,6 +302,7 @@ class ToolMesh:
             ).to_dict()
 
         try:
+            record_provider_call(provider_name)
             result = await provider.execute(
                 tool_id,
                 arguments,
