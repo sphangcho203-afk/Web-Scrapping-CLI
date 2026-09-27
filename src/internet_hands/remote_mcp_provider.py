@@ -1,15 +1,23 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 import shlex
 import time
+from collections.abc import Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
+import httpx2
 from mcp import Client
+from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamable_http_client
 
+from .auth import current_auth
+from .control_store import ControlStore
 from .policy import validate_public_http_url
 from .tool_mesh import ToolDescriptor
 
@@ -21,6 +29,8 @@ class RemoteMcpSource:
     transport: str = "streamable_http"
     auth_type: str = "none"
     headers: tuple[tuple[str, str], ...] = ()
+    display_name: str | None = None
+    connection_id: str | None = None
 
     @property
     def requires_auth(self) -> bool:
@@ -28,7 +38,9 @@ class RemoteMcpSource:
 
     def public_dict(self) -> dict[str, Any]:
         return {
-            "name": self.name,
+            "source_id": self.name,
+            "name": self.display_name or self.name,
+            "connection_id": self.connection_id,
             "url": self.url,
             "transport": self.transport,
             "auth_type": self.auth_type,
@@ -39,6 +51,43 @@ class RemoteMcpSource:
 
 AUTH_TYPES = {"none", "api_key", "bearer", "headers", "oauth"}
 TRANSPORTS = {"streamable_http", "sse"}
+_FORBIDDEN_OUTBOUND_HEADERS = {
+    "connection",
+    "content-length",
+    "host",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+}
+ConnectionLoader = Callable[[str], list[dict[str, Any]]]
+
+
+def _normalize_headers(raw_headers: Any) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    if isinstance(raw_headers, dict):
+        rows = raw_headers.items()
+    elif isinstance(raw_headers, list):
+        rows = (
+            (row.get("name"), row.get("value"))
+            for row in raw_headers
+            if isinstance(row, dict) and row.get("name")
+        )
+    else:
+        rows = []
+    for raw_name, raw_value in rows:
+        name = str(raw_name or "").strip()
+        if not name:
+            continue
+        if name.casefold() in _FORBIDDEN_OUTBOUND_HEADERS:
+            raise ValueError(f"unsafe outbound MCP header: {name}")
+        value = str(raw_value or "")
+        if "\r" in value or "\n" in value:
+            raise ValueError(f"invalid newline in outbound MCP header: {name}")
+        headers[name] = value
+    return headers
 
 
 def _normalize_source(item: dict[str, Any]) -> RemoteMcpSource:
@@ -54,24 +103,66 @@ def _normalize_source(item: dict[str, Any]) -> RemoteMcpSource:
     if transport not in TRANSPORTS:
         raise ValueError(f"unsupported remote MCP transport: {transport}")
     auth_type = str(item.get("auth_type") or item.get("authentication") or "none").strip().lower()
-    aliases = {"apikey": "api_key", "api-key": "api_key", "bearerauth": "bearer", "headerauth": "headers", "oauth2": "oauth"}
+    aliases = {
+        "apikey": "api_key",
+        "api-key": "api_key",
+        "bearerauth": "bearer",
+        "headerauth": "headers",
+        "oauth2": "oauth",
+    }
     auth_type = aliases.get(auth_type, auth_type)
     if auth_type not in AUTH_TYPES:
         raise ValueError(f"unsupported remote MCP auth type: {auth_type}")
-    headers: dict[str, str] = {}
-    raw_headers = item.get("headers") or {}
-    if isinstance(raw_headers, dict):
-        headers.update({str(k).strip(): str(v) for k, v in raw_headers.items() if str(k).strip()})
-    elif isinstance(raw_headers, list):
-        for row in raw_headers:
-            if isinstance(row, dict) and row.get("name"):
-                headers[str(row["name"]).strip()] = str(row.get("value") or "")
+    headers = _normalize_headers(item.get("headers") or {})
     secret = str(item.get("secret") or item.get("token") or item.get("api_key") or "")
     if auth_type == "bearer" and secret:
         headers.setdefault("Authorization", f"Bearer {secret}")
     elif auth_type == "api_key" and secret:
-        headers.setdefault(str(item.get("header_name") or "X-API-Key"), secret)
-    return RemoteMcpSource(name=name, url=url, transport=transport, auth_type=auth_type, headers=tuple(headers.items()))
+        header_name = str(item.get("header_name") or "X-API-Key").strip()
+        if header_name.casefold() in _FORBIDDEN_OUTBOUND_HEADERS:
+            raise ValueError(f"unsafe outbound MCP header: {header_name}")
+        headers.setdefault(header_name, secret)
+    return RemoteMcpSource(
+        name=name,
+        url=url,
+        transport=transport,
+        auth_type=auth_type,
+        headers=tuple(headers.items()),
+    )
+
+
+def _runtime_source_name(connection_id: str) -> str:
+    normalized = re.sub(r"[^a-z0-9_-]+", "_", connection_id.casefold()).strip("_")
+    if normalized and re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,62}", normalized):
+        return normalized
+    digest = hashlib.sha256(connection_id.encode("utf-8")).hexdigest()[:16]
+    return f"connection_{digest}"
+
+
+def _source_from_connection(row: dict[str, Any]) -> RemoteMcpSource:
+    connection_id = str(row.get("id") or "").strip()
+    endpoint_url = str(row.get("endpoint_url") or "").strip()
+    if not connection_id or not endpoint_url:
+        raise ValueError("saved MCP connection is missing id or endpoint URL")
+    transport = str(row.get("transport") or "streamable_http").strip().lower().replace("-", "_")
+    if transport == "streamablehttp":
+        transport = "streamable_http"
+    if transport not in TRANSPORTS:
+        raise ValueError(f"unsupported saved MCP transport: {transport}")
+    auth_type = str(row.get("auth_type") or "none").strip().lower()
+    if auth_type not in AUTH_TYPES:
+        raise ValueError(f"unsupported saved MCP auth type: {auth_type}")
+    secret_config = row.get("secret_config") if isinstance(row.get("secret_config"), dict) else {}
+    headers = _normalize_headers(secret_config.get("headers") or {})
+    return RemoteMcpSource(
+        name=_runtime_source_name(connection_id),
+        display_name=str(row.get("name") or connection_id).strip(),
+        connection_id=connection_id,
+        url=endpoint_url,
+        transport=transport,
+        auth_type=auth_type,
+        headers=tuple(headers.items()),
+    )
 
 
 def parse_curl_connection(command: str, *, name: str = "imported") -> dict[str, Any]:
@@ -109,6 +200,7 @@ def parse_curl_connection(command: str, *, name: str = "imported") -> dict[str, 
         i += 1
     if not url:
         raise ValueError("cURL import requires an http(s) URL")
+    headers = _normalize_headers(headers)
     auth_type = "headers"
     authorization = next((v for k, v in headers.items() if k.lower() == "authorization"), "")
     if authorization.lower().startswith("bearer "):
@@ -117,7 +209,15 @@ def parse_curl_connection(command: str, *, name: str = "imported") -> dict[str, 
         auth_type = "api_key"
     elif not headers:
         auth_type = "none"
-    return {"name": name, "url": url, "transport": "streamable_http", "auth_type": auth_type, "headers": headers, "request_method": method, "request_body": body}
+    return {
+        "name": name,
+        "url": url,
+        "transport": "streamable_http",
+        "auth_type": auth_type,
+        "headers": headers,
+        "request_method": method,
+        "request_body": body,
+    }
 
 
 def _side_effecting(tool: Any) -> bool:
@@ -135,7 +235,7 @@ def _side_effecting(tool: Any) -> bool:
 
 
 class RemoteMcpToolProvider:
-    """Expose configured public remote MCP servers through the Tool Mesh."""
+    """Expose global and authenticated user-owned remote MCP servers through the Tool Mesh."""
 
     name = "mcp"
 
@@ -145,10 +245,14 @@ class RemoteMcpToolProvider:
         *,
         cache_seconds: int = 60,
         validate_urls: bool = True,
+        store: ControlStore | None = None,
+        connection_loader: ConnectionLoader | None = None,
     ) -> None:
         self.sources = sources if sources is not None else self._sources_from_env()
         self.cache_seconds = max(15, cache_seconds)
         self.validate_urls = validate_urls
+        self.store = store or ControlStore()
+        self.connection_loader = connection_loader or self._load_saved_connections
         self._cache: dict[str, tuple[float, list[ToolDescriptor]]] = {}
 
     @staticmethod
@@ -175,16 +279,65 @@ class RemoteMcpToolProvider:
             sources.append(source)
         return sources
 
+    def _load_saved_connections(self, user_id: str) -> list[dict[str, Any]]:
+        """Load private runtime connection material without exposing it through the control API."""
+        self.store.ensure_schema()
+        with self.store._connect() as conn, conn.cursor() as cur:  # noqa: SLF001
+            cur.execute(
+                """
+                SELECT id,name,endpoint_url,transport,auth_type,secret_config
+                FROM ih_connections
+                WHERE user_id=%s AND kind='mcp' AND enabled=true
+                ORDER BY created_at DESC
+                """,
+                (user_id,),
+            )
+            return [dict(row) for row in cur.fetchall()]
+
+    def _active_sources(self) -> list[RemoteMcpSource]:
+        sources = list(self.sources)
+        identity = current_auth.get()
+        if identity is None:
+            return sources
+        saved = self.connection_loader(identity.user_id)
+        known = {source.name for source in sources}
+        for row in saved:
+            source = _source_from_connection(row)
+            if source.name in known:
+                raise ValueError(f"duplicate remote MCP source id: {source.name}")
+            known.add(source.name)
+            sources.append(source)
+        return sources
+
     async def status(self) -> dict[str, Any]:
+        sources = self._active_sources()
         return {
-            "configured": bool(self.sources),
-            "searchable": bool(self.sources),
-            "executable": bool(self.sources),
+            "configured": bool(sources),
+            "searchable": bool(sources),
+            "executable": bool(sources),
             "kind": "remote-mcp-catalog",
-            "source_count": len(self.sources),
-            "sources": [source.public_dict() for source in self.sources],
+            "source_count": len(sources),
+            "global_source_count": len(self.sources),
+            "user_source_count": max(0, len(sources) - len(self.sources)),
+            "sources": [source.public_dict() for source in sources],
             "authentication": "none, API key, bearer, custom headers, or OAuth-provided headers",
         }
+
+    @asynccontextmanager
+    async def _client(self, source: RemoteMcpSource):
+        headers = dict(source.headers)
+        if source.transport == "sse":
+            async with Client(sse_client(source.url, headers=headers or None)) as client:
+                yield client
+            return
+        if not headers:
+            async with Client(source.url) as client:
+                yield client
+            return
+        async with httpx2.AsyncClient(headers=headers) as http_client:
+            transport = streamable_http_client(source.url, http_client=http_client)
+            async with Client(transport) as client:
+                yield client
 
     async def _tools(self, source: RemoteMcpSource) -> list[ToolDescriptor]:
         cached = self._cache.get(source.name)
@@ -194,7 +347,7 @@ class RemoteMcpToolProvider:
             validate_public_http_url(source.url)
 
         descriptors: list[ToolDescriptor] = []
-        async with Client(source.url) as client:
+        async with self._client(source) as client:
             cursor: str | None = None
             while True:
                 result = await client.list_tools(cursor=cursor)
@@ -211,11 +364,13 @@ class RemoteMcpToolProvider:
                             description=str(getattr(tool, "description", None) or ""),
                             input_schema=input_schema if isinstance(input_schema, dict) else {},
                             output_schema=output_schema if isinstance(output_schema, dict) else {},
-                            tags=["mcp", source.name],
+                            tags=["mcp", source.display_name or source.name],
                             requires_auth=source.requires_auth,
                             side_effecting=_side_effecting(tool),
                             metadata={
                                 "source": source.name,
+                                "source_name": source.display_name or source.name,
+                                "connection_id": source.connection_id,
                                 "endpoint": source.url,
                                 "untrusted_external": True,
                                 "transport": source.transport,
@@ -232,7 +387,7 @@ class RemoteMcpToolProvider:
     async def search(self, query: str, *, limit: int = 10) -> list[ToolDescriptor]:
         words = [word for word in re.split(r"\W+", query.casefold()) if word]
         ranked: list[tuple[int, ToolDescriptor]] = []
-        for source in self.sources:
+        for source in self._active_sources():
             try:
                 tools = await self._tools(source)
             except Exception:  # noqa: BLE001 - one remote MCP must not hide other sources
@@ -255,7 +410,7 @@ class RemoteMcpToolProvider:
         source_name, separator, remote_tool = tool_id.partition("::")
         if not separator:
             raise ValueError("remote MCP tool id must use source::tool")
-        source = next((item for item in self.sources if item.name == source_name), None)
+        source = next((item for item in self._active_sources() if item.name == source_name), None)
         if source is None:
             raise ValueError(f"unknown remote MCP source: {source_name}")
         for tool in await self._tools(source):
@@ -277,13 +432,13 @@ class RemoteMcpToolProvider:
         source_name, separator, remote_tool = tool_id.partition("::")
         if not separator:
             raise ValueError("remote MCP tool id must use source::tool")
-        source = next((item for item in self.sources if item.name == source_name), None)
+        source = next((item for item in self._active_sources() if item.name == source_name), None)
         if source is None:
             raise ValueError(f"unknown remote MCP source: {source_name}")
         if self.validate_urls:
             validate_public_http_url(source.url)
 
-        async with Client(source.url) as client:
+        async with self._client(source) as client:
             result = await client.call_tool(remote_tool, arguments)
         structured = getattr(result, "structured_content", None)
         if structured is not None:
@@ -304,6 +459,8 @@ class RemoteMcpToolProvider:
             "error": "remote MCP tool returned an error" if is_error else None,
             "metadata": {
                 "source": source_name,
+                "source_name": source.display_name or source.name,
+                "connection_id": source.connection_id,
                 "remote_tool": remote_tool,
                 "untrusted_external": True,
             },
