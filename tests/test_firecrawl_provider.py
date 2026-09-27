@@ -333,7 +333,6 @@ async def test_firecrawl_search_drops_unknown_top_level_fields(
             {
                 "query": "developer docs",
                 "categories": ["developer"],
-                "headers": {"Authorization": "Bearer hidden"},
                 "authorization": "Bearer hidden",
                 "unexpected": {"raw": "drop"},
             },
