@@ -136,3 +136,55 @@ async def test_provider_propagates_challenge_as_blocked_execution(monkeypatch) -
     assert result["status"] == "blocked"
     assert result["data"]["blocked"] is True
     assert "blocked by upstream challenge" in result["error"]
+
+
+
+@pytest.mark.asyncio
+async def test_http_failure_can_fall_back_to_guarded_playwright(monkeypatch) -> None:
+    async def fetch(*args, **kwargs):
+        raise RuntimeError("origin reset connection")
+
+    async def browser(*args, **kwargs):
+        html = "<html><title>Recovered</title><body>" + "browser recovery " * 40 + "</body></html>"
+        return BrowserResult(
+            request_url="https://example.com/",
+            final_url="https://example.com/",
+            status_code=200,
+            title="Recovered",
+            html=html,
+            sha256="c" * 64,
+            captured_at=datetime.now(UTC),
+        )
+
+    monkeypatch.setattr(module, "fetch_url", fetch)
+    monkeypatch.setattr(module, "render_page", browser)
+
+    result = await module.resilient_public_fetch(
+        "https://example.com/",
+        render="auto",
+        minimum_text=100,
+    )
+
+    assert result["status"] == "completed"
+    assert result["selected_backend"] == "native-playwright"
+    assert result["attempts"][0]["backend"] == "native-http"
+    assert result["attempts"][0]["status"] == "failed"
+    assert result["attempts"][1]["backend"] == "native-playwright"
+
+
+@pytest.mark.asyncio
+async def test_render_never_does_not_escalate_failed_http_to_browser(monkeypatch) -> None:
+    async def fetch(*args, **kwargs):
+        raise RuntimeError("origin reset connection")
+
+    async def browser(*args, **kwargs):
+        pytest.fail("render=never must not start a browser fallback")
+
+    monkeypatch.setattr(module, "fetch_url", fetch)
+    monkeypatch.setattr(module, "render_page", browser)
+
+    with pytest.raises(RuntimeError, match="all configured collection backends failed"):
+        await module.resilient_public_fetch(
+            "https://example.com/",
+            render="never",
+        )
