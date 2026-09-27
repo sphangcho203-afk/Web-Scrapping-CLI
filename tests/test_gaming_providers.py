@@ -9,6 +9,7 @@ from internet_hands.gaming_providers import (
     build_brawlstars_provider,
     build_gaming_providers,
     build_opendota_provider,
+    build_roblox_provider,
     build_valorant_provider,
 )
 
@@ -94,3 +95,53 @@ async def test_supercell_player_tag_is_url_encoded(monkeypatch: pytest.MonkeyPat
         result = await provider.execute("player", {"player_tag": "#ABC123"})
 
     assert result["data"]["tag"] == "#ABC123"
+
+
+
+@pytest.mark.asyncio
+async def test_roblox_public_profile_expansion_uses_read_only_endpoints() -> None:
+    requests: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request.url.path)
+        assert request.method == "GET"
+        if request.url.path.endswith("/username-history"):
+            return httpx.Response(200, json={"data": [{"name": "OldName"}]})
+        if request.url.path.endswith("/currently-wearing"):
+            return httpx.Response(200, json={"assetIds": [1, 2, 3]})
+        if request.url.path.endswith("/groups/roles"):
+            return httpx.Response(200, json={"data": [{"group": {"id": 1}, "role": {"name": "Member"}}]})
+        if request.url.path.endswith("/games"):
+            return httpx.Response(200, json={"data": [{"id": 42, "name": "Public Game"}]})
+        raise AssertionError(str(request.url))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = build_roblox_provider()
+        provider.client = client
+        provider.validate_urls = False
+        history = await provider.execute("username-history", {"user_id": 123, "limit": 10})
+        wearing = await provider.execute("currently-wearing", {"user_id": 123})
+        groups = await provider.execute("group-roles", {"user_id": 123})
+        games = await provider.execute("created-games", {"user_id": 123, "limit": 10})
+
+    assert history["data"]["data"][0]["name"] == "OldName"
+    assert wearing["data"]["assetIds"] == [1, 2, 3]
+    assert groups["data"]["data"][0]["role"]["name"] == "Member"
+    assert games["data"]["data"][0]["name"] == "Public Game"
+    assert all(path.startswith("/v1/") or path.startswith("/v2/") for path in requests)
+
+
+@pytest.mark.asyncio
+async def test_roblox_expanded_tools_remain_read_only() -> None:
+    provider = build_roblox_provider()
+    expected = {
+        "username-history",
+        "avatar",
+        "currently-wearing",
+        "created-games",
+        "group-roles",
+        "primary-group",
+    }
+    descriptors = {tool.tool_id: tool for tool in await provider.search("", limit=50)}
+    assert expected.issubset(descriptors)
+    assert all(descriptors[tool_id].side_effecting is False for tool_id in expected)
