@@ -27,6 +27,16 @@ Provider status snapshots are cached briefly through
 from repeatedly fanning out across every provider while still keeping operational state
 fresh.
 
+## Semantic fallback deadline
+
+A semantic capability now has one end-to-end timeout budget across provider discovery,
+schema preflight, execution, and fallback. Each fallback receives only the remaining
+budget instead of starting a fresh full timeout.
+
+Local provider bulkhead saturation is classified as `capacity_limited`. It can cause a
+read-only capability to fall back to another provider, but it is not counted as an
+upstream API call and is a neutral signal for provider circuit reliability.
+
 ## Health isolation
 
 Deep semantic capability checks use
