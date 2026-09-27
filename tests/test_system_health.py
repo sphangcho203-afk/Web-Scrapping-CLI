@@ -10,6 +10,7 @@ from internet_hands import system_health
 
 class _Mesh:
     discovery_timeout_seconds = 5
+    provider_status_cache_seconds = 3
     provider_max_concurrency = 8
 
     async def provider_status(self):
