@@ -9,8 +9,8 @@ from fastapi import FastAPI
 
 from . import account_mcp as _account_mcp  # noqa: F401
 from .control_api import router as control_router
-from .control_migration import run_requested_control_plane_migration
 from .control_hardening import router as hardening_router
+from .control_migration import run_requested_control_plane_migration
 from .fleet_api import app as fleet_app
 from .game_api import router as game_router
 from .mcp_customer import customer_streamable_http_app
