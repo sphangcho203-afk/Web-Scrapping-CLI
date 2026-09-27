@@ -14,6 +14,7 @@ from .provider_errors import (
     classify_provider_failure,
     read_retry_budget,
     retry_delay_seconds,
+    safe_provider_error,
 )
 from .provider_reliability import provider_reliability
 
@@ -426,13 +427,10 @@ class ToolMesh:
                     semaphore.release()
             except Exception as exc:  # noqa: BLE001 - normalize provider execution failures
                 duration_ms = max(0, int((time.monotonic() - attempt_started) * 1000))
-                error_text = (
-                    str(exc).strip()
-                    or (
-                        "provider execution deadline exceeded"
-                        if isinstance(exc, TimeoutError)
-                        else type(exc).__name__
-                    )
+                error_text = safe_provider_error(exc) or (
+                    "provider execution deadline exceeded"
+                    if isinstance(exc, TimeoutError)
+                    else type(exc).__name__
                 )
                 failure = classify_provider_failure(exc=exc, error=error_text)
                 delay = (
@@ -484,7 +482,7 @@ class ToolMesh:
             duration_ms = max(0, int((time.monotonic() - attempt_started) * 1000))
             raw_status = str(result.get("status") or "completed")
             normalized_status = raw_status.strip().lower()
-            result_error = result.get("error")
+            result_error = safe_provider_error(result.get("error"))
             final_status = "failed" if normalized_status == "error" else raw_status
             failure = (
                 classify_provider_failure(status=final_status, error=result_error)
