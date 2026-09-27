@@ -6,12 +6,15 @@ from typing import Any
 
 from .caller_intelligence import CallerIntelligenceProvider
 from .caller_investigation import CallerInvestigationProvider
+from .brand_search_providers import build_brand_search_providers
 from .capability_packs import CapabilityRegistry, build_default_capabilities
 from .catalog_providers import build_catalog_providers
 from .composio_bridge import ComposioBridgeProvider
 from .firecrawl_capabilities import build_firecrawl_capabilities
 from .firecrawl_provider import FirecrawlToolProvider
 from .game_core_provider import GameCoreProvider
+from .game_catalog_capabilities import build_game_catalog_capabilities
+from .game_catalog_providers import build_game_catalog_providers
 from .gaming_capabilities import build_gaming_capabilities
 from .gaming_extra_capabilities import build_extra_gaming_capabilities
 from .gaming_extra_providers import build_extra_gaming_providers
@@ -53,9 +56,11 @@ def get_tool_mesh() -> ToolMesh:
             PhoneIntelligenceProvider(),
             PlayerDbProvider(),
             *build_research_brand_providers(),
+            *build_brand_search_providers(),
             *build_catalog_providers(),
             *build_gaming_providers(),
             *build_extra_gaming_providers(),
+            *build_game_catalog_providers(),
             build_remote_mcp_provider(),
         ]
     )
@@ -72,6 +77,7 @@ def get_capability_registry() -> CapabilityRegistry:
             *build_research_brand_capabilities(),
             *build_gaming_capabilities(),
             *build_extra_gaming_capabilities(),
+            *build_game_catalog_capabilities(),
             *build_public_game_capabilities(),
             *build_public_data_capabilities(),
         ],
