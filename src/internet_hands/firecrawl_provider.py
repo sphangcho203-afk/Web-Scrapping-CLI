@@ -408,13 +408,14 @@ class FirecrawlToolProvider:
     ) -> dict[str, Any]:
         del account, options
         descriptor = await self.describe(tool_id)
+        raw_payload = dict(arguments)
+        self._validate_arguments(tool_id, raw_payload)
         allowed = set((descriptor.input_schema.get("properties") or {}).keys())
         payload = {
             key: value
-            for key, value in arguments.items()
+            for key, value in raw_payload.items()
             if key in allowed and value is not None
         }
-        self._validate_arguments(tool_id, payload)
         if tool_id == "search":
             sources = payload.get("sources") or ["web"]
             if (
