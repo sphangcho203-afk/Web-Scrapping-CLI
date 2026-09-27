@@ -290,7 +290,10 @@ class ProviderReliabilityTracker:
         now: float | None = None,
     ) -> dict[str, Any]:
         if not _enabled():
-            return self.snapshot(provider, now=now)
+            current = time.time() if now is None else now
+            return ProviderReliability(
+                provider=provider.strip().lower()
+            ).to_public_dict(current)
         current = time.time() if now is None else now
         normalized_status = str(status or "failed").strip().lower()
         latency = None if duration_ms is None else max(0, int(duration_ms))
@@ -373,7 +376,13 @@ class ProviderReliabilityTracker:
             return result
 
     def routing_state(self, provider: str, *, now: float | None = None) -> dict[str, Any]:
-        snapshot = self.snapshot(provider, now=now)
+        if not self.enabled():
+            current = time.time() if now is None else now
+            snapshot = ProviderReliability(
+                provider=provider.strip().lower()
+            ).to_public_dict(current)
+        else:
+            snapshot = self.snapshot(provider, now=now)
         return {
             "provider": snapshot["provider"],
             "score": snapshot["score"],
