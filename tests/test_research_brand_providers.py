@@ -5,6 +5,7 @@ import json
 import httpx
 import pytest
 
+from internet_hands.brand_search_providers import YouSearchProvider
 from internet_hands.research_brand_capabilities import build_research_brand_capabilities
 from internet_hands.research_brand_providers import ExaToolProvider, TavilyToolProvider
 
@@ -129,6 +130,7 @@ def test_research_capabilities_expose_fallback_fabric() -> None:
     search = capabilities["web.search.semantic"]
     assert [candidate.provider for candidate in search.candidates] == [
         "exa",
+        "you",
         "tavily",
         "firecrawl",
         "nativeweb",
@@ -142,8 +144,58 @@ def test_agent_context_prefers_brave_then_semantic_paid_fallbacks() -> None:
     context = capabilities["web.context.agent"]
     assert [candidate.provider for candidate in context.candidates] == [
         "nativeweb",
+        "you",
         "exa",
         "tavily",
     ]
-    assert context.candidates[1].defaults["text"] is True
-    assert context.candidates[2].defaults["search_depth"] == "advanced"
+    assert context.candidates[1].defaults["extraction_mode"] == "highlights"
+    assert context.candidates[2].defaults["text"] is True
+    assert context.candidates[3].defaults["search_depth"] == "advanced"
+
+
+@pytest.mark.asyncio
+async def test_you_search_normalizes_request_and_keeps_key_server_side() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url == "https://ydc-index.io/v1/search"
+        assert request.headers["x-api-key"] == "you-secret"
+        body = json.loads(request.content)
+        assert body["query"] == "agent search"
+        assert body["count"] == 50
+        assert body["safesearch"] == "moderate"
+        assert body["extraction"] == {"extraction_mode": "highlights"}
+        assert body["include_domains"] == ["example.com"]
+        assert "headers" not in body
+        assert "authorization" not in body
+        return httpx.Response(200, json={"results": {"web": []}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = YouSearchProvider(api_key="you-secret", client=client)
+        result = await provider.execute(
+            "search",
+            {
+                "query": "agent search",
+                "count": 999,
+                "extraction_mode": "highlights",
+                "include_domains": ["example.com"],
+                "headers": {"Authorization": "Bearer smuggled"},
+            },
+        )
+
+    assert result["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_you_contents_rejects_private_urls() -> None:
+    provider = YouSearchProvider(api_key="you-secret")
+    with pytest.raises((ValueError, RuntimeError)):
+        await provider.execute(
+            "contents",
+            {"urls": ["http://127.0.0.1/private"]},
+        )
+
+
+def test_research_capabilities_include_news_and_synthesized_routes() -> None:
+    capabilities = {item.id: item for item in build_research_brand_capabilities()}
+    assert "web.search.news" in capabilities
+    assert "web.research.synthesized" in capabilities
+    assert capabilities["web.search.news"].candidates[0].provider == "you"
