@@ -117,7 +117,7 @@ def test_provider_error_redacts_query_credentials_and_bearer_tokens() -> None:
     assert "very-secret" not in safe
     assert "key=[REDACTED]" in safe
     assert "access_token=[REDACTED]" in safe
-    assert "Bearer [REDACTED]" in safe
+    assert "Authorization=[REDACTED]" in safe
     assert "client_secret=[REDACTED]" in safe
 
 
