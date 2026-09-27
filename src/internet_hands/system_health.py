@@ -174,8 +174,9 @@ async def system_health(
                 "nativeweb:batch-fetch",
             ],
             "adaptive_provider_routing": {
-                "enabled": True,
+                "enabled": provider_reliability.enabled(),
                 "scope": "runtime-local",
+                "read_only_only": True,
                 "write_replay": False,
             },
             "single_provider_capabilities": single_provider,
