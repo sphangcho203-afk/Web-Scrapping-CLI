@@ -34,6 +34,7 @@ from .control_store import (
 )
 from .policy import validate_public_http_url
 from .remote_mcp_provider import AUTH_TYPES, TRANSPORTS, parse_curl_connection
+from .supabase_auth import configuration_status as supabase_auth_configuration_status
 
 router = APIRouter()
 store = ControlStore()
@@ -833,5 +834,6 @@ def public_status():
         "oauth": True,
         "billing": bool(os.getenv("RAZORPAY_KEY_ID") and os.getenv("RAZORPAY_KEY_SECRET")),
         "github_oauth": bool(os.getenv("GITHUB_CLIENT_ID") and os.getenv("GITHUB_CLIENT_SECRET")),
+        "supabase_auth": supabase_auth_configuration_status(),
         "time": datetime.now(UTC).isoformat(),
     }
