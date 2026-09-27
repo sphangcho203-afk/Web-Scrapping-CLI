@@ -347,7 +347,7 @@ async def login(request: Request):
     body = await request.json()
     email = str(body.get("email") or "").strip().lower()
     password = str(body.get("password") or "")
-    user = store.get_user_by_email(email)
+    user = store.get_user_credentials_by_email(email)
     if not user or not verify_password(password, user.get("password_hash")):
         raise HTTPException(status_code=401, detail={"code": "invalid_credentials", "message": "invalid email or password"})
     raw = random_token("ih_sess_")
