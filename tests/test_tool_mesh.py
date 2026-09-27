@@ -416,3 +416,33 @@ async def test_retry_delay_never_extends_past_execution_deadline(
     assert provider.execute_calls == 1
     assert result["metadata"]["failure"]["category"] == "upstream_unavailable"
     assert result["metadata"]["provider_attempts"][0]["retry_delay_seconds"] == 5.0
+
+
+
+@pytest.mark.asyncio
+async def test_provider_status_cache_collapses_repeated_health_fanout() -> None:
+    class CountingStatusProvider(FakeProvider):
+        def __init__(self, name: str, prefix: str) -> None:
+            super().__init__(name, prefix)
+            self.status_calls = 0
+
+        async def status(self) -> dict[str, Any]:
+            self.status_calls += 1
+            return {
+                "configured": True,
+                "searchable": True,
+                "executable": True,
+            }
+
+    provider = CountingStatusProvider("cached-status", "x")
+    mesh = ToolMesh([provider])
+    mesh.provider_status_cache_seconds = 30
+
+    first = await mesh.provider_status()
+    second = await mesh.provider_status()
+
+    assert first == second
+    assert provider.status_calls == 1
+
+    await mesh.provider_status(force=True)
+    assert provider.status_calls == 2
