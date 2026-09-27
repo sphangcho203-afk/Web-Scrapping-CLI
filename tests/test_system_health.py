@@ -28,6 +28,9 @@ class _Reliability:
     def __init__(self):
         self.reset_calls = []
 
+    def enabled(self):
+        return True
+
     def snapshot(self, provider=None):
         rows = {
             "nativeweb": {
@@ -125,6 +128,8 @@ async def test_system_health_reports_provider_and_fallback_coverage(monkeypatch)
     assert result["providers"]["firecrawl"]["runtime_reliability"]["circuit_open"] is True
     assert result["fallbacks"]["native_web_provider"] == "nativeweb"
     assert "nativeweb:context" in result["fallbacks"]["native_web_tools"]
+    assert result["fallbacks"]["adaptive_provider_routing"]["enabled"] is True
+    assert result["fallbacks"]["adaptive_provider_routing"]["read_only_only"] is True
     assert result["fallbacks"]["adaptive_provider_routing"]["write_replay"] is False
     assert result["fallbacks"]["single_provider_capabilities"] == ["vendor.only"]
 
