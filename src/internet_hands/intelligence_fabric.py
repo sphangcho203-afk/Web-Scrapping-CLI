@@ -142,6 +142,8 @@ async def resilient_public_fetch(
         chain = [("native-http", capture_native)]
     else:
         chain = [("native-http", capture_native)]
+        if render != "never":
+            chain.append(("native-playwright", capture_playwright))
 
     selected: FetchResult | None = None
     selected_backend: str | None = None
@@ -176,8 +178,50 @@ async def resilient_public_fetch(
             continue
         break
 
+    if (
+        selected is None
+        and backend == "auto"
+        and render != "never"
+        and os.getenv("OPENCRAWL_EXTERNAL_BACKENDS_ENABLED", "").strip().lower()
+        in {"1", "true", "yes", "on"}
+    ):
+        for name in ("crawl4ai", "crawlee-http", "scrapy"):
+            if not _backend_ready(name):
+                continue
+            try:
+                candidate = await capture_external(name)
+                candidate_doc = extract_document(candidate)
+                candidate_block = _block_reason(candidate)
+                attempts.append(
+                    {
+                        "backend": name,
+                        "status": "blocked" if candidate_block else "completed",
+                        "http_status": candidate.status_code,
+                        "text_length": len(candidate_doc.text),
+                        "sha256": candidate.sha256,
+                        "reason": candidate_block,
+                    }
+                )
+                selected, selected_backend, blocked = candidate, name, candidate_block
+                break
+            except Exception as exc:  # noqa: BLE001 - optional fallback isolation
+                attempts.append(
+                    {
+                        "backend": name,
+                        "status": "failed",
+                        "error": f"{type(exc).__name__}: {exc}"[:500],
+                    }
+                )
+
     if selected is None:
-        raise RuntimeError("all configured collection backends failed")
+        detail = "; ".join(
+            str(item.get("error") or item.get("reason") or item.get("status"))
+            for item in attempts[-3:]
+        )
+        raise RuntimeError(
+            "all configured collection backends failed"
+            + (f": {detail}" if detail else "")
+        )
 
     initial_document = extract_document(selected)
 
