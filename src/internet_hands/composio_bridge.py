@@ -255,7 +255,18 @@ class ComposioBridgeProvider(ComposioToolProvider):
                 else "locked"
             ),
         }
-        if self.expose_account_aliases and candidates:
+        if candidates and self._request_user_id():
+            descriptor.metadata["account_selection_required"] = len(candidates) > 1
+            descriptor.metadata["connected_accounts"] = [
+                {
+                    "id": self._connection_id(item),
+                    "alias": self._connection_alias(item) or None,
+                    "status": self._connection_status(item) or "ACTIVE",
+                }
+                for item in candidates
+                if self._connection_allowed(item)
+            ]
+        elif self.expose_account_aliases and candidates:
             descriptor.metadata["connected_account_aliases"] = [
                 alias
                 for item in candidates
