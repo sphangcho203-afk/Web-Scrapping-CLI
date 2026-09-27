@@ -39,12 +39,19 @@ native Playwright Crawlee Trafilatura
 | Native Playwright | guarded JS rendering | Playwright dependency | active optional extra |
 | Microsoft Playwright MCP | persistent agent/browser interaction | Apache-2.0 | MCP sidecar config ready |
 | Crawlee Python | queue-oriented/scalable HTTP crawling | Apache-2.0 | optional execution adapter + curated source |
+| Crawlee JS | Cheerio/Playwright/Puppeteer crawling, queues, retries, sessions | Apache-2.0 | curated Node worker source |
 | Scrapy | high-throughput asynchronous HTTP crawling | BSD-3-Clause | optional execution adapter + curated source |
 | Crawl4AI | rendered/LLM-oriented browser extraction | Apache-2.0 plus upstream attribution requirement | optional execution adapter + curated source |
+| Colly | high-throughput Go crawling and link discovery | Apache-2.0 | curated Go worker source |
+| Katana | scoped crawling, endpoint discovery, JavaScript parsing, headless traversal | MIT | curated CLI worker source |
 | Trafilatura | article/main-text + metadata extraction | Apache-2.0 | active optional extraction backend |
+| Mozilla Readability | deterministic Reader View/article extraction | Apache-2.0 | curated Node extraction source |
+| ScrapeGraphAI | LLM/schema-driven extraction pipelines | MIT | curated Python worker source |
 | Firecrawl | optional self-hosted web-data service | AGPL-3.0 core | external-service only by default |
 
 Firecrawl is deliberately not cloned by `ih-backends sync all`. Vendoring its AGPL core into the MIT source tree would require an intentional licensing decision.
+
+The default clone set is intentionally limited to permissively licensed upstreams. A staged repository is source material only: it does not become executable or trusted until a worker/adapter is installed, configured, and routed through the existing policy and provenance contracts.
 
 ## Commands
 
@@ -61,6 +68,7 @@ ih-backends status
 
 # Ask the router what should handle a job.
 ih-backends plan static
+ih-backends plan discovery
 ih-backends plan dynamic
 ih-backends plan interactive
 ih-backends plan throughput
