@@ -18,10 +18,13 @@ from .gaming_extra_providers import build_extra_gaming_providers
 from .gaming_profiles import build_gaming_profile_plan
 from .gaming_providers import build_gaming_providers
 from .github_public_provider import GitHubPublicProvider
+from .intelligence_capabilities import build_intelligence_capabilities
+from .intelligence_fabric import IntelligenceFabricProvider
 from .mcp_server import sandbox_mcp
 from .native_sandbox_provider import NativeSandboxToolProvider
 from .native_web_provider import NativeWebToolProvider
 from .phone_intelligence import PhoneIntelligenceProvider
+from .playerdb_provider import PlayerDbProvider
 from .public_data_provider import PublicDataProvider, build_public_data_capabilities
 from .public_game_provider import PublicGameProvider, build_public_game_capabilities
 from .remote_mcp_provider import build_remote_mcp_provider
@@ -40,11 +43,13 @@ def get_tool_mesh() -> ToolMesh:
             FirecrawlToolProvider(),
             NativeWebToolProvider(),
             GitHubPublicProvider(),
+            IntelligenceFabricProvider(),
             GameCoreProvider(),
             PublicGameProvider(),
             PublicDataProvider(),
             NativeSandboxToolProvider(),
             PhoneIntelligenceProvider(),
+            PlayerDbProvider(),
             *build_catalog_providers(),
             *build_gaming_providers(),
             *build_extra_gaming_providers(),
@@ -60,6 +65,7 @@ def get_capability_registry() -> CapabilityRegistry:
         [
             *build_default_capabilities(),
             *build_firecrawl_capabilities(),
+            *build_intelligence_capabilities(),
             *build_gaming_capabilities(),
             *build_extra_gaming_capabilities(),
             *build_public_game_capabilities(),

@@ -15,6 +15,7 @@ from .control_hardening import router as hardening_router
 from .control_migration import run_requested_control_plane_migration
 from .fleet_api import app as fleet_app
 from .game_api import router as game_router
+from .intelligence_api import router as intelligence_router
 from .mcp_customer import customer_streamable_http_app
 from .mcp_server import sandbox_mcp
 from .monitor_executor import router as monitor_executor_router
@@ -69,6 +70,7 @@ app.include_router(playground_router)
 app.include_router(repository_router)
 app.include_router(public_data_router)
 app.include_router(game_router)
+app.include_router(intelligence_router)
 app.include_router(site_router)
 app.mount("/mcp", customer_streamable_http_app())
 

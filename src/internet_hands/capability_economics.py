@@ -182,6 +182,7 @@ RAW_PROVIDER_SURCHARGES: dict[str, tuple[str, int]] = {
     "nativesandbox": ("metered", 10),
     "gamecore": ("local", 0),
     "githubpublic": ("public", 1),
+    "intelligence": ("public", 0),
 }
 
 def _is_byo_route(ref: str) -> bool:
@@ -774,6 +775,62 @@ def estimate_call(
                 plan.to_dict(),
             )
 
+        if ref.startswith("intelligence:"):
+            operation = ref.split(":", 1)[1]
+            if operation == "smart-fetch":
+                render = str(nested_arguments.get("render") or "auto").lower()
+                browser_budget = 0 if render == "never" else 6
+                total = 2 + 3 + browser_budget
+                return CostEstimate(
+                    allowed=True,
+                    plan=plan.slug,
+                    tool_name=tool_name,
+                    category="web_intelligence",
+                    credits=total,
+                    minimum_plan="free",
+                    provider_class="public",
+                    reason=None,
+                    breakdown=(
+                        {"kind": "base", "credits": 2},
+                        {"kind": "http_budget", "requests": 1, "credits": 3},
+                        {"kind": "browser_fallback_budget", "renders": 0 if render == "never" else 1, "credits": browser_budget},
+                    ),
+                    limits=plan.to_dict(),
+                )
+            if operation == "discover-interfaces":
+                requests = 2 + (6 if bool(nested_arguments.get("probe_openapi", False)) else 0)
+                total = 2 + requests * 3
+                return CostEstimate(
+                    True, plan.slug, tool_name, "web_intelligence", total,
+                    "free", "public", None,
+                    (
+                        {"kind": "base", "credits": 2},
+                        {"kind": "bounded_interface_probes", "requests": requests, "credits": requests * 3},
+                    ),
+                    plan.to_dict(),
+                )
+            if operation == "search-extract":
+                try:
+                    count = max(1, min(int(nested_arguments.get("count", 3)), 5))
+                except (TypeError, ValueError):
+                    count = 3
+                total = 2 + 4 + count * 11
+                return CostEstimate(
+                    True, plan.slug, tool_name, "web_intelligence", total,
+                    "free", "public", None,
+                    (
+                        {"kind": "base", "credits": 2},
+                        {"kind": "search_budget", "requests": 1, "credits": 4},
+                        {"kind": "result_collection_budget", "pages": count, "credits": count * 11},
+                    ),
+                    plan.to_dict(),
+                )
+            return CostEstimate(
+                False, plan.slug, tool_name, "web_intelligence", 2,
+                "free", "public", "unknown intelligence operation",
+                ({"kind": "base", "credits": 2},), plan.to_dict(),
+            )
+
         if ref.startswith("firecrawl:"):
             operation = ref.split(":", 1)[1]
             if operation == "batch-scrape":
@@ -1140,6 +1197,31 @@ def settle_measured_cost(
             )
 
         prefix = ref.split(":", 1)[0] if ":" in ref else ""
+        if prefix == "intelligence":
+            try:
+                http_requests = max(0, int(counters.get("intelligence_http_requests") or 0))
+            except (TypeError, ValueError):
+                http_requests = 0
+            try:
+                browser_renders = max(0, int(counters.get("intelligence_browser_renders") or 0))
+            except (TypeError, ValueError):
+                browser_renders = 0
+            try:
+                search_requests = max(0, int(counters.get("intelligence_search_requests") or 0))
+            except (TypeError, ValueError):
+                search_requests = 0
+            try:
+                external_requests = max(0, int(counters.get("intelligence_external_backend_requests") or 0))
+            except (TypeError, ValueError):
+                external_requests = 0
+            actual = (
+                (2 if (http_requests or browser_renders or search_requests or external_requests) else 0)
+                + http_requests * 3
+                + browser_renders * 6
+                + search_requests * 4
+                + external_requests * 5
+            )
+            return min(reserved, actual)
         if prefix in {"firecrawl", "publicdata", "gamepublic", "nativeweb"}:
             return min(reserved, _measured_mesh_attempts(provider_calls, counters))
         economics = RAW_PROVIDER_SURCHARGES.get(prefix)

@@ -710,3 +710,70 @@ def test_byo_batch_is_free_but_still_obeys_plan_batch_limit() -> None:
     quote = estimate_call("mesh_batch_execute", args, "free")
     assert quote.allowed is False
     assert "at most 3" in (quote.reason or "")
+
+
+
+def test_first_party_intelligence_reserves_browser_fallback_headroom() -> None:
+    no_render = estimate_call(
+        "mesh_execute",
+        {
+            "ref": "intelligence:smart-fetch",
+            "arguments": {"url": "https://example.com", "render": "never"},
+        },
+        "free",
+    )
+    auto = estimate_call(
+        "mesh_execute",
+        {
+            "ref": "intelligence:smart-fetch",
+            "arguments": {"url": "https://example.com", "render": "auto"},
+        },
+        "free",
+    )
+    assert no_render.allowed and no_render.credits == 5
+    assert auto.allowed and auto.credits == 11
+
+
+def test_first_party_intelligence_settles_only_work_actually_attempted() -> None:
+    args = {
+        "ref": "intelligence:smart-fetch",
+        "arguments": {"url": "https://example.com", "render": "auto"},
+    }
+    reserved = estimate_call("mesh_execute", args, "free").credits
+    assert reserved == 11
+    assert settle_measured_cost(
+        "mesh_execute",
+        args,
+        "free",
+        reserved_credits=reserved,
+        execution_usage={
+            "provider_calls": {"intelligence": 1},
+            "counters": {"intelligence_http_requests": 1},
+        },
+    ) == 5
+    assert settle_measured_cost(
+        "mesh_execute",
+        args,
+        "free",
+        reserved_credits=reserved,
+        execution_usage={
+            "provider_calls": {"intelligence": 1},
+            "counters": {
+                "intelligence_http_requests": 1,
+                "intelligence_browser_renders": 1,
+            },
+        },
+    ) == 11
+
+
+def test_search_extract_reservation_is_bounded_by_requested_result_count() -> None:
+    quote = estimate_call(
+        "mesh_execute",
+        {
+            "ref": "intelligence:search-extract",
+            "arguments": {"query": "latest ai research", "count": 2},
+        },
+        "free",
+    )
+    assert quote.allowed is True
+    assert quote.credits == 28

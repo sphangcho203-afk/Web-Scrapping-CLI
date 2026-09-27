@@ -208,6 +208,137 @@ class SteamGamingProvider(_GamingProviderBase):
                 side_effecting=False,
                 metadata={"source": "Steamworks Web API", "official": True},
             ),
+            ToolDescriptor(
+                ref="steam:player-level",
+                provider="steam",
+                tool_id="player-level",
+                name="Steam player level",
+                description="Get the public Steam level for a SteamID64.",
+                input_schema=_schema({"steamid": _string("SteamID64")}, ["steamid"]),
+                tags=["gaming", "steam", "player", "level", "profile"],
+                requires_auth=True,
+                side_effecting=False,
+                metadata={"source": "Steamworks Web API", "official": True},
+            ),
+            ToolDescriptor(
+                ref="steam:badges",
+                provider="steam",
+                tool_id="badges",
+                name="Steam public badges",
+                description="Get public Steam badge and XP information for a SteamID64.",
+                input_schema=_schema({"steamid": _string("SteamID64")}, ["steamid"]),
+                tags=["gaming", "steam", "badges", "xp", "profile"],
+                requires_auth=True,
+                side_effecting=False,
+                metadata={"source": "Steamworks Web API", "official": True},
+            ),
+            ToolDescriptor(
+                ref="steam:player-achievements",
+                provider="steam",
+                tool_id="player-achievements",
+                name="Steam game achievements",
+                description=(
+                    "Get a player's achievement state for a Steam AppID when the upstream API "
+                    "and the player's visibility settings expose it."
+                ),
+                input_schema=_schema(
+                    {
+                        "steamid": _string("SteamID64"),
+                        "appid": {"type": "integer", "minimum": 1},
+                        "language": _string("Optional Steam language code"),
+                    },
+                    ["steamid", "appid"],
+                ),
+                tags=["gaming", "steam", "achievements", "game", "stats"],
+                requires_auth=True,
+                side_effecting=False,
+                metadata={"source": "Steamworks Web API", "official": True},
+            ),
+            ToolDescriptor(
+                ref="steam:user-stats",
+                provider="steam",
+                tool_id="user-stats",
+                name="Steam per-game user stats",
+                description=(
+                    "Get a player's public per-game stats and achievements for a Steam AppID "
+                    "when the title exposes Steamworks user stats."
+                ),
+                input_schema=_schema(
+                    {
+                        "steamid": _string("SteamID64"),
+                        "appid": {"type": "integer", "minimum": 1},
+                    },
+                    ["steamid", "appid"],
+                ),
+                tags=["gaming", "steam", "game", "stats", "achievements", "performance"],
+                requires_auth=True,
+                side_effecting=False,
+                metadata={"source": "Steamworks Web API", "official": True},
+            ),
+            ToolDescriptor(
+                ref="steam:game-schema",
+                provider="steam",
+                tool_id="game-schema",
+                name="Steam game stats schema",
+                description=(
+                    "Inspect the Steamworks stat and achievement schema published for a Steam AppID."
+                ),
+                input_schema=_schema(
+                    {
+                        "appid": {"type": "integer", "minimum": 1},
+                        "language": _string("Optional Steam language code"),
+                    },
+                    ["appid"],
+                ),
+                tags=["gaming", "steam", "game", "schema", "stats", "achievements", "reference"],
+                requires_auth=True,
+                side_effecting=False,
+                metadata={"source": "Steamworks Web API", "official": True},
+            ),
+            ToolDescriptor(
+                ref="steam:global-achievements",
+                provider="steam",
+                tool_id="global-achievements",
+                name="Steam global achievement percentages",
+                description="Get global unlock percentages for achievements exposed by a Steam AppID.",
+                input_schema=_schema({"appid": {"type": "integer", "minimum": 1}}, ["appid"]),
+                tags=["gaming", "steam", "game", "achievements", "global", "stats"],
+                requires_auth=True,
+                side_effecting=False,
+                metadata={"source": "Steamworks Web API", "official": True},
+            ),
+            ToolDescriptor(
+                ref="steam:current-players",
+                provider="steam",
+                tool_id="current-players",
+                name="Steam current player count",
+                description="Get the current Steam player count for a Steam AppID where exposed.",
+                input_schema=_schema({"appid": {"type": "integer", "minimum": 1}}, ["appid"]),
+                tags=["gaming", "steam", "game", "players", "online", "activity"],
+                requires_auth=True,
+                side_effecting=False,
+                metadata={"source": "Steamworks Web API", "official": True},
+            ),
+            ToolDescriptor(
+                ref="steam:app-catalog",
+                provider="steam",
+                tool_id="app-catalog",
+                name="Steam app catalog page",
+                description=(
+                    "Read a bounded page from Steam's app catalog for app discovery and AppID resolution."
+                ),
+                input_schema=_schema(
+                    {
+                        "max_results": {"type": "integer", "minimum": 1, "maximum": 5000},
+                        "last_appid": {"type": "integer", "minimum": 0},
+                    },
+                    [],
+                ),
+                tags=["gaming", "steam", "games", "catalog", "appid", "discovery"],
+                requires_auth=True,
+                side_effecting=False,
+                metadata={"source": "Steamworks Web API", "official": True},
+            ),
         ]
         super().__init__(descriptors, client=client, validate_urls=validate_urls)
 
@@ -275,6 +406,52 @@ class SteamGamingProvider(_GamingProviderBase):
                     ).lower(),
                 }
             )
+        elif tool_id in {"player-level", "badges"}:
+            steamid = str(arguments.get("steamid") or "").strip()
+            if not steamid:
+                raise ValueError("steamid is required")
+            params["steamid"] = steamid
+            method = "GetSteamLevel" if tool_id == "player-level" else "GetBadges"
+            url = f"https://api.steampowered.com/IPlayerService/{method}/v1/"
+        elif tool_id in {"player-achievements", "user-stats"}:
+            steamid = str(arguments.get("steamid") or "").strip()
+            if not steamid:
+                raise ValueError("steamid is required")
+            try:
+                appid = int(arguments.get("appid"))
+            except (TypeError, ValueError) as exc:
+                raise ValueError("appid must be a positive integer") from exc
+            if appid < 1:
+                raise ValueError("appid must be a positive integer")
+            params.update({"steamid": steamid, "appid": appid})
+            if tool_id == "player-achievements":
+                if arguments.get("language"):
+                    params["l"] = str(arguments["language"])[:16]
+                url = "https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v1/"
+            else:
+                url = "https://api.steampowered.com/ISteamUserStats/GetUserStatsForGame/v2/"
+        elif tool_id in {"game-schema", "global-achievements", "current-players"}:
+            try:
+                appid = int(arguments.get("appid"))
+            except (TypeError, ValueError) as exc:
+                raise ValueError("appid must be a positive integer") from exc
+            if appid < 1:
+                raise ValueError("appid must be a positive integer")
+            if tool_id == "game-schema":
+                params["appid"] = appid
+                if arguments.get("language"):
+                    params["l"] = str(arguments["language"])[:16]
+                url = "https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/"
+            elif tool_id == "global-achievements":
+                params["gameid"] = appid
+                url = "https://api.steampowered.com/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/"
+            else:
+                params["appid"] = appid
+                url = "https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/"
+        elif tool_id == "app-catalog":
+            params["max_results"] = max(1, min(int(arguments.get("max_results", 500)), 5000))
+            params["last_appid"] = max(0, int(arguments.get("last_appid", 0)))
+            url = "https://api.steampowered.com/IStoreService/GetAppList/v1/"
         else:
             raise ValueError(f"unknown Steam tool: {tool_id}")
 

@@ -85,3 +85,94 @@ async def test_riot_id_is_url_encoded() -> None:
         )
 
     assert result["data"]["puuid"] == "P1"
+
+
+
+@pytest.mark.asyncio
+async def test_steam_game_agnostic_stats_and_achievements_routes() -> None:
+    seen: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        assert request.url.params["key"] == "steam-secret"
+        assert request.url.params["steamid"] == "76561198000000000"
+        assert request.url.params["appid"] == "730"
+        if "GetPlayerAchievements" in request.url.path:
+            return httpx.Response(200, json={"playerstats": {"achievements": [{"apiname": "WIN_ONE"}]}})
+        return httpx.Response(200, json={"playerstats": {"stats": [{"name": "kills", "value": 10}]}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = SteamGamingProvider(
+            api_key="steam-secret", client=client, validate_urls=False
+        )
+        achievements = await provider.execute(
+            "player-achievements",
+            {"steamid": "76561198000000000", "appid": 730},
+        )
+        stats = await provider.execute(
+            "user-stats",
+            {"steamid": "76561198000000000", "appid": 730},
+        )
+
+    assert achievements["data"]["playerstats"]["achievements"][0]["apiname"] == "WIN_ONE"
+    assert stats["data"]["playerstats"]["stats"][0]["value"] == 10
+    assert any("GetPlayerAchievements" in path for path in seen)
+    assert any("GetUserStatsForGame" in path for path in seen)
+
+
+@pytest.mark.asyncio
+async def test_steam_level_and_badges_share_server_side_identity_key() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["key"] == "steam-secret"
+        assert request.url.params["steamid"] == "76561198000000000"
+        if "GetSteamLevel" in request.url.path:
+            return httpx.Response(200, json={"response": {"player_level": 42}})
+        return httpx.Response(200, json={"response": {"badges": [{"badgeid": 1}], "player_xp": 9000}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = SteamGamingProvider(
+            api_key="steam-secret", client=client, validate_urls=False
+        )
+        level = await provider.execute("player-level", {"steamid": "76561198000000000"})
+        badges = await provider.execute("badges", {"steamid": "76561198000000000"})
+
+    assert level["data"]["response"]["player_level"] == 42
+    assert badges["data"]["response"]["player_xp"] == 9000
+
+
+
+@pytest.mark.asyncio
+async def test_steam_generic_game_intelligence_routes() -> None:
+    seen: list[tuple[str, dict[str, str]]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.url.path, dict(request.url.params)))
+        assert request.url.params["key"] == "steam-secret"
+        if "GetSchemaForGame" in request.url.path:
+            assert request.url.params["appid"] == "730"
+            return httpx.Response(200, json={"game": {"gameName": "Counter-Strike"}})
+        if "GetGlobalAchievementPercentagesForApp" in request.url.path:
+            assert request.url.params["gameid"] == "730"
+            return httpx.Response(200, json={"achievementpercentages": {"achievements": []}})
+        if "GetNumberOfCurrentPlayers" in request.url.path:
+            assert request.url.params["appid"] == "730"
+            return httpx.Response(200, json={"response": {"player_count": 123456}})
+        if "IStoreService/GetAppList" in request.url.path:
+            assert request.url.params["max_results"] == "50"
+            return httpx.Response(200, json={"response": {"apps": [{"appid": 730, "name": "Counter-Strike 2"}]}})
+        raise AssertionError(str(request.url))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = SteamGamingProvider(
+            api_key="steam-secret", client=client, validate_urls=False
+        )
+        schema = await provider.execute("game-schema", {"appid": 730})
+        global_rates = await provider.execute("global-achievements", {"appid": 730})
+        current = await provider.execute("current-players", {"appid": 730})
+        catalog = await provider.execute("app-catalog", {"max_results": 50})
+
+    assert schema["data"]["game"]["gameName"] == "Counter-Strike"
+    assert "achievementpercentages" in global_rates["data"]
+    assert current["data"]["response"]["player_count"] == 123456
+    assert catalog["data"]["response"]["apps"][0]["appid"] == 730
+    assert len(seen) == 4
