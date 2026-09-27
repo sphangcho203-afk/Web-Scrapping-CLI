@@ -28,6 +28,8 @@ from .playerdb_provider import PlayerDbProvider
 from .public_data_provider import PublicDataProvider, build_public_data_capabilities
 from .public_game_provider import PublicGameProvider, build_public_game_capabilities
 from .remote_mcp_provider import build_remote_mcp_provider
+from .research_brand_capabilities import build_research_brand_capabilities
+from .research_brand_providers import build_research_brand_providers
 from .tool_mesh import ToolMesh
 from .tool_providers import build_default_providers
 
@@ -50,6 +52,7 @@ def get_tool_mesh() -> ToolMesh:
             NativeSandboxToolProvider(),
             PhoneIntelligenceProvider(),
             PlayerDbProvider(),
+            *build_research_brand_providers(),
             *build_catalog_providers(),
             *build_gaming_providers(),
             *build_extra_gaming_providers(),
@@ -66,6 +69,7 @@ def get_capability_registry() -> CapabilityRegistry:
             *build_default_capabilities(),
             *build_firecrawl_capabilities(),
             *build_intelligence_capabilities(),
+            *build_research_brand_capabilities(),
             *build_gaming_capabilities(),
             *build_extra_gaming_capabilities(),
             *build_public_game_capabilities(),
