@@ -784,6 +784,41 @@ body::before{opacity:.018;background-size:64px 64px;}
 }
 
 
+/* Connected application lifecycle */
+.connected-apps{margin:0 0 28px}
+.connected-apps>header{display:flex;align-items:end;justify-content:space-between;gap:22px;margin-bottom:14px}
+.connected-apps>header>div>span{display:block;color:var(--ihx-cyan,var(--accent));font:700 9px var(--mono);letter-spacing:.12em}
+.connected-apps>header h2{margin:6px 0 5px;font-size:24px}
+.connected-apps>header p{max-width:760px;margin:0;color:var(--muted);font-size:11px;line-height:1.6}
+.connected-apps>header>span{color:var(--muted-2);font:700 9px var(--mono);letter-spacing:.08em}
+.connected-app-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.connected-app-card{border:1px solid var(--line);background:linear-gradient(145deg,#0b1114,#080c0f);border-radius:11px;overflow:hidden}
+.connected-app-card>header{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:12px;align-items:center;padding:16px}
+.connected-app-mark{width:42px;height:42px;display:grid;place-items:center;border:1px solid var(--line);border-radius:10px;background:#0e171b;color:var(--accent);font:800 15px var(--mono)}
+.connected-app-card>header small{display:block;color:var(--muted-2);font:700 8px var(--mono);letter-spacing:.09em;text-transform:uppercase}
+.connected-app-card>header h3{margin:3px 0 2px;font-size:16px}
+.connected-app-card>header p{margin:0;color:var(--muted);font-size:10px}
+.connected-app-accounts{border-top:1px solid var(--line)}
+.connected-app-accounts article{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)}
+.connected-app-accounts article:last-child{border-bottom:0}
+.connected-app-accounts article>div:first-child{min-width:0;display:grid;gap:3px}
+.connected-app-accounts b{font-size:12px}
+.connected-app-accounts code{overflow:hidden;text-overflow:ellipsis;color:var(--muted-2);font-size:9px}
+.connected-app-accounts small{color:#d69a9a;font-size:9px;line-height:1.45}
+.connected-app-accounts article>div:last-child{display:flex;gap:6px;justify-content:flex-end}
+.connected-app-empty{min-height:72px;margin:0;padding:14px 16px;border-top:1px solid var(--line);color:var(--muted);font-size:10px;line-height:1.6}
+.connected-app-card>footer{display:flex;align-items:center;gap:12px;padding:13px 16px;border-top:1px solid var(--line);background:rgba(255,255,255,.012)}
+.connected-app-card>footer small{color:var(--muted-2);font-size:9px;line-height:1.45}
+@media(max-width:900px){.connected-app-grid{grid-template-columns:1fr}}
+@media(max-width:620px){
+  .connected-apps>header{align-items:flex-start;flex-direction:column}
+  .connected-app-card>header{grid-template-columns:42px minmax(0,1fr)}
+  .connected-app-card>header>.ihx-state{grid-column:1/-1;width:max-content}
+  .connected-app-accounts article{grid-template-columns:1fr}
+  .connected-app-accounts article>div:last-child{justify-content:flex-start}
+  .connected-app-card>footer{align-items:flex-start;flex-direction:column}
+}
+
 /* Remote MCP lifecycle */
 .mcp-row-live{align-items:stretch!important;gap:18px!important}
 .mcp-row-main{min-width:0;display:grid;gap:5px;flex:1}
