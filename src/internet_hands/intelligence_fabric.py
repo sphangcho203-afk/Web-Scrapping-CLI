@@ -509,7 +509,6 @@ class IntelligenceFabricProvider:
 
         if tool_id == "discover-interfaces":
             probe_openapi = bool(arguments.get("probe_openapi", False))
-            record_usage("intelligence_http_requests", 2 + (6 if probe_openapi else 0))
             data = await discover_public_interfaces(
                 str(arguments.get("url") or ""),
                 probe_openapi=probe_openapi,
