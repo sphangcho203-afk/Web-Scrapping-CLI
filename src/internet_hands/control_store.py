@@ -23,11 +23,18 @@ CREATE TABLE IF NOT EXISTS ih_users (
     github_id text UNIQUE,
     display_name text,
     avatar_url text,
+    auth_provider text,
+    auth_subject text,
     email_verified boolean NOT NULL DEFAULT false,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ih_users_email_lower_idx ON ih_users ((lower(email)));
+ALTER TABLE ih_users ADD COLUMN IF NOT EXISTS auth_provider text;
+ALTER TABLE ih_users ADD COLUMN IF NOT EXISTS auth_subject text;
+CREATE UNIQUE INDEX IF NOT EXISTS ih_users_auth_identity_idx
+    ON ih_users(auth_provider, auth_subject)
+    WHERE auth_provider IS NOT NULL AND auth_subject IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS ih_sessions (
     id text PRIMARY KEY,
@@ -333,9 +340,14 @@ class AuthIdentity:
 
 class ControlStore:
     def __init__(self, dsn: str | None = None) -> None:
-        self.dsn = dsn or os.getenv("INTERNET_HANDS_CONTROL_POSTGRES_DSN") or os.getenv(
-            "INTERNET_HANDS_POSTGRES_DSN"
-        )
+        if dsn is not None:
+            selected = dsn
+        else:
+            control_dsn = os.getenv("INTERNET_HANDS_CONTROL_POSTGRES_DSN")
+            neon_dsn = os.getenv("INTERNET_HANDS_POSTGRES_DSN")
+            primary = (os.getenv("OPENCRAWL_PRIMARY_DATABASE") or "supabase").strip().lower()
+            selected = neon_dsn if primary == "neon" and neon_dsn else control_dsn or neon_dsn
+        self.dsn = selected
         self._schema_ready = False
         self._schema_lock = threading.Lock()
 
@@ -434,6 +446,136 @@ class ControlStore:
         except UniqueViolation as exc:
             raise ControlError("email_in_use", "an account with this email already exists", 409) from exc
 
+    def ensure_auth_user(
+        self,
+        *,
+        email: str,
+        display_name: str | None,
+        provider: str,
+        subject: str,
+        email_verified: bool = False,
+    ) -> dict[str, Any]:
+        """Create or link an application user to an external identity provider."""
+        self.ensure_schema()
+        normalized_email = email.strip().lower()
+        normalized_provider = provider.strip().lower()
+        normalized_subject = subject.strip()
+        if not normalized_email or not normalized_provider or not normalized_subject:
+            raise ControlError("invalid_identity", "identity provider fields are required", 400)
+
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT * FROM ih_users WHERE lower(email)=lower(%s) FOR UPDATE",
+                    (normalized_email,),
+                )
+                row = cur.fetchone()
+                if row:
+                    existing_provider = str(row.get("auth_provider") or "")
+                    existing_subject = str(row.get("auth_subject") or "")
+                    if existing_subject and (
+                        existing_provider != normalized_provider
+                        or existing_subject != normalized_subject
+                    ):
+                        raise ControlError(
+                            "identity_conflict",
+                            "this account is already linked to another identity",
+                            409,
+                        )
+                    cur.execute(
+                        """
+                        UPDATE ih_users
+                        SET auth_provider=%s,
+                            auth_subject=%s,
+                            display_name=COALESCE(display_name,%s),
+                            email_verified=(email_verified OR %s),
+                            updated_at=now()
+                        WHERE id=%s
+                        RETURNING *
+                        """,
+                        (
+                            normalized_provider,
+                            normalized_subject,
+                            display_name,
+                            email_verified,
+                            row["id"],
+                        ),
+                    )
+                    linked = cur.fetchone()
+                    conn.commit()
+                    assert linked is not None
+                    return dict(linked)
+
+                user_id = self._new_id("usr")
+                try:
+                    cur.execute(
+                        """
+                        INSERT INTO ih_users(
+                            id,email,display_name,auth_provider,auth_subject,email_verified
+                        ) VALUES (%s,%s,%s,%s,%s,%s)
+                        RETURNING *
+                        """,
+                        (
+                            user_id,
+                            normalized_email,
+                            display_name,
+                            normalized_provider,
+                            normalized_subject,
+                            email_verified,
+                        ),
+                    )
+                except UniqueViolation as exc:
+                    conn.rollback()
+                    raise ControlError(
+                        "identity_conflict",
+                        "this email or identity is already linked",
+                        409,
+                    ) from exc
+                linked = cur.fetchone()
+            conn.commit()
+            assert linked is not None
+            return dict(linked)
+
+    def link_auth_identity(self, user_id: str, *, provider: str, subject: str) -> None:
+        self.ensure_schema()
+        normalized_provider = provider.strip().lower()
+        normalized_subject = subject.strip()
+        with self._connect() as conn, conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    UPDATE ih_users
+                    SET auth_provider=%s,auth_subject=%s,updated_at=now()
+                    WHERE id=%s
+                      AND (
+                        auth_subject IS NULL
+                        OR (auth_provider=%s AND auth_subject=%s)
+                      )
+                    """,
+                    (
+                        normalized_provider,
+                        normalized_subject,
+                        user_id,
+                        normalized_provider,
+                        normalized_subject,
+                    ),
+                )
+            except UniqueViolation as exc:
+                conn.rollback()
+                raise ControlError(
+                    "identity_conflict",
+                    "this external identity is already linked",
+                    409,
+                ) from exc
+            if cur.rowcount != 1:
+                conn.rollback()
+                raise ControlError(
+                    "identity_conflict",
+                    "this account is already linked to another identity",
+                    409,
+                )
+            conn.commit()
+
     def _activate_free_account(self, cur: Any, user_id: str) -> None:
         """Provision account resources once, inside the caller's transaction."""
         now = datetime.now(UTC)
@@ -501,9 +643,23 @@ class ControlStore:
             return dict(row) if row else None
 
     def auth_user_id_for_legacy(self, user_id: str) -> str | None:
-        """Return the linked Supabase Auth UUID for one OpenCrawl identity."""
+        """Return the Supabase Auth subject linked to one OpenCrawl identity."""
         self.ensure_schema()
         with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT auth_subject
+                FROM ih_users
+                WHERE id=%s AND auth_provider='supabase' AND auth_subject IS NOT NULL
+                """,
+                (user_id,),
+            )
+            linked = cur.fetchone()
+            if linked:
+                return str(linked["auth_subject"])
+
+            # Transitional compatibility while the source database is still
+            # Supabase-backed. Neon never requires this provider-specific table.
             try:
                 cur.execute(
                     """
@@ -518,7 +674,22 @@ class ControlStore:
                 conn.rollback()
                 return None
             row = cur.fetchone()
-            return str(row["auth_user_id"]) if row else None
+            if not row:
+                return None
+            auth_user_id = str(row["auth_user_id"])
+            try:
+                cur.execute(
+                    """
+                    UPDATE ih_users
+                    SET auth_provider='supabase',auth_subject=%s,updated_at=now()
+                    WHERE id=%s AND auth_subject IS NULL
+                    """,
+                    (auth_user_id, user_id),
+                )
+                conn.commit()
+            except psycopg.Error:
+                conn.rollback()
+            return auth_user_id
 
     def has_api_key_hash(self, key_hash: str) -> bool:
         """Detect an already-adopted key, including revoked keys."""
