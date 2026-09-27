@@ -43,7 +43,7 @@ def _clean_domains(value: Any, *, maximum: int = 50) -> list[str]:
     if value is None:
         return []
     if not isinstance(value, list):
-        raise ValueError("domain filters must be arrays")
+        raise TypeError("domain filters must be arrays")
     result: list[str] = []
     for item in value[:maximum]:
         domain = str(item or "").strip().lower().rstrip(".")
@@ -323,7 +323,7 @@ class YouSearchProvider:
                 validate_public_http_url(url)
             formats = arguments.get("formats") or ["markdown", "metadata"]
             if not isinstance(formats, list):
-                raise ValueError("formats must be an array")
+                raise TypeError("formats must be an array")
             normalized_formats = [str(value) for value in formats]
             if not normalized_formats or any(
                 value not in {"html", "markdown", "metadata"}
