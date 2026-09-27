@@ -47,7 +47,7 @@ from .storage import DEFAULT_DB, Store
 from .web_search import SearchKind, brave_search
 
 app = FastAPI(
-    title="Internet Hands",
+    title="OpenCrawl",
     version="0.3.0",
     description="Public internet intelligence and provenance API for apps and agents.",
 )

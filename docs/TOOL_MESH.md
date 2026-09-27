@@ -1,8 +1,8 @@
-# Internet Hands Tool Mesh
+# OpenCrawl Tool Mesh
 
-Internet Hands v0.5 adds a provider-neutral capability plane on top of the existing data, sandbox, and live-browser layers.
+OpenCrawl v0.5 adds a provider-neutral capability plane on top of the existing data, sandbox, and live-browser layers.
 
-The goal is not to mirror one vendor. The mesh combines Actor marketplaces, connected-app routers, API catalogs, OpenAPI discovery, remote MCP servers, and curated capability packs behind one Internet Hands execution contract.
+The goal is not to mirror one vendor. The mesh combines Actor marketplaces, connected-app routers, API catalogs, OpenAPI discovery, remote MCP servers, and curated capability packs behind one OpenCrawl execution contract.
 
 ## Mental model
 
@@ -10,7 +10,7 @@ The goal is not to mirror one vendor. The mesh combines Actor marketplaces, conn
 agent
   |
   v
-Internet Hands MCP
+OpenCrawl MCP
   |
   +-- sandbox/browser tools
   +-- crawl/frontier/content tools
@@ -98,7 +98,7 @@ Composio direct tool results are returned inline, so generic job/result paging i
 
 `rapidapi` and `publicapi` are small schema-first HTTP catalogs. They only execute curated read-only `GET`/`HEAD` operations.
 
-`RAPIDAPI_KEY` stays server-side. Internet Hands injects it into the RapidAPI request and never places the key in tool descriptors or execution receipts.
+`RAPIDAPI_KEY` stays server-side. OpenCrawl injects it into the RapidAPI request and never places the key in tool descriptors or execution receipts.
 
 Additional tools can be registered without changing Python by setting `INTERNET_HANDS_RAPIDAPI_TOOLS` or `INTERNET_HANDS_PUBLIC_API_TOOLS` to a JSON array. A manifest entry uses this shape:
 
@@ -125,7 +125,7 @@ Non-read methods are rejected by the manifest loader.
 
 ## OpenAPI provider
 
-The `openapi` provider turns configured public OpenAPI documents into searchable mesh tools dynamically. It imports only `GET` and `HEAD` operations. Private/loopback/link-local targets are rejected by Internet Hands network policy.
+The `openapi` provider turns configured public OpenAPI documents into searchable mesh tools dynamically. It imports only `GET` and `HEAD` operations. Private/loopback/link-local targets are rejected by OpenCrawl network policy.
 
 Rone Arena's public MLBB OpenAPI document is included as the first built-in catalog. Additional public documents can be configured with `INTERNET_HANDS_OPENAPI_SOURCES`:
 
@@ -147,7 +147,7 @@ The provider caches schemas briefly, converts operation parameters into JSON Sch
 ]
 ```
 
-Internet Hands validates the endpoint as public before connecting. In v0.5 this bridge intentionally targets public MCP endpoints only. Connected/authenticated app actions should go through the Composio plane instead.
+OpenCrawl validates the endpoint as public before connecting. In v0.5 this bridge intentionally targets public MCP endpoints only. Connected/authenticated app actions should go through the Composio plane instead.
 
 Remote tools are considered potentially side-effecting unless the upstream MCP descriptor explicitly marks them read-only. Remote descriptions/results are also tagged as untrusted external data.
 
@@ -169,7 +169,7 @@ The first built-in pack is `mlbb` and currently defines semantic operations for:
 
 `mlbb.player.lookup` prefers the configured RapidAPI player-information source. If that read-only source is unavailable, the pack can fall back to a nickname-only public community endpoint when the required player and zone identifiers are available.
 
-Hero/academy/reference capabilities are resolved dynamically against the Rone Arena OpenAPI catalog, so Internet Hands does not freeze endpoint paths into the agent prompt.
+Hero/academy/reference capabilities are resolved dynamically against the Rone Arena OpenAPI catalog, so OpenCrawl does not freeze endpoint paths into the agent prompt.
 
 Capability fallback is only automatic for read-only operations. A side-effecting tool is never silently substituted for another tool.
 
@@ -213,7 +213,7 @@ That contract is deliberately small. A provider can represent an Actor marketpla
 
 ## Design boundary
 
-Internet Hands keeps its existing public-network and sandbox isolation rules. The Tool Mesh is an orchestration plane, not a way to weaken those boundaries. Provider credentials stay server-side, provider errors are normalized into execution receipts, external content is treated as untrusted, and large outputs are paged or bounded before they enter model context.
+OpenCrawl keeps its existing public-network and sandbox isolation rules. The Tool Mesh is an orchestration plane, not a way to weaken those boundaries. Provider credentials stay server-side, provider errors are normalized into execution receipts, external content is treated as untrusted, and large outputs are paged or bounded before they enter model context.
 
 ## Connected semantic capability plane
 

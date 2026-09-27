@@ -1,8 +1,8 @@
 # Billing, Credits & Refund Policy
 
-**Policy version:** 2026-09-20  
+**Policy version:** 2026-09-27
 **Effective date:** 20 September 2026  
-**Last updated:** 20 September 2026
+**Last updated:** 27 September 2026
 
 How plans, credits, payment verification, renewals, cancellations, taxes, and refund requests work.
 
@@ -12,7 +12,7 @@ Prices, included capacity, taxes, currency, renewal behavior, and the specific p
 
 ## 2. Payment processing
 
-Internet Hands currently supports Razorpay for payment processing where configured. The payment processor collects payment-instrument details. Internet Hands stores order/payment references, amount, purpose, status, and related billing records needed to verify and fulfill a purchase.
+OpenCrawl currently supports Razorpay for payment processing where configured. The payment processor collects payment-instrument details. OpenCrawl stores order/payment references, amount, purpose, status, and related billing records needed to verify and fulfill a purchase.
 
 > **Fulfillment rule:** Credits or plan access are granted only after the server verifies a captured payment associated with the locally created order. A created or merely authorized payment is not treated as fulfilled.
 

@@ -1,10 +1,10 @@
 # Security & Responsible Disclosure
 
-**Policy version:** 2026-09-20  
+**Policy version:** 2026-09-27
 **Effective date:** 20 September 2026  
-**Last updated:** 20 September 2026
+**Last updated:** 27 September 2026
 
-Security controls used by Internet Hands, shared-responsibility expectations, and rules for reporting vulnerabilities safely.
+Security controls used by OpenCrawl, shared-responsibility expectations, and rules for reporting vulnerabilities safely.
 
 ## 1. Security model
 
@@ -13,7 +13,7 @@ Security controls used by Internet Hands, shared-responsibility expectations, an
 - OAuth and provider secrets are intended to remain server-side and out of browser-visible configuration.
 - TOTP secrets are encrypted at rest when two-factor authentication is enabled; recovery codes are stored as hashes.
 - Web sessions use HTTP-only cookies, and privileged product actions require a verified account.
-- OAuth flows use scoped authorization controls and PKCE where supported by the Internet Hands authorization flow.
+- OAuth flows use scoped authorization controls and PKCE where supported by the OpenCrawl authorization flow.
 - Billing fulfillment is verified server-side against captured payment state and the locally created order.
 - Usage and request ledgers retain request identifiers and execution metadata for audit and troubleshooting.
 
@@ -23,7 +23,7 @@ You are responsible for the security of devices, email accounts, API keys, recov
 
 ## 3. Reporting a vulnerability
 
-Use the private vulnerability-reporting or security contact method published in the official Internet Hands repository. Include the affected component, impact, reproduction conditions, and enough evidence to validate the issue without including unnecessary personal data or third-party secrets.
+Use the private vulnerability-reporting or security contact method published in the official OpenCrawl repository. Include the affected component, impact, reproduction conditions, and enough evidence to validate the issue without including unnecessary personal data or third-party secrets.
 
 > **Please report privately:** Do not publish an unpatched vulnerability, access another user's data to prove impact, retain copied secrets, or create unnecessary persistence.
 

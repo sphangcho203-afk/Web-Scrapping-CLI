@@ -311,7 +311,7 @@ class RiotGamingProvider(_GamingProviderBase):
         )
         route_prop = {
             "type": "string",
-            "description": "Riot routing value; values are allowlisted by Internet Hands.",
+            "description": "Riot routing value; values are allowlisted by OpenCrawl.",
         }
         descriptors = [
             ToolDescriptor(

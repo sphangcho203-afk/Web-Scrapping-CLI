@@ -1,6 +1,6 @@
-# Internet Hands Fleet Architecture
+# OpenCrawl Fleet Architecture
 
-Internet Hands now has two crawl execution planes:
+OpenCrawl now has two crawl execution planes:
 
 1. `ih-hunt` for bounded single-process collection.
 2. `ih-fleet` / `ih-worker` for durable multi-process or multi-machine collection.
@@ -206,7 +206,7 @@ Circuit breakers are keyed by backend and host. Repeated failures temporarily de
 
 Fleet workers can use:
 
-- `native` — Internet Hands HTTP fetcher with public-DNS and connected-peer validation.
+- `native` — OpenCrawl HTTP fetcher with public-DNS and connected-peer validation.
 - `crawlee` / `crawlee-http` — Crawlee HTTP adapter.
 - `crawl4ai` — Crawl4AI browser renderer/extractor adapter.
 - `scrapy` — Scrapy worker adapter with redirects disabled and robots enabled.

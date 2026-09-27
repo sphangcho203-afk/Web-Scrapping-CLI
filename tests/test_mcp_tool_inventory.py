@@ -73,7 +73,7 @@ def test_production_app_imports_all_registration_modules() -> None:
     assert "account_mcp" in source
     assert "browser_mcp" in fleet
     assert "tool_mcp" in fleet
-    assert saas_app.app.title == "Internet Hands"
+    assert saas_app.app.title == "OpenCrawl"
 
 
 @pytest.mark.asyncio

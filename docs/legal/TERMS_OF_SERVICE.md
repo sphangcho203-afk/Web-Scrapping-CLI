@@ -1,16 +1,16 @@
 # Terms of Service
 
-**Policy version:** 2026-09-20  
+**Policy version:** 2026-09-27
 **Effective date:** 20 September 2026  
-**Last updated:** 20 September 2026
+**Last updated:** 27 September 2026
 
 Rules for accounts, automated execution, connected services, billing, intellectual property, suspension, and liability.
 
 ## 1. Agreement and scope
 
-These Terms govern use of the hosted Internet Hands service, including the website, dashboard, APIs, MCP gateway, monitoring, browser or sandbox execution, integrations, and related hosted features (the Service). By creating an account or using the Service, you agree to these Terms.
+These Terms govern use of the hosted OpenCrawl service, including the website, dashboard, APIs, MCP gateway, monitoring, browser or sandbox execution, integrations, and related hosted features (the Service). By creating an account or using the Service, you agree to these Terms.
 
-Open-source code distributed through the Internet Hands repository remains governed by its applicable open-source license. These Terms govern the hosted Service and do not replace rights granted by an open-source license.
+Open-source code distributed through the OpenCrawl repository remains governed by its applicable open-source license. These Terms govern the hosted Service and do not replace rights granted by an open-source license.
 
 ## 2. Eligibility and accounts
 
@@ -23,7 +23,7 @@ You must be legally capable of entering into this agreement. If you are below th
 
 ## 3. Your authority to instruct the Service
 
-Internet Hands acts on instructions supplied by you or by agents and applications you connect. You are responsible for ensuring that you have the rights, permissions, and lawful basis needed for the websites, accounts, APIs, data, and systems you ask the Service to access or process.
+OpenCrawl acts on instructions supplied by you or by agents and applications you connect. You are responsible for ensuring that you have the rights, permissions, and lawful basis needed for the websites, accounts, APIs, data, and systems you ask the Service to access or process.
 
 > **Access boundaries:** A publicly reachable page is not automatically permission to bypass authentication, technical restrictions, contractual restrictions, robots directives, rate limits, or other access controls that apply to you.
 
@@ -37,13 +37,13 @@ The Service can route instructions to browsers, APIs, remote MCP servers, search
 
 ## 5. Acceptable use
 
-The Acceptable Use Policy is part of these Terms. You may not use Internet Hands for unauthorized access, credential theft, malware, phishing, spam, denial-of-service activity, unlawful surveillance, abusive scraping, infringement, or other prohibited conduct described in that policy.
+The Acceptable Use Policy is part of these Terms. You may not use OpenCrawl for unauthorized access, credential theft, malware, phishing, spam, denial-of-service activity, unlawful surveillance, abusive scraping, infringement, or other prohibited conduct described in that policy.
 
 ## 6. Connected and third-party services
 
 The Service may connect to third-party websites, payment processors, hosting providers, email providers, APIs, search providers, browser infrastructure, MCP servers, or connected applications. Those services may have their own terms and privacy practices, and you are responsible for complying with terms that apply to your use of them.
 
-When you direct Internet Hands to use a connected service, you authorize the minimum transfer of instructions, identifiers, content, and credentials reasonably needed to perform that request.
+When you direct OpenCrawl to use a connected service, you authorize the minimum transfer of instructions, identifiers, content, and credentials reasonably needed to perform that request.
 
 ## 7. Plans, credits, and payments
 
@@ -53,13 +53,13 @@ Credits are service units, not stored money, cryptocurrency, securities, or cash
 
 ## 8. Your content and third-party content
 
-You retain rights you already have in prompts, instructions, files, configuration, and other content you submit. You grant Internet Hands a limited right to host, transmit, transform, cache, and process that content only as reasonably necessary to operate, secure, support, and improve the Service.
+You retain rights you already have in prompts, instructions, files, configuration, and other content you submit. You grant OpenCrawl a limited right to host, transmit, transform, cache, and process that content only as reasonably necessary to operate, secure, support, and improve the Service.
 
-Content fetched from third-party sources remains subject to the rights of its owners. Internet Hands does not grant you ownership of third-party content merely because the Service can retrieve or transform it.
+Content fetched from third-party sources remains subject to the rights of its owners. OpenCrawl does not grant you ownership of third-party content merely because the Service can retrieve or transform it.
 
 ## 9. Service intellectual property
 
-Except for open-source components and customer content, the hosted product design, branding, documentation, service configuration, and non-public infrastructure are protected by applicable intellectual-property laws. Internet Hands and its licensors retain their respective rights.
+Except for open-source components and customer content, the hosted product design, branding, documentation, service configuration, and non-public infrastructure are protected by applicable intellectual-property laws. OpenCrawl and its licensors retain their respective rights.
 
 ## 10. Service changes and beta features
 
@@ -79,7 +79,7 @@ Nothing in these Terms excludes warranties, consumer rights, or remedies that ca
 
 ## 13. Limitation of liability
 
-To the maximum extent permitted by law, Internet Hands will not be liable for indirect, incidental, special, consequential, exemplary, or punitive damages, or for lost profits, revenue, goodwill, data, or business opportunities, arising from the Service.
+To the maximum extent permitted by law, OpenCrawl will not be liable for indirect, incidental, special, consequential, exemplary, or punitive damages, or for lost profits, revenue, goodwill, data, or business opportunities, arising from the Service.
 
 To the maximum extent permitted by law, aggregate liability arising out of the hosted Service will not exceed the greater of INR 5,000 or the amount you paid for the Service during the 12 months before the event giving rise to the claim. This limit does not apply where applicable law does not allow the relevant liability to be limited.
 

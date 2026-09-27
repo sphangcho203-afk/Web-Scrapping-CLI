@@ -12,7 +12,7 @@ from .storage import DEFAULT_DB, DEFAULT_OBJECTS
 from .telemetry import DEFAULT_TELEMETRY_DB, PostgresTelemetry, SqliteTelemetry
 from .worker import FrontierWorker
 
-app = typer.Typer(add_completion=False, help="Run a long-lived Internet Hands fleet worker.")
+app = typer.Typer(add_completion=False, help="Run a long-lived OpenCrawl fleet worker.")
 
 
 def _path_env(name: str, default: Path) -> Path:

@@ -69,17 +69,17 @@ async def password_reset_request_limited(request: Request):
             user_id=user["id"],
             email=user["email"],
             event_type="password_reset",
-            subject="Reset your Internet Hands password",
+            subject="Reset your OpenCrawl password",
             text=(
-                f"Reset your Internet Hands password: {reset_url}\n"
+                f"Reset your OpenCrawl password: {reset_url}\n"
                 "This link expires in 30 minutes."
             ),
             body_html=(
                 "<p style='color:#a8bbc5'>A password reset was requested for your "
-                "Internet Hands account.</p>"
+                "OpenCrawl account.</p>"
                 f"<p><a href='{html.escape(reset_url, quote=True)}' "
                 "style='display:inline-block;padding:13px 18px;border-radius:10px;"
-                "background:#73e5ef;color:#061014;text-decoration:none;font-weight:800'>"
+                "background:#ef39df;color:#100915;text-decoration:none;font-weight:800'>"
                 "Reset password</a></p>"
                 "<p style='color:#8aa0aa'>This link expires in 30 minutes. Ignore this "
                 "message if you did not request it.</p>"

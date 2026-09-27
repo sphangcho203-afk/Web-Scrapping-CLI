@@ -1,6 +1,6 @@
-# Internet Hands v0.6 SaaS control plane
+# OpenCrawl v0.6 SaaS control plane
 
-Internet Hands v0.6 turns the capability fabric into a customer-facing MCP/API product with accounts, API keys, OAuth authorization, usage metering, credits, billing, monitors, and a web console.
+OpenCrawl v0.6 turns the capability fabric into a customer-facing MCP/API product with accounts, API keys, OAuth authorization, usage metering, credits, billing, monitors, and a web console.
 
 ## Canonical routes
 
@@ -118,7 +118,7 @@ resets revoke all existing web sessions.
 
 Unauthenticated MCP requests receive a `401` with a `WWW-Authenticate` challenge pointing at the protected-resource metadata document. OAuth-capable clients then use authorization-code + PKCE S256.
 
-The authorization page validates an Internet Hands API key, then issues a short-lived access token and rotating refresh token. The raw API key is not stored in OAuth token records.
+The authorization page validates an OpenCrawl API key, then issues a short-lived access token and rotating refresh token. The raw API key is not stored in OAuth token records.
 
 ## Metering
 

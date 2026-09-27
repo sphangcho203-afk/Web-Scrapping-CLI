@@ -495,7 +495,7 @@ class ControlStore:
             return dict(row) if row else None
 
     def auth_user_id_for_legacy(self, user_id: str) -> str | None:
-        """Return the linked Supabase Auth UUID for one Internet Hands identity."""
+        """Return the linked Supabase Auth UUID for one OpenCrawl identity."""
         self.ensure_schema()
         with self._connect() as conn, conn.cursor() as cur:
             try:

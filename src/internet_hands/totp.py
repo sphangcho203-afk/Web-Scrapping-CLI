@@ -22,7 +22,7 @@ def _encryption_material() -> str:
             "INTERNET_HANDS_ENCRYPTION_KEY is required for TOTP secret storage"
         )
     if len(value) < 24:
-        raise RuntimeError("Internet Hands encryption material is too short")
+        raise RuntimeError("OpenCrawl encryption material is too short")
     return value
 
 
@@ -96,7 +96,7 @@ def verify_totp(
     return None
 
 
-def provisioning_uri(secret: str, email: str, issuer: str = "Internet Hands") -> str:
+def provisioning_uri(secret: str, email: str, issuer: str = "OpenCrawl") -> str:
     label = f"{issuer}:{email}"
     query = urlencode(
         {

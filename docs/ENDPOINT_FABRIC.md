@@ -1,6 +1,6 @@
-# Internet Hands v0.3 — Endpoint Fabric
+# OpenCrawl v0.3 — Endpoint Fabric
 
-Internet Hands is evolving from a web fetcher into a capability-driven public internet
+OpenCrawl is evolving from a web fetcher into a capability-driven public internet
 intelligence fabric. The goal is broad, composable access to public and explicitly
 authorized data while keeping source provenance, provider rules, and network policy visible.
 
@@ -146,7 +146,7 @@ belong to the same person.
 
 ## YouTube video intelligence
 
-For public videos, Internet Hands can collect official Data API metadata and derive lightweight
+For public videos, OpenCrawl can collect official Data API metadata and derive lightweight
 signals from public statistics:
 
 - views
@@ -160,7 +160,7 @@ signals from public statistics:
 - duration and status fields returned by the API
 
 Real creator revenue is different. `estimatedRevenue` and related monetary metrics come from the
-owner-authorized YouTube Analytics API. Internet Hands exposes those only when the caller has a
+owner-authorized YouTube Analytics API. OpenCrawl exposes those only when the caller has a
 valid authorized token.
 
 For videos the caller does not own, the tool may calculate an RPM scenario only when the caller
@@ -238,7 +238,7 @@ Safe endpoint discovery should prefer, in order:
 5. public web pages captured through the existing HTTP/browser pipeline;
 6. adapters supplied by users for systems they are authorized to access.
 
-This gives Internet Hands huge coverage without making undocumented private endpoints a core
+This gives OpenCrawl huge coverage without making undocumented private endpoints a core
 dependency.
 
 ## Data model direction

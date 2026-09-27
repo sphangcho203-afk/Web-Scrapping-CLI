@@ -1,6 +1,6 @@
 # Capability Economics and Subscription Privileges
 
-Internet Hands does not use one flat price for every MCP tool call.
+OpenCrawl does not use one flat price for every MCP tool call.
 
 ## Three independent policy axes
 

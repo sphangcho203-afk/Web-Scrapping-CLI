@@ -531,7 +531,7 @@ class FirecrawlToolProvider:
                 "Firecrawl read-only scrape does not accept actions; use firecrawl:interact explicitly"
             )
         if tool_id == "interact" and "code" in payload:
-            raise PermissionError("Firecrawl interact is prompt-only through Internet Hands")
+            raise PermissionError("Firecrawl interact is prompt-only through OpenCrawl")
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         headers = dict(kwargs.pop("headers", {}) or {})

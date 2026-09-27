@@ -1,10 +1,10 @@
-# Internet Hands backend fabric
+# OpenCrawl backend fabric
 
-Internet Hands keeps policy, provenance, indexing, and orchestration in one control plane while allowing specialized collection engines to sit behind it.
+OpenCrawl keeps policy, provenance, indexing, and orchestration in one control plane while allowing specialized collection engines to sit behind it.
 
 ## Design rule
 
-A cloned backend is **not** automatically trusted or executable. Internet Hands records the exact upstream commit, verifies the curated origin, reports runtime readiness separately, and routes only to a backend that is actually installed/configured.
+A cloned backend is **not** automatically trusted or executable. OpenCrawl records the exact upstream commit, verifies the curated origin, reports runtime readiness separately, and routes only to a backend that is actually installed/configured.
 
 ```text
 query / seed URL / agent task
@@ -35,7 +35,7 @@ native Playwright Crawlee Trafilatura
 
 | Backend | Role | License posture | Integration state |
 | --- | --- | --- | --- |
-| Internet Hands native HTTP | exact-byte fetch, bounded hunt, fleet worker, indexing | project MIT | active |
+| OpenCrawl native HTTP | exact-byte fetch, bounded hunt, fleet worker, indexing | project MIT | active |
 | Native Playwright | guarded JS rendering | Playwright dependency | active optional extra |
 | Microsoft Playwright MCP | persistent agent/browser interaction | Apache-2.0 | MCP sidecar config ready |
 | Crawlee Python | queue-oriented/scalable HTTP crawling | Apache-2.0 | optional execution adapter + curated source |
@@ -115,7 +115,7 @@ The current default MCP capability set includes browser navigation, snapshots, e
 
 Optional upstream capability groups add PDF save and coordinate-based vision/mouse tools.
 
-Internet Hands does not expose `browser_run_code_unsafe` through its own remote HTTP API. MCP clients remain responsible for their own tool permissions and approvals.
+OpenCrawl does not expose `browser_run_code_unsafe` through its own remote HTTP API. MCP clients remain responsible for their own tool permissions and approvals.
 
 ## Hunt pipeline
 
@@ -166,7 +166,7 @@ pip install -e '.[scrapy]'
 ih-fleet drain --backend scrapy --allow-external-network
 ```
 
-Each adapter normalizes its result back into Internet Hands `FetchResult`, then uses the existing extraction/index/provenance pipeline.
+Each adapter normalizes its result back into OpenCrawl `FetchResult`, then uses the existing extraction/index/provenance pipeline.
 
 External-engine networking is disabled by default. Crawlers and browsers can perform networking outside the native HTTP transport, so production external-backend workers should run behind public-only egress rules that block private, loopback, link-local and metadata-service destinations.
 
@@ -180,13 +180,13 @@ Install the current Trafilatura 2.x integration with:
 pip install -e '.[extraction]'
 ```
 
-Internet Hands first preserves the original response. For HTML, Trafilatura may then improve main text/title/description. Native link extraction remains authoritative for the frontier, and any Trafilatura failure falls back to the native parser without aborting collection.
+OpenCrawl first preserves the original response. For HTML, Trafilatura may then improve main text/title/description. Native link extraction remains authoritative for the frontier, and any Trafilatura failure falls back to the native parser without aborting collection.
 
 ## Backend routing
 
 The router distinguishes:
 
-- `native` — built into Internet Hands;
+- `native` — built into OpenCrawl;
 - `runtime-ready` — dependency/command is installed and executable;
 - `staged-source` — curated source is cloned but not installed;
 - `external-service` — intentionally kept outside the process;

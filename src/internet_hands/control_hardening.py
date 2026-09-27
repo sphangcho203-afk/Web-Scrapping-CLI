@@ -81,10 +81,10 @@ async def _send_payment_confirmation(payment: dict[str, Any]) -> None:
     amount = int(payment.get("amount_paise") or 0) / 100
     purpose = str(payment.get("purpose") or "purchase")
     if purpose == "subscription":
-        item = f"Internet Hands {payment.get('plan_slug') or ''} plan"
+        item = f"OpenCrawl {payment.get('plan_slug') or ''} plan"
     else:
-        item = f"Internet Hands {payment.get('credit_pack_slug') or 'credit pack'}"
-    subject = "Internet Hands payment confirmed"
+        item = f"OpenCrawl {payment.get('credit_pack_slug') or 'credit pack'}"
+    subject = "OpenCrawl payment confirmed"
     text = (
         f"Payment confirmed for {item}. Amount: INR {amount:.2f}. "
         f"Order: {order_id}. Payment: {payment_id}."
@@ -92,7 +92,7 @@ async def _send_payment_confirmation(payment: dict[str, Any]) -> None:
     html_body = (
         "<!doctype html><html><body style='font-family:Arial,sans-serif;background:#080b0f;color:#eef5f9;padding:28px'>"
         "<div style='max-width:620px;margin:auto;background:#0d1218;border:1px solid #26343b;border-radius:18px;padding:28px'>"
-        "<div style='color:#73e5ef;font-weight:800;letter-spacing:.12em'>INTERNET HANDS</div>"
+        "<div style='color:#ef39df;font-weight:800;letter-spacing:.12em'>OPENCRAWL</div>"
         "<h2>Payment confirmed</h2>"
         f"<p>Your purchase of <strong>{html.escape(item)}</strong> has been confirmed.</p>"
         f"<p><strong>Amount:</strong> ₹{amount:.2f}<br><strong>Order:</strong> {html.escape(order_id)}<br>"
@@ -228,10 +228,10 @@ async def _send_reset_email(*, email: str, reset_url: str) -> None:
     try:
         await send_mail(
             to=email,
-            subject="Reset your Internet Hands password",
-            text=f"Reset your Internet Hands password: {reset_url}\nThis link expires in 30 minutes.",
+            subject="Reset your OpenCrawl password",
+            text=f"Reset your OpenCrawl password: {reset_url}\nThis link expires in 30 minutes.",
             html=(
-                "<p>You requested a password reset for Internet Hands.</p>"
+                "<p>You requested a password reset for OpenCrawl.</p>"
                 f"<p><a href=\"{html.escape(reset_url, quote=True)}\">Reset password</a></p>"
                 "<p>This link expires in 30 minutes. If you did not request it, ignore this email.</p>"
             ),

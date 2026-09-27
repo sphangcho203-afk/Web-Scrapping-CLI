@@ -32,10 +32,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(
-    title="Internet Hands",
+    title="OpenCrawl",
     version="0.7.0",
     description=(
-        "Internet Hands SaaS control plane, permanent MCP gateway, transactional email, "
+        "OpenCrawl SaaS control plane, permanent MCP gateway, transactional email, "
         "email verification, TOTP 2FA, billing, usage metering, monitors, and capability fabric."
     ),
     lifespan=lifespan,

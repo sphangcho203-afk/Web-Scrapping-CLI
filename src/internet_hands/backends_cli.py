@@ -17,7 +17,7 @@ from .backends import (
 )
 from .routing import BackendIntent, route_backend
 
-app = typer.Typer(no_args_is_help=True, help="Curated Internet Hands backend manager.")
+app = typer.Typer(no_args_is_help=True, help="Curated OpenCrawl backend manager.")
 console = Console()
 RootPath = Annotated[Path, typer.Option("--root")]
 

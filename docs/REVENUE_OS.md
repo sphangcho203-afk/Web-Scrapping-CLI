@@ -1,6 +1,6 @@
 # Revenue OS
 
-This layer turns Internet Hands into the data plane for a managed public-web change intelligence service. Nexus, Telegram Agent OS, and RelayMeter remain supporting systems rather than separate first-revenue products.
+This layer turns OpenCrawl into the data plane for a managed public-web change intelligence service. Nexus, Telegram Agent OS, and RelayMeter remain supporting systems rather than separate first-revenue products.
 
 ## First offer
 

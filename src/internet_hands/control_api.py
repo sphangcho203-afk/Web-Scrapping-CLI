@@ -164,7 +164,7 @@ def oauth_authorize_page(
     signed_in = _session_user(request)
     account_hint = ""
     if signed_in:
-        account_hint = f"<div class='account'>Signed in as <strong>{html.escape(str(signed_in['email']))}</strong>. Paste or select an active Internet Hands API key to authorize this client.</div>"
+        account_hint = f"<div class='account'>Signed in as <strong>{html.escape(str(signed_in['email']))}</strong>. Paste or select an active OpenCrawl API key to authorize this client.</div>"
     fields = {
         "client_id": client_id,
         "redirect_uri": redirect_uri,
@@ -180,11 +180,11 @@ def oauth_authorize_page(
     )
     scopes = "".join(f"<li>{html.escape(item)}</li>" for item in _scope_list(scope))
     return f"""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-<title>Authorize Internet Hands</title><style>
-:root{{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui;background:#080b0f;color:#eef5f9}}*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at 20% 0%,#10262b 0,transparent 35%),#080b0f}}.card{{width:min(560px,92vw);padding:32px;border:1px solid #26343b;border-radius:24px;background:#0d1218;box-shadow:0 24px 80px #0008}}.brand{{display:flex;align-items:center;gap:12px;font-weight:800;letter-spacing:.04em}}.mark{{width:34px;height:34px;border-radius:10px;border:1px solid #48d7e8;display:grid;place-items:center;color:#70edf6}}h1{{font-size:26px;margin:26px 0 8px}}p,li{{color:#9db0bb;line-height:1.55}}.client{{padding:14px 16px;background:#101921;border:1px solid #263943;border-radius:14px;margin:20px 0}}input{{width:100%;padding:14px 15px;background:#070a0d;border:1px solid #30414a;border-radius:12px;color:#eef5f9;font:inherit;margin-top:8px}}button{{width:100%;margin-top:18px;padding:14px 16px;border:0;border-radius:12px;background:#73e5ef;color:#061014;font-weight:800;cursor:pointer}}.account{{padding:12px 14px;border-radius:12px;background:#0d1b1f;color:#a8c5cd;margin:14px 0}}small{{color:#718892}}ul{{padding-left:20px}}</style></head><body><main class='card'>
-<div class='brand'><div class='mark'>IH</div> INTERNET HANDS</div><h1>Authorize MCP connection</h1><p>A client is requesting access to your Internet Hands capability fabric.</p>
+<title>Authorize OpenCrawl</title><style>
+:root{{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui;background:#08070d;color:#eef5f9}}*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#08070d}}.card{{width:min(560px,92vw);padding:32px;border:1px solid #302536;border-radius:12px;background:#110e18;box-shadow:0 24px 80px #0008}}.brand{{display:flex;align-items:center;gap:10px;font-size:20px;font-weight:800;letter-spacing:-.05em}}.brand span{{color:#ef39df}}.mark{{width:42px;height:42px;object-fit:contain;image-rendering:pixelated;mix-blend-mode:screen}}h1{{font-size:26px;margin:26px 0 8px}}p,li{{color:#9db0bb;line-height:1.55}}.client{{padding:14px 16px;background:#17121e;border:1px solid #34273a;border-radius:8px;margin:20px 0}}input{{width:100%;padding:14px 15px;background:#08070d;border:1px solid #44334b;border-radius:8px;color:#eef5f9;font:inherit;margin-top:8px}}input:focus-visible,button:focus-visible{{outline:2px solid #ff6cf3;outline-offset:2px}}button{{width:100%;margin-top:18px;padding:14px 16px;border:0;border-radius:8px;background:#ef39df;color:#100915;font-weight:800;cursor:pointer}}.account{{padding:12px 14px;border-radius:8px;background:#17121e;color:#b9a9c1;margin:14px 0}}small{{color:#8d8096}}ul{{padding-left:20px}}</style></head><body><main class='card'>
+<div class='brand'><img class='mark' src='/assets/opencrawl-robot.png' alt=''>Open<span>Crawl</span></div><h1>Authorize MCP connection</h1><p>A client is requesting access to your OpenCrawl capability fabric.</p>
 <div class='client'><small>CLIENT ID</small><div>{html.escape(client_id)}</div><small>REDIRECT</small><div style='word-break:break-all'>{html.escape(redirect_uri)}</div></div>{account_hint}
-<p>Requested scopes:</p><ul>{scopes}</ul><form method='post'>{hidden}<label>Internet Hands API key<input required autocomplete='off' spellcheck='false' name='api_key' type='password' placeholder='ih_live_…'></label><button type='submit'>Allow connection</button></form><p><small>The raw API key is validated over HTTPS and is never stored by the OAuth session. The client receives a short-lived bearer token instead.</small></p></main></body></html>"""
+<p>Requested scopes:</p><ul>{scopes}</ul><form method='post'>{hidden}<label>OpenCrawl API key<input required autocomplete='off' spellcheck='false' name='api_key' type='password' placeholder='ih_live_…'></label><button type='submit'>Allow connection</button></form><p><small>The raw API key is validated over HTTPS and is never stored by the OAuth session. The client receives a short-lived bearer token instead.</small></p></main></body></html>"""
 
 
 @router.post("/oauth/authorize")
@@ -743,7 +743,7 @@ async def razorpay_webhook(request: Request):
 @router.get("/api/status")
 def public_status():
     return {
-        "service": "Internet Hands",
+        "service": "OpenCrawl",
         "control_database": store.configured,
         "mcp": "/mcp",
         "oauth": True,

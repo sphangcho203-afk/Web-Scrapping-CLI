@@ -35,7 +35,7 @@ ROUTES: dict[BackendIntent, tuple[tuple[str, str], ...]] = {
         ("scrapy", "Good high-throughput HTTP fallback for large crawl jobs."),
     ),
     BackendIntent.DYNAMIC: (
-        ("native-playwright", "Guarded Playwright renderer integrated with Internet Hands."),
+        ("native-playwright", "Guarded Playwright renderer integrated with OpenCrawl."),
         ("crawl4ai", "Browser-oriented extraction for LLM-focused collection."),
         ("crawlee-python", "PlaywrightCrawler can scale browser crawling when installed."),
     ),

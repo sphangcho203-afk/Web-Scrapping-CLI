@@ -85,7 +85,7 @@ def _mail_shell(title: str, body: str) -> str:
     return f"""<!doctype html><html><body style="margin:0;background:#080b0f;color:#eef5f9;font-family:Inter,Arial,sans-serif">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#080b0f;padding:32px 12px"><tr><td align="center">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;background:#0d1218;border:1px solid #26343b;border-radius:20px;padding:32px">
-<tr><td><div style="font-size:13px;letter-spacing:.16em;color:#73e5ef;font-weight:800">INTERNET HANDS</div><h1 style="font-size:26px;margin:22px 0 12px">{html.escape(title)}</h1>{body}<p style="color:#718892;font-size:12px;margin-top:28px">Security messages are sent automatically by Internet Hands. Never share API keys, passwords, TOTP secrets, or recovery codes by email.</p></td></tr></table>
+<tr><td><div style="font-size:13px;letter-spacing:.16em;color:#ef39df;font-weight:800">OPENCRAWL</div><h1 style="font-size:26px;margin:22px 0 12px">{html.escape(title)}</h1>{body}<p style="color:#8d8096;font-size:12px;margin-top:28px">Security messages are sent automatically by OpenCrawl. Never share API keys, passwords, TOTP secrets, or recovery codes by email.</p></td></tr></table>
 </td></tr></table></body></html>"""
 
 
@@ -171,17 +171,17 @@ async def _send_verification(request: Request, user: dict[str, Any]) -> bool:
     verify_url = f"{_mail_origin(request)}/api/auth/verify-email?token={token}"
     safe_url = html.escape(verify_url, quote=True)
     body = (
-        "<p style='color:#a8bbc5'>Confirm this email address for your Internet Hands account.</p>"
-        f"<div style='font-size:34px;letter-spacing:.18em;font-weight:800;margin:24px 0;color:#73e5ef'>{code}</div>"
-        f"<p><a href='{safe_url}' style='display:inline-block;padding:13px 18px;border-radius:10px;background:#73e5ef;color:#061014;text-decoration:none;font-weight:800'>Verify email</a></p>"
+        "<p style='color:#a8bbc5'>Confirm this email address for your OpenCrawl account.</p>"
+        f"<div style='font-size:34px;letter-spacing:.18em;font-weight:800;margin:24px 0;color:#ef39df'>{code}</div>"
+        f"<p><a href='{safe_url}' style='display:inline-block;padding:13px 18px;border-radius:10px;background:#ef39df;color:#100915;text-decoration:none;font-weight:800'>Verify email</a></p>"
         "<p style='color:#8aa0aa'>The code and link expire in 15 minutes.</p>"
     )
     return await _deliver(
         user_id=user["id"],
         email=user["email"],
         event_type="email_verification",
-        subject="Verify your Internet Hands email",
-        text=f"Your Internet Hands verification code is {code}. Verify: {verify_url}\nThis expires in 15 minutes.",
+        subject="Verify your OpenCrawl email",
+        text=f"Your OpenCrawl verification code is {code}. Verify: {verify_url}\nThis expires in 15 minutes.",
         body_html=body,
     )
 
@@ -191,8 +191,8 @@ async def _send_verified(user: dict[str, Any]) -> None:
         user_id=user["id"],
         email=user["email"],
         event_type="account_verified",
-        subject="Your Internet Hands account is verified",
-        text="Your Internet Hands email has been verified successfully.",
+        subject="Your OpenCrawl account is verified",
+        text="Your OpenCrawl email has been verified successfully.",
         body_html="<p style='color:#a8bbc5'>Your email is verified. Your account can now create production API keys and use protected account features.</p>",
         dedupe_key=f"account-verified:{user['id']}:{user['email'].lower()}",
     )
@@ -213,8 +213,8 @@ async def _send_login_notice(request: Request, user: dict[str, Any], method: str
         user_id=user["id"],
         email=user["email"],
         event_type="login_notice",
-        subject="New sign-in to Internet Hands",
-        text=f"New Internet Hands sign-in via {method} at {when} from {ip}. If this was not you, secure your account.",
+        subject="New sign-in to OpenCrawl",
+        text=f"New OpenCrawl sign-in via {method} at {when} from {ip}. If this was not you, secure your account.",
         body_html=body,
     )
 
@@ -613,7 +613,7 @@ def two_factor_setup(request: Request):
         "secret": secret,
         "otpauth_uri": uri,
         "qr_data_uri": _qr_data_uri(uri),
-        "issuer": "Internet Hands",
+        "issuer": "OpenCrawl",
         "account": user["email"],
         "message": "Add this account to your authenticator, then confirm with a 6-digit code.",
     }
@@ -639,7 +639,7 @@ async def two_factor_confirm(request: Request):
         await _send_security_notice(
             current,
             "Two-factor authentication enabled",
-            "TOTP two-factor authentication was enabled on your Internet Hands account. Keep your recovery codes somewhere safe.",
+            "TOTP two-factor authentication was enabled on your OpenCrawl account. Keep your recovery codes somewhere safe.",
             "two_factor_enabled",
         )
     return {
@@ -663,7 +663,7 @@ async def two_factor_disable(request: Request):
         await _send_security_notice(
             current,
             "Two-factor authentication disabled",
-            "TOTP two-factor authentication was disabled on your Internet Hands account. If you did not do this, reset your password and revoke your API keys immediately.",
+            "TOTP two-factor authentication was disabled on your OpenCrawl account. If you did not do this, reset your password and revoke your API keys immediately.",
             "two_factor_disabled",
         )
     return {"ok": True, "enabled": False}
@@ -777,7 +777,7 @@ async def change_account_password(request: Request):
     store.revoke_all_sessions(user["id"])
     await _send_security_notice(
         user,
-        "Your Internet Hands password changed",
+        "Your OpenCrawl password changed",
         "Your password was changed and all web sessions were signed out. If this was not you, reset your password immediately.",
         "password_changed",
     )
@@ -958,11 +958,11 @@ async def password_reset_request_smtp(request: Request):
             user_id=user["id"],
             email=user["email"],
             event_type="password_reset",
-            subject="Reset your Internet Hands password",
-            text=f"Reset your Internet Hands password: {reset_url}\nThis link expires in 30 minutes.",
+            subject="Reset your OpenCrawl password",
+            text=f"Reset your OpenCrawl password: {reset_url}\nThis link expires in 30 minutes.",
             body_html=(
-                "<p style='color:#a8bbc5'>A password reset was requested for your Internet Hands account.</p>"
-                f"<p><a href='{html.escape(reset_url, quote=True)}' style='display:inline-block;padding:13px 18px;border-radius:10px;background:#73e5ef;color:#061014;text-decoration:none;font-weight:800'>Reset password</a></p>"
+                "<p style='color:#a8bbc5'>A password reset was requested for your OpenCrawl account.</p>"
+                f"<p><a href='{html.escape(reset_url, quote=True)}' style='display:inline-block;padding:13px 18px;border-radius:10px;background:#ef39df;color:#100915;text-decoration:none;font-weight:800'>Reset password</a></p>"
                 "<p style='color:#8aa0aa'>This link expires in 30 minutes. Ignore this message if you did not request it.</p>"
             ),
         )

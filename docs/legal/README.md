@@ -1,10 +1,10 @@
-# Internet Hands Legal & Privacy Documentation
+# OpenCrawl Legal & Privacy Documentation
 
-**Policy version:** 2026-09-20  
+**Policy version:** 2026-09-27
 **Effective date:** 20 September 2026  
-**Last updated:** 20 September 2026
+**Last updated:** 27 September 2026
 
-This directory contains the human-readable legal and privacy documents for the hosted **Internet Hands** service.
+This directory contains the human-readable legal and privacy documents for the hosted **OpenCrawl** service.
 
 The public website renders the same policy set through the **Legal Center** at `/legal`. The browser-facing source of truth for this version is `web/legal-content.js`; these Markdown files are maintained as reviewable repository copies so policy changes can be inspected in normal Git history.
 
@@ -12,10 +12,10 @@ The public website renders the same policy set through the **Legal Center** at `
 
 | File | Purpose |
 | --- | --- |
-| [PRIVACY_POLICY.md](./PRIVACY_POLICY.md) | Explains what personal information Internet Hands processes, why it is used, who may receive it, retention, security, user choices, and privacy rights. |
+| [PRIVACY_POLICY.md](./PRIVACY_POLICY.md) | Explains what personal information OpenCrawl processes, why it is used, who may receive it, retention, security, user choices, and privacy rights. |
 | [DATA_PROCESSING_AND_RETENTION.md](./DATA_PROCESSING_AND_RETENTION.md) | Explains customer-directed data processing, retention, deletion, subprocessors, incidents, and business data-processing responsibilities. |
 | [COOKIE_AND_LOCAL_STORAGE_NOTICE.md](./COOKIE_AND_LOCAL_STORAGE_NOTICE.md) | Describes the authentication/security cookies and browser storage currently used by the product and clarifies that the first-party app does not use behavioral advertising cookies. |
-| [THIRD_PARTY_SERVICES_AND_SUBPROCESSORS.md](./THIRD_PARTY_SERVICES_AND_SUBPROCESSORS.md) | Lists the categories of external providers Internet Hands may rely on for hosting, databases, payments, email, authentication, web data, connected apps, and execution. |
+| [THIRD_PARTY_SERVICES_AND_SUBPROCESSORS.md](./THIRD_PARTY_SERVICES_AND_SUBPROCESSORS.md) | Lists the categories of external providers OpenCrawl may rely on for hosting, databases, payments, email, authentication, web data, connected apps, and execution. |
 | [TERMS_OF_SERVICE.md](./TERMS_OF_SERVICE.md) | Defines the contract for use of the hosted Service, including accounts, connected services, automation, billing, IP, suspension, disclaimers, and liability. |
 | [ACCEPTABLE_USE_POLICY.md](./ACCEPTABLE_USE_POLICY.md) | Defines prohibited uses such as unauthorized access, credential abuse, malware, phishing, unlawful surveillance, spam, infringement, and resource abuse. |
 | [BILLING_CREDITS_AND_REFUNDS.md](./BILLING_CREDITS_AND_REFUNDS.md) | Explains plans, metered credits, captured-payment verification, renewals, cancellations, refunds, chargebacks, taxes, and pricing changes. |
@@ -24,7 +24,7 @@ The public website renders the same policy set through the **Legal Center** at `
 
 ## Privacy architecture in plain English
 
-Internet Hands is an execution layer. It may process account information, authentication/security records, usage metadata, payment references, monitor configuration, and the content a user explicitly asks the Service to fetch, transform, monitor, or send to another connected tool.
+OpenCrawl is an execution layer. It may process account information, authentication/security records, usage metadata, payment references, monitor configuration, and the content a user explicitly asks the Service to fetch, transform, monitor, or send to another connected tool.
 
 The privacy documentation is deliberately split into several files because they answer different questions:
 
@@ -93,6 +93,6 @@ Short compatibility routes such as `/privacy`, `/terms`, `/acceptable-use`, `/co
 
 ## Important maintenance note
 
-These documents are operational legal templates aligned to the current Internet Hands implementation. They should be reviewed by qualified legal counsel before the Service is relied on for substantial commercial activity, regulated personal data, or broad international distribution.
+These documents are operational legal templates aligned to the current OpenCrawl implementation. They should be reviewed by qualified legal counsel before the Service is relied on for substantial commercial activity, regulated personal data, or broad international distribution.
 
 Do not invent a company name, registered office, privacy officer, or legal email address in these files. Add those details only when the actual legal operator and contact channels are established.

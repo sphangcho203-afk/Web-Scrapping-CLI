@@ -117,7 +117,7 @@ CATALOG: tuple[EndpointSpec, ...] = (
         "https://api.search.brave.com/res/v1/web/search",
         AuthMode.API_KEY,
         ("BRAVE_SEARCH_API_KEY",),
-        notes="Broad public web search with strict SafeSearch in Internet Hands.",
+        notes="Broad public web search with strict SafeSearch in OpenCrawl.",
     ),
     EndpointSpec(
         "brave",
@@ -137,7 +137,7 @@ CATALOG: tuple[EndpointSpec, ...] = (
         "https://api.search.brave.com/res/v1/images/search",
         AuthMode.API_KEY,
         ("BRAVE_SEARCH_API_KEY",),
-        notes="Public image search with strict SafeSearch in Internet Hands.",
+        notes="Public image search with strict SafeSearch in OpenCrawl.",
     ),
     EndpointSpec(
         "brave",
@@ -147,7 +147,7 @@ CATALOG: tuple[EndpointSpec, ...] = (
         "https://api.search.brave.com/res/v1/videos/search",
         AuthMode.API_KEY,
         ("BRAVE_SEARCH_API_KEY",),
-        notes="Public video search with strict SafeSearch in Internet Hands.",
+        notes="Public video search with strict SafeSearch in OpenCrawl.",
     ),
     EndpointSpec(
         "github",

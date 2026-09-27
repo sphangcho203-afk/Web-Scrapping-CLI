@@ -102,8 +102,25 @@ def test_polish_and_brand_override_layers_are_retired() -> None:
         assert retired not in site
 
     assert "Merged public polish + exact brand identity" in foundation
-    assert 'ih-brand ih-logo-only' in runtime
-    assert 'cos-brand ih-logo-only' in runtime
+    assert 'ih-brand cos-brand oc-brand' in runtime
+    assert 'opencrawl-robot.png' in runtime
+    assert '"opencrawl-robot.png": "image/png"' in site
+    assert 'class="oc-wordmark"' in runtime
+
+
+def test_opencrawl_identity_uses_supplied_mark_without_changing_client_contracts() -> None:
+    index = (WEB / "index.html").read_text(encoding="utf-8")
+    runtime = (WEB / "app.js").read_text(encoding="utf-8")
+    css = (WEB / "cognitive-foundation.css").read_text(encoding="utf-8")
+
+    assert (WEB / "opencrawl-robot.png").is_file()
+    assert "<title>OpenCrawl" in index
+    assert '/assets/opencrawl-robot.png' in index
+    assert 'aria-label="OpenCrawl home"' in runtime
+    assert 'internet-hands-logo.webp' not in runtime
+    assert '--ih-accent:#ef39df' in css
+    assert '/api/auth/signup' in runtime
+    assert '/mcp' in runtime
 
 
 def test_public_mobile_navigation_owns_its_accessibility_state() -> None:
@@ -135,8 +152,8 @@ def test_frontend_is_shipped_as_one_runtime_and_one_stylesheet() -> None:
 
     assert index.count('<link rel="stylesheet"') == 1
     assert index.count('<script src="/assets/') == 1
-    assert "Internet Hands unified browser runtime" in runtime
-    assert "Internet Hands unified Cognitive UI stylesheet" in stylesheet
+    assert "OpenCrawl unified browser runtime" in runtime
+    assert "OpenCrawl unified Cognitive UI stylesheet" in stylesheet
     assert "Product experience" in runtime
     assert "Command workspace shell" in runtime
 

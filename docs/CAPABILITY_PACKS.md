@@ -1,10 +1,10 @@
-# Internet Hands Capability Packs
+# OpenCrawl Capability Packs
 
 Capability packs are the semantic layer above raw tools. They let an agent ask for a stable capability such as `web.fetch.page` or `mlbb.player.lookup` without memorizing a marketplace Actor name, RapidAPI host, OpenAPI operation id, or remote MCP tool name.
 
 ## Agent bootstrap
 
-An agent only needs the Internet Hands MCP endpoint and its API key.
+An agent only needs the OpenCrawl MCP endpoint and its API key.
 
 The preferred discovery flow is:
 
@@ -24,7 +24,7 @@ This keeps the model context small. Thousands of provider schemas remain outside
 - `web.fetch.page` → `apify:apify/web-fetch`
 - `web.research.rag` → `apify:apify/rag-web-browser`
 
-These complement Internet Hands' native fetch/crawl/browser layers. The native layers remain available directly when the agent needs deterministic low-level control; the pack layer is for high-level routing.
+These complement OpenCrawl' native fetch/crawl/browser layers. The native layers remain available directly when the agent needs deterministic low-level control; the pack layer is for high-level routing.
 
 ### Social public-data research
 
@@ -32,7 +32,7 @@ These complement Internet Hands' native fetch/crawl/browser layers. The native l
 - `social.tiktok.scrape` → `apify:clockworks/tiktok-scraper`
 - `social.x.scrape` → `apify:apidojo/tweet-scraper`
 
-These capabilities are intended for public data and remain subject to Internet Hands provider policy and output bounds.
+These capabilities are intended for public data and remain subject to OpenCrawl provider policy and output bounds.
 
 ### Jobs
 
@@ -100,4 +100,4 @@ Automatic fallback is intentionally conservative:
 
 ## Why packs instead of thousands of tools
 
-A large agent should not load every marketplace schema into every prompt. Internet Hands keeps a compact meta-surface and performs discovery just in time. The stable interface is the capability id; the underlying provider can change, gain a fallback, or disappear without forcing the agent prompt to change.
+A large agent should not load every marketplace schema into every prompt. OpenCrawl keeps a compact meta-surface and performs discovery just in time. The stable interface is the capability id; the underlying provider can change, gain a fallback, or disappear without forcing the agent prompt to change.

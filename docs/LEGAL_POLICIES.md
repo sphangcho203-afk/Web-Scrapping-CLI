@@ -1,10 +1,10 @@
-# Internet Hands Legal Policies
+# OpenCrawl Legal Policies
 
-**Policy version:** 2026-09-20  
+**Policy version:** 2026-09-27
 **Effective:** 20 September 2026  
-**Last updated:** 20 September 2026
+**Last updated:** 27 September 2026
 
-This repository copy mirrors the policy set rendered by the hosted Internet Hands Legal Center at `/legal`. The JavaScript policy source in `web/legal-content.js` is the browser-facing canonical data source for this version.
+This repository copy mirrors the policy set rendered by the hosted OpenCrawl Legal Center at `/legal`. The JavaScript policy source in `web/legal-content.js` is the browser-facing canonical data source for this version.
 
 ---
 
@@ -14,9 +14,9 @@ Rules for accounts, automated execution, connected services, billing, intellectu
 
 ## 1. Agreement and scope
 
-These Terms govern use of the hosted Internet Hands service, including the website, dashboard, APIs, MCP gateway, monitoring, browser or sandbox execution, integrations, and related hosted features (the Service). By creating an account or using the Service, you agree to these Terms.
+These Terms govern use of the hosted OpenCrawl service, including the website, dashboard, APIs, MCP gateway, monitoring, browser or sandbox execution, integrations, and related hosted features (the Service). By creating an account or using the Service, you agree to these Terms.
 
-Open-source code distributed through the Internet Hands repository remains governed by its applicable open-source license. These Terms govern the hosted Service and do not replace rights granted by an open-source license.
+Open-source code distributed through the OpenCrawl repository remains governed by its applicable open-source license. These Terms govern the hosted Service and do not replace rights granted by an open-source license.
 
 ## 2. Eligibility and accounts
 
@@ -29,7 +29,7 @@ You must be legally capable of entering into this agreement. If you are below th
 
 ## 3. Your authority to instruct the Service
 
-Internet Hands acts on instructions supplied by you or by agents and applications you connect. You are responsible for ensuring that you have the rights, permissions, and lawful basis needed for the websites, accounts, APIs, data, and systems you ask the Service to access or process.
+OpenCrawl acts on instructions supplied by you or by agents and applications you connect. You are responsible for ensuring that you have the rights, permissions, and lawful basis needed for the websites, accounts, APIs, data, and systems you ask the Service to access or process.
 
 > **Access boundaries:** A publicly reachable page is not automatically permission to bypass authentication, technical restrictions, contractual restrictions, robots directives, rate limits, or other access controls that apply to you.
 
@@ -43,13 +43,13 @@ The Service can route instructions to browsers, APIs, remote MCP servers, search
 
 ## 5. Acceptable use
 
-The Acceptable Use Policy is part of these Terms. You may not use Internet Hands for unauthorized access, credential theft, malware, phishing, spam, denial-of-service activity, unlawful surveillance, abusive scraping, infringement, or other prohibited conduct described in that policy.
+The Acceptable Use Policy is part of these Terms. You may not use OpenCrawl for unauthorized access, credential theft, malware, phishing, spam, denial-of-service activity, unlawful surveillance, abusive scraping, infringement, or other prohibited conduct described in that policy.
 
 ## 6. Connected and third-party services
 
 The Service may connect to third-party websites, payment processors, hosting providers, email providers, APIs, search providers, browser infrastructure, MCP servers, or connected applications. Those services may have their own terms and privacy practices, and you are responsible for complying with terms that apply to your use of them.
 
-When you direct Internet Hands to use a connected service, you authorize the minimum transfer of instructions, identifiers, content, and credentials reasonably needed to perform that request.
+When you direct OpenCrawl to use a connected service, you authorize the minimum transfer of instructions, identifiers, content, and credentials reasonably needed to perform that request.
 
 ## 7. Plans, credits, and payments
 
@@ -59,13 +59,13 @@ Credits are service units, not stored money, cryptocurrency, securities, or cash
 
 ## 8. Your content and third-party content
 
-You retain rights you already have in prompts, instructions, files, configuration, and other content you submit. You grant Internet Hands a limited right to host, transmit, transform, cache, and process that content only as reasonably necessary to operate, secure, support, and improve the Service.
+You retain rights you already have in prompts, instructions, files, configuration, and other content you submit. You grant OpenCrawl a limited right to host, transmit, transform, cache, and process that content only as reasonably necessary to operate, secure, support, and improve the Service.
 
-Content fetched from third-party sources remains subject to the rights of its owners. Internet Hands does not grant you ownership of third-party content merely because the Service can retrieve or transform it.
+Content fetched from third-party sources remains subject to the rights of its owners. OpenCrawl does not grant you ownership of third-party content merely because the Service can retrieve or transform it.
 
 ## 9. Service intellectual property
 
-Except for open-source components and customer content, the hosted product design, branding, documentation, service configuration, and non-public infrastructure are protected by applicable intellectual-property laws. Internet Hands and its licensors retain their respective rights.
+Except for open-source components and customer content, the hosted product design, branding, documentation, service configuration, and non-public infrastructure are protected by applicable intellectual-property laws. OpenCrawl and its licensors retain their respective rights.
 
 ## 10. Service changes and beta features
 
@@ -85,7 +85,7 @@ Nothing in these Terms excludes warranties, consumer rights, or remedies that ca
 
 ## 13. Limitation of liability
 
-To the maximum extent permitted by law, Internet Hands will not be liable for indirect, incidental, special, consequential, exemplary, or punitive damages, or for lost profits, revenue, goodwill, data, or business opportunities, arising from the Service.
+To the maximum extent permitted by law, OpenCrawl will not be liable for indirect, incidental, special, consequential, exemplary, or punitive damages, or for lost profits, revenue, goodwill, data, or business opportunities, arising from the Service.
 
 To the maximum extent permitted by law, aggregate liability arising out of the hosted Service will not exceed the greater of INR 5,000 or the amount you paid for the Service during the 12 months before the event giving rise to the claim. This limit does not apply where applicable law does not allow the relevant liability to be limited.
 
@@ -109,13 +109,13 @@ Use the private support or legal contact method published in the Service or its 
 
 # Privacy Policy
 
-What Internet Hands collects, why it is processed, who receives it, how long it is retained, and the choices and rights available to users.
+What OpenCrawl collects, why it is processed, who receives it, how long it is retained, and the choices and rights available to users.
 
 ## 1. Scope
 
-This Privacy Policy applies to personal information processed through the hosted Internet Hands Service. Internet Hands, we, us, and our refer to the operator of the Internet Hands Service.
+This Privacy Policy applies to personal information processed through the hosted OpenCrawl Service. OpenCrawl, we, us, and our refer to the operator of the OpenCrawl Service.
 
-If an organization uses Internet Hands to process personal data on its own behalf, that organization may be the party deciding why and how that customer content is processed. The Data Processing & Retention Notice explains that relationship in more detail.
+If an organization uses OpenCrawl to process personal data on its own behalf, that organization may be the party deciding why and how that customer content is processed. The Data Processing & Retention Notice explains that relationship in more detail.
 
 ## 2. Information we collect
 
@@ -125,7 +125,7 @@ If an organization uses Internet Hands to process personal data on its own behal
 | Authentication and security | Password hashes, hashed session identifiers, encrypted TOTP secrets, hashed recovery codes, and verification/login challenge records. |
 | Service activity | API key identifiers and hashes, requested tools, request IDs, provider routing, status, latency, credit usage, monitor configuration, and execution metadata. |
 | Customer content | Prompts, URLs, files, extracted data, browser or sandbox inputs and outputs, monitor targets, and other content you direct the Service to process. |
-| Billing | Razorpay order/payment references, amount, purpose, status, and plan or credit-pack information. Full payment-instrument details are handled by the payment processor rather than stored by Internet Hands. |
+| Billing | Razorpay order/payment references, amount, purpose, status, and plan or credit-pack information. Full payment-instrument details are handled by the payment processor rather than stored by OpenCrawl. |
 | Communications | Transactional email delivery metadata, support messages, security reports, and related correspondence. |
 | Technical information | Basic request, device, browser, IP, and security information that may appear in hosting, application, or abuse-prevention logs. |
 
@@ -155,7 +155,7 @@ We do not sell personal information for money and we do not use customer content
 
 ## 6. Connected accounts and external tools
 
-When you connect a third-party account or tool, Internet Hands processes the identifiers and authorization material needed to maintain that connection. Some integrations are operated through external providers. Their own privacy terms may apply to information they receive.
+When you connect a third-party account or tool, OpenCrawl processes the identifiers and authorization material needed to maintain that connection. Some integrations are operated through external providers. Their own privacy terms may apply to information they receive.
 
 Disconnecting an integration stops future use through that connection but does not automatically delete records already required for security, billing, or audit purposes.
 
@@ -175,7 +175,7 @@ We keep information only for as long as reasonably necessary for the purpose it 
 
 ## 9. Security
 
-Internet Hands uses controls such as password hashing, hashed API keys, server-side secrets, encrypted TOTP secrets, hashed recovery codes, HTTP-only session cookies, scoped access, request ledgers, and protected payment verification. No online system can guarantee absolute security.
+OpenCrawl uses controls such as password hashing, hashed API keys, server-side secrets, encrypted TOTP secrets, hashed recovery codes, HTTP-only session cookies, scoped access, request ledgers, and protected payment verification. No online system can guarantee absolute security.
 
 ## 10. Your choices and privacy rights
 
@@ -185,7 +185,7 @@ Requests may be limited where we must retain information for security, fraud pre
 
 ## 11. International processing
 
-Internet Hands and its providers may process information in countries other than the country where you live. Where required, we use contractual, technical, or organizational measures intended to protect data transferred across borders.
+OpenCrawl and its providers may process information in countries other than the country where you live. Where required, we use contractual, technical, or organizational measures intended to protect data transferred across borders.
 
 ## 12. Minors
 
@@ -203,11 +203,11 @@ Submit privacy requests through the private support or legal contact method publ
 
 # Acceptable Use Policy
 
-The boundary between legitimate internet automation and activity Internet Hands will not facilitate through the hosted Service.
+The boundary between legitimate internet automation and activity OpenCrawl will not facilitate through the hosted Service.
 
 ## 1. Core rule
 
-Use Internet Hands only for lawful, authorized purposes. Your instruction to an agent does not expand your rights to access a system, account, dataset, or service.
+Use OpenCrawl only for lawful, authorized purposes. Your instruction to an agent does not expand your rights to access a system, account, dataset, or service.
 
 ## 2. Unauthorized access and security abuse
 
@@ -239,7 +239,7 @@ Use Internet Hands only for lawful, authorized purposes. Your instruction to an 
 
 ## 6. Intellectual property and content rights
 
-Do not use Internet Hands to reproduce, distribute, or commercialize content in a way that knowingly infringes copyright, database rights, contractual restrictions, or other intellectual-property rights. Automated retrieval does not erase source ownership or licensing requirements.
+Do not use OpenCrawl to reproduce, distribute, or commercialize content in a way that knowingly infringes copyright, database rights, contractual restrictions, or other intellectual-property rights. Automated retrieval does not erase source ownership or licensing requirements.
 
 ## 7. Resource abuse
 
@@ -259,7 +259,7 @@ We may rate-limit, block a target, revoke credentials, suspend an account, prese
 
 # Cookie & Local Storage Notice
 
-A plain-language inventory of browser storage Internet Hands currently needs and what it does not use for advertising.
+A plain-language inventory of browser storage OpenCrawl currently needs and what it does not use for advertising.
 
 ## 1. Current browser storage
 
@@ -272,7 +272,7 @@ A plain-language inventory of browser storage Internet Hands currently needs and
 
 ## 2. Advertising and tracking
 
-The current first-party Internet Hands application does not use advertising cookies for behavioral profiling and does not use browser localStorage to build advertising profiles. If optional analytics or advertising storage is introduced later, this notice will be updated and controls will be provided where required.
+The current first-party OpenCrawl application does not use advertising cookies for behavioral profiling and does not use browser localStorage to build advertising profiles. If optional analytics or advertising storage is introduced later, this notice will be updated and controls will be provided where required.
 
 ## 3. Your controls
 
@@ -292,7 +292,7 @@ Prices, included capacity, taxes, currency, renewal behavior, and the specific p
 
 ## 2. Payment processing
 
-Internet Hands currently supports Razorpay for payment processing where configured. The payment processor collects payment-instrument details. Internet Hands stores order/payment references, amount, purpose, status, and related billing records needed to verify and fulfill a purchase.
+OpenCrawl currently supports Razorpay for payment processing where configured. The payment processor collects payment-instrument details. OpenCrawl stores order/payment references, amount, purpose, status, and related billing records needed to verify and fulfill a purchase.
 
 > **Fulfillment rule:** Credits or plan access are granted only after the server verifies a captured payment associated with the locally created order. A created or merely authorized payment is not treated as fulfilled.
 
@@ -333,7 +333,7 @@ We may change prices or plan limits for future purchases. Existing recurring cus
 
 # Security & Responsible Disclosure
 
-Security controls used by Internet Hands, shared-responsibility expectations, and rules for reporting vulnerabilities safely.
+Security controls used by OpenCrawl, shared-responsibility expectations, and rules for reporting vulnerabilities safely.
 
 ## 1. Security model
 
@@ -342,7 +342,7 @@ Security controls used by Internet Hands, shared-responsibility expectations, an
 - OAuth and provider secrets are intended to remain server-side and out of browser-visible configuration.
 - TOTP secrets are encrypted at rest when two-factor authentication is enabled; recovery codes are stored as hashes.
 - Web sessions use HTTP-only cookies, and privileged product actions require a verified account.
-- OAuth flows use scoped authorization controls and PKCE where supported by the Internet Hands authorization flow.
+- OAuth flows use scoped authorization controls and PKCE where supported by the OpenCrawl authorization flow.
 - Billing fulfillment is verified server-side against captured payment state and the locally created order.
 - Usage and request ledgers retain request identifiers and execution metadata for audit and troubleshooting.
 
@@ -352,7 +352,7 @@ You are responsible for the security of devices, email accounts, API keys, recov
 
 ## 3. Reporting a vulnerability
 
-Use the private vulnerability-reporting or security contact method published in the official Internet Hands repository. Include the affected component, impact, reproduction conditions, and enough evidence to validate the issue without including unnecessary personal data or third-party secrets.
+Use the private vulnerability-reporting or security contact method published in the official OpenCrawl repository. Include the affected component, impact, reproduction conditions, and enough evidence to validate the issue without including unnecessary personal data or third-party secrets.
 
 > **Please report privately:** Do not publish an unpatched vulnerability, access another user's data to prove impact, retain copied secrets, or create unnecessary persistence.
 
@@ -372,17 +372,17 @@ Security controls reduce risk but cannot eliminate it. Keep your own backups and
 
 # Data Processing & Retention Notice
 
-How Internet Hands handles customer-directed content, retention, deletion, subprocessors, incidents, and business data-processing responsibilities.
+How OpenCrawl handles customer-directed content, retention, deletion, subprocessors, incidents, and business data-processing responsibilities.
 
 ## 1. Customer-directed processing
 
-For account, billing, security, and Service administration data, Internet Hands determines processing needed to operate the Service. For customer content that you direct Internet Hands to fetch, upload, transform, monitor, or send to a connected tool, you generally determine the purpose of that processing.
+For account, billing, security, and Service administration data, OpenCrawl determines processing needed to operate the Service. For customer content that you direct OpenCrawl to fetch, upload, transform, monitor, or send to a connected tool, you generally determine the purpose of that processing.
 
 You are responsible for having the notices, permissions, contracts, and lawful basis required for personal data you instruct the Service to process.
 
 ## 2. Processing instructions
 
-Internet Hands processes customer content according to your instructions, product configuration, and actions reasonably necessary to secure and operate the Service. We may refuse an instruction that would violate law, the Terms, the Acceptable Use Policy, or a provider restriction.
+OpenCrawl processes customer content according to your instructions, product configuration, and actions reasonably necessary to secure and operate the Service. We may refuse an instruction that would violate law, the Terms, the Acceptable Use Policy, or a provider restriction.
 
 ## 3. Confidentiality and security
 
@@ -390,7 +390,7 @@ Access to production secrets and customer data should be limited to systems and 
 
 ## 4. Providers and subprocessors
 
-Internet Hands relies on infrastructure, database, payment, email, authentication, web-data, connected-app, and execution providers. The Third-Party Services & Subprocessors page identifies current categories and named providers used or supported by the deployment.
+OpenCrawl relies on infrastructure, database, payment, email, authentication, web-data, connected-app, and execution providers. The Third-Party Services & Subprocessors page identifies current categories and named providers used or supported by the deployment.
 
 A provider receives customer content only to the extent reasonably needed for the requested operation or the service it supplies.
 
@@ -404,7 +404,7 @@ A provider receives customer content only to the extent reasonably needed for th
 
 ## 6. Data-subject and customer requests
 
-If you receive a valid request concerning personal data you control and need Internet Hands to assist with access, correction, export, or deletion, use the private support or legal contact channel and provide the minimum information needed to locate the relevant account or records.
+If you receive a valid request concerning personal data you control and need OpenCrawl to assist with access, correction, export, or deletion, use the private support or legal contact channel and provide the minimum information needed to locate the relevant account or records.
 
 ## 7. Security incidents
 
@@ -418,11 +418,11 @@ This notice explains the standard hosted Service but is not a separately signed 
 
 # Third-Party Services & Subprocessors
 
-External providers Internet Hands may rely on for hosting, payments, email, authentication, web data, connected apps, and execution.
+External providers OpenCrawl may rely on for hosting, payments, email, authentication, web data, connected apps, and execution.
 
 ## 1. How external providers are used
 
-Internet Hands is a routing and execution layer, so some requested operations necessarily involve external providers. Not every deployment or request uses every provider listed below. The exact provider path depends on configuration, capability, region, and the instruction you submit.
+OpenCrawl is a routing and execution layer, so some requested operations necessarily involve external providers. Not every deployment or request uses every provider listed below. The exact provider path depends on configuration, capability, region, and the instruction you submit.
 
 ## 2. Current provider categories
 
@@ -430,7 +430,7 @@ Internet Hands is a routing and execution layer, so some requested operations ne
 | --- | --- | --- |
 | Vercel | Hosting, edge delivery, deployment, and serverless execution | HTTP requests, application responses, operational logs. |
 | PostgreSQL / Neon where configured | Account, control-plane, usage, security, monitor, and billing records | Account identifiers, configuration, usage, and audit data. |
-| Razorpay | Payment checkout and transaction verification | Payment details handled by Razorpay; Internet Hands receives order/payment references, amount, and status. |
+| Razorpay | Payment checkout and transaction verification | Payment details handled by Razorpay; OpenCrawl receives order/payment references, amount, and status. |
 | Resend or configured SMTP provider | Transactional email | Email address, message content, and delivery metadata. |
 | GitHub | OAuth sign-in and repository-related integrations where requested | GitHub identity and authorization data. |
 | Composio where configured | Connected-app discovery and execution | User-directed tool inputs, connected-account identifiers, and execution results. |
@@ -447,7 +447,7 @@ Providers may be added, replaced, or removed as the product evolves. We update t
 
 ## 5. Third-party terms
 
-Third-party services are independent from Internet Hands and may impose their own terms, rate limits, acceptable-use rules, data-retention practices, or geographic restrictions. Your use of those services remains subject to their applicable terms.
+Third-party services are independent from OpenCrawl and may impose their own terms, rate limits, acceptable-use rules, data-retention practices, or geographic restrictions. Your use of those services remains subject to their applicable terms.
 
 ---
 
@@ -457,7 +457,7 @@ How content rights apply to web retrieval and how rights holders can raise a goo
 
 ## 1. Source ownership
 
-Internet Hands can retrieve, cache, transform, extract, or monitor content at a user's direction. Doing so does not transfer ownership of third-party content. Copyright, database rights, trademarks, and other rights remain with their respective owners.
+OpenCrawl can retrieve, cache, transform, extract, or monitor content at a user's direction. Doing so does not transfer ownership of third-party content. Copyright, database rights, trademarks, and other rights remain with their respective owners.
 
 ## 2. User responsibility
 
@@ -465,9 +465,9 @@ Users must ensure that their copying, extraction, storage, publication, or comme
 
 ## 3. Takedown requests
 
-A rights holder may submit a good-faith request concerning content stored or made available through Internet Hands. A useful request should identify the protected work, identify the specific Internet Hands location or record at issue, explain the claimed infringement, provide a private contact method, and include a statement that the information supplied is accurate and submitted by the rights holder or an authorized representative.
+A rights holder may submit a good-faith request concerning content stored or made available through OpenCrawl. A useful request should identify the protected work, identify the specific OpenCrawl location or record at issue, explain the claimed infringement, provide a private contact method, and include a statement that the information supplied is accurate and submitted by the rights holder or an authorized representative.
 
-> **Source sites:** Removing a cached copy or customer-controlled record from Internet Hands does not remove the original material from the third-party source where it was published.
+> **Source sites:** Removing a cached copy or customer-controlled record from OpenCrawl does not remove the original material from the third-party source where it was published.
 
 ## 4. Review and response
 

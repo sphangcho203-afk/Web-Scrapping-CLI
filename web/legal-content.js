@@ -1,9 +1,9 @@
-/* Internet Hands legal policy source. Data-only; web/app.js owns rendering. */
+/* OpenCrawl legal policy source. Data-only; web/app.js owns rendering. */
 window.IH_LEGAL_META = {
-  "version": "2026-09-20",
+  "version": "2026-09-27",
   "effective": "20 September 2026",
-  "updated": "20 September 2026",
-  "service": "Internet Hands",
+  "updated": "27 September 2026",
+  "service": "OpenCrawl",
   "governingLaw": "India"
 };
 window.IH_LEGAL_DOCS = {
@@ -23,11 +23,11 @@ window.IH_LEGAL_DOCS = {
         "blocks": [
           {
             "type": "p",
-            "text": "These Terms govern use of the hosted Internet Hands service, including the website, dashboard, APIs, MCP gateway, monitoring, browser or sandbox execution, integrations, and related hosted features (the Service). By creating an account or using the Service, you agree to these Terms."
+            "text": "These Terms govern use of the hosted OpenCrawl service, including the website, dashboard, APIs, MCP gateway, monitoring, browser or sandbox execution, integrations, and related hosted features (the Service). By creating an account or using the Service, you agree to these Terms."
           },
           {
             "type": "p",
-            "text": "Open-source code distributed through the Internet Hands repository remains governed by its applicable open-source license. These Terms govern the hosted Service and do not replace rights granted by an open-source license."
+            "text": "Open-source code distributed through the OpenCrawl repository remains governed by its applicable open-source license. These Terms govern the hosted Service and do not replace rights granted by an open-source license."
           }
         ]
       },
@@ -56,7 +56,7 @@ window.IH_LEGAL_DOCS = {
         "blocks": [
           {
             "type": "p",
-            "text": "Internet Hands acts on instructions supplied by you or by agents and applications you connect. You are responsible for ensuring that you have the rights, permissions, and lawful basis needed for the websites, accounts, APIs, data, and systems you ask the Service to access or process."
+            "text": "OpenCrawl acts on instructions supplied by you or by agents and applications you connect. You are responsible for ensuring that you have the rights, permissions, and lawful basis needed for the websites, accounts, APIs, data, and systems you ask the Service to access or process."
           },
           {
             "type": "note",
@@ -89,7 +89,7 @@ window.IH_LEGAL_DOCS = {
         "blocks": [
           {
             "type": "p",
-            "text": "The Acceptable Use Policy is part of these Terms. You may not use Internet Hands for unauthorized access, credential theft, malware, phishing, spam, denial-of-service activity, unlawful surveillance, abusive scraping, infringement, or other prohibited conduct described in that policy."
+            "text": "The Acceptable Use Policy is part of these Terms. You may not use OpenCrawl for unauthorized access, credential theft, malware, phishing, spam, denial-of-service activity, unlawful surveillance, abusive scraping, infringement, or other prohibited conduct described in that policy."
           }
         ]
       },
@@ -103,7 +103,7 @@ window.IH_LEGAL_DOCS = {
           },
           {
             "type": "p",
-            "text": "When you direct Internet Hands to use a connected service, you authorize the minimum transfer of instructions, identifiers, content, and credentials reasonably needed to perform that request."
+            "text": "When you direct OpenCrawl to use a connected service, you authorize the minimum transfer of instructions, identifiers, content, and credentials reasonably needed to perform that request."
           }
         ]
       },
@@ -127,11 +127,11 @@ window.IH_LEGAL_DOCS = {
         "blocks": [
           {
             "type": "p",
-            "text": "You retain rights you already have in prompts, instructions, files, configuration, and other content you submit. You grant Internet Hands a limited right to host, transmit, transform, cache, and process that content only as reasonably necessary to operate, secure, support, and improve the Service."
+            "text": "You retain rights you already have in prompts, instructions, files, configuration, and other content you submit. You grant OpenCrawl a limited right to host, transmit, transform, cache, and process that content only as reasonably necessary to operate, secure, support, and improve the Service."
           },
           {
             "type": "p",
-            "text": "Content fetched from third-party sources remains subject to the rights of its owners. Internet Hands does not grant you ownership of third-party content merely because the Service can retrieve or transform it."
+            "text": "Content fetched from third-party sources remains subject to the rights of its owners. OpenCrawl does not grant you ownership of third-party content merely because the Service can retrieve or transform it."
           }
         ]
       },
@@ -141,7 +141,7 @@ window.IH_LEGAL_DOCS = {
         "blocks": [
           {
             "type": "p",
-            "text": "Except for open-source components and customer content, the hosted product design, branding, documentation, service configuration, and non-public infrastructure are protected by applicable intellectual-property laws. Internet Hands and its licensors retain their respective rights."
+            "text": "Except for open-source components and customer content, the hosted product design, branding, documentation, service configuration, and non-public infrastructure are protected by applicable intellectual-property laws. OpenCrawl and its licensors retain their respective rights."
           }
         ]
       },
@@ -189,7 +189,7 @@ window.IH_LEGAL_DOCS = {
         "blocks": [
           {
             "type": "p",
-            "text": "To the maximum extent permitted by law, Internet Hands will not be liable for indirect, incidental, special, consequential, exemplary, or punitive damages, or for lost profits, revenue, goodwill, data, or business opportunities, arising from the Service."
+            "text": "To the maximum extent permitted by law, OpenCrawl will not be liable for indirect, incidental, special, consequential, exemplary, or punitive damages, or for lost profits, revenue, goodwill, data, or business opportunities, arising from the Service."
           },
           {
             "type": "p",
@@ -242,7 +242,7 @@ window.IH_LEGAL_DOCS = {
   "privacy": {
     "title": "Privacy Policy",
     "shortTitle": "Privacy",
-    "summary": "What Internet Hands collects, why it is processed, who receives it, how long it is retained, and the choices and rights available to users.",
+    "summary": "What OpenCrawl collects, why it is processed, who receives it, how long it is retained, and the choices and rights available to users.",
     "related": [
       "cookies",
       "data-processing",
@@ -255,11 +255,11 @@ window.IH_LEGAL_DOCS = {
         "blocks": [
           {
             "type": "p",
-            "text": "This Privacy Policy applies to personal information processed through the hosted Internet Hands Service. Internet Hands, we, us, and our refer to the operator of the Internet Hands Service."
+            "text": "This Privacy Policy applies to personal information processed through the hosted OpenCrawl Service. OpenCrawl, we, us, and our refer to the operator of the OpenCrawl Service."
           },
           {
             "type": "p",
-            "text": "If an organization uses Internet Hands to process personal data on its own behalf, that organization may be the party deciding why and how that customer content is processed. The Data Processing & Retention Notice explains that relationship in more detail."
+            "text": "If an organization uses OpenCrawl to process personal data on its own behalf, that organization may be the party deciding why and how that customer content is processed. The Data Processing & Retention Notice explains that relationship in more detail."
           }
         ]
       },
@@ -292,7 +292,7 @@ window.IH_LEGAL_DOCS = {
               ],
               [
                 "Billing",
-                "Razorpay order/payment references, amount, purpose, status, and plan or credit-pack information. Full payment-instrument details are handled by the payment processor rather than stored by Internet Hands."
+                "Razorpay order/payment references, amount, purpose, status, and plan or credit-pack information. Full payment-instrument details are handled by the payment processor rather than stored by OpenCrawl."
               ],
               [
                 "Communications",
@@ -360,7 +360,7 @@ window.IH_LEGAL_DOCS = {
         "blocks": [
           {
             "type": "p",
-            "text": "When you connect a third-party account or tool, Internet Hands processes the identifiers and authorization material needed to maintain that connection. Some integrations are operated through external providers. Their own privacy terms may apply to information they receive."
+            "text": "When you connect a third-party account or tool, OpenCrawl processes the identifiers and authorization material needed to maintain that connection. Some integrations are operated through external providers. Their own privacy terms may apply to information they receive."
           },
           {
             "type": "p",
@@ -404,7 +404,7 @@ window.IH_LEGAL_DOCS = {
         "blocks": [
           {
             "type": "p",
-            "text": "Internet Hands uses controls such as password hashing, hashed API keys, server-side secrets, encrypted TOTP secrets, hashed recovery codes, HTTP-only session cookies, scoped access, request ledgers, and protected payment verification. No online system can guarantee absolute security."
+            "text": "OpenCrawl uses controls such as password hashing, hashed API keys, server-side secrets, encrypted TOTP secrets, hashed recovery codes, HTTP-only session cookies, scoped access, request ledgers, and protected payment verification. No online system can guarantee absolute security."
           }
         ]
       },
@@ -428,7 +428,7 @@ window.IH_LEGAL_DOCS = {
         "blocks": [
           {
             "type": "p",
-            "text": "Internet Hands and its providers may process information in countries other than the country where you live. Where required, we use contractual, technical, or organizational measures intended to protect data transferred across borders."
+            "text": "OpenCrawl and its providers may process information in countries other than the country where you live. Where required, we use contractual, technical, or organizational measures intended to protect data transferred across borders."
           }
         ]
       },
@@ -467,7 +467,7 @@ window.IH_LEGAL_DOCS = {
   "acceptable-use": {
     "title": "Acceptable Use Policy",
     "shortTitle": "Acceptable Use",
-    "summary": "The boundary between legitimate internet automation and activity Internet Hands will not facilitate through the hosted Service.",
+    "summary": "The boundary between legitimate internet automation and activity OpenCrawl will not facilitate through the hosted Service.",
     "related": [
       "terms",
       "security",
@@ -480,7 +480,7 @@ window.IH_LEGAL_DOCS = {
         "blocks": [
           {
             "type": "p",
-            "text": "Use Internet Hands only for lawful, authorized purposes. Your instruction to an agent does not expand your rights to access a system, account, dataset, or service."
+            "text": "Use OpenCrawl only for lawful, authorized purposes. Your instruction to an agent does not expand your rights to access a system, account, dataset, or service."
           }
         ]
       },
@@ -550,7 +550,7 @@ window.IH_LEGAL_DOCS = {
         "blocks": [
           {
             "type": "p",
-            "text": "Do not use Internet Hands to reproduce, distribute, or commercialize content in a way that knowingly infringes copyright, database rights, contractual restrictions, or other intellectual-property rights. Automated retrieval does not erase source ownership or licensing requirements."
+            "text": "Do not use OpenCrawl to reproduce, distribute, or commercialize content in a way that knowingly infringes copyright, database rights, contractual restrictions, or other intellectual-property rights. Automated retrieval does not erase source ownership or licensing requirements."
           }
         ]
       },
@@ -593,7 +593,7 @@ window.IH_LEGAL_DOCS = {
   "cookies": {
     "title": "Cookie & Local Storage Notice",
     "shortTitle": "Cookies",
-    "summary": "A plain-language inventory of browser storage Internet Hands currently needs and what it does not use for advertising.",
+    "summary": "A plain-language inventory of browser storage OpenCrawl currently needs and what it does not use for advertising.",
     "related": [
       "privacy",
       "security"
@@ -641,7 +641,7 @@ window.IH_LEGAL_DOCS = {
         "blocks": [
           {
             "type": "p",
-            "text": "The current first-party Internet Hands application does not use advertising cookies for behavioral profiling and does not use browser localStorage to build advertising profiles. If optional analytics or advertising storage is introduced later, this notice will be updated and controls will be provided where required."
+            "text": "The current first-party OpenCrawl application does not use advertising cookies for behavioral profiling and does not use browser localStorage to build advertising profiles. If optional analytics or advertising storage is introduced later, this notice will be updated and controls will be provided where required."
           }
         ]
       },
@@ -686,7 +686,7 @@ window.IH_LEGAL_DOCS = {
         "blocks": [
           {
             "type": "p",
-            "text": "Internet Hands currently supports Razorpay for payment processing where configured. The payment processor collects payment-instrument details. Internet Hands stores order/payment references, amount, purpose, status, and related billing records needed to verify and fulfill a purchase."
+            "text": "OpenCrawl currently supports Razorpay for payment processing where configured. The payment processor collects payment-instrument details. OpenCrawl stores order/payment references, amount, purpose, status, and related billing records needed to verify and fulfill a purchase."
           },
           {
             "type": "note",
@@ -777,7 +777,7 @@ window.IH_LEGAL_DOCS = {
   "security": {
     "title": "Security & Responsible Disclosure",
     "shortTitle": "Security",
-    "summary": "Security controls used by Internet Hands, shared-responsibility expectations, and rules for reporting vulnerabilities safely.",
+    "summary": "Security controls used by OpenCrawl, shared-responsibility expectations, and rules for reporting vulnerabilities safely.",
     "related": [
       "acceptable-use",
       "privacy",
@@ -796,7 +796,7 @@ window.IH_LEGAL_DOCS = {
               "OAuth and provider secrets are intended to remain server-side and out of browser-visible configuration.",
               "TOTP secrets are encrypted at rest when two-factor authentication is enabled; recovery codes are stored as hashes.",
               "Web sessions use HTTP-only cookies, and privileged product actions require a verified account.",
-              "OAuth flows use scoped authorization controls and PKCE where supported by the Internet Hands authorization flow.",
+              "OAuth flows use scoped authorization controls and PKCE where supported by the OpenCrawl authorization flow.",
               "Billing fulfillment is verified server-side against captured payment state and the locally created order.",
               "Usage and request ledgers retain request identifiers and execution metadata for audit and troubleshooting."
             ]
@@ -819,7 +819,7 @@ window.IH_LEGAL_DOCS = {
         "blocks": [
           {
             "type": "p",
-            "text": "Use the private vulnerability-reporting or security contact method published in the official Internet Hands repository. Include the affected component, impact, reproduction conditions, and enough evidence to validate the issue without including unnecessary personal data or third-party secrets."
+            "text": "Use the private vulnerability-reporting or security contact method published in the official OpenCrawl repository. Include the affected component, impact, reproduction conditions, and enough evidence to validate the issue without including unnecessary personal data or third-party secrets."
           },
           {
             "type": "note",
@@ -863,7 +863,7 @@ window.IH_LEGAL_DOCS = {
   "data-processing": {
     "title": "Data Processing & Retention Notice",
     "shortTitle": "Data Processing",
-    "summary": "How Internet Hands handles customer-directed content, retention, deletion, subprocessors, incidents, and business data-processing responsibilities.",
+    "summary": "How OpenCrawl handles customer-directed content, retention, deletion, subprocessors, incidents, and business data-processing responsibilities.",
     "related": [
       "privacy",
       "third-parties",
@@ -876,7 +876,7 @@ window.IH_LEGAL_DOCS = {
         "blocks": [
           {
             "type": "p",
-            "text": "For account, billing, security, and Service administration data, Internet Hands determines processing needed to operate the Service. For customer content that you direct Internet Hands to fetch, upload, transform, monitor, or send to a connected tool, you generally determine the purpose of that processing."
+            "text": "For account, billing, security, and Service administration data, OpenCrawl determines processing needed to operate the Service. For customer content that you direct OpenCrawl to fetch, upload, transform, monitor, or send to a connected tool, you generally determine the purpose of that processing."
           },
           {
             "type": "p",
@@ -890,7 +890,7 @@ window.IH_LEGAL_DOCS = {
         "blocks": [
           {
             "type": "p",
-            "text": "Internet Hands processes customer content according to your instructions, product configuration, and actions reasonably necessary to secure and operate the Service. We may refuse an instruction that would violate law, the Terms, the Acceptable Use Policy, or a provider restriction."
+            "text": "OpenCrawl processes customer content according to your instructions, product configuration, and actions reasonably necessary to secure and operate the Service. We may refuse an instruction that would violate law, the Terms, the Acceptable Use Policy, or a provider restriction."
           }
         ]
       },
@@ -910,7 +910,7 @@ window.IH_LEGAL_DOCS = {
         "blocks": [
           {
             "type": "p",
-            "text": "Internet Hands relies on infrastructure, database, payment, email, authentication, web-data, connected-app, and execution providers. The Third-Party Services & Subprocessors page identifies current categories and named providers used or supported by the deployment."
+            "text": "OpenCrawl relies on infrastructure, database, payment, email, authentication, web-data, connected-app, and execution providers. The Third-Party Services & Subprocessors page identifies current categories and named providers used or supported by the deployment."
           },
           {
             "type": "p",
@@ -940,7 +940,7 @@ window.IH_LEGAL_DOCS = {
         "blocks": [
           {
             "type": "p",
-            "text": "If you receive a valid request concerning personal data you control and need Internet Hands to assist with access, correction, export, or deletion, use the private support or legal contact channel and provide the minimum information needed to locate the relevant account or records."
+            "text": "If you receive a valid request concerning personal data you control and need OpenCrawl to assist with access, correction, export, or deletion, use the private support or legal contact channel and provide the minimum information needed to locate the relevant account or records."
           }
         ]
       },
@@ -969,7 +969,7 @@ window.IH_LEGAL_DOCS = {
   "third-parties": {
     "title": "Third-Party Services & Subprocessors",
     "shortTitle": "Third Parties",
-    "summary": "External providers Internet Hands may rely on for hosting, payments, email, authentication, web data, connected apps, and execution.",
+    "summary": "External providers OpenCrawl may rely on for hosting, payments, email, authentication, web data, connected apps, and execution.",
     "related": [
       "privacy",
       "data-processing",
@@ -982,7 +982,7 @@ window.IH_LEGAL_DOCS = {
         "blocks": [
           {
             "type": "p",
-            "text": "Internet Hands is a routing and execution layer, so some requested operations necessarily involve external providers. Not every deployment or request uses every provider listed below. The exact provider path depends on configuration, capability, region, and the instruction you submit."
+            "text": "OpenCrawl is a routing and execution layer, so some requested operations necessarily involve external providers. Not every deployment or request uses every provider listed below. The exact provider path depends on configuration, capability, region, and the instruction you submit."
           }
         ]
       },
@@ -1011,7 +1011,7 @@ window.IH_LEGAL_DOCS = {
               [
                 "Razorpay",
                 "Payment checkout and transaction verification",
-                "Payment details handled by Razorpay; Internet Hands receives order/payment references, amount, and status."
+                "Payment details handled by Razorpay; OpenCrawl receives order/payment references, amount, and status."
               ],
               [
                 "Resend or configured SMTP provider",
@@ -1068,7 +1068,7 @@ window.IH_LEGAL_DOCS = {
         "blocks": [
           {
             "type": "p",
-            "text": "Third-party services are independent from Internet Hands and may impose their own terms, rate limits, acceptable-use rules, data-retention practices, or geographic restrictions. Your use of those services remains subject to their applicable terms."
+            "text": "Third-party services are independent from OpenCrawl and may impose their own terms, rate limits, acceptable-use rules, data-retention practices, or geographic restrictions. Your use of those services remains subject to their applicable terms."
           }
         ]
       }
@@ -1089,7 +1089,7 @@ window.IH_LEGAL_DOCS = {
         "blocks": [
           {
             "type": "p",
-            "text": "Internet Hands can retrieve, cache, transform, extract, or monitor content at a user's direction. Doing so does not transfer ownership of third-party content. Copyright, database rights, trademarks, and other rights remain with their respective owners."
+            "text": "OpenCrawl can retrieve, cache, transform, extract, or monitor content at a user's direction. Doing so does not transfer ownership of third-party content. Copyright, database rights, trademarks, and other rights remain with their respective owners."
           }
         ]
       },
@@ -1109,12 +1109,12 @@ window.IH_LEGAL_DOCS = {
         "blocks": [
           {
             "type": "p",
-            "text": "A rights holder may submit a good-faith request concerning content stored or made available through Internet Hands. A useful request should identify the protected work, identify the specific Internet Hands location or record at issue, explain the claimed infringement, provide a private contact method, and include a statement that the information supplied is accurate and submitted by the rights holder or an authorized representative."
+            "text": "A rights holder may submit a good-faith request concerning content stored or made available through OpenCrawl. A useful request should identify the protected work, identify the specific OpenCrawl location or record at issue, explain the claimed infringement, provide a private contact method, and include a statement that the information supplied is accurate and submitted by the rights holder or an authorized representative."
           },
           {
             "type": "note",
             "title": "Source sites",
-            "text": "Removing a cached copy or customer-controlled record from Internet Hands does not remove the original material from the third-party source where it was published."
+            "text": "Removing a cached copy or customer-controlled record from OpenCrawl does not remove the original material from the third-party source where it was published."
           }
         ]
       },

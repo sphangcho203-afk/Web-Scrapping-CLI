@@ -1,10 +1,10 @@
 # Cookie & Local Storage Notice
 
-**Policy version:** 2026-09-20  
+**Policy version:** 2026-09-27
 **Effective date:** 20 September 2026  
-**Last updated:** 20 September 2026
+**Last updated:** 27 September 2026
 
-A plain-language inventory of browser storage Internet Hands currently needs and what it does not use for advertising.
+A plain-language inventory of browser storage OpenCrawl currently needs and what it does not use for advertising.
 
 ## 1. Current browser storage
 
@@ -17,7 +17,7 @@ A plain-language inventory of browser storage Internet Hands currently needs and
 
 ## 2. Advertising and tracking
 
-The current first-party Internet Hands application does not use advertising cookies for behavioral profiling and does not use browser localStorage to build advertising profiles. If optional analytics or advertising storage is introduced later, this notice will be updated and controls will be provided where required.
+The current first-party OpenCrawl application does not use advertising cookies for behavioral profiling and does not use browser localStorage to build advertising profiles. If optional analytics or advertising storage is introduced later, this notice will be updated and controls will be provided where required.
 
 ## 3. Your controls
 

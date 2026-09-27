@@ -23,6 +23,7 @@ ASSET_MEDIA_TYPES = {
     "mark.svg": "image/svg+xml",
     "internet-hands-mark.webp": "image/webp",
     "internet-hands-logo.webp": "image/webp",
+    "opencrawl-robot.png": "image/png",
 }
 
 
@@ -67,7 +68,7 @@ def site_asset(name: str):
 def _index():
     path = WEB_ROOT / "index.html"
     if not path.is_file():
-        return HTMLResponse("Internet Hands web console is not packaged", status_code=503)
+        return HTMLResponse("OpenCrawl web console is not packaged", status_code=503)
     return FileResponse(path, media_type="text/html", headers=NO_STORE_HEADERS)
 
 

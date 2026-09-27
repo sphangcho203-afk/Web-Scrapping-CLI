@@ -32,7 +32,7 @@ def test_legal_bundle_and_renderer_ship_together() -> None:
     assert "function renderLegalHub()" in app
     assert "function renderLegalDocument" in app
     for expected in (
-        "2026-09-20",
+        "2026-09-27",
         "Terms of Service",
         "Privacy Policy",
         "Acceptable Use Policy",

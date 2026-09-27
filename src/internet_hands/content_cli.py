@@ -10,7 +10,7 @@ from rich.console import Console
 from .object_store import S3ObjectStore
 from .postgres_store import PostgresCaptureStore
 
-app = typer.Typer(no_args_is_help=True, help="Shared Internet Hands content-store operations.")
+app = typer.Typer(no_args_is_help=True, help="Shared OpenCrawl content-store operations.")
 console = Console()
 ContentPostgresDsn = Annotated[
     str | None,

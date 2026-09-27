@@ -63,7 +63,8 @@ def _from_header(provider: str) -> str:
     email = _smtp_from_email() if provider == "smtp" else _resend_from_email()
     if not email:
         raise MailError(f"{provider} sender address is not configured")
-    name = os.getenv("SMTP_FROM_NAME") or "Internet Hands"
+    configured_name = (os.getenv("OPENCRAWL_FROM_NAME") or os.getenv("SMTP_FROM_NAME") or "").strip()
+    name = "OpenCrawl" if configured_name.lower() in {"", "internet hands"} else configured_name
     return formataddr((name, email))
 
 
