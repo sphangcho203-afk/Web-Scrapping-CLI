@@ -481,7 +481,7 @@ class ExaToolProvider(_JsonPostProvider):
         costs = data.get("costDollars")
         total = costs.get("total") if isinstance(costs, dict) else None
         if isinstance(total, (int, float)) and not isinstance(total, bool):
-            record_usage("exa_cost_microusd", max(0, int(round(float(total) * 1_000_000))))
+            record_usage("exa_cost_microusd", max(0, round(float(total) * 1_000_000)))
         return {
             "status": "completed",
             "data": data,
