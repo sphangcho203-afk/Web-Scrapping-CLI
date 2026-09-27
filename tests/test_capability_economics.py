@@ -693,3 +693,20 @@ def test_semantic_connected_capability_does_not_add_orchestration_fee() -> None:
         reserved_credits=quote.credits,
         execution_usage={"provider_calls": {"composio": 1}},
     ) == 0
+
+
+
+def test_byo_batch_is_free_but_still_obeys_plan_batch_limit() -> None:
+    args = {
+        "calls": [
+            {
+                "ref": f"composio:TOOL_{index}",
+                "arguments": {},
+                "account": "ca_owned",
+            }
+            for index in range(4)
+        ]
+    }
+    quote = estimate_call("mesh_batch_execute", args, "free")
+    assert quote.allowed is False
+    assert "at most 3" in (quote.reason or "")
