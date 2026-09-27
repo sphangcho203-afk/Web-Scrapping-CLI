@@ -4,12 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from internet_hands import supabase_auth
 from internet_hands.security_api import _mail_origin
-from internet_hands.supabase_auth import (
-    SupabaseAuthError,
-    _headers,
-    configuration_status,
-)
 
 
 _ENV_NAMES = (
@@ -32,7 +28,7 @@ def test_supabase_configuration_status_is_safe_and_boolean(monkeypatch: pytest.M
     monkeypatch.setenv("SUPABASE_PUBLISHABLE_KEY", "sb_publishable_fixture")
     monkeypatch.setenv("SUPABASE_SECRET_KEY", "sb_secret_fixture")
 
-    assert configuration_status() == {
+    assert supabase_auth.configuration_status() == {
         "configured": True,
         "url": True,
         "publishable_key": True,
@@ -48,9 +44,9 @@ def test_non_ascii_server_key_fails_closed_with_configuration_error(
     monkeypatch.setenv("SUPABASE_PUBLISHABLE_KEY", "sb_publishable_fixture")
     monkeypatch.setenv("SUPABASE_SECRET_KEY", "sb_secret_“copied-with-smart-quotes”")
 
-    assert configuration_status()["secret_key"] is False
-    with pytest.raises(SupabaseAuthError) as exc:
-        _headers(secret=True)
+    assert supabase_auth.configuration_status()["secret_key"] is False
+    with pytest.raises(supabase_auth.SupabaseAuthError) as exc:
+        supabase_auth._headers(secret=True)
 
     assert exc.value.status_code == 503
     assert exc.value.code == "auth_configuration_invalid"
@@ -66,10 +62,10 @@ def test_valid_legacy_service_role_key_can_rescue_malformed_modern_key(
     monkeypatch.setenv("SUPABASE_SECRET_KEY", "broken—secret")
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "legacy-service-role-fixture")
 
-    headers = _headers(secret=True)
+    headers = supabase_auth._headers(secret=True)
     assert headers["apikey"] == "legacy-service-role-fixture"
     assert headers["Authorization"] == "Bearer legacy-service-role-fixture"
-    assert configuration_status()["configured"] is True
+    assert supabase_auth.configuration_status()["configured"] is True
 
 
 def test_newlines_in_auth_keys_are_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -78,9 +74,9 @@ def test_newlines_in_auth_keys_are_rejected(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setenv("SUPABASE_PUBLISHABLE_KEY", "publishable\nfixture")
     monkeypatch.setenv("SUPABASE_SECRET_KEY", "sb_secret_fixture")
 
-    assert configuration_status()["publishable_key"] is False
-    with pytest.raises(SupabaseAuthError) as exc:
-        _headers(secret=False)
+    assert supabase_auth.configuration_status()["publishable_key"] is False
+    with pytest.raises(supabase_auth.SupabaseAuthError) as exc:
+        supabase_auth._headers(secret=False)
 
     assert exc.value.code == "auth_configuration_invalid"
 
