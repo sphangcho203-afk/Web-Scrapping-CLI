@@ -119,7 +119,7 @@ def _binary_writer(target: Path):
 
 def _write_warcinfo(handle: BinaryIO) -> None:
     body = (
-        b"software: Internet Hands 0.3\r\n"
+        b"software: OpenCrawl 0.3\r\n"
         b"format: WARC File Format 1.1\r\n"
         b"conformsTo: https://iipc.github.io/warc-specifications/specifications/warc-format/warc-1.1/\r\n"
     )

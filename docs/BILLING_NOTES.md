@@ -1,6 +1,6 @@
 # Billing safety notes
 
-The production Razorpay credentials may be live-mode credentials. Internet Hands therefore follows these rules:
+The production Razorpay credentials may be live-mode credentials. OpenCrawl therefore follows these rules:
 
 1. Never create a live payment merely to verify configuration.
 2. Never grant credits or a subscription for `created` or `authorized` payments.

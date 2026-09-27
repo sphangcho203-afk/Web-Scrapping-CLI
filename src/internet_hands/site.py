@@ -23,6 +23,8 @@ ASSET_MEDIA_TYPES = {
     "mark.svg": "image/svg+xml",
     "internet-hands-mark.webp": "image/webp",
     "internet-hands-logo.webp": "image/webp",
+    "opencrawl-robot.png": "image/png",
+    "opencrawl-crab.png": "image/png",
 }
 
 
@@ -40,10 +42,11 @@ def _file(name: str, media_type: str | None = None, *, no_store: bool = False):
 def _browser_runtime() -> Response:
     """Ship one runtime while keeping bounded feature source reviewable."""
     legal = WEB_ROOT / "legal-content.js"
+    docs = WEB_ROOT / "docs-content.js"
     runtime = WEB_ROOT / "app.js"
     usage = WEB_ROOT / "usage-intelligence.js"
     monitors = WEB_ROOT / "monitor-lifecycle.js"
-    sources = [legal, runtime, usage, monitors]
+    sources = [legal, docs, runtime, usage, monitors]
     if any(not source.is_file() for source in sources):
         raise HTTPException(status_code=404, detail="asset not found")
     content = "\n\n".join(source.read_text(encoding="utf-8") for source in sources)
@@ -67,7 +70,7 @@ def site_asset(name: str):
 def _index():
     path = WEB_ROOT / "index.html"
     if not path.is_file():
-        return HTMLResponse("Internet Hands web console is not packaged", status_code=503)
+        return HTMLResponse("OpenCrawl web console is not packaged", status_code=503)
     return FileResponse(path, media_type="text/html", headers=NO_STORE_HEADERS)
 
 

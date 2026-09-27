@@ -40,11 +40,13 @@ CREATE TABLE IF NOT EXISTS ih_login_challenges (
     user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,
     token_hash text NOT NULL UNIQUE,
     expires_at timestamptz NOT NULL,
+    attempts integer NOT NULL DEFAULT 0,
     used_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS ih_login_challenges_user_idx
     ON ih_login_challenges(user_id, created_at DESC);
+ALTER TABLE ih_login_challenges ADD COLUMN IF NOT EXISTS attempts integer NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS ih_2fa_recovery_codes (
     id text PRIMARY KEY,
@@ -93,25 +95,6 @@ class SecurityStore:
             self.control.ensure_schema()
             with self.control._connect() as conn, conn.cursor() as cur:
                 cur.execute(SECURITY_SCHEMA_SQL)
-                # Repair legacy provisional identities that were incorrectly
-                # provisioned before email verification. The identity and its
-                # verification challenge remain; active resources do not.
-                cur.execute(
-                    "DELETE FROM ih_api_keys WHERE user_id IN "
-                    "(SELECT id FROM ih_users WHERE email_verified=false)"
-                )
-                cur.execute(
-                    "DELETE FROM ih_subscriptions WHERE user_id IN "
-                    "(SELECT id FROM ih_users WHERE email_verified=false)"
-                )
-                cur.execute(
-                    "DELETE FROM ih_credit_ledger WHERE user_id IN "
-                    "(SELECT id FROM ih_users WHERE email_verified=false)"
-                )
-                cur.execute(
-                    "DELETE FROM ih_wallets WHERE user_id IN "
-                    "(SELECT id FROM ih_users WHERE email_verified=false)"
-                )
                 conn.commit()
             self._schema_ready = True
 
@@ -218,6 +201,40 @@ class SecurityStore:
             conn.commit()
             return dict(row)
 
+    def email_token_user(self, token_hash: str) -> dict[str, Any] | None:
+        self.ensure_schema()
+        with self.control._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT v.user_id FROM ih_email_verifications v
+                   JOIN ih_users u ON u.id=v.user_id AND lower(u.email)=lower(v.email)
+                   WHERE v.token_hash=%s AND v.used_at IS NULL AND v.expires_at>now()""",
+                (token_hash,),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def email_code_matches(self, user_id: str, code_hash: str) -> bool:
+        self.ensure_schema()
+        with self.control._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT v.id,v.code_hash,v.attempts FROM ih_email_verifications v
+                   JOIN ih_users u ON u.id=v.user_id AND lower(u.email)=lower(v.email)
+                   WHERE v.user_id=%s AND v.used_at IS NULL AND v.expires_at>now()
+                   ORDER BY v.created_at DESC LIMIT 1 FOR UPDATE""",
+                (user_id,),
+            )
+            row = cur.fetchone()
+            if not row or int(row["attempts"] or 0) >= 8:
+                return False
+            if hmac.compare_digest(str(row["code_hash"]), code_hash):
+                return True
+            cur.execute(
+                "UPDATE ih_email_verifications SET attempts=attempts+1 WHERE id=%s",
+                (row["id"],),
+            )
+            conn.commit()
+            return False
+
     def consume_email_code(self, user_id: str, code_hash: str) -> dict[str, Any] | None:
         self.ensure_schema()
         with self.control._connect() as conn:
@@ -295,16 +312,19 @@ class SecurityStore:
             return dict(row) if row else None
 
     def enable_totp(self, user_id: str, counter: int, recovery_hashes: list[str]) -> None:
+        # The setup code proves possession of the secret; it is not yet a login event.
+        # Replay tracking begins with the first real second-factor authentication.
+        del counter
         self.ensure_schema()
         with self.control._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
                     UPDATE ih_user_security SET
-                        totp_enabled=true,totp_confirmed_at=now(),last_totp_counter=%s,updated_at=now()
+                        totp_enabled=true,totp_confirmed_at=now(),last_totp_counter=NULL,updated_at=now()
                     WHERE user_id=%s AND totp_secret_enc IS NOT NULL AND totp_enabled=false
                     """,
-                    (counter, user_id),
+                    (user_id,),
                 )
                 if cur.rowcount != 1:
                     raise ControlError("totp_setup_missing", "start TOTP setup first", 409)
@@ -402,7 +422,7 @@ class SecurityStore:
             cur.execute(
                 """
                 SELECT * FROM ih_login_challenges
-                WHERE token_hash=%s AND used_at IS NULL AND expires_at>now()
+                WHERE token_hash=%s AND used_at IS NULL AND expires_at>now() AND attempts<8
                 """,
                 (token_hash,),
             )
@@ -415,13 +435,23 @@ class SecurityStore:
             cur.execute(
                 """
                 UPDATE ih_login_challenges SET used_at=now()
-                WHERE id=%s AND used_at IS NULL AND expires_at>now()
+                WHERE id=%s AND used_at IS NULL AND expires_at>now() AND attempts<8
                 """,
                 (challenge_id,),
             )
             accepted = cur.rowcount == 1
             conn.commit()
             return accepted
+
+    def fail_login_challenge(self, challenge_id: str) -> None:
+        self.ensure_schema()
+        with self.control._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """UPDATE ih_login_challenges SET attempts=attempts+1
+                   WHERE id=%s AND used_at IS NULL AND expires_at>now() AND attempts<8""",
+                (challenge_id,),
+            )
+            conn.commit()
 
     def email_send_allowed(
         self,

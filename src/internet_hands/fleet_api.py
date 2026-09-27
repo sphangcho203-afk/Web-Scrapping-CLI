@@ -28,7 +28,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(
-    title="Internet Hands Fleet",
+    title="OpenCrawl Fleet",
     version="0.5.0",
     description=(
         "Distributed crawl frontier, shared content index, telemetry, isolated cloud-computer "

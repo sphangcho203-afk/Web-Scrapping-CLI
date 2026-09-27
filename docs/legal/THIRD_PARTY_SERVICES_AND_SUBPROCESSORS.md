@@ -1,14 +1,14 @@
 # Third-Party Services & Subprocessors
 
-**Policy version:** 2026-09-20  
+**Policy version:** 2026-09-27
 **Effective date:** 20 September 2026  
-**Last updated:** 20 September 2026
+**Last updated:** 27 September 2026
 
-External providers Internet Hands may rely on for hosting, payments, email, authentication, web data, connected apps, and execution.
+External providers OpenCrawl may rely on for hosting, payments, email, authentication, web data, connected apps, and execution.
 
 ## 1. How external providers are used
 
-Internet Hands is a routing and execution layer, so some requested operations necessarily involve external providers. Not every deployment or request uses every provider listed below. The exact provider path depends on configuration, capability, region, and the instruction you submit.
+OpenCrawl is a routing and execution layer, so some requested operations necessarily involve external providers. Not every deployment or request uses every provider listed below. The exact provider path depends on configuration, capability, region, and the instruction you submit.
 
 ## 2. Current provider categories
 
@@ -16,7 +16,7 @@ Internet Hands is a routing and execution layer, so some requested operations ne
 | --- | --- | --- |
 | Vercel | Hosting, edge delivery, deployment, and serverless execution | HTTP requests, application responses, operational logs. |
 | PostgreSQL / Neon where configured | Account, control-plane, usage, security, monitor, and billing records | Account identifiers, configuration, usage, and audit data. |
-| Razorpay | Payment checkout and transaction verification | Payment details handled by Razorpay; Internet Hands receives order/payment references, amount, and status. |
+| Razorpay | Payment checkout and transaction verification | Payment details handled by Razorpay; OpenCrawl receives order/payment references, amount, and status. |
 | Resend or configured SMTP provider | Transactional email | Email address, message content, and delivery metadata. |
 | GitHub | OAuth sign-in and repository-related integrations where requested | GitHub identity and authorization data. |
 | Composio where configured | Connected-app discovery and execution | User-directed tool inputs, connected-account identifiers, and execution results. |
@@ -33,7 +33,7 @@ Providers may be added, replaced, or removed as the product evolves. We update t
 
 ## 5. Third-party terms
 
-Third-party services are independent from Internet Hands and may impose their own terms, rate limits, acceptable-use rules, data-retention practices, or geographic restrictions. Your use of those services remains subject to their applicable terms.
+Third-party services are independent from OpenCrawl and may impose their own terms, rate limits, acceptable-use rules, data-retention practices, or geographic restrictions. Your use of those services remains subject to their applicable terms.
 
 ---
 

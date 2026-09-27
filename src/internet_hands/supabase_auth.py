@@ -19,33 +19,81 @@ class SupabaseAuthError(RuntimeError):
         self.code = code or "supabase_auth_error"
 
 
+def _usable_ascii_env(name: str) -> str | None:
+    value = (os.getenv(name) or "").strip()
+    if not value or "\r" in value or "\n" in value:
+        return None
+    try:
+        value.encode("ascii")
+    except UnicodeEncodeError:
+        return None
+    return value
+
+
+def configuration_status() -> dict[str, bool]:
+    url = _usable_ascii_env("SUPABASE_URL")
+    publishable = (
+        _usable_ascii_env("SUPABASE_PUBLISHABLE_KEY")
+        or _usable_ascii_env("SUPABASE_ANON_KEY")
+    )
+    secret = (
+        _usable_ascii_env("SUPABASE_SECRET_KEY")
+        or _usable_ascii_env("SUPABASE_SERVICE_ROLE_KEY")
+    )
+    return {
+        "configured": bool(url and publishable and secret),
+        "url": bool(url),
+        "publishable_key": bool(publishable),
+        "secret_key": bool(secret),
+    }
+
+
 def configured() -> bool:
-    return bool(
-        os.getenv("SUPABASE_URL")
-        and os.getenv("SUPABASE_PUBLISHABLE_KEY")
-        and os.getenv("SUPABASE_SECRET_KEY")
+    return bool(configuration_status()["configured"])
+
+
+def _required_ascii_env(names: tuple[str, ...], label: str) -> str:
+    for name in names:
+        value = _usable_ascii_env(name)
+        if value:
+            return value
+    present = [name for name in names if os.getenv(name)]
+    if present:
+        raise SupabaseAuthError(
+            f"{label} is malformed; replace it with the raw ASCII value",
+            status_code=503,
+            code="auth_configuration_invalid",
+        )
+    raise SupabaseAuthError(
+        f"{label} is not configured",
+        status_code=503,
+        code="auth_configuration_missing",
     )
 
 
 def _base_url() -> str:
-    value = (os.getenv("SUPABASE_URL") or "").rstrip("/")
-    if not value:
-        raise SupabaseAuthError("Supabase URL is not configured", status_code=503)
+    value = _required_ascii_env(("SUPABASE_URL",), "Supabase URL").rstrip("/")
+    if not value.startswith(("https://", "http://")):
+        raise SupabaseAuthError(
+            "Supabase URL is malformed",
+            status_code=503,
+            code="auth_configuration_invalid",
+        )
     return value
 
 
 def _publishable_key() -> str:
-    value = os.getenv("SUPABASE_PUBLISHABLE_KEY") or ""
-    if not value:
-        raise SupabaseAuthError("Supabase publishable key is not configured", status_code=503)
-    return value
+    return _required_ascii_env(
+        ("SUPABASE_PUBLISHABLE_KEY", "SUPABASE_ANON_KEY"),
+        "Supabase publishable key",
+    )
 
 
 def _secret_key() -> str:
-    value = os.getenv("SUPABASE_SECRET_KEY") or ""
-    if not value:
-        raise SupabaseAuthError("Supabase server key is not configured", status_code=503)
-    return value
+    return _required_ascii_env(
+        ("SUPABASE_SECRET_KEY", "SUPABASE_SERVICE_ROLE_KEY"),
+        "Supabase server key",
+    )
 
 
 def _headers(*, secret: bool = False, access_token: str | None = None) -> dict[str, str]:
@@ -86,14 +134,18 @@ async def _request(
     access_token: str | None = None,
     expected: tuple[int, ...] = (200,),
 ) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        response = await client.request(
-            method,
-            f"{_base_url()}{path}",
-            headers=_headers(secret=secret, access_token=access_token),
-            json=payload,
-            params=params,
-        )
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.request(
+                method,
+                f"{_base_url()}{path}",
+                headers=_headers(secret=secret, access_token=access_token),
+                json=payload,
+                params=params,
+            )
+    except httpx.RequestError as exc:
+        raise SupabaseAuthError("identity service temporarily unavailable", status_code=503,
+                                code="auth_unavailable") from exc
     if response.status_code not in expected:
         message, code = _error_payload(response)
         raise SupabaseAuthError(message, status_code=response.status_code, code=code)

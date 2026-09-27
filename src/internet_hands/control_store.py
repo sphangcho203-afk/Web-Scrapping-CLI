@@ -23,11 +23,18 @@ CREATE TABLE IF NOT EXISTS ih_users (
     github_id text UNIQUE,
     display_name text,
     avatar_url text,
+    auth_provider text,
+    auth_subject text,
     email_verified boolean NOT NULL DEFAULT false,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ih_users_email_lower_idx ON ih_users ((lower(email)));
+ALTER TABLE ih_users ADD COLUMN IF NOT EXISTS auth_provider text;
+ALTER TABLE ih_users ADD COLUMN IF NOT EXISTS auth_subject text;
+CREATE UNIQUE INDEX IF NOT EXISTS ih_users_auth_identity_idx
+    ON ih_users(auth_provider, auth_subject)
+    WHERE auth_provider IS NOT NULL AND auth_subject IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS ih_sessions (
     id text PRIMARY KEY,
@@ -267,6 +274,12 @@ CREATE TABLE IF NOT EXISTS ih_tool_costs (
 );
 """
 
+# Internal metering remains integer-based for exact reservations and settlement.
+# The product-facing wallet exposes these units as USD service balance.
+WALLET_UNITS_PER_USD = 5_000
+CUSTOM_TOPUP_MIN_USD_CENTS = 100
+CUSTOM_TOPUP_MAX_USD_CENTS = 50_000
+
 FREE_MONTHLY_CREDITS = 250
 PLAN_ROWS = [
     ("free", "Free", 0, FREE_MONTHLY_CREDITS, 10, 1, 1, 1, False, False, 0),
@@ -327,9 +340,14 @@ class AuthIdentity:
 
 class ControlStore:
     def __init__(self, dsn: str | None = None) -> None:
-        self.dsn = dsn or os.getenv("INTERNET_HANDS_CONTROL_POSTGRES_DSN") or os.getenv(
-            "INTERNET_HANDS_POSTGRES_DSN"
-        )
+        if dsn is not None:
+            selected = dsn
+        else:
+            control_dsn = os.getenv("INTERNET_HANDS_CONTROL_POSTGRES_DSN")
+            neon_dsn = os.getenv("INTERNET_HANDS_POSTGRES_DSN")
+            primary = (os.getenv("OPENCRAWL_PRIMARY_DATABASE") or "supabase").strip().lower()
+            selected = neon_dsn if primary == "neon" and neon_dsn else control_dsn or neon_dsn
+        self.dsn = selected
         self._schema_ready = False
         self._schema_lock = threading.Lock()
 
@@ -428,6 +446,136 @@ class ControlStore:
         except UniqueViolation as exc:
             raise ControlError("email_in_use", "an account with this email already exists", 409) from exc
 
+    def ensure_auth_user(
+        self,
+        *,
+        email: str,
+        display_name: str | None,
+        provider: str,
+        subject: str,
+        email_verified: bool = False,
+    ) -> dict[str, Any]:
+        """Create or link an application user to an external identity provider."""
+        self.ensure_schema()
+        normalized_email = email.strip().lower()
+        normalized_provider = provider.strip().lower()
+        normalized_subject = subject.strip()
+        if not normalized_email or not normalized_provider or not normalized_subject:
+            raise ControlError("invalid_identity", "identity provider fields are required", 400)
+
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT * FROM ih_users WHERE lower(email)=lower(%s) FOR UPDATE",
+                    (normalized_email,),
+                )
+                row = cur.fetchone()
+                if row:
+                    existing_provider = str(row.get("auth_provider") or "")
+                    existing_subject = str(row.get("auth_subject") or "")
+                    if existing_subject and (
+                        existing_provider != normalized_provider
+                        or existing_subject != normalized_subject
+                    ):
+                        raise ControlError(
+                            "identity_conflict",
+                            "this account is already linked to another identity",
+                            409,
+                        )
+                    cur.execute(
+                        """
+                        UPDATE ih_users
+                        SET auth_provider=%s,
+                            auth_subject=%s,
+                            display_name=COALESCE(display_name,%s),
+                            email_verified=(email_verified OR %s),
+                            updated_at=now()
+                        WHERE id=%s
+                        RETURNING id,email,display_name,avatar_url,email_verified,created_at,updated_at
+                        """,
+                        (
+                            normalized_provider,
+                            normalized_subject,
+                            display_name,
+                            email_verified,
+                            row["id"],
+                        ),
+                    )
+                    linked = cur.fetchone()
+                    conn.commit()
+                    assert linked is not None
+                    return dict(linked)
+
+                user_id = self._new_id("usr")
+                try:
+                    cur.execute(
+                        """
+                        INSERT INTO ih_users(
+                            id,email,display_name,auth_provider,auth_subject,email_verified
+                        ) VALUES (%s,%s,%s,%s,%s,%s)
+                        RETURNING id,email,display_name,avatar_url,email_verified,created_at,updated_at
+                        """,
+                        (
+                            user_id,
+                            normalized_email,
+                            display_name,
+                            normalized_provider,
+                            normalized_subject,
+                            email_verified,
+                        ),
+                    )
+                except UniqueViolation as exc:
+                    conn.rollback()
+                    raise ControlError(
+                        "identity_conflict",
+                        "this email or identity is already linked",
+                        409,
+                    ) from exc
+                linked = cur.fetchone()
+            conn.commit()
+            assert linked is not None
+            return dict(linked)
+
+    def link_auth_identity(self, user_id: str, *, provider: str, subject: str) -> None:
+        self.ensure_schema()
+        normalized_provider = provider.strip().lower()
+        normalized_subject = subject.strip()
+        with self._connect() as conn, conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    UPDATE ih_users
+                    SET auth_provider=%s,auth_subject=%s,updated_at=now()
+                    WHERE id=%s
+                      AND (
+                        auth_subject IS NULL
+                        OR (auth_provider=%s AND auth_subject=%s)
+                      )
+                    """,
+                    (
+                        normalized_provider,
+                        normalized_subject,
+                        user_id,
+                        normalized_provider,
+                        normalized_subject,
+                    ),
+                )
+            except UniqueViolation as exc:
+                conn.rollback()
+                raise ControlError(
+                    "identity_conflict",
+                    "this external identity is already linked",
+                    409,
+                ) from exc
+            if cur.rowcount != 1:
+                conn.rollback()
+                raise ControlError(
+                    "identity_conflict",
+                    "this account is already linked to another identity",
+                    409,
+                )
+            conn.commit()
+
     def _activate_free_account(self, cur: Any, user_id: str) -> None:
         """Provision account resources once, inside the caller's transaction."""
         now = datetime.now(UTC)
@@ -474,9 +622,32 @@ class ControlStore:
             conn.commit()
 
     def get_user_by_email(self, email: str) -> dict[str, Any] | None:
+        """Return public account fields only; never return password or provider subjects."""
         self.ensure_schema()
         with self._connect() as conn, conn.cursor() as cur:
-            cur.execute("SELECT * FROM ih_users WHERE lower(email)=lower(%s)", (email.strip(),))
+            cur.execute(
+                """
+                SELECT id,email,display_name,avatar_url,email_verified,created_at,updated_at,
+                       (github_id IS NOT NULL) AS github_connected
+                FROM ih_users WHERE lower(email)=lower(%s)
+                """,
+                (email.strip(),),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def get_user_credentials_by_email(self, email: str) -> dict[str, Any] | None:
+        """Internal-only legacy credential lookup used during Auth adoption."""
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id,email,password_hash,display_name,avatar_url,email_verified,
+                       created_at,updated_at
+                FROM ih_users WHERE lower(email)=lower(%s)
+                """,
+                (email.strip(),),
+            )
             row = cur.fetchone()
             return dict(row) if row else None
 
@@ -495,9 +666,23 @@ class ControlStore:
             return dict(row) if row else None
 
     def auth_user_id_for_legacy(self, user_id: str) -> str | None:
-        """Return the linked Supabase Auth UUID for one Internet Hands identity."""
+        """Return the Supabase Auth subject linked to one OpenCrawl identity."""
         self.ensure_schema()
         with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT auth_subject
+                FROM ih_users
+                WHERE id=%s AND auth_provider='supabase' AND auth_subject IS NOT NULL
+                """,
+                (user_id,),
+            )
+            linked = cur.fetchone()
+            if linked:
+                return str(linked["auth_subject"])
+
+            # Transitional compatibility while the source database is still
+            # Supabase-backed. Neon never requires this provider-specific table.
             try:
                 cur.execute(
                     """
@@ -512,7 +697,22 @@ class ControlStore:
                 conn.rollback()
                 return None
             row = cur.fetchone()
-            return str(row["auth_user_id"]) if row else None
+            if not row:
+                return None
+            auth_user_id = str(row["auth_user_id"])
+            try:
+                cur.execute(
+                    """
+                    UPDATE ih_users
+                    SET auth_provider='supabase',auth_subject=%s,updated_at=now()
+                    WHERE id=%s AND auth_subject IS NULL
+                    """,
+                    (auth_user_id, user_id),
+                )
+                conn.commit()
+            except psycopg.Error:
+                conn.rollback()
+            return auth_user_id
 
     def has_api_key_hash(self, key_hash: str) -> bool:
         """Detect an already-adopted key, including revoked keys."""
@@ -758,6 +958,8 @@ class ControlStore:
             account["capability_privileges"] = plan_privileges(
                 str(account.get("plan_slug") or "free")
             ).to_dict()
+            account["display_currency"] = "USD"
+            account["wallet_units_per_usd"] = WALLET_UNITS_PER_USD
             return account
 
     def create_api_key(
@@ -1415,7 +1617,12 @@ class ControlStore:
                 """,
                 (user_id, max(1, min(limit, 500))),
             )
-            return {"wallet": dict(wallet) if wallet else None, "ledger": [dict(r) for r in cur.fetchall()]}
+            return {
+                "wallet": dict(wallet) if wallet else None,
+                "ledger": [dict(r) for r in cur.fetchall()],
+                "display_currency": "USD",
+                "wallet_units_per_usd": WALLET_UNITS_PER_USD,
+            }
 
     def list_connections(self, user_id: str) -> list[dict[str, Any]]:
         self.ensure_schema()
@@ -1430,6 +1637,8 @@ class ControlStore:
                 row = dict(raw)
                 config = dict(row.get("config") or {})
                 row["header_names"] = list(config.get("header_names") or [])
+                row["tool_count"] = int(config.get("last_tool_count") or 0)
+                row["last_error"] = str(config.get("last_error") or "") or None
                 rows.append(row)
             return rows
 
@@ -1450,6 +1659,65 @@ class ControlStore:
             conn.commit()
         row["header_names"] = list((row.get("config") or {}).get("header_names") or [])
         return row
+
+    def get_connection_private(self, user_id: str, connection_id: str) -> dict[str, Any] | None:
+        """Load one connection including secret runtime material for server-side execution only."""
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id,user_id,name,kind,endpoint_url,transport,auth_type,config,secret_config,
+                       enabled,last_status,last_checked_at,created_at,updated_at
+                FROM ih_connections
+                WHERE id=%s AND user_id=%s
+                """,
+                (connection_id, user_id),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def set_connection_enabled(self, user_id: str, connection_id: str, enabled: bool) -> bool:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE ih_connections
+                SET enabled=%s,updated_at=now()
+                WHERE id=%s AND user_id=%s
+                """,
+                (enabled, connection_id, user_id),
+            )
+            changed = cur.rowcount > 0
+            conn.commit()
+            return changed
+
+    def update_connection_check(
+        self,
+        user_id: str,
+        connection_id: str,
+        *,
+        status: str,
+        tool_count: int | None,
+        error: str | None,
+    ) -> None:
+        self.ensure_schema()
+        detail = {
+            "last_tool_count": int(tool_count or 0),
+            "last_error": (error or "")[:300] or None,
+        }
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE ih_connections
+                SET last_status=%s,
+                    last_checked_at=now(),
+                    config=COALESCE(config,'{}'::jsonb) || %s::jsonb,
+                    updated_at=now()
+                WHERE id=%s AND user_id=%s
+                """,
+                (status, json.dumps(detail), connection_id, user_id),
+            )
+            conn.commit()
 
     def delete_connection(self, user_id: str, connection_id: str) -> bool:
         self.ensure_schema()
@@ -1626,6 +1894,7 @@ class ControlStore:
         purpose: str,
         plan_slug: str | None,
         credit_pack_slug: str | None,
+        currency: str = "INR",
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         self.ensure_schema()
@@ -1634,13 +1903,13 @@ class ControlStore:
             cur.execute(
                 """
                 INSERT INTO ih_payments(
-                    id,user_id,order_id,amount_paise,status,purpose,plan_slug,credit_pack_slug,metadata
-                ) VALUES (%s,%s,%s,%s,'created',%s,%s,%s,%s::jsonb)
+                    id,user_id,order_id,amount_paise,currency,status,purpose,plan_slug,credit_pack_slug,metadata
+                ) VALUES (%s,%s,%s,%s,%s,'created',%s,%s,%s,%s::jsonb)
                 RETURNING *
                 """,
                 (
-                    payment_row_id, user_id, order_id, amount_paise, purpose, plan_slug,
-                    credit_pack_slug, json.dumps(metadata or {}),
+                    payment_row_id, user_id, order_id, amount_paise, currency.upper(), purpose,
+                    plan_slug, credit_pack_slug, json.dumps(metadata or {}),
                 ),
             )
             row = cur.fetchone()
@@ -1667,24 +1936,73 @@ class ControlStore:
                     return dict(payment)
                 user_id = payment["user_id"]
                 if payment["purpose"] == "credits":
-                    cur.execute(
-                        "SELECT credits FROM ih_credit_packs WHERE slug=%s AND active=true",
-                        (payment["credit_pack_slug"],),
-                    )
-                    pack = cur.fetchone()
-                    if not pack:
-                        raise ControlError("credit_pack_not_found", "credit pack not found", 404)
-                    credits = int(pack["credits"])
+                    metadata = dict(payment.get("metadata") or {})
+                    pack_slug = payment.get("credit_pack_slug")
+                    if pack_slug:
+                        cur.execute(
+                            "SELECT credits FROM ih_credit_packs WHERE slug=%s AND active=true",
+                            (pack_slug,),
+                        )
+                        pack = cur.fetchone()
+                        if not pack:
+                            raise ControlError("credit_pack_not_found", "credit pack not found", 404)
+                        credits = int(pack["credits"])
+                        topup_mode = "preset"
+                    else:
+                        credits = int(metadata.get("wallet_units") or 0)
+                        usd_cents = int(metadata.get("wallet_usd_cents") or 0)
+                        if credits <= 0 or usd_cents <= 0:
+                            raise ControlError(
+                                "invalid_custom_topup",
+                                "custom wallet top-up metadata is invalid",
+                                409,
+                            )
+                        if (
+                            str(payment.get("currency") or "").upper() != "USD"
+                            or int(payment.get("amount_paise") or 0) != usd_cents
+                        ):
+                            raise ControlError(
+                                "wallet_payment_mismatch",
+                                "custom wallet top-up does not match the captured payment amount",
+                                409,
+                            )
+                        expected_units = usd_cents * WALLET_UNITS_PER_USD // 100
+                        if credits != expected_units:
+                            raise ControlError(
+                                "wallet_amount_mismatch",
+                                "custom wallet top-up amount does not match the configured denomination",
+                                409,
+                            )
+                        topup_mode = "custom"
                     cur.execute(
                         "UPDATE ih_wallets SET purchased_credits=purchased_credits+%s,updated_at=now() WHERE user_id=%s",
                         (credits, user_id),
                     )
                     cur.execute(
                         """
-                        INSERT INTO ih_credit_ledger(id,user_id,amount,bucket,kind,source,reference_id)
-                        VALUES (%s,%s,%s,'purchased','purchase','razorpay',%s)
+                        INSERT INTO ih_credit_ledger(
+                            id,user_id,amount,bucket,kind,source,reference_id,metadata
+                        )
+                        VALUES (%s,%s,%s,'purchased','purchase','razorpay',%s,%s::jsonb)
                         """,
-                        (self._new_id("led"), user_id, credits, order_id),
+                        (
+                            self._new_id("led"),
+                            user_id,
+                            credits,
+                            order_id,
+                            json.dumps(
+                                {
+                                    "display_currency": "USD",
+                                    "wallet_units_per_usd": WALLET_UNITS_PER_USD,
+                                    "topup_mode": topup_mode,
+                                    "payment_currency": str(payment.get("currency") or "INR"),
+                                    "payment_amount_minor": int(payment.get("amount_paise") or 0),
+                                    "wallet_usd_cents": int(metadata.get("wallet_usd_cents") or 0)
+                                    if topup_mode == "custom"
+                                    else None,
+                                }
+                            ),
+                        ),
                     )
                 elif payment["purpose"] == "subscription":
                     plan_slug = payment["plan_slug"]

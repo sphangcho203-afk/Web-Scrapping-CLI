@@ -1,6 +1,6 @@
-# Internet Hands account security
+# OpenCrawl account security
 
-Internet Hands v0.7 includes transactional email, email verification, login notifications, payment confirmations, and optional TOTP two-factor authentication.
+OpenCrawl v0.7 includes transactional email, email verification, login notifications, payment confirmations, and optional TOTP two-factor authentication.
 
 ## Transactional email
 
@@ -12,7 +12,7 @@ SMTP_PORT=587
 SMTP_USERNAME=...
 SMTP_PASSWORD=...
 SMTP_FROM_EMAIL=noreply@example.com
-SMTP_FROM_NAME=Internet Hands
+SMTP_FROM_NAME=OpenCrawl
 SMTP_STARTTLS=true
 SMTP_USE_SSL=false
 ```
@@ -35,7 +35,7 @@ Email/password signup creates an unverified account and sends both:
 - a verification link;
 - a six-digit code valid for 15 minutes.
 
-GitHub-created accounts also require an Internet Hands verification step even when GitHub reports the upstream address as verified. Existing already-verified Internet Hands accounts keep their verification state when GitHub is linked.
+GitHub-created accounts also require an OpenCrawl verification step even when GitHub reports the upstream address as verified. Existing already-verified OpenCrawl accounts keep their verification state when GitHub is linked.
 
 Verification endpoints:
 
@@ -49,7 +49,7 @@ GET  /api/auth/verify-email?token=...
 Signup returns a provisional web session and sends the user to `/verify-email`.
 Password and GitHub login do the same for any account that is still pending.
 Creating API keys, monitors, billing orders, and OAuth grants is blocked until
-the Internet Hands email is verified.
+the OpenCrawl email is verified.
 
 ## Transactional messages
 
@@ -93,7 +93,7 @@ GET  /api/security/status
 
 When 2FA is enabled, password and GitHub sign-in stop before session creation and require a TOTP or one-time recovery code. TOTP counters are recorded to reject replay of an already-used time step.
 
-Recovery codes are shown only when generated or regenerated. Users should store them outside the Internet Hands account.
+Recovery codes are shown only when generated or regenerated. Users should store them outside the OpenCrawl account.
 
 ## Account and session management
 

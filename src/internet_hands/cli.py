@@ -40,7 +40,7 @@ from .monitor import monitor_once
 from .pipeline import index_crawl, index_url, run_due_watches
 from .storage import DEFAULT_DB, Store
 
-app = typer.Typer(no_args_is_help=True, help="Internet Hands — public internet intelligence.")
+app = typer.Typer(no_args_is_help=True, help="OpenCrawl — public internet intelligence.")
 watch_app = typer.Typer(no_args_is_help=True, help="Persistent web monitoring jobs.")
 intel_app = typer.Typer(no_args_is_help=True, help="Provider-backed public intelligence.")
 app.add_typer(watch_app, name="watch")

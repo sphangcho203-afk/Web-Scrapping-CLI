@@ -1,11 +1,18 @@
-# 🥷 Internet Hands — Web Scraping CLI
+# OpenCrawl — Web Scraping CLI
 
 **Public internet intelligence, end to end.**
 
-Internet Hands is the engine inside `Web-Scrapping-CLI`: a capability-driven toolkit for
+OpenCrawl is the engine inside `Web-Scrapping-CLI`: a capability-driven toolkit for
 searching, fetching, rendering, extracting, crawling, indexing, monitoring, discovering APIs,
 analyzing caller-supplied media, and collecting structured intelligence from public or explicitly
 authorized internet sources.
+
+OpenCrawl is the product name formerly shown as Internet Hands. The Python package
+`internet_hands`, CLI commands, API key prefix, MCP endpoint, environment variables,
+database tables, and existing credentials retain their names for compatibility.
+The previous `/assets/mark.svg`, `internet-hands-*.webp`, and
+`/assets/opencrawl-robot.png` URLs remain served for existing embeds; the active
+interface uses `/assets/opencrawl-crab.png`.
 
 > Find the source. Fetch the evidence. Keep the provenance. Route to the right engine.
 
@@ -54,7 +61,7 @@ across multiple worker processes/machines:
 - persistent cross-worker per-host pacing
 - Postgres `FOR UPDATE SKIP LOCKED` leasing
 - native, Crawlee, Crawl4AI and Scrapy worker backends
-- bounded child discovery feeding the same Internet Hands index/provenance model
+- bounded child discovery feeding the same OpenCrawl index/provenance model
 
 See [`docs/FLEET_ARCHITECTURE.md`](docs/FLEET_ARCHITECTURE.md).
 
@@ -97,7 +104,7 @@ platform-access bypass.
 
 ### Backend fabric
 
-Internet Hands remains the policy/provenance/index control plane and can stage or route to
+OpenCrawl remains the policy/provenance/index control plane and can stage or route to
 specialized open-source engines:
 
 | Engine | Main role | State |
@@ -264,12 +271,12 @@ ih-fleet drain --backend scrapy --allow-external-network
 ```
 
 External networking is deliberately opt-in because third-party crawler/browser engines can perform
-network activity outside Internet Hands' native HTTP transport. Application URL validation remains
+network activity outside OpenCrawl' native HTTP transport. Application URL validation remains
 in place, but production workers should additionally enforce public-only egress at the container or
 VM/network layer.
 
 The distributed frontier currently coordinates crawl jobs, retries, circuits and host pacing.
-Capture/document storage remains the existing Internet Hands SQLite + object-store layer in this
+Capture/document storage remains the existing OpenCrawl SQLite + object-store layer in this
 branch.
 
 ## Portable datasets
@@ -539,7 +546,7 @@ the package source under `.internet-hands/backends/` and record their exact upst
 
 ## Network and collection policy
 
-Internet Hands is for public web data and sources the operator is authorized to access.
+OpenCrawl is for public web data and sources the operator is authorized to access.
 
 Defaults and invariants include:
 

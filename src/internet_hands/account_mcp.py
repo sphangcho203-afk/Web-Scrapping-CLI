@@ -18,7 +18,7 @@ def _identity():
 
 @sandbox_mcp.tool()
 def account_me() -> dict[str, Any]:
-    """Return the authenticated Internet Hands account, plan, and entitlement summary."""
+    """Return the authenticated OpenCrawl account, plan, and entitlement summary."""
     identity = _identity()
     return store.account_snapshot(identity.user_id)
 
@@ -56,7 +56,7 @@ def account_limits() -> dict[str, Any]:
 
 @sandbox_mcp.tool()
 def monitors_list() -> dict[str, Any]:
-    """List this account's configured Internet Hands monitors."""
+    """List this account's configured OpenCrawl monitors."""
     identity = _identity()
     return {"monitors": store.list_monitors(identity.user_id)}
 

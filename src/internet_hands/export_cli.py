@@ -10,7 +10,7 @@ from rich.console import Console
 from .exports import export_parquet, export_warc
 from .storage import DEFAULT_DB
 
-app = typer.Typer(no_args_is_help=True, help="Export Internet Hands capture datasets.")
+app = typer.Typer(no_args_is_help=True, help="Export OpenCrawl capture datasets.")
 console = Console()
 DbPath = Annotated[Path, typer.Option("--db")]
 TargetPath = Annotated[Path, typer.Argument()]

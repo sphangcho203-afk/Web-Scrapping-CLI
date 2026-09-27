@@ -74,5 +74,5 @@ def test_recovery_codes_are_unique_and_normalizable() -> None:
 def test_provisioning_uri_contains_issuer_and_account() -> None:
     uri = provisioning_uri("JBSWY3DPEHPK3PXP", "user@example.com")
     assert uri.startswith("otpauth://totp/")
-    assert "issuer=Internet+Hands" in uri
+    assert "issuer=OpenCrawl" in uri
     assert "secret=JBSWY3DPEHPK3PXP" in uri

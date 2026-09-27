@@ -1,6 +1,6 @@
 # Phone number intelligence MCP tool
 
-Internet Hands exposes phone-number intelligence as an MCP/Tool Mesh capability. It is **not** an account-verification or OTP feature.
+OpenCrawl exposes phone-number intelligence as an MCP/Tool Mesh capability. It is **not** an account-verification or OTP feature.
 
 ## Interfaces
 

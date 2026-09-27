@@ -1,6 +1,6 @@
 # Secrets policy
 
-Internet Hands production secrets are server-side configuration only.
+OpenCrawl production secrets are server-side configuration only.
 
 Never commit or return values for:
 

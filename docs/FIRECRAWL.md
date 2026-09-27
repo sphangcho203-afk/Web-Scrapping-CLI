@@ -1,12 +1,12 @@
 # Firecrawl Provider
 
-Internet Hands v0.5 treats Firecrawl as a first-class web-context provider inside the same MCP Tool Mesh as Apify, Composio, OpenAPI sources, remote MCPs, gaming intelligence, and the native sandbox/browser plane.
+OpenCrawl v0.5 treats Firecrawl as a first-class web-context provider inside the same MCP Tool Mesh as Apify, Composio, OpenAPI sources, remote MCPs, gaming intelligence, and the native sandbox/browser plane.
 
-Firecrawl is an accelerator, not a replacement for Internet Hands' own computer and data plane:
+Firecrawl is an accelerator, not a replacement for OpenCrawl' own computer and data plane:
 
 ```text
 Agent
-  -> Internet Hands MCP
+  -> OpenCrawl MCP
       -> semantic web capability
           -> Firecrawl v2 when configured
           -> Apify / native browser fallback where defined
@@ -16,7 +16,7 @@ Agent
 
 ## Configuration
 
-Set the API key only on the Internet Hands server:
+Set the API key only on the OpenCrawl server:
 
 ```env
 FIRECRAWL_API_KEY=
@@ -45,9 +45,9 @@ The Firecrawl provider currently exposes:
 - `firecrawl:extract` — structured extraction compatibility path
 - `firecrawl:interact` — explicit browser interaction against a prior Firecrawl scrape session
 
-The schemas intentionally allow additional Firecrawl v2 options so newly added extraction formats and bounded provider settings do not require a new Internet Hands release for every field.
+The schemas intentionally allow additional Firecrawl v2 options so newly added extraction formats and bounded provider settings do not require a new OpenCrawl release for every field.
 
-`firecrawl:interact` is marked **side-effecting** because a browser prompt may click or submit page controls. It is never selected by a read-only semantic capability fallback. Internet Hands exposes it explicitly and restricts the mesh version to prompt-based interaction; arbitrary remote code execution through Firecrawl Interact is not exposed.
+`firecrawl:interact` is marked **side-effecting** because a browser prompt may click or submit page controls. It is never selected by a read-only semantic capability fallback. OpenCrawl exposes it explicitly and restricts the mesh version to prompt-based interaction; arbitrary remote code execution through Firecrawl Interact is not exposed.
 
 ## Semantic collision with the existing web stack
 
@@ -71,7 +71,7 @@ mesh_capability_execute("web.crawl.site", {...})
 
 ## Async jobs and result paging
 
-Firecrawl crawl, batch, agent, and extract executions return normalized Internet Hands job handles.
+Firecrawl crawl, batch, agent, and extract executions return normalized OpenCrawl job handles.
 
 Example lifecycle:
 
@@ -98,7 +98,7 @@ Crawl and batch status pagination is mapped onto the common Tool Mesh `offset` /
 
 ## Public-web and credential boundary
 
-The Firecrawl provider follows Internet Hands' public-network defaults:
+The Firecrawl provider follows OpenCrawl' public-network defaults:
 
 - explicit URL inputs are validated as public HTTP(S) targets
 - target `Authorization`, `Cookie`, `Proxy-Authorization`, `X-API-Key`, and `X-RapidAPI-Key` headers are rejected through the mesh
@@ -113,7 +113,7 @@ The purpose is to give an agent excellent public-web retrieval, not to turn Fire
 
 Firecrawl v2 also provides file parsing through multipart uploads. That is intentionally **not** represented as a JSON/base64 Tool Mesh call yet.
 
-Internet Hands already has a sandbox/artifact subsystem. The cleaner future bridge is:
+OpenCrawl already has a sandbox/artifact subsystem. The cleaner future bridge is:
 
 ```text
 sandbox artifact/file -> controlled multipart upload -> Firecrawl Parse -> normalized artifact/result

@@ -67,7 +67,7 @@ def _playground_identity(request: Request, body: dict[str, Any]) -> AuthIdentity
         if not identity:
             raise HTTPException(
                 status_code=401,
-                detail={"code": "invalid_api_key", "message": "A valid Internet Hands API key or access token is required."},
+                detail={"code": "invalid_api_key", "message": "A valid OpenCrawl API key or access token is required."},
                 headers={"WWW-Authenticate": "Bearer"},
             )
         selected_key_id = str(body.get("api_key_id") or "").strip()

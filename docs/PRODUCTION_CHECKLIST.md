@@ -1,4 +1,4 @@
-# Internet Hands production rollout checklist
+# OpenCrawl production rollout checklist
 
 - [ ] v0.6 CI green on Python 3.11, 3.12, and 3.13
 - [ ] Vercel preview deploys from `feat/v0.6-saas-control-plane`

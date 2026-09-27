@@ -41,7 +41,7 @@ def run_hunt(
     browser_text_threshold: int = typer.Option(200, min=1, max=100_000),
     db: DbPath = DEFAULT_DB,
 ):
-    """Search and/or crawl bounded public-web sources into the Internet Hands index."""
+    """Search and/or crawl bounded public-web sources into the OpenCrawl index."""
     seeds = list(seed or [])
     if query:
         seeds.extend(asyncio.run(search_seeds(query, count=search_count)))

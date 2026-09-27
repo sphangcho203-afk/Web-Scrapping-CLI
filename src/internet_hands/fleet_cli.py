@@ -17,7 +17,7 @@ from .storage import DEFAULT_DB, DEFAULT_OBJECTS
 from .telemetry import DEFAULT_TELEMETRY_DB, PostgresTelemetry, SqliteTelemetry
 from .worker import FrontierWorker
 
-app = typer.Typer(no_args_is_help=True, help="Durable Internet Hands crawl fleet control.")
+app = typer.Typer(no_args_is_help=True, help="Durable OpenCrawl crawl fleet control.")
 console = Console()
 FrontierPath = Annotated[Path, typer.Option("--frontier-db")]
 ContentPath = Annotated[Path, typer.Option("--content-db")]

@@ -1,6 +1,6 @@
-# Internet Hands architecture
+# OpenCrawl architecture
 
-Internet Hands v0.2 separates collection, evidence preservation, extraction, indexing, and monitoring. A platform-specific collector should not need to reimplement network policy or provenance.
+OpenCrawl v0.2 separates collection, evidence preservation, extraction, indexing, and monitoring. A platform-specific collector should not need to reimplement network policy or provenance.
 
 ## Core layers
 
@@ -57,7 +57,7 @@ Internet Hands v0.2 separates collection, evidence preservation, extraction, ind
 
 ## Persistent monitoring
 
-A watch stores a URL, interval, next-run timestamp, last hash, and last check. `ih watch run` processes only jobs whose `next_run_at` is due. That makes the scheduler composable: cron, systemd, Kubernetes CronJob, a queue worker, or another orchestrator can invoke the same primitive without Internet Hands needing a permanently running daemon.
+A watch stores a URL, interval, next-run timestamp, last hash, and last check. `ih watch run` processes only jobs whose `next_run_at` is due. That makes the scheduler composable: cron, systemd, Kubernetes CronJob, a queue worker, or another orchestrator can invoke the same primitive without OpenCrawl needing a permanently running daemon.
 
 Each successful watch run is also indexed, so a monitored source naturally builds historical capture data instead of throwing old checks away.
 

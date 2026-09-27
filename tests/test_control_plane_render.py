@@ -22,7 +22,13 @@ def frontend_url():
             elif path.startswith("/assets/"):
                 asset = WEB_ROOT / path.rsplit("/", 1)[-1]
                 body = asset.read_bytes()
-                content_type = "text/css" if asset.suffix == ".css" else "image/svg+xml"
+                content_type = ({
+                    ".css": "text/css",
+                    ".js": "application/javascript",
+                    ".png": "image/png",
+                    ".webp": "image/webp",
+                    ".svg": "image/svg+xml",
+                }.get(asset.suffix, "application/octet-stream"))
             else:
                 body = (WEB_ROOT / "index.html").read_bytes()
                 content_type = "text/html"
@@ -41,6 +47,30 @@ def frontend_url():
     server.shutdown()
     server.server_close()
     thread.join()
+
+
+def test_opencrawl_mark_and_wordmark_at_phone_and_desktop_widths(frontend_url):
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 320, "height": 740})
+        page.route("**/api/**", lambda route: route.fulfill(
+            status=401, content_type="application/json", body='{"detail":"sign in required"}'
+        ))
+        for path in ("/", "/login"):
+            page.goto(frontend_url + path)
+            mark = page.locator(".oc-brand-mark").first
+            mark.wait_for()
+            assert page.get_by_role("link", name="OpenCrawl home").count() >= 1
+            assert mark.evaluate("image => image.complete && image.naturalWidth > 0")
+            assert mark.get_attribute("src") == "/assets/opencrawl-crab.png"
+            for width in (320, 390, 768, 1366):
+                page.set_viewport_size({"width": width, "height": 740})
+                assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), (path, width)
+                if path == "/" and width == 390:
+                    header = page.locator(".ih-site-header").bounding_box()
+                    kicker = page.locator(".oc-hero-kicker").bounding_box()
+                    assert header and kicker and kicker["y"] - (header["y"] + header["height"]) < 100
+        browser.close()
 
 
 @pytest.mark.parametrize("mode", ["null", "missing", "empty", "populated"])
@@ -82,6 +112,8 @@ def test_initial_control_plane_render(frontend_url, mode):
             "/dashboard/billing": ".ih-route-billing",
             "/dashboard/settings": ".ih-route-settings",
             "/dashboard/integrations": ".ih-route-connections",
+            "/docs/clients": ".docs-article",
+            "/docs/two-factor": ".docs-article",
         }
         for route, selector in routes.items():
             page.goto(frontend_url + route)
@@ -477,11 +509,11 @@ def test_public_data_workspace_validates_executes_and_reports_partial_results(fr
         page.get_by_text("Partial evidence collected", exact=True).wait_for()
         assert len(calls) == 1 and calls[0]["arguments"]["max_pages"] == 5
         assert calls[0]["api_key_id"] == "key_fixture"
-        assert "8 credits charged" in page.locator("#public-data-output").inner_text()
+        assert "$0.0016 charged" in page.locator("#public-data-output").inner_text()
         assert page.get_by_role("link", name="Open source", exact=True).get_attribute("href") == "https://source.example/report"
         form.locator('[name="operation"]').select_option("extract")
         assert not page.locator("#public-data-research-fields").is_visible()
-        assert "5 credits" in page.locator("#public-data-budget").inner_text()
+        assert "$0.0010" in page.locator("#public-data-budget").inner_text()
         form.locator('[name="operation"]').select_option("search")
         assert not page.locator("#public-data-urls-field").is_visible()
         form.locator('[name="search_query"]').fill("agent research")

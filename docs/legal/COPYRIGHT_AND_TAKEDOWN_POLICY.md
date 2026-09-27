@@ -1,14 +1,14 @@
 # Copyright & Content Takedown Policy
 
-**Policy version:** 2026-09-20  
+**Policy version:** 2026-09-27
 **Effective date:** 20 September 2026  
-**Last updated:** 20 September 2026
+**Last updated:** 27 September 2026
 
 How content rights apply to web retrieval and how rights holders can raise a good-faith removal request.
 
 ## 1. Source ownership
 
-Internet Hands can retrieve, cache, transform, extract, or monitor content at a user's direction. Doing so does not transfer ownership of third-party content. Copyright, database rights, trademarks, and other rights remain with their respective owners.
+OpenCrawl can retrieve, cache, transform, extract, or monitor content at a user's direction. Doing so does not transfer ownership of third-party content. Copyright, database rights, trademarks, and other rights remain with their respective owners.
 
 ## 2. User responsibility
 
@@ -16,9 +16,9 @@ Users must ensure that their copying, extraction, storage, publication, or comme
 
 ## 3. Takedown requests
 
-A rights holder may submit a good-faith request concerning content stored or made available through Internet Hands. A useful request should identify the protected work, identify the specific Internet Hands location or record at issue, explain the claimed infringement, provide a private contact method, and include a statement that the information supplied is accurate and submitted by the rights holder or an authorized representative.
+A rights holder may submit a good-faith request concerning content stored or made available through OpenCrawl. A useful request should identify the protected work, identify the specific OpenCrawl location or record at issue, explain the claimed infringement, provide a private contact method, and include a statement that the information supplied is accurate and submitted by the rights holder or an authorized representative.
 
-> **Source sites:** Removing a cached copy or customer-controlled record from Internet Hands does not remove the original material from the third-party source where it was published.
+> **Source sites:** Removing a cached copy or customer-controlled record from OpenCrawl does not remove the original material from the third-party source where it was published.
 
 ## 4. Review and response
 

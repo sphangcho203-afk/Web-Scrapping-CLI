@@ -35,7 +35,7 @@ BACKENDS: tuple[BackendSpec, ...] = (
         role="agent browser automation and accessibility-snapshot control",
         integration="mcp",
         command=("npx", "@playwright/mcp@latest"),
-        notes="Use as an MCP sidecar; Internet Hands remains the provenance/control plane.",
+        notes="Use as an MCP sidecar; OpenCrawl remains the provenance/control plane.",
     ),
     BackendSpec(
         name="crawlee-python",
@@ -80,7 +80,7 @@ BACKENDS: tuple[BackendSpec, ...] = (
         clone_by_default=False,
         notes=(
             "Service-only integration by default. Do not vendor its AGPL core into the MIT "
-            "Internet Hands source tree without intentionally accepting the license obligations."
+            "OpenCrawl source tree without intentionally accepting the license obligations."
         ),
     ),
 )

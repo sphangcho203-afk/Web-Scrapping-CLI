@@ -12,9 +12,9 @@ from .sandbox_manager import SandboxManager
 from .vercel_sandbox import VercelSandboxProvider
 
 sandbox_mcp = MCPServer(
-    "Internet Hands",
+    "OpenCrawl",
     instructions=(
-        "Internet Hands combines isolated public-internet cloud computers with an external "
+        "OpenCrawl combines isolated public-internet cloud computers with an external "
         "tool mesh. Create a sandbox before using sandbox session tools. Use mesh_search to "
         "discover external capabilities, mesh_describe before constructing calls when the "
         "schema is unknown, and mesh_execute or mesh_batch_execute to act. Long-running "
@@ -56,7 +56,7 @@ def _transport_security() -> TransportSecuritySettings:
 
 
 class APIKeyASGI:
-    """Protect the mounted MCP endpoint with the Internet Hands API key."""
+    """Protect the mounted MCP endpoint with the OpenCrawl API key."""
 
     def __init__(self, app: Any) -> None:
         self.app = app

@@ -1,16 +1,16 @@
 # Privacy Policy
 
-**Policy version:** 2026-09-20  
+**Policy version:** 2026-09-27
 **Effective date:** 20 September 2026  
-**Last updated:** 20 September 2026
+**Last updated:** 27 September 2026
 
-What Internet Hands collects, why it is processed, who receives it, how long it is retained, and the choices and rights available to users.
+What OpenCrawl collects, why it is processed, who receives it, how long it is retained, and the choices and rights available to users.
 
 ## 1. Scope
 
-This Privacy Policy applies to personal information processed through the hosted Internet Hands Service. Internet Hands, we, us, and our refer to the operator of the Internet Hands Service.
+This Privacy Policy applies to personal information processed through the hosted OpenCrawl Service. OpenCrawl, we, us, and our refer to the operator of the OpenCrawl Service.
 
-If an organization uses Internet Hands to process personal data on its own behalf, that organization may be the party deciding why and how that customer content is processed. The Data Processing & Retention Notice explains that relationship in more detail.
+If an organization uses OpenCrawl to process personal data on its own behalf, that organization may be the party deciding why and how that customer content is processed. The Data Processing & Retention Notice explains that relationship in more detail.
 
 ## 2. Information we collect
 
@@ -20,7 +20,7 @@ If an organization uses Internet Hands to process personal data on its own behal
 | Authentication and security | Password hashes, hashed session identifiers, encrypted TOTP secrets, hashed recovery codes, and verification/login challenge records. |
 | Service activity | API key identifiers and hashes, requested tools, request IDs, provider routing, status, latency, credit usage, monitor configuration, and execution metadata. |
 | Customer content | Prompts, URLs, files, extracted data, browser or sandbox inputs and outputs, monitor targets, and other content you direct the Service to process. |
-| Billing | Razorpay order/payment references, amount, purpose, status, and plan or credit-pack information. Full payment-instrument details are handled by the payment processor rather than stored by Internet Hands. |
+| Billing | Razorpay order/payment references, amount, purpose, status, and plan or credit-pack information. Full payment-instrument details are handled by the payment processor rather than stored by OpenCrawl. |
 | Communications | Transactional email delivery metadata, support messages, security reports, and related correspondence. |
 | Technical information | Basic request, device, browser, IP, and security information that may appear in hosting, application, or abuse-prevention logs. |
 
@@ -50,7 +50,7 @@ We do not sell personal information for money and we do not use customer content
 
 ## 6. Connected accounts and external tools
 
-When you connect a third-party account or tool, Internet Hands processes the identifiers and authorization material needed to maintain that connection. Some integrations are operated through external providers. Their own privacy terms may apply to information they receive.
+When you connect a third-party account or tool, OpenCrawl processes the identifiers and authorization material needed to maintain that connection. Some integrations are operated through external providers. Their own privacy terms may apply to information they receive.
 
 Disconnecting an integration stops future use through that connection but does not automatically delete records already required for security, billing, or audit purposes.
 
@@ -70,7 +70,7 @@ We keep information only for as long as reasonably necessary for the purpose it 
 
 ## 9. Security
 
-Internet Hands uses controls such as password hashing, hashed API keys, server-side secrets, encrypted TOTP secrets, hashed recovery codes, HTTP-only session cookies, scoped access, request ledgers, and protected payment verification. No online system can guarantee absolute security.
+OpenCrawl uses controls such as password hashing, hashed API keys, server-side secrets, encrypted TOTP secrets, hashed recovery codes, HTTP-only session cookies, scoped access, request ledgers, and protected payment verification. No online system can guarantee absolute security.
 
 ## 10. Your choices and privacy rights
 
@@ -80,7 +80,7 @@ Requests may be limited where we must retain information for security, fraud pre
 
 ## 11. International processing
 
-Internet Hands and its providers may process information in countries other than the country where you live. Where required, we use contractual, technical, or organizational measures intended to protect data transferred across borders.
+OpenCrawl and its providers may process information in countries other than the country where you live. Where required, we use contractual, technical, or organizational measures intended to protect data transferred across borders.
 
 ## 12. Minors
 

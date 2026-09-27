@@ -42,11 +42,8 @@ from .security_store import SecurityStore
 from .supabase_auth import SupabaseAuthError
 from .supabase_auth import admin_create_user as supabase_admin_create_user
 from .supabase_auth import admin_update_user as supabase_admin_update_user
-from .supabase_auth import resend_signup as supabase_resend_signup
 from .supabase_auth import sign_in as supabase_sign_in
-from .supabase_auth import sign_up as supabase_sign_up
 from .supabase_auth import update_password_with_access_token as supabase_update_password
-from .supabase_auth import verify_signup_otp as supabase_verify_signup_otp
 from .totp import (
     decrypt_secret,
     encrypt_secret,
@@ -68,6 +65,16 @@ def _verification_code() -> str:
     return f"{secrets.randbelow(1_000_000):06d}"
 
 
+def _mail_origin(request: Request) -> str:
+    # Keep verification and security links on the deployment that issued the
+    # challenge. Preview deployments must not silently jump to an older
+    # production backend. Operators can explicitly pin a canonical origin.
+    configured = os.getenv("INTERNET_HANDS_PUBLIC_ORIGIN")
+    if configured:
+        return (configured if configured.startswith("https://") else f"https://{configured}").rstrip("/")
+    return _origin(request)
+
+
 def _qr_data_uri(value: str) -> str:
     """Return an offline-scannable SVG QR without sending the TOTP secret elsewhere."""
     image = qrcode.make(value, image_factory=qrcode.image.svg.SvgPathImage)
@@ -81,7 +88,7 @@ def _mail_shell(title: str, body: str) -> str:
     return f"""<!doctype html><html><body style="margin:0;background:#080b0f;color:#eef5f9;font-family:Inter,Arial,sans-serif">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#080b0f;padding:32px 12px"><tr><td align="center">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;background:#0d1218;border:1px solid #26343b;border-radius:20px;padding:32px">
-<tr><td><div style="font-size:13px;letter-spacing:.16em;color:#73e5ef;font-weight:800">INTERNET HANDS</div><h1 style="font-size:26px;margin:22px 0 12px">{html.escape(title)}</h1>{body}<p style="color:#718892;font-size:12px;margin-top:28px">Security messages are sent automatically by Internet Hands. Never share API keys, passwords, TOTP secrets, or recovery codes by email.</p></td></tr></table>
+<tr><td><div style="font-size:13px;letter-spacing:.16em;color:#ef39df;font-weight:800">OPENCRAWL</div><h1 style="font-size:26px;margin:22px 0 12px">{html.escape(title)}</h1>{body}<p style="color:#8d8096;font-size:12px;margin-top:28px">Security messages are sent automatically by OpenCrawl. Never share API keys, passwords, TOTP secrets, or recovery codes by email.</p></td></tr></table>
 </td></tr></table></body></html>"""
 
 
@@ -148,6 +155,8 @@ async def _deliver(
 
 
 async def _send_verification(request: Request, user: dict[str, Any]) -> bool:
+    if not security.email_send_allowed(user["id"], "email_verification", min_interval_seconds=60):
+        return False
     token = random_token("ih_verify_")
     code = _verification_code()
     try:
@@ -162,20 +171,20 @@ async def _send_verification(request: Request, user: dict[str, Any]) -> bool:
             "could not create email-verification challenge", extra={"user_id": user["id"]}
         )
         return False
-    verify_url = f"{_origin(request)}/api/auth/verify-email?token={token}"
+    verify_url = f"{_mail_origin(request)}/api/auth/verify-email?token={token}"
     safe_url = html.escape(verify_url, quote=True)
     body = (
-        "<p style='color:#a8bbc5'>Confirm this email address for your Internet Hands account.</p>"
-        f"<div style='font-size:34px;letter-spacing:.18em;font-weight:800;margin:24px 0;color:#73e5ef'>{code}</div>"
-        f"<p><a href='{safe_url}' style='display:inline-block;padding:13px 18px;border-radius:10px;background:#73e5ef;color:#061014;text-decoration:none;font-weight:800'>Verify email</a></p>"
+        "<p style='color:#a8bbc5'>Confirm this email address for your OpenCrawl account.</p>"
+        f"<div style='font-size:34px;letter-spacing:.18em;font-weight:800;margin:24px 0;color:#ef39df'>{code}</div>"
+        f"<p><a href='{safe_url}' style='display:inline-block;padding:13px 18px;border-radius:10px;background:#ef39df;color:#100915;text-decoration:none;font-weight:800'>Verify email</a></p>"
         "<p style='color:#8aa0aa'>The code and link expire in 15 minutes.</p>"
     )
     return await _deliver(
         user_id=user["id"],
         email=user["email"],
         event_type="email_verification",
-        subject="Verify your Internet Hands email",
-        text=f"Your Internet Hands verification code is {code}. Verify: {verify_url}\nThis expires in 15 minutes.",
+        subject="Verify your OpenCrawl email",
+        text=f"Your OpenCrawl verification code is {code}. Verify: {verify_url}\nThis expires in 15 minutes.",
         body_html=body,
     )
 
@@ -185,8 +194,8 @@ async def _send_verified(user: dict[str, Any]) -> None:
         user_id=user["id"],
         email=user["email"],
         event_type="account_verified",
-        subject="Your Internet Hands account is verified",
-        text="Your Internet Hands email has been verified successfully.",
+        subject="Your OpenCrawl account is verified",
+        text="Your OpenCrawl email has been verified successfully.",
         body_html="<p style='color:#a8bbc5'>Your email is verified. Your account can now create production API keys and use protected account features.</p>",
         dedupe_key=f"account-verified:{user['id']}:{user['email'].lower()}",
     )
@@ -207,8 +216,8 @@ async def _send_login_notice(request: Request, user: dict[str, Any], method: str
         user_id=user["id"],
         email=user["email"],
         event_type="login_notice",
-        subject="New sign-in to Internet Hands",
-        text=f"New Internet Hands sign-in via {method} at {when} from {ip}. If this was not you, secure your account.",
+        subject="New sign-in to OpenCrawl",
+        text=f"New OpenCrawl sign-in via {method} at {when} from {ip}. If this was not you, secure your account.",
         body_html=body,
     )
 
@@ -274,8 +283,14 @@ def _verify_second_factor(user_id: str, value: str) -> bool:
         return True
     try:
         secret = decrypt_secret(str(record["totp_secret_enc"]))
-    except RuntimeError:
-        return False
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "two_factor_unavailable",
+                "message": "two-factor authentication is temporarily unavailable; retry shortly",
+            },
+        ) from exc
     counter = verify_totp(secret, value)
     if counter is None:
         return False
@@ -293,41 +308,47 @@ async def signup_secure(request: Request):
     if len(password) < 8:
         raise HTTPException(status_code=400, detail="password must contain at least 8 characters")
 
-    redirect_to = f"{_origin(request)}/verify-email?verified=1"
     try:
-        auth_result = await supabase_sign_up(
+        auth_result = await supabase_admin_create_user(
             email=email,
             password=password,
             display_name=display_name,
-            redirect_to=redirect_to,
+            email_confirm=False,
         )
     except SupabaseAuthError as exc:
-        status = 429 if exc.status_code == 429 else 400 if exc.status_code < 500 else 503
+        duplicate = exc.status_code in {409, 422} and ("already" in str(exc).lower() or "registered" in str(exc).lower())
+        status = 409 if duplicate else 429 if exc.status_code == 429 else 400 if exc.status_code < 500 else 503
         raise HTTPException(
             status_code=status,
-            detail={"code": exc.code, "message": str(exc)},
+            detail={"code": "email_in_use" if duplicate else exc.code,
+                    "message": "an account with this email already exists" if duplicate else str(exc)},
         ) from exc
 
-    auth_user = auth_result.get("user") if isinstance(auth_result, dict) else None
+    auth_user = auth_result.get("user", auth_result) if isinstance(auth_result, dict) else None
     if not isinstance(auth_user, dict) or not auth_user.get("id"):
         raise HTTPException(status_code=502, detail="Supabase Auth did not create an account")
-    if auth_user.get("identities") == []:
-        raise HTTPException(
-            status_code=409,
-            detail={"code": "email_in_use", "message": "an account with this email already exists"},
+
+    auth_subject = str(auth_user["id"])
+    try:
+        user = store.ensure_auth_user(
+            email=email,
+            display_name=display_name,
+            provider="supabase",
+            subject=auth_subject,
+            email_verified=bool(
+                auth_user.get("email_confirmed_at") or auth_user.get("confirmed_at")
+            ),
         )
+    except ControlError as exc:
+        raise _json_error(exc) from exc
 
-    user = store.get_user_by_email(email)
-    if not user:
-        raise HTTPException(status_code=502, detail="Supabase identity bridge did not create the account profile")
-
-    verified = bool(user.get("email_verified"))
+    sent = await _send_verification(request, user)
     payload = {
         "user": user,
-        "verification_required": not verified,
-        "verification_sent": not verified,
-        "verification_mode": "supabase_link" if not verified else None,
-        "next": "/dashboard" if verified else "/verify-email",
+        "verification_required": True,
+        "verification_sent": sent,
+        "verification_mode": "link_or_code",
+        "next": "/verify-email",
     }
     return _session_response(request, user["id"], payload)
 
@@ -356,13 +377,7 @@ async def login_secure(request: Request):
         email_unconfirmed = code == "email_not_confirmed" or "email not confirmed" in message
 
         if email_unconfirmed and current:
-            try:
-                sent = await supabase_resend_signup(
-                    email=email,
-                    redirect_to=f"{_origin(request)}/verify-email?verified=1",
-                )
-            except SupabaseAuthError:
-                sent = False
+            sent = await _send_verification(request, current)
             return _session_response(
                 request,
                 current["id"],
@@ -370,7 +385,7 @@ async def login_secure(request: Request):
                     "user": current,
                     "verification_required": True,
                     "verification_sent": sent,
-                    "verification_mode": "supabase_link",
+                    "verification_mode": "link_or_code",
                     "verification_context": "signin",
                     "next": "/verify-email",
                 },
@@ -385,7 +400,11 @@ async def login_secure(request: Request):
                 detail={"code": "invalid_credentials", "message": "invalid email or password"},
             )
 
-        legacy_user = legacy_store.get_user_by_email(email) if legacy_store else None
+        legacy_user = (
+            legacy_store.get_user_credentials_by_email(email)
+            if legacy_store
+            else store.get_user_credentials_by_email(email)
+        )
         if not legacy_user or not verify_password(password, legacy_user.get("password_hash")):
             raise HTTPException(
                 status_code=401,
@@ -401,8 +420,9 @@ async def login_secure(request: Request):
             (current or {}).get("display_name")
             or legacy_user.get("display_name")
         )
+        created_auth: dict[str, Any] | None = None
         try:
-            await supabase_admin_create_user(
+            created_auth = await supabase_admin_create_user(
                 email=email,
                 password=password,
                 display_name=display_name,
@@ -426,6 +446,21 @@ async def login_secure(request: Request):
         if not current:
             raise HTTPException(status_code=502, detail="migrated account could not be loaded")
 
+        created_user = (
+            created_auth.get("user", created_auth)
+            if isinstance(created_auth, dict)
+            else None
+        )
+        if isinstance(created_user, dict) and created_user.get("id"):
+            try:
+                store.link_auth_identity(
+                    str(current["id"]),
+                    provider="supabase",
+                    subject=str(created_user["id"]),
+                )
+            except ControlError as exc:
+                raise _json_error(exc) from exc
+
         auth_id = store.auth_user_id_for_legacy(str(current["id"]))
         if confirmed:
             try:
@@ -436,13 +471,7 @@ async def login_secure(request: Request):
                     detail={"code": "auth_migration_failed", "message": str(exc)},
                 ) from exc
         else:
-            try:
-                sent = await supabase_resend_signup(
-                    email=email,
-                    redirect_to=f"{_origin(request)}/verify-email?verified=1",
-                )
-            except SupabaseAuthError:
-                sent = False
+            sent = await _send_verification(request, current)
             return _session_response(
                 request,
                 current["id"],
@@ -450,17 +479,32 @@ async def login_secure(request: Request):
                     "user": current,
                     "verification_required": True,
                     "verification_sent": sent,
-                    "verification_mode": "supabase_link",
+                    "verification_mode": "link_or_code",
                     "verification_context": "signin",
                     "next": "/verify-email",
                 },
             )
 
-    current = store.get_user_by_email(email)
+    auth_user = auth_result.get("user") if isinstance(auth_result, dict) else None
+    if isinstance(auth_user, dict) and auth_user.get("id"):
+        try:
+            current = store.ensure_auth_user(
+                email=email,
+                display_name=(current or {}).get("display_name"),
+                provider="supabase",
+                subject=str(auth_user["id"]),
+                email_verified=bool(
+                    auth_user.get("email_confirmed_at") or auth_user.get("confirmed_at")
+                ),
+            )
+        except ControlError as exc:
+            raise _json_error(exc) from exc
+    else:
+        current = store.get_user_by_email(email)
+
     if not current:
         raise HTTPException(status_code=502, detail="authenticated account profile is unavailable")
 
-    auth_user = auth_result.get("user") if isinstance(auth_result, dict) else None
     if isinstance(auth_user, dict) and (
         auth_user.get("email_confirmed_at") or auth_user.get("confirmed_at")
     ) and not current.get("email_verified"):
@@ -472,13 +516,7 @@ async def login_secure(request: Request):
         return _create_2fa_challenge(request, current["id"])
 
     if not current["email_verified"]:
-        try:
-            sent = await supabase_resend_signup(
-                email=email,
-                redirect_to=f"{_origin(request)}/verify-email?verified=1",
-            )
-        except SupabaseAuthError:
-            sent = False
+        sent = await _send_verification(request, current)
         return _session_response(
             request,
             current["id"],
@@ -486,7 +524,7 @@ async def login_secure(request: Request):
                 "user": current,
                 "verification_required": True,
                 "verification_sent": sent,
-                "verification_mode": "supabase_link",
+                "verification_mode": "link_or_code",
                 "verification_context": "signin",
                 "next": "/verify-email",
             },
@@ -510,6 +548,7 @@ async def complete_2fa_login(request: Request):
     if not challenge or not value:
         raise HTTPException(status_code=401, detail="2FA challenge is missing or expired")
     if not _verify_second_factor(challenge["user_id"], value):
+        security.fail_login_challenge(challenge["id"])
         raise HTTPException(status_code=401, detail="invalid authenticator or recovery code")
     if not security.finish_login_challenge(challenge["id"]):
         raise HTTPException(status_code=401, detail="2FA challenge is no longer valid")
@@ -550,17 +589,8 @@ async def resend_verification(request: Request):
         raise HTTPException(status_code=404, detail="account not found")
     if current["email_verified"]:
         return {"ok": True, "already_verified": True}
-    try:
-        sent = await supabase_resend_signup(
-            email=current["email"],
-            redirect_to=f"{_origin(request)}/verify-email?verified=1",
-        )
-    except SupabaseAuthError as exc:
-        raise HTTPException(
-            status_code=429 if exc.status_code == 429 else 503,
-            detail={"code": exc.code, "message": str(exc)},
-        ) from exc
-    return {"ok": True, "sent": sent, "verification_mode": "supabase_link"}
+    sent = await _send_verification(request, current)
+    return {"ok": True, "sent": sent, "verification_mode": "link_or_code"}
 
 
 @router.post("/api/auth/email-verification/confirm")
@@ -570,14 +600,16 @@ async def confirm_verification_code(request: Request):
     code = "".join(ch for ch in str(body.get("code") or "") if ch.isdigit())
     if len(code) != 6:
         raise HTTPException(status_code=400, detail="enter the 6-digit verification code")
-    try:
-        await supabase_verify_signup_otp(email=user["email"], token=code)
-    except SupabaseAuthError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail={"code": exc.code, "message": "verification code is invalid or expired"},
-        ) from exc
-    security.set_email_verified(user["id"], True)
+    if not security.email_code_matches(user["id"], sha256_text(code)):
+        raise HTTPException(status_code=400, detail="verification code is invalid or expired")
+    auth_id = store.auth_user_id_for_legacy(user["id"])
+    if auth_id:
+        try:
+            await supabase_admin_update_user(auth_id, email_confirm=True)
+        except SupabaseAuthError as exc:
+            raise HTTPException(status_code=503, detail="verification could not be synchronized; retry") from exc
+    if not security.consume_email_code(user["id"], sha256_text(code)):
+        raise HTTPException(status_code=400, detail="verification code is invalid or expired")
     current = store.get_user(user["id"])
     if current:
         await _send_verified(current)
@@ -589,7 +621,7 @@ async def verify_email_link(token: str = ""):
     # Compatibility for verification links issued before the Supabase cutover.
     if not token:
         return RedirectResponse("/login?verify=missing", status_code=302)
-    row = security.consume_email_token(sha256_text(token))
+    row = security.email_token_user(sha256_text(token))
     if not row:
         return RedirectResponse("/login?verify=invalid_or_expired", status_code=302)
     current = store.get_user(row["user_id"])
@@ -600,6 +632,10 @@ async def verify_email_link(token: str = ""):
                 await supabase_admin_update_user(auth_id, email_confirm=True)
             except SupabaseAuthError:
                 return RedirectResponse("/verify-email?sync=failed", status_code=302)
+    row = security.consume_email_token(sha256_text(token))
+    if not row:
+        return RedirectResponse("/login?verify=invalid_or_expired", status_code=302)
+    if current:
         await _send_verified(current)
     return RedirectResponse("/verify-email?verified=1", status_code=302)
 
@@ -625,13 +661,23 @@ def two_factor_setup(request: Request):
     if not encryption_configured():
         raise HTTPException(status_code=503, detail="2FA encryption key is not configured")
     secret = generate_totp_secret()
-    security.put_pending_totp(user["id"], encrypt_secret(secret))
+    try:
+        encrypted_secret = encrypt_secret(secret)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "two_factor_unavailable",
+                "message": "two-factor authentication is not configured correctly",
+            },
+        ) from exc
+    security.put_pending_totp(user["id"], encrypted_secret)
     uri = provisioning_uri(secret, user["email"])
     return {
         "secret": secret,
         "otpauth_uri": uri,
         "qr_data_uri": _qr_data_uri(uri),
-        "issuer": "Internet Hands",
+        "issuer": "OpenCrawl",
         "account": user["email"],
         "message": "Add this account to your authenticator, then confirm with a 6-digit code.",
     }
@@ -645,7 +691,16 @@ async def two_factor_confirm(request: Request):
     record = security.totp_record(user["id"])
     if not record or not record.get("totp_secret_enc"):
         raise HTTPException(status_code=409, detail="start 2FA setup first")
-    secret = decrypt_secret(str(record["totp_secret_enc"]))
+    try:
+        secret = decrypt_secret(str(record["totp_secret_enc"]))
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "two_factor_unavailable",
+                "message": "two-factor setup cannot be verified; start setup again",
+            },
+        ) from exc
     counter = verify_totp(secret, code)
     if counter is None:
         raise HTTPException(status_code=400, detail="invalid authenticator code")
@@ -657,7 +712,7 @@ async def two_factor_confirm(request: Request):
         await _send_security_notice(
             current,
             "Two-factor authentication enabled",
-            "TOTP two-factor authentication was enabled on your Internet Hands account. Keep your recovery codes somewhere safe.",
+            "TOTP two-factor authentication was enabled on your OpenCrawl account. Keep your recovery codes somewhere safe.",
             "two_factor_enabled",
         )
     return {
@@ -681,7 +736,7 @@ async def two_factor_disable(request: Request):
         await _send_security_notice(
             current,
             "Two-factor authentication disabled",
-            "TOTP two-factor authentication was disabled on your Internet Hands account. If you did not do this, reset your password and revoke your API keys immediately.",
+            "TOTP two-factor authentication was disabled on your OpenCrawl account. If you did not do this, reset your password and revoke your API keys immediately.",
             "two_factor_disabled",
         )
     return {"ok": True, "enabled": False}
@@ -778,7 +833,11 @@ async def change_account_password(request: Request):
         except SupabaseAuthError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
     else:
-        legacy_user = legacy_store.get_user_by_email(user["email"]) if legacy_store else None
+        legacy_user = (
+            legacy_store.get_user_credentials_by_email(user["email"])
+            if legacy_store
+            else store.get_user_credentials_by_email(user["email"])
+        )
         if not legacy_user or not verify_password(current_password, legacy_user.get("password_hash")):
             raise HTTPException(status_code=401, detail="current password is incorrect")
         try:
@@ -795,7 +854,7 @@ async def change_account_password(request: Request):
     store.revoke_all_sessions(user["id"])
     await _send_security_notice(
         user,
-        "Your Internet Hands password changed",
+        "Your OpenCrawl password changed",
         "Your password was changed and all web sessions were signed out. If this was not you, reset your password immediately.",
         "password_changed",
     )
@@ -976,11 +1035,11 @@ async def password_reset_request_smtp(request: Request):
             user_id=user["id"],
             email=user["email"],
             event_type="password_reset",
-            subject="Reset your Internet Hands password",
-            text=f"Reset your Internet Hands password: {reset_url}\nThis link expires in 30 minutes.",
+            subject="Reset your OpenCrawl password",
+            text=f"Reset your OpenCrawl password: {reset_url}\nThis link expires in 30 minutes.",
             body_html=(
-                "<p style='color:#a8bbc5'>A password reset was requested for your Internet Hands account.</p>"
-                f"<p><a href='{html.escape(reset_url, quote=True)}' style='display:inline-block;padding:13px 18px;border-radius:10px;background:#73e5ef;color:#061014;text-decoration:none;font-weight:800'>Reset password</a></p>"
+                "<p style='color:#a8bbc5'>A password reset was requested for your OpenCrawl account.</p>"
+                f"<p><a href='{html.escape(reset_url, quote=True)}' style='display:inline-block;padding:13px 18px;border-radius:10px;background:#ef39df;color:#100915;text-decoration:none;font-weight:800'>Reset password</a></p>"
                 "<p style='color:#8aa0aa'>This link expires in 30 minutes. Ignore this message if you did not request it.</p>"
             ),
         )

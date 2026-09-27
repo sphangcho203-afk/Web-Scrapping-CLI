@@ -1,14 +1,14 @@
 # Acceptable Use Policy
 
-**Policy version:** 2026-09-20  
+**Policy version:** 2026-09-27
 **Effective date:** 20 September 2026  
-**Last updated:** 20 September 2026
+**Last updated:** 27 September 2026
 
-The boundary between legitimate internet automation and activity Internet Hands will not facilitate through the hosted Service.
+The boundary between legitimate internet automation and activity OpenCrawl will not facilitate through the hosted Service.
 
 ## 1. Core rule
 
-Use Internet Hands only for lawful, authorized purposes. Your instruction to an agent does not expand your rights to access a system, account, dataset, or service.
+Use OpenCrawl only for lawful, authorized purposes. Your instruction to an agent does not expand your rights to access a system, account, dataset, or service.
 
 ## 2. Unauthorized access and security abuse
 
@@ -40,7 +40,7 @@ Use Internet Hands only for lawful, authorized purposes. Your instruction to an 
 
 ## 6. Intellectual property and content rights
 
-Do not use Internet Hands to reproduce, distribute, or commercialize content in a way that knowingly infringes copyright, database rights, contractual restrictions, or other intellectual-property rights. Automated retrieval does not erase source ownership or licensing requirements.
+Do not use OpenCrawl to reproduce, distribute, or commercialize content in a way that knowingly infringes copyright, database rights, contractual restrictions, or other intellectual-property rights. Automated retrieval does not erase source ownership or licensing requirements.
 
 ## 7. Resource abuse
 

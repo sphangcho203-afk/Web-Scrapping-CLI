@@ -7,6 +7,7 @@ import json
 import os
 import secrets
 from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -23,9 +24,23 @@ from .auth import (
     verify_password,
     verify_pkce,
 )
-from .control_store import ControlError, ControlStore, random_token
+from .control_store import (
+    CUSTOM_TOPUP_MAX_USD_CENTS,
+    CUSTOM_TOPUP_MIN_USD_CENTS,
+    WALLET_UNITS_PER_USD,
+    ControlError,
+    ControlStore,
+    random_token,
+)
+from .mailer import mail_provider, resend_configured, smtp_configured
 from .policy import validate_public_http_url
-from .remote_mcp_provider import AUTH_TYPES, TRANSPORTS, parse_curl_connection
+from .remote_mcp_provider import (
+    AUTH_TYPES,
+    TRANSPORTS,
+    parse_curl_connection,
+    probe_saved_connection,
+)
+from .supabase_auth import configuration_status as supabase_auth_configuration_status
 
 router = APIRouter()
 store = ControlStore()
@@ -164,7 +179,7 @@ def oauth_authorize_page(
     signed_in = _session_user(request)
     account_hint = ""
     if signed_in:
-        account_hint = f"<div class='account'>Signed in as <strong>{html.escape(str(signed_in['email']))}</strong>. Paste or select an active Internet Hands API key to authorize this client.</div>"
+        account_hint = f"<div class='account'>Signed in as <strong>{html.escape(str(signed_in['email']))}</strong>. Paste or select an active OpenCrawl API key to authorize this client.</div>"
     fields = {
         "client_id": client_id,
         "redirect_uri": redirect_uri,
@@ -180,11 +195,11 @@ def oauth_authorize_page(
     )
     scopes = "".join(f"<li>{html.escape(item)}</li>" for item in _scope_list(scope))
     return f"""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-<title>Authorize Internet Hands</title><style>
-:root{{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui;background:#080b0f;color:#eef5f9}}*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at 20% 0%,#10262b 0,transparent 35%),#080b0f}}.card{{width:min(560px,92vw);padding:32px;border:1px solid #26343b;border-radius:24px;background:#0d1218;box-shadow:0 24px 80px #0008}}.brand{{display:flex;align-items:center;gap:12px;font-weight:800;letter-spacing:.04em}}.mark{{width:34px;height:34px;border-radius:10px;border:1px solid #48d7e8;display:grid;place-items:center;color:#70edf6}}h1{{font-size:26px;margin:26px 0 8px}}p,li{{color:#9db0bb;line-height:1.55}}.client{{padding:14px 16px;background:#101921;border:1px solid #263943;border-radius:14px;margin:20px 0}}input{{width:100%;padding:14px 15px;background:#070a0d;border:1px solid #30414a;border-radius:12px;color:#eef5f9;font:inherit;margin-top:8px}}button{{width:100%;margin-top:18px;padding:14px 16px;border:0;border-radius:12px;background:#73e5ef;color:#061014;font-weight:800;cursor:pointer}}.account{{padding:12px 14px;border-radius:12px;background:#0d1b1f;color:#a8c5cd;margin:14px 0}}small{{color:#718892}}ul{{padding-left:20px}}</style></head><body><main class='card'>
-<div class='brand'><div class='mark'>IH</div> INTERNET HANDS</div><h1>Authorize MCP connection</h1><p>A client is requesting access to your Internet Hands capability fabric.</p>
+<title>Authorize OpenCrawl</title><style>
+:root{{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui;background:#08070d;color:#eef5f9}}*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#08070d}}.card{{width:min(560px,92vw);padding:32px;border:1px solid #302536;border-radius:12px;background:#110e18;box-shadow:0 24px 80px #0008}}.brand{{display:flex;align-items:center;gap:10px;font-size:20px;font-weight:800;letter-spacing:-.05em}}.brand span{{color:#ef39df}}.mark{{width:42px;height:42px;object-fit:contain;image-rendering:pixelated;mix-blend-mode:screen}}h1{{font-size:26px;margin:26px 0 8px}}p,li{{color:#9db0bb;line-height:1.55}}.client{{padding:14px 16px;background:#17121e;border:1px solid #34273a;border-radius:8px;margin:20px 0}}input{{width:100%;padding:14px 15px;background:#08070d;border:1px solid #44334b;border-radius:8px;color:#eef5f9;font:inherit;margin-top:8px}}input:focus-visible,button:focus-visible{{outline:2px solid #ff6cf3;outline-offset:2px}}button{{width:100%;margin-top:18px;padding:14px 16px;border:0;border-radius:8px;background:#ef39df;color:#100915;font-weight:800;cursor:pointer}}.account{{padding:12px 14px;border-radius:8px;background:#17121e;color:#b9a9c1;margin:14px 0}}small{{color:#8d8096}}ul{{padding-left:20px}}</style></head><body><main class='card'>
+<div class='brand'><img class='mark' src='/assets/opencrawl-crab.png' alt=''>Open<span>Crawl</span></div><h1>Authorize MCP connection</h1><p>A client is requesting access to your OpenCrawl capability fabric.</p>
 <div class='client'><small>CLIENT ID</small><div>{html.escape(client_id)}</div><small>REDIRECT</small><div style='word-break:break-all'>{html.escape(redirect_uri)}</div></div>{account_hint}
-<p>Requested scopes:</p><ul>{scopes}</ul><form method='post'>{hidden}<label>Internet Hands API key<input required autocomplete='off' spellcheck='false' name='api_key' type='password' placeholder='ih_live_…'></label><button type='submit'>Allow connection</button></form><p><small>The raw API key is validated over HTTPS and is never stored by the OAuth session. The client receives a short-lived bearer token instead.</small></p></main></body></html>"""
+<p>Requested scopes:</p><ul>{scopes}</ul><form method='post'>{hidden}<label>OpenCrawl API key<input required autocomplete='off' spellcheck='false' name='api_key' type='password' placeholder='ih_live_…'></label><button type='submit'>Allow connection</button></form><p><small>The raw API key is validated over HTTPS and is never stored by the OAuth session. The client receives a short-lived bearer token instead.</small></p></main></body></html>"""
 
 
 @router.post("/oauth/authorize")
@@ -293,7 +308,17 @@ async def oauth_token(request: Request):
 @router.get("/api/public/plans")
 def public_plans():
     try:
-        return {"plans": store.list_plans(), "credit_packs": store.list_credit_packs()}
+        return {
+            "plans": store.list_plans(),
+            "credit_packs": store.list_credit_packs(),
+            "display_currency": "USD",
+            "wallet_units_per_usd": WALLET_UNITS_PER_USD,
+            "custom_topup": {
+                "currency": "USD",
+                "min_usd_cents": CUSTOM_TOPUP_MIN_USD_CENTS,
+                "max_usd_cents": CUSTOM_TOPUP_MAX_USD_CENTS,
+            },
+        }
     except ControlError as exc:
         raise _json_error(exc) from exc
 
@@ -327,7 +352,7 @@ async def login(request: Request):
     body = await request.json()
     email = str(body.get("email") or "").strip().lower()
     password = str(body.get("password") or "")
-    user = store.get_user_by_email(email)
+    user = store.get_user_credentials_by_email(email)
     if not user or not verify_password(password, user.get("password_hash")):
         raise HTTPException(status_code=401, detail={"code": "invalid_credentials", "message": "invalid email or password"})
     raw = random_token("ih_sess_")
@@ -536,6 +561,52 @@ async def create_connection_endpoint(request: Request):
     return {"connection": store.create_connection(user_id=user["id"], name=name, endpoint_url=endpoint_url, transport=transport, auth_type=auth_type, config=config, secret_config=secret_config)}
 
 
+@router.post("/api/connections/{connection_id}/test")
+async def test_connection_endpoint(connection_id: str, request: Request):
+    user = _require_verified(_require_user(request))
+    connection = store.get_connection_private(user["id"], connection_id)
+    if not connection:
+        raise HTTPException(status_code=404, detail="connection not found")
+    try:
+        result = await probe_saved_connection(connection)
+    except TimeoutError:
+        error = "MCP handshake timed out"
+        store.update_connection_check(
+            user["id"], connection_id, status="error", tool_count=0, error=error
+        )
+        return {"ok": False, "status": "error", "error": error, "tool_count": 0, "tools": []}
+    except Exception as exc:  # noqa: BLE001 - health probe must persist a bounded failure state
+        detail = str(exc).strip()
+        error = (detail if detail else exc.__class__.__name__)[:240]
+        store.update_connection_check(
+            user["id"], connection_id, status="error", tool_count=0, error=error
+        )
+        return {"ok": False, "status": "error", "error": error, "tool_count": 0, "tools": []}
+
+    tool_count = int(result.get("tool_count") or 0)
+    store.update_connection_check(
+        user["id"], connection_id, status="ok", tool_count=tool_count, error=None
+    )
+    return {
+        "ok": True,
+        "status": "ok",
+        "tool_count": tool_count,
+        "tools": result.get("tools") or [],
+        "source": result.get("source") or {},
+    }
+
+
+@router.patch("/api/connections/{connection_id}")
+async def update_connection_endpoint(connection_id: str, request: Request):
+    user = _require_verified(_require_user(request))
+    body = await request.json()
+    if "enabled" not in body or not isinstance(body["enabled"], bool):
+        raise HTTPException(status_code=400, detail="enabled boolean is required")
+    if not store.set_connection_enabled(user["id"], connection_id, body["enabled"]):
+        raise HTTPException(status_code=404, detail="connection not found")
+    return {"ok": True, "enabled": body["enabled"]}
+
+
 @router.delete("/api/connections/{connection_id}")
 def delete_connection_endpoint(connection_id: str, request: Request):
     user = _require_verified(_require_user(request))
@@ -608,6 +679,30 @@ async def toggle_monitor(request: Request, monitor_id: str):
     return {"ok": True, "enabled": enabled}
 
 
+def _parse_custom_topup_cents(value: Any) -> int:
+    try:
+        amount = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        raise ControlError("invalid_topup_amount", "enter a valid USD top-up amount", 400) from None
+    if not amount.is_finite() or amount <= 0:
+        raise ControlError("invalid_topup_amount", "enter a valid USD top-up amount", 400)
+    cents = amount * 100
+    if cents != cents.to_integral_value():
+        raise ControlError("invalid_topup_amount", "USD top-ups support at most two decimal places", 400)
+    value_cents = int(cents)
+    if value_cents < CUSTOM_TOPUP_MIN_USD_CENTS or value_cents > CUSTOM_TOPUP_MAX_USD_CENTS:
+        raise ControlError(
+            "topup_amount_out_of_range",
+            (
+                f"custom top-up must be between "
+                f"${CUSTOM_TOPUP_MIN_USD_CENTS / 100:.2f} and "
+                f"${CUSTOM_TOPUP_MAX_USD_CENTS / 100:.2f}"
+            ),
+            400,
+        )
+    return value_cents
+
+
 def _razorpay_config() -> tuple[str, str, str | None]:
     key_id = os.getenv("RAZORPAY_KEY_ID")
     key_secret = os.getenv("RAZORPAY_KEY_SECRET")
@@ -625,6 +720,13 @@ def billing_status(request: Request):
         "configured": bool(os.getenv("RAZORPAY_KEY_ID") and os.getenv("RAZORPAY_KEY_SECRET")),
         "webhook_configured": bool(os.getenv("RAZORPAY_WEBHOOK_SECRET")),
         "key_id": os.getenv("RAZORPAY_KEY_ID") if os.getenv("RAZORPAY_KEY_ID") else None,
+        "display_currency": "USD",
+        "wallet_units_per_usd": WALLET_UNITS_PER_USD,
+        "custom_topup": {
+            "currency": "USD",
+            "min_usd_cents": CUSTOM_TOPUP_MIN_USD_CENTS,
+            "max_usd_cents": CUSTOM_TOPUP_MAX_USD_CENTS,
+        },
     }
 
 
@@ -640,13 +742,33 @@ async def billing_create_order(request: Request):
     body = await request.json()
     purpose = str(body.get("purpose") or "credits")
     slug = str(body.get("slug") or "")
+    currency = "INR"
+    payment_metadata: dict[str, Any] = {}
     if purpose == "credits":
-        item = next((x for x in store.list_credit_packs() if x["slug"] == slug), None)
-        if not item:
-            raise HTTPException(status_code=404, detail="credit pack not found")
-        amount_paise = int(item["price_inr"]) * 100
         plan_slug = None
-        pack_slug = slug
+        if slug:
+            item = next((x for x in store.list_credit_packs() if x["slug"] == slug), None)
+            if not item:
+                raise HTTPException(status_code=404, detail="credit pack not found")
+            amount_paise = int(item["price_inr"]) * 100
+            pack_slug = slug
+            payment_metadata["topup_mode"] = "preset"
+        else:
+            try:
+                usd_cents = _parse_custom_topup_cents(body.get("amount_usd"))
+            except ControlError as exc:
+                raise _json_error(exc) from exc
+            amount_paise = usd_cents
+            currency = "USD"
+            pack_slug = None
+            payment_metadata.update(
+                {
+                    "topup_mode": "custom",
+                    "wallet_usd_cents": usd_cents,
+                    "wallet_units": usd_cents * WALLET_UNITS_PER_USD // 100,
+                    "wallet_units_per_usd": WALLET_UNITS_PER_USD,
+                }
+            )
     elif purpose == "subscription":
         item = next((x for x in store.list_plans() if x["slug"] == slug), None)
         if not item or int(item["monthly_price_inr"]) <= 0:
@@ -664,10 +786,24 @@ async def billing_create_order(request: Request):
     async with httpx.AsyncClient(timeout=20.0, auth=(key_id, key_secret)) as client:
         response = await client.post(
             "https://api.razorpay.com/v1/orders",
-            json={"amount": amount_paise, "currency": "INR", "receipt": receipt, "notes": {"ih_user_id": user["id"], "purpose": purpose, "slug": slug}},
+            json={
+                "amount": amount_paise,
+                "currency": currency,
+                "receipt": receipt,
+                "notes": {
+                    "ih_user_id": user["id"],
+                    "purpose": purpose,
+                    "slug": slug or "custom-usd",
+                },
+            },
         )
     if not response.is_success:
-        raise HTTPException(status_code=502, detail="Razorpay order creation failed")
+        detail = (
+            "Razorpay could not create this USD top-up. International payments may need to be enabled."
+            if currency == "USD"
+            else "Razorpay order creation failed"
+        )
+        raise HTTPException(status_code=502, detail=detail)
     order = response.json()
     row = store.create_payment(
         user_id=user["id"],
@@ -676,7 +812,8 @@ async def billing_create_order(request: Request):
         purpose=purpose,
         plan_slug=plan_slug,
         credit_pack_slug=pack_slug,
-        metadata={"receipt": receipt},
+        currency=currency,
+        metadata={"receipt": receipt, **payment_metadata},
     )
     return {"order": order, "payment": row, "key_id": key_id}
 
@@ -743,11 +880,31 @@ async def razorpay_webhook(request: Request):
 @router.get("/api/status")
 def public_status():
     return {
-        "service": "Internet Hands",
+        "service": "OpenCrawl",
         "control_database": store.configured,
+        "control_database_backend": (
+            "neon"
+            if (os.getenv("OPENCRAWL_PRIMARY_DATABASE") or "").strip().lower() == "neon"
+            else "supabase"
+        ),
         "mcp": "/mcp",
         "oauth": True,
         "billing": bool(os.getenv("RAZORPAY_KEY_ID") and os.getenv("RAZORPAY_KEY_SECRET")),
         "github_oauth": bool(os.getenv("GITHUB_CLIENT_ID") and os.getenv("GITHUB_CLIENT_SECRET")),
+        "connected_apps": {
+            "provider": "composio",
+            "configured": bool((os.getenv("COMPOSIO_API_KEY") or "").strip()),
+            "user_scoped": True,
+        },
+        "supabase_auth": supabase_auth_configuration_status(),
+        "mail": {
+            "provider": mail_provider(),
+            "configured": bool(mail_provider()),
+            "resend": resend_configured(),
+            "smtp": smtp_configured(),
+        },
+        "control_migration": {
+            "requested": bool((os.getenv("OPENCRAWL_CONTROL_MIGRATION_ID") or "").strip())
+        },
         "time": datetime.now(UTC).isoformat(),
     }

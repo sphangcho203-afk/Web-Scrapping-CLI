@@ -1,4 +1,4 @@
-/* Internet Hands unified browser runtime.
+/* OpenCrawl unified browser runtime.
  * Execution order intentionally preserves the former app -> product -> extended -> command stack
  * while shipping one browser asset. New work should edit this file directly instead of adding override scripts.
  */
@@ -11,6 +11,20 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = v => String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 const fmt = v => new Intl.NumberFormat('en-IN').format(Number(v || 0));
 const money = v => `₹${fmt(v)}`;
+const DEFAULT_WALLET_UNITS_PER_USD = 5000;
+const walletScale = source => {
+  const value = Number(source?.wallet_units_per_usd || state.plans?.wallet_units_per_usd || DEFAULT_WALLET_UNITS_PER_USD);
+  return Number.isFinite(value) && value > 0 ? value : DEFAULT_WALLET_UNITS_PER_USD;
+};
+const walletMoney = (units, source) => {
+  const value = Number(units || 0) / walletScale(source);
+  const digits = Math.abs(value) > 0 && Math.abs(value) < 0.01 ? 4 : 2;
+  return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',minimumFractionDigits:digits,maximumFractionDigits:4}).format(value);
+};
+const paymentMoney = (minor, currency='INR') => {
+  const code=String(currency||'INR').toUpperCase();
+  return new Intl.NumberFormat(code==='INR'?'en-IN':'en-US',{style:'currency',currency:code}).format(Number(minor||0)/100);
+};
 const when = v => v ? new Date(v).toLocaleString() : 'Never';
 
 const paths = {
@@ -151,7 +165,7 @@ function go(path, replace = false) {
   history[replace ? 'replaceState' : 'pushState']({}, '', path);
   return renderRoute();
 }
-function brand() { return `<a class="brand" data-link href="/" aria-label="Internet Hands home"><img src="/assets/mark.svg" width="38" height="38" alt=""><span>INTERNET <b>HANDS</b></span></a>`; }
+function brand() { return `<a class="brand oc-brand" data-link href="/" aria-label="OpenCrawl home"><img class="oc-brand-mark" src="/assets/opencrawl-crab.png" width="44" height="44" alt=""><span class="oc-wordmark"><b>Open<span>Crawl</span></b><small>PUBLIC WEB ENGINE</small></span></a>`; }
 function bindCommon() {
   $$('[data-copy]').forEach(b => b.onclick = () => copyText(b.dataset.copy, b));
   const navToggle = $('[data-nav-toggle]');
@@ -176,60 +190,75 @@ function publicShell(content) {
   const mobileActions=authenticated
     ? '<a data-link href="/dashboard">Back to dashboard</a>'
     : '<a data-link href="/login">Sign in</a><a data-link href="/signup">Create account</a>';
-  app.innerHTML = `<header class="site-header"><nav class="site-nav container">${brand()}<div class="nav-links"><a data-link href="/docs">Docs</a><a data-link href="/pricing">Pricing</a><a data-link href="/status">Status</a><a href="https://github.com/sphangcho203-afk/Web-Scrapping-CLI" target="_blank" rel="noreferrer">GitHub</a></div><div class="nav-actions">${desktopActions}</div><button class="icon-btn nav-toggle" data-nav-toggle aria-label="Open navigation">${icon('menu')}</button></nav><div class="mobile-menu" data-mobile-menu><a data-link href="/docs">Documentation</a><a data-link href="/pricing">Pricing</a><a data-link href="/status">Status</a>${mobileActions}</div></header>${content}<footer class="footer"><div class="container footer-grid"><div>${brand()}<p>Infrastructure for agents that need the live internet.</p></div><div><b>Product</b><a data-link href="/docs/mcp">MCP gateway</a><a data-link href="/docs/monitoring">Monitoring</a><a data-link href="/pricing">Pricing</a></div><div><b>Resources</b><a data-link href="/docs/quickstart">Quickstart</a><a data-link href="/status">Status</a></div><div>© ${new Date().getFullYear()} Internet Hands<br>Explicit. Scoped. Auditable.</div></div></footer>`;
+  app.innerHTML = `<header class="site-header"><nav class="site-nav container">${brand()}<div class="nav-links"><a data-link href="/docs">Docs</a><a data-link href="/pricing">Pricing</a><a data-link href="/status">Status</a><a href="https://github.com/sphangcho203-afk/Web-Scrapping-CLI" target="_blank" rel="noreferrer">GitHub</a></div><div class="nav-actions">${desktopActions}</div><button class="icon-btn nav-toggle" data-nav-toggle aria-label="Open navigation">${icon('menu')}</button></nav><div class="mobile-menu" data-mobile-menu><a data-link href="/docs">Documentation</a><a data-link href="/pricing">Pricing</a><a data-link href="/status">Status</a>${mobileActions}</div></header>${content}<footer class="footer"><div class="container footer-grid"><div>${brand()}<p>Infrastructure for agents that need the live internet.</p></div><div><b>Product</b><a data-link href="/docs/mcp">MCP gateway</a><a data-link href="/docs/monitoring">Monitoring</a><a data-link href="/pricing">Pricing</a></div><div><b>Resources</b><a data-link href="/docs/quickstart">Quickstart</a><a data-link href="/status">Status</a></div><div>© ${new Date().getFullYear()} OpenCrawl<br>Explicit. Scoped. Auditable.</div></div></footer>`;
   bindCommon();
 }
-async function getPlans() { if (state.plans) return state.plans; try { state.plans = await api('/api/public/plans'); } catch { state.plans = {plans:[],credit_packs:[]}; } return state.plans; }
+async function getPlans() { if (state.plans) return state.plans; try { state.plans = await api('/api/public/plans'); } catch { state.plans = {plans:[],credit_packs:[],wallet_units_per_usd:DEFAULT_WALLET_UNITS_PER_USD}; } return state.plans; }
 
-function gatewayVisual() { return `<div class="gateway-visual"><span class="visual-label">ROUTING FABRIC</span><div class="agent-node"><i></i>AGENT</div><div class="route a"></div><div class="core-node"><img src="/assets/mark.svg" width="52" height="52" alt=""><b>INTERNET HANDS</b><small>Policy · route · meter</small></div><div class="route b"></div><div class="mesh-nodes"><span>Browser</span><span>Web data</span><span>APIs</span><span>Remote MCP</span><span>Monitors</span><span>Sandbox</span></div></div>`; }
+function gatewayVisual() { return `<div class="gateway-visual"><span class="visual-label">ROUTING FABRIC</span><div class="agent-node"><i></i>AGENT</div><div class="route a"></div><div class="core-node"><img src="/assets/opencrawl-crab.png" width="52" height="52" alt=""><b>OPENCRAWL</b><small>Policy · route · meter</small></div><div class="route b"></div><div class="mesh-nodes"><span>Browser</span><span>Web data</span><span>APIs</span><span>Remote MCP</span><span>Monitors</span><span>Sandbox</span></div></div>`; }
 function feature(kicker, title, body) { return `<article class="feature-card"><span>${kicker}</span><h3>${title}</h3><p>${body}</p><a data-link href="/docs/capabilities">Explore ${icon('arrow')}</a></article>`; }
 function integrationTiles() { return `<div class="integration-grid">${[['OpenAI','ChatGPT clients','OAuth MCP'],['Anthropic','Claude clients','OAuth MCP'],['xAI','Grok workflows','API key'],['Hermes','Self-hosted agents','MCP'],['Generic MCP','Streamable HTTP','OAuth / key'],['REST API','Scripts and CI','Bearer key']].map(x => `<article><b>${x[0]}</b><p>${x[1]}</p><span>${x[2]}</span></article>`).join('')}</div>`; }
 function planCards(plans) {
   if (!plans.length) return '<div class="notice">Plan data is temporarily unavailable.</div>';
-  return `<div class="pricing-grid">${plans.map(p => `<article class="plan-card ${p.slug === 'pro' ? 'featured' : ''}">${p.slug === 'pro' ? '<span class="plan-flag">MOST CAPABLE</span>' : ''}<span class="plan-name">${esc(p.name)}</span><div class="plan-price">${money(p.monthly_price_inr)}<small>/month</small></div><p>${fmt(p.included_credits)} monthly credits</p><ul><li>${icon('check')} ${fmt(p.rpm_limit)} requests / minute</li><li>${icon('check')} ${fmt(p.api_key_limit)} API keys</li><li>${icon('check')} ${fmt(p.monitor_limit)} monitors</li><li>${icon('check')} ${p.browser_enabled ? 'Browser access' : 'Public data tools'}</li><li>${icon('check')} ${p.sandbox_enabled ? 'Sandbox execution' : 'Core execution'}</li></ul><a class="btn ${p.slug === 'pro' ? 'primary' : ''}" data-link href="/signup${p.slug === 'free' ? '' : `?plan=${p.slug}`}">${p.slug === 'free' ? 'Start free' : `Choose ${esc(p.name)}`}</a></article>`).join('')}</div>`;
+  return `<div class="pricing-grid">${plans.map(p => `<article class="plan-card ${p.slug === 'pro' ? 'featured' : ''}">${p.slug === 'pro' ? '<span class="plan-flag">MOST CAPABLE</span>' : ''}<span class="plan-name">${esc(p.name)}</span><div class="plan-price">${money(p.monthly_price_inr)}<small>/month</small></div><p>${walletMoney(p.included_credits)} monthly wallet</p><ul><li>${icon('check')} ${fmt(p.rpm_limit)} requests / minute</li><li>${icon('check')} ${fmt(p.api_key_limit)} API keys</li><li>${icon('check')} ${fmt(p.monitor_limit)} monitors</li><li>${icon('check')} ${p.browser_enabled ? 'Browser access' : 'Public data tools'}</li><li>${icon('check')} ${p.sandbox_enabled ? 'Sandbox execution' : 'Core execution'}</li></ul><a class="btn ${p.slug === 'pro' ? 'primary' : ''}" data-link href="/signup${p.slug === 'free' ? '' : `?plan=${p.slug}`}">${p.slug === 'free' ? 'Start free' : `Choose ${esc(p.name)}`}</a></article>`).join('')}</div>`;
 }
 async function renderHome() {
   const plans = await getPlans();
-  publicShell(`<main><section class="hero"><div class="container hero-grid"><div class="hero-copy"><span class="eyebrow"><i></i>MCP GATEWAY · CONTROL PLANE · LIVE</span><h1>Give your agent <em>hands</em> on the internet.</h1><p>One authenticated gateway for live web intelligence, browser computers, public APIs, remote MCPs, monitoring and structured evidence—without drowning the model in schemas.</p><div class="hero-actions"><a class="btn primary large" data-link href="/signup">Start building ${icon('arrow')}</a><a class="btn large" data-link href="/docs/quickstart">Read quickstart</a></div><div class="trust-row"><span>${icon('shield')} Scoped access</span><span>Request metering</span><span>One stable endpoint</span></div></div>${gatewayVisual()}</div></section><div class="cap-strip"><div class="container"><span>SEARCH</span><span>SCRAPE</span><span>BROWSE</span><span>EXTRACT</span><span>MONITOR</span><span>EXECUTE</span><span>PROVE</span></div></div><section class="section"><div class="container"><header class="section-heading"><div><span class="eyebrow">ONE ENDPOINT, MANY CAPABILITIES</span><h2>A small interface to a large internet.</h2></div><p>Agents discover only what they need. Policy, credentials, metering and provider routing remain behind the boundary.</p></header><div class="feature-grid">${feature('01 / COLLECT','Web intelligence','Search, fetch, crawl and extract structured evidence with provenance.')}${feature('02 / OPERATE','Cloud computers','Persistent browsers, terminal jobs, files and isolated execution.')}${feature('03 / ROUTE','Tool mesh','Normalize OpenAPI catalogs, connected apps and remote MCP servers.')}${feature('04 / UNDERSTAND','Gaming intelligence','Resolve public profiles, rank, recent form and progression.')}${feature('05 / OBSERVE','Monitoring','Watch webpages, APIs, MCP endpoints and supported identities.')}${feature('06 / GOVERN','Control plane','Scoped keys, credits, request IDs, limits and usage ledgers.')}</div></div></section><section class="section shaded"><div class="container"><header class="section-heading"><div><span class="eyebrow">AGENT INTEGRATIONS</span><h2>Connect the client you already use.</h2></div><p>Interactive clients use OAuth and explicit consent. Servers use scoped API keys.</p></header>${integrationTiles()}</div></section><section class="section"><div class="container split"><div><span class="eyebrow">FAST PATH</span><h2>Connect once. Discover at runtime.</h2><p class="lead">The canonical URL stays fixed while the capability fabric evolves.</p><ol class="steps"><li><b>01</b><span><strong>Create and verify</strong>Identity is confirmed before privileged access.</span></li><li><b>02</b><span><strong>Connect securely</strong>Choose OAuth consent or a scoped server key.</span></li><li><b>03</b><span><strong>Route and execute</strong>Load only the context needed for the task.</span></li></ol></div>${codeBlock(`${location.origin}/mcp\n\nAuthorization: Bearer ih_live_…\n\nmesh_route("what I need")\nmesh_describe(tool_ref)\nmesh_execute(tool_ref, input)`, 'MCP / Streamable HTTP')}</div></section><section class="security-band"><div class="container split"><div><span class="eyebrow">SECURITY BOUNDARY</span><h2>Capability without credential sprawl.</h2><p>Secrets stay server-side. Verified identity gates privileged actions; optional TOTP protects sign-in.</p><a data-link href="/docs/security">Read the security model ${icon('arrow')}</a></div><div class="security-list"><span>${icon('check')} OAuth code + PKCE</span><span>${icon('check')} One-use recovery codes</span><span>${icon('check')} Captured-payment verification</span><span>${icon('check')} Request IDs and ledgers</span></div></div></section><section class="section"><div class="container"><header class="section-heading"><div><span class="eyebrow">PLANS</span><h2>Pay for useful work.</h2></div><a data-link href="/pricing">Compare every limit ${icon('arrow')}</a></header>${planCards(plans.plans.slice(0,3))}</div></section><section class="final-cta"><div class="container"><span class="eyebrow">INTERNET HANDS</span><h2>Build the agent that can actually reach things.</h2><p>Start with one verified account, one key and one successful request.</p><a class="btn primary large" data-link href="/signup">Open the console ${icon('arrow')}</a></div></section></main>`);
+  publicShell(`<main><section class="hero"><div class="container hero-grid"><div class="hero-copy"><span class="eyebrow"><i></i>MCP GATEWAY · CONTROL PLANE · LIVE</span><h1>Give your agent <em>hands</em> on the internet.</h1><p>One authenticated gateway for live web intelligence, browser computers, public APIs, remote MCPs, monitoring and structured evidence—without drowning the model in schemas.</p><div class="hero-actions"><a class="btn primary large" data-link href="/signup">Start building ${icon('arrow')}</a><a class="btn large" data-link href="/docs/quickstart">Read quickstart</a></div><div class="trust-row"><span>${icon('shield')} Scoped access</span><span>Request metering</span><span>One stable endpoint</span></div></div>${gatewayVisual()}</div></section><div class="cap-strip"><div class="container"><span>SEARCH</span><span>SCRAPE</span><span>BROWSE</span><span>EXTRACT</span><span>MONITOR</span><span>EXECUTE</span><span>PROVE</span></div></div><section class="section"><div class="container"><header class="section-heading"><div><span class="eyebrow">ONE ENDPOINT, MANY CAPABILITIES</span><h2>A small interface to a large internet.</h2></div><p>Agents discover only what they need. Policy, credentials, metering and provider routing remain behind the boundary.</p></header><div class="feature-grid">${feature('01 / COLLECT','Web intelligence','Search, fetch, crawl and extract structured evidence with provenance.')}${feature('02 / OPERATE','Cloud computers','Persistent browsers, terminal jobs, files and isolated execution.')}${feature('03 / ROUTE','Tool mesh','Normalize OpenAPI catalogs, connected apps and remote MCP servers.')}${feature('04 / UNDERSTAND','Gaming intelligence','Resolve public profiles, rank, recent form and progression.')}${feature('05 / OBSERVE','Monitoring','Watch webpages, APIs, MCP endpoints and supported identities.')}${feature('06 / GOVERN','Control plane','Scoped keys, wallet spend, request IDs, limits and usage ledgers.')}</div></div></section><section class="section shaded"><div class="container"><header class="section-heading"><div><span class="eyebrow">AGENT INTEGRATIONS</span><h2>Connect the client you already use.</h2></div><p>Interactive clients use OAuth and explicit consent. Servers use scoped API keys.</p></header>${integrationTiles()}</div></section><section class="section"><div class="container split"><div><span class="eyebrow">FAST PATH</span><h2>Connect once. Discover at runtime.</h2><p class="lead">The canonical URL stays fixed while the capability fabric evolves.</p><ol class="steps"><li><b>01</b><span><strong>Create and verify</strong>Identity is confirmed before privileged access.</span></li><li><b>02</b><span><strong>Connect securely</strong>Choose OAuth consent or a scoped server key.</span></li><li><b>03</b><span><strong>Route and execute</strong>Load only the context needed for the task.</span></li></ol></div>${codeBlock(`${location.origin}/mcp\n\nAuthorization: Bearer ih_live_…\n\nmesh_route("what I need")\nmesh_describe(tool_ref)\nmesh_execute(tool_ref, input)`, 'MCP / Streamable HTTP')}</div></section><section class="security-band"><div class="container split"><div><span class="eyebrow">SECURITY BOUNDARY</span><h2>Capability without credential sprawl.</h2><p>Secrets stay server-side. Verified identity gates privileged actions; optional TOTP protects sign-in.</p><a data-link href="/docs/security">Read the security model ${icon('arrow')}</a></div><div class="security-list"><span>${icon('check')} OAuth code + PKCE</span><span>${icon('check')} One-use recovery codes</span><span>${icon('check')} Captured-payment verification</span><span>${icon('check')} Request IDs and ledgers</span></div></div></section><section class="section"><div class="container"><header class="section-heading"><div><span class="eyebrow">PLANS</span><h2>Pay for useful work.</h2></div><a data-link href="/pricing">Compare every limit ${icon('arrow')}</a></header>${planCards(plans.plans.slice(0,3))}</div></section><section class="final-cta"><div class="container"><span class="eyebrow">OPENCRAWL</span><h2>Build the agent that can actually reach things.</h2><p>Start with one verified account, one key and one successful request.</p><a class="btn primary large" data-link href="/signup">Open the console ${icon('arrow')}</a></div></section></main>`);
 }
 async function renderPricing() {
   const plans = await getPlans();
-  publicShell(`<main class="page"><section class="page-hero container"><span class="eyebrow">PRICING</span><h1>Infrastructure pricing without mystery.</h1><p>Monthly credits refresh. Purchased credits roll over. Resource-intensive jobs reserve a visible work budget.</p></section><section class="container">${planCards(plans.plans)}<article class="card comparison"><header><span class="overline">CREDIT MODEL</span><h2>What work costs</h2></header><div class="table-wrap"><table><thead><tr><th>Capability</th><th>Typical base</th><th>Notes</th></tr></thead><tbody><tr><td>Discovery and health</td><td>1 credit</td><td>Metadata and schemas</td></tr><tr><td>Browser or sandbox</td><td>Quoted by runtime</td><td>Bounded by the requested duration</td></tr><tr><td>Live web search</td><td>Quoted per route</td><td>Work limit shown before execution</td></tr><tr><td>Fetch or scrape</td><td>Quoted per target</td><td>Rendering and extraction consume more capacity</td></tr><tr><td>Crawl</td><td>Quoted per page limit</td><td>Up to 20 pages per job</td></tr></tbody></table></div></article><div class="faq-grid"><article><h3>Do credits expire?</h3><p>Monthly credits refresh. Purchased credits remain until used.</p></article><article><h3>When does access change?</h3><p>Only after a captured payment matches the server-created order.</p></article><article><h3>Can I start free?</h3><p>Yes. Verification unlocks the Free plan control plane.</p></article></div></section></main>`);
+  publicShell(`<main class="page"><section class="page-hero container"><span class="eyebrow">PRICING</span><h1>Infrastructure pricing without mystery.</h1><p>Monthly wallet balance refreshes. Purchased wallet balance rolls over. Resource-intensive jobs reserve a visible work budget.</p></section><section class="container">${planCards(plans.plans)}<article class="card comparison"><header><span class="overline">CREDIT MODEL</span><h2>What work costs</h2></header><div class="table-wrap"><table><thead><tr><th>Capability</th><th>Typical base</th><th>Notes</th></tr></thead><tbody><tr><td>Discovery and health</td><td>1 credit</td><td>Metadata and schemas</td></tr><tr><td>Browser or sandbox</td><td>Quoted by runtime</td><td>Bounded by the requested duration</td></tr><tr><td>Live web search</td><td>Quoted per route</td><td>Work limit shown before execution</td></tr><tr><td>Fetch or scrape</td><td>Quoted per target</td><td>Rendering and extraction consume more capacity</td></tr><tr><td>Crawl</td><td>Quoted per page limit</td><td>Up to 20 pages per job</td></tr></tbody></table></div></article><div class="faq-grid"><article><h3>Do credits expire?</h3><p>Monthly credits refresh. Purchased credits remain until used.</p></article><article><h3>When does access change?</h3><p>Only after a captured payment matches the server-created order.</p></article><article><h3>Can I start free?</h3><p>Yes. Verification unlocks the Free plan control plane.</p></article></div></section></main>`);
 }
 async function renderStatus() {
   let s = null; try { s = await api('/api/status'); } catch {}
-  const rows = [['MCP route',!!s?.mcp,'/mcp'],['Control database',!!s?.control_database,'Accounts and usage'],['OAuth authorization',!!s?.oauth,'PKCE'],['Billing',!!s?.billing,'Razorpay'],['GitHub sign-in',!!s?.github_oauth,'OAuth']];
+  const rows = [['MCP route',!!s?.mcp,'/mcp'],['Control database',!!s?.control_database,'Accounts and usage'],['Identity service',!!s?.supabase_auth?.configured,s?.supabase_auth?.configured?'Supabase Auth ready':'Supabase Auth configuration invalid'],['OAuth authorization',!!s?.oauth,'PKCE'],['Billing',!!s?.billing,'Razorpay'],['GitHub sign-in',!!s?.github_oauth,'OAuth']];
   publicShell(`<main class="page"><section class="page-hero container"><span class="eyebrow">SYSTEM STATUS</span><h1>Configuration state, without exposing secrets.</h1><p>This endpoint reports configuration and reachability. It does not verify individual providers.</p></section><section class="container"><div class="card status-panel"><div class="status-summary ${s?'':'is-unavailable'}"><i></i><span><b>${s?'Status endpoint responding':'Status endpoint unavailable'}</b><small>Checked ${new Date().toLocaleTimeString()}</small></span></div>${rows.map(x => `<div class="status-row"><span><b>${x[0]}</b><small>${x[2]}</small></span><em class="badge ${s&&x[1] ? 'success' : 'warning'}">${s?(x[1] ? (x[0]==='MCP route'?'Advertised':'Configured') : 'Not configured'):'Unknown'}</em></div>`).join('')}</div></section></main>`);
 }
 
-const docs = {
-  introduction:['Introduction','Get started',`<p>Internet Hands gives agents a compact authenticated interface to internet-facing capabilities. The MCP URL is stable while providers evolve behind it.</p><h2 id="model">Operating model</h2><p>Route intent, inspect the selected tool, execute, then retain request IDs and provenance.</p>${codeBlock('mesh_route("research a public company")\nmesh_describe("selected.tool")\nmesh_execute("selected.tool", {...})','Agent pattern')}`],
-  concepts:['Core concepts','Get started','<h2 id="gateway">Gateway</h2><p>The gateway authenticates, meters and routes calls without loading every provider schema.</p><h2 id="credits">Credits</h2><p>Monthly and purchased credits are separate wallet buckets.</p><h2 id="provenance">Provenance</h2><p>Collection retains source, timing and request identifiers.</p>'],
-  quickstart:['Quickstart','Get started',`<p>Your first request takes four steps: create an account, verify the email, create a scoped key, then connect a client.</p>${codeBlock(`${location.origin}/mcp\nAuthorization: Bearer ih_live_…`,'Connection')}`],
-  account:['Account & verification','Get started','<p>Email signup enters a pending state. Privileged actions stay blocked until a link or six-digit code is accepted.</p><div class="callout">Codes expire after 15 minutes. Resends are rate-limited and replace the prior challenge.</div><h2 id="github">GitHub</h2><p>New GitHub-created Internet Hands accounts still complete product verification.</p>'],
-  keys:['API keys','Get started',`${codeBlock('Authorization: Bearer ih_live_…\n# or\nX-API-Key: ih_live_…','HTTP auth')}<p>Raw keys appear once. Only hashes persist. Use one key per integration for clean revocation.</p>`],
-  mcp:['MCP overview','MCP',`${codeBlock(`${location.origin}/mcp`,'Streamable HTTP')}<h2 id="flow">Recommended flow</h2><p>Call <code>mesh_route</code>, inspect one schema if needed, then execute.</p>`],
-  oauth:['OAuth MCP','MCP',`${codeBlock('GET /.well-known/oauth-protected-resource\nGET /.well-known/oauth-authorization-server','Discovery')}<p>Interactive clients use authorization code with PKCE S256, explicit scopes and short-lived tokens.</p>`],
-  clients:['Client guides','MCP','<h2 id="openai">OpenAI / ChatGPT</h2><p>Add the public remote MCP URL and complete browser authorization.</p><h2 id="claude">Claude</h2><p>Use Streamable HTTP and finish authorization in the browser.</p><h2 id="grok">Grok</h2><p>Use a server-held scoped key when interactive OAuth is unavailable.</p><h2 id="hermes">Hermes</h2><p>Register the endpoint as a remote MCP server and keep credentials outside prompts.</p>'],
-  capabilities:['Capabilities','Platform','<h2 id="web">Web intelligence</h2><p>Search, fetch, extract, map and bounded crawl paths preserve provenance.</p><h2 id="browser">Browser & sandbox</h2><p>Guarded browser and isolated execution handle dynamic targets.</p><h2 id="mesh">Tool mesh</h2><p>Remote MCP, OpenAPI and provider catalogs become discoverable references.</p><h2 id="gaming">Gaming</h2><p>Supported public identity paths resolve profile and progression.</p>'],
-  monitoring:['Monitoring','Control plane','<p>Monitors watch webpages, APIs, MCP endpoints and supported public identities.</p><h2 id="templates">Templates</h2><ul><li>Uptime and HTTP status</li><li>Latency threshold</li><li>JSON field value</li><li>Content change</li></ul>'],
-  usage:['Usage','Control plane','<p>Each metered call records request ID, tool, provider, status, credit charge and latency.</p><h2 id="debug">Debugging</h2><p>Start with the request ID; it is the correlation key across the gateway and ledger.</p>'],
-  billing:['Billing','Control plane','<p>Orders are priced server-side. Entitlements activate only after signature validation and a captured payment matching order, amount and currency.</p><div class="callout">Repeated webhooks are idempotent and cannot double-credit a wallet.</div>'],
-  security:['Security','Security','<h2 id="verification">Verification</h2><p>Privileged mutations require verified identity.</p><h2 id="two-factor">Two-factor</h2><p>TOTP secrets are encrypted; replay is rejected; recovery codes are hashed and one-use.</p><h2 id="sessions">Sessions</h2><p>HTTP-only sessions are revoked on password reset or change.</p>'],
-  errors:['Errors & limits','Reference','<div class="table-wrap"><table><thead><tr><th>Code</th><th>Meaning</th></tr></thead><tbody><tr><td><code>invalid_api_key</code></td><td>Invalid or revoked</td></tr><tr><td><code>email_verification_required</code></td><td>Identity gate</td></tr><tr><td><code>insufficient_credits</code></td><td>Wallet cannot fund work</td></tr><tr><td><code>rate_limited</code></td><td>Plan limit reached</td></tr><tr><td><code>scope_denied</code></td><td>Scope missing</td></tr></tbody></table></div>'],
-  troubleshooting:['Troubleshooting','Reference','<h2 id="401">MCP returns 401</h2><p>Follow protected-resource metadata or send an active Bearer key.</p><h2 id="email">Email did not arrive</h2><p>Check the address, wait for cooldown, then request a new challenge.</p><h2 id="config">Config clips</h2><p>Use the copy control. Code scrolls internally and never widens the page.</p>'],
+const docs = window.OPENCRAWL_DOCS || {
+  introduction:[
+    'Documentation unavailable',
+    'System',
+    '<p class="doc-lead">The OpenCrawl documentation bundle did not load. Reload this page; if the problem persists, check system status rather than relying on stale cached setup instructions.</p><h2 id="status">Why this fails closed</h2><p>Client, authentication and provider setup changes over time. OpenCrawl intentionally does not ship an old duplicate documentation set inside the application runtime.</p><p><a data-link href="/status">Open system status</a></p>'
+  ]
 };
+function docSearchText(value='') {
+  const node=document.createElement('div');node.innerHTML=String(value);return (node.textContent||'').replace(/\s+/g,' ').trim().toLowerCase();
+}
 function docsNav(active) {
-  return [...new Set(Object.values(docs).map(x => x[1]))].map(group => `<div class="docs-group"><span>${group}</span>${Object.entries(docs).filter(([,x]) => x[1] === group).map(([slug,x]) => `<a class="${slug === active ? 'active' : ''}" data-link href="/docs/${slug}">${x[0]}</a>`).join('')}</div>`).join('');
+  return [...new Set(Object.values(docs).map(x => x[1]))].map(group => `<div class="docs-group"><span>${group}</span>${Object.entries(docs).filter(([,x]) => x[1] === group).map(([slug,x]) => `<a class="${slug === active ? 'active' : ''}" data-doc-search="${esc(`${x[0]} ${x[1]} ${docSearchText(x[2])}`)}" data-link href="/docs/${slug}">${x[0]}</a>`).join('')}</div>`).join('');
 }
 function renderDocs() {
-  const slug = location.pathname.split('/')[2] || 'introduction'; const d = docs[slug] || docs.introduction; const keys = Object.keys(docs); const i = keys.indexOf(slug); const prev = i > 0 ? keys[i-1] : null; const next = i >= 0 && i < keys.length-1 ? keys[i+1] : null;
-  app.innerHTML = `<div class="docs-layout"><header class="docs-top">${brand()}<button class="btn small" data-docs-toggle>${icon('menu')} Sections</button><a class="btn primary small" data-link href="${state.me?.user?.email_verified?'/dashboard':'/signup'}">${state.me?.user?.email_verified?'Back to dashboard':'Open console'}</a></header><aside class="docs-sidebar" data-docs-sidebar><label>Search docs<input id="docs-search" placeholder="Filter sections…"></label>${docsNav(slug)}</aside><article class="docs-article"><div class="breadcrumb">Docs / ${d[1]}</div><h1>${d[0]}</h1>${d[2]}<nav class="docs-pager">${prev ? `<a data-link href="/docs/${prev}"><small>Previous</small>${docs[prev][0]}</a>` : '<span></span>'}${next ? `<a data-link href="/docs/${next}"><small>Next</small>${docs[next][0]}</a>` : ''}</nav></article><aside class="docs-toc"><b>On this page</b>${[...d[2].matchAll(/<h2 id="([^"]+)">([^<]+)<\/h2>/g)].map(m => `<a href="#${m[1]}">${m[2]}</a>`).join('')}</aside></div>`;
-  bindCommon(); $('[data-docs-toggle]').onclick = () => $('[data-docs-sidebar]').classList.toggle('open'); $('#docs-search').oninput = e => $$('.docs-group a').forEach(a => a.hidden = !a.textContent.toLowerCase().includes(e.target.value.toLowerCase()));
+  const slug = location.pathname.split('/')[2] || 'introduction';
+  const d = docs[slug] || docs.introduction;
+  const body = String(d[2]||'').replaceAll('{{ORIGIN}}',location.origin);
+  const keys = Object.keys(docs);
+  const actualSlug = docs[slug] ? slug : 'introduction';
+  const i = keys.indexOf(actualSlug);
+  const prev = i > 0 ? keys[i-1] : null;
+  const next = i >= 0 && i < keys.length-1 ? keys[i+1] : null;
+  document.title = `${d[0]} — OpenCrawl Docs`;
+  const toc=[...body.matchAll(/<h2 id="([^"]+)">([^<]+)<\/h2>/g)].map(m => `<a href="#${m[1]}">${m[2]}</a>`).join('');
+  app.innerHTML = `<div class="docs-layout"><header class="docs-top">${brand()}<button class="btn small" data-docs-toggle>${icon('menu')} Sections</button><a class="btn primary small" data-link href="${state.me?.user?.email_verified?'/dashboard':'/signup'}">${state.me?.user?.email_verified?'Back to dashboard':'Open console'}</a></header><aside class="docs-sidebar" data-docs-sidebar><label>Search documentation<input id="docs-search" placeholder="MCP, OAuth, 2FA, wallet…"></label><div class="docs-search-empty" hidden>No matching documentation pages.</div>${docsNav(actualSlug)}</aside><article class="docs-article"><div class="breadcrumb">Docs / ${d[1]}</div><h1>${d[0]}</h1>${body}<nav class="docs-pager">${prev ? `<a data-link href="/docs/${prev}"><small>Previous</small>${docs[prev][0]}</a>` : '<span></span>'}${next ? `<a data-link href="/docs/${next}"><small>Next</small>${docs[next][0]}</a>` : ''}</nav></article><aside class="docs-toc"><b>On this page</b>${toc||'<span>Overview</span>'}</aside></div>`;
+  bindCommon();
+  $('[data-docs-toggle]').onclick = () => $('[data-docs-sidebar]').classList.toggle('open');
+  $('#docs-search').oninput = e => {
+    const q=e.target.value.trim().toLowerCase();let visible=0;
+    $('.docs-group a').forEach(a=>{a.hidden=Boolean(q)&&!a.dataset.docSearch.includes(q);if(!a.hidden)visible++;});
+    $('.docs-group').forEach(g=>g.hidden=!$('a:not([hidden])',g).length);
+    $('.docs-search-empty').hidden=visible!==0;
+  };
+  requestAnimationFrame(()=>{
+    if(location.hash){
+      const id=decodeURIComponent(location.hash.slice(1));
+      document.getElementById(id)?.scrollIntoView({block:'start'});
+    }
+  });
 }
 
 function authShell(title, sub, content, story = 'Infrastructure for agents that need reach.') {
-  app.innerHTML = `<main class="auth-layout"><section class="auth-story">${brand()}<div class="auth-story-copy"><span class="eyebrow">INTERNET HANDS CONTROL PLANE</span><h1>${story}</h1><p>One secure operating layer for identity, live web access, usage and MCP authorization.</p><div class="auth-capabilities"><span>${icon('shield')} Verified identity</span><span>${icon('key')} Scoped access</span><span>${icon('activity')} Live observability</span></div></div><div class="auth-system-card"><div><span class="live-dot"></span><b>Gateway online</b><small>Policy · route · meter</small></div><div class="auth-system-flow"><span>Agent</span><i></i><strong><img src="/assets/mark.svg" alt="">IH</strong><i></i><span>Internet</span></div></div></section><section class="auth-main"><div class="auth-card"><div class="auth-mobile-brand">${brand()}</div><header><span class="auth-kicker">${title === 'Welcome back' ? 'ACCOUNT ACCESS' : title.includes('Verify') ? 'IDENTITY CHECK' : 'CREATE WORKSPACE'}</span><h2>${title}</h2><p>${sub}</p></header>${content}<footer class="auth-secure">${icon('shield')} Protected with encrypted, HTTP-only sessions</footer></div></section></main>`; bindCommon();
+  app.innerHTML = `<main class="auth-layout"><section class="auth-story">${brand()}<div class="auth-story-copy"><span class="eyebrow">OPENCRAWL CONTROL PLANE</span><h1>${story}</h1><p>One secure operating layer for identity, live web access, usage and MCP authorization.</p><div class="auth-capabilities"><span>${icon('shield')} Verified identity</span><span>${icon('key')} Scoped access</span><span>${icon('activity')} Live observability</span></div></div><div class="auth-system-card"><div><span class="live-dot"></span><b>Gateway online</b><small>Policy · route · meter</small></div><div class="auth-system-flow"><span>Agent</span><i></i><strong><img src="/assets/opencrawl-crab.png" alt="">OC</strong><i></i><span>Internet</span></div></div></section><section class="auth-main"><div class="auth-card"><div class="auth-mobile-brand">${brand()}</div><header><span class="auth-kicker">${title === 'Welcome back' ? 'ACCOUNT ACCESS' : title.includes('Verify') ? 'IDENTITY CHECK' : 'CREATE WORKSPACE'}</span><h2>${title}</h2><p>${sub}</p></header>${content}<footer class="auth-secure">${icon('shield')} Protected with encrypted, HTTP-only sessions</footer></div></section></main>`; bindCommon();
 }
 function busy(button, on, label) {
   if(!button)return false;
@@ -263,7 +292,7 @@ function authDestination(result) {
 }
 function renderAuth(mode) {
   const signup = mode === 'signup'; const params = new URLSearchParams(location.search); if (params.get('two_factor') === 'required') return renderTwoFactor(); const github = params.get('github');
-  authShell(signup ? 'Create your account' : 'Welcome back', signup ? 'Start with a verified identity and 250 monthly credits.' : 'Sign in to the developer control plane.', `${github ? `<div class="notice warning">GitHub: ${esc(github.replaceAll('_',' '))}</div>` : ''}<a class="btn github-btn" href="/api/auth/github/start"><span class="brand-icon github">${platformMark('github','GitHub')}</span><span>Continue with GitHub</span>${icon('arrow')}</a><div class="divider"><span>or use email</span></div><form id="auth-form" class="form-stack">${signup ? '<label>Display name<input name="display_name" maxlength="80" autocomplete="name" placeholder="How should we address you?"></label>' : ''}<label>Email<input required type="email" name="email" autocomplete="email" placeholder="you@example.com"></label><label>Password<div class="password-field"><input id="password" required minlength="8" type="password" name="password" autocomplete="${signup ? 'new-password' : 'current-password'}"><button type="button" data-show>Show</button></div></label>${signup ? '<small>Use at least 8 characters. Verification comes next.</small><p class="ih-auth-policy-note">By creating an account or continuing with GitHub, you agree to the <a data-link href="/legal/terms">Terms</a> and <a data-link href="/legal/acceptable-use">Acceptable Use Policy</a> and acknowledge the <a data-link href="/legal/privacy">Privacy Policy</a>.</p>' : ''}<button class="btn primary large" type="submit">${signup ? 'Create account' : 'Sign in'} ${icon('arrow')}</button></form><div class="auth-links">${signup ? '<span>Already registered? <a data-link href="/login">Sign in</a></span>' : '<a class="btn quiet" data-link href="/forgot-password">Forgot password?</a><span>New here? <a data-link href="/signup">Create account</a></span>'}</div>`);
+  authShell(signup ? 'Create your account' : 'Welcome back', signup ? 'Start with a verified identity and a monthly USD wallet balance.' : 'Sign in to the developer control plane.', `${github ? `<div class="notice warning">GitHub: ${esc(github.replaceAll('_',' '))}</div>` : ''}<a class="btn github-btn" href="/api/auth/github/start"><span class="brand-icon github">${platformMark('github','GitHub')}</span><span>Continue with GitHub</span>${icon('arrow')}</a><div class="divider"><span>or use email</span></div><form id="auth-form" class="form-stack">${signup ? '<label>Display name<input name="display_name" maxlength="80" autocomplete="name" placeholder="How should we address you?"></label>' : ''}<label>Email<input required type="email" name="email" autocomplete="email" placeholder="you@example.com"></label><label>Password<div class="password-field"><input id="password" required minlength="8" type="password" name="password" autocomplete="${signup ? 'new-password' : 'current-password'}"><button type="button" data-show>Show</button></div></label>${signup ? '<small>Use at least 8 characters. Verification comes next.</small><p class="ih-auth-policy-note">By creating an account or continuing with GitHub, you agree to the <a data-link href="/legal/terms">Terms</a> and <a data-link href="/legal/acceptable-use">Acceptable Use Policy</a> and acknowledge the <a data-link href="/legal/privacy">Privacy Policy</a>.</p>' : ''}<button class="btn primary large" type="submit">${signup ? 'Create account' : 'Sign in'} ${icon('arrow')}</button></form><div class="auth-links">${signup ? '<span>Already registered? <a data-link href="/login">Sign in</a></span>' : '<a class="btn quiet" data-link href="/forgot-password">Forgot password?</a><span>New here? <a data-link href="/signup">Create account</a></span>'}</div>`);
   $('[data-show]').onclick = e => { const input = $('#password'); input.type = input.type === 'password' ? 'text' : 'password'; e.currentTarget.textContent = input.type === 'password' ? 'Show' : 'Hide'; };
   $('#auth-form').onsubmit = async e => { e.preventDefault(); const button = $('button[type=submit]', e.currentTarget); busy(button,true,signup?'Creating account…':'Signing in…'); try { const result = await api(signup?'/api/auth/signup':'/api/auth/login',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))}); if (result.two_factor_required) return renderTwoFactor(); if(result.verification_required){state.me={user:result.user,account:null,verification_required:true};history.pushState({},'',authDestination(result));return renderVerify(state.me);}state.me=null;go(authDestination(result)); } catch(error) { toast(error.message,'error'); busy(button,false); } };
 }
@@ -283,11 +312,12 @@ async function renderVerify(seed=null) {
   const deliveryFailed=params.get('delivery')==='failed';
   const fromSignin=params.get('context')==='signin';
   const verificationMessage=deliveryFailed
-    ? `Supabase could not send the confirmation email just now. Retry for ${esc(email)}.`
+    ? `The confirmation email could not be delivered just now. Retry for ${esc(email)}.`
     : fromSignin
-      ? `This account still needs email confirmation. Open the newest Supabase verification email sent to ${esc(email)}.`
-      : `Supabase sent a secure confirmation link to ${esc(email)}. Open it in this browser or any browser, then this page will unlock automatically.`;
-  authShell('Verify your email',verificationMessage,`<div class="verify-mark">${icon('mail')}</div><div class="notice">Email verification is now handled by Supabase Auth. Confirmation links are single-use; request a new one if the previous link expired.</div><div class="verify-actions"><button id="resend">Resend verification email <span></span></button><button id="other-account">Use another account</button></div>`,'One small gate before the internet opens up.');
+      ? `This account still needs email confirmation. Enter the latest code sent to ${esc(email)} or open its link.`
+      : `Enter the six-digit code sent to ${esc(email)}, or open the confirmation link. Both expire in 15 minutes.`;
+  authShell('Verify your email',verificationMessage,`<div class="verify-mark">${icon('mail')}</div><form id="verify-code-form" class="form-stack"><label>Verification code<input required name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="000000"></label><button class="btn primary large" type="submit">Verify email ${icon('arrow')}</button></form><div class="verify-actions"><button id="resend">Resend verification email <span></span></button><button id="other-account">Use another account</button></div>`,'One small gate before the internet opens up.');
+  $('#verify-code-form').onsubmit=async e=>{e.preventDefault();const button=$('button[type=submit]',e.currentTarget);busy(button,true,'Verifying…');try{await api('/api/auth/email-verification/confirm',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))});state.me=null;go('/verify-email?verified=1',true);}catch(error){toast(error.message,'error');busy(button,false);}};
   let seconds=0;
   const resend=$('#resend');
   const tick=()=>{if(!resend.isConnected)return;$('span',resend).textContent=seconds?`(${seconds}s)`:'';resend.disabled=seconds>0;if(seconds-->0)setTimeout(tick,1000);};
@@ -305,7 +335,7 @@ function renderRecovery(reset=false){
   const hasResetCredential=Boolean(token||accessToken);
   authShell(
     reset?'Choose a new password':'Reset your password',
-    reset?'A successful reset signs every web session out.':'Enter the email connected to your account. Supabase Auth will send the recovery link after the account has migrated.',
+    reset?'A successful reset signs every web session out.':'Enter the email connected to your account. We will send a single-use recovery link.',
     `<form id="recovery-form" class="form-stack">${reset?'<label>New password<input required minlength="8" type="password" name="password" autocomplete="new-password"></label><label>Confirm password<input required minlength="8" type="password" name="confirm" autocomplete="new-password"></label>':'<label>Account email<input required type="email" name="email" autocomplete="email" placeholder="you@example.com"></label>'}<button class="btn primary large" ${reset&&!hasResetCredential?'disabled':''}>${reset?'Update password':'Send reset link'} ${icon('arrow')}</button></form>${reset&&!hasResetCredential?'<div class="notice warning">This reset link is missing its recovery credential. Request a new one.</div>':''}<p class="auth-foot"><a data-link href="/login">Back to sign in</a></p>`
   );
   if(reset)$('#recovery-form [name="confirm"]').addEventListener('input',e=>e.currentTarget.setCustomValidity(''));
@@ -328,7 +358,7 @@ function renderRecovery(reset=false){
       authShell(
         'Check your inbox',
         result.message,
-        `<div class="verify-mark">${icon('activity')}</div><div class="notice">Migrated accounts receive a Supabase recovery link. Legacy accounts are securely adopted into Supabase when that reset completes.</div><a class="btn primary large" data-link href="/login">Back to sign in ${icon('arrow')}</a>`,
+        `<div class="verify-mark">${icon('activity')}</div><div class="notice">If the address is registered, use the newest link in your inbox. It expires in 30 minutes.</div><a class="btn primary large" data-link href="/login">Back to sign in ${icon('arrow')}</a>`,
         'Recover access without weakening account security.'
       );
     }catch(error){
@@ -395,7 +425,7 @@ async function dashIntegrations(){
   const clients=[
     {mark:'openai',brand:'OpenAI',name:'ChatGPT',mode:'OAuth MCP',tone:'emerald',steps:['Copy your permanent endpoint.','Add it as a custom MCP server in ChatGPT.','Approve the requested scopes and run a test.']},
     {mark:'anthropic',brand:'Anthropic',name:'Claude',mode:'OAuth MCP',tone:'sand',steps:['Copy your permanent endpoint.','Add the connector in Claude integrations.','Complete OAuth consent, then test a public page.']},
-    {mark:'xai',brand:'xAI',name:'Grok',mode:'API key',tone:'mono',steps:['Create a scoped Internet Hands key.','Use the endpoint as your tool gateway.','Send the key as a Bearer token.']},
+    {mark:'xai',brand:'xAI',name:'Grok',mode:'API key',tone:'mono',steps:['Create a scoped OpenCrawl key.','Use the endpoint as your tool gateway.','Send the key as a Bearer token.']},
     {mark:'hermes',brand:'Nous Research',name:'Hermes Agent',mode:'MCP / key',tone:'violet',steps:['Choose OAuth for a user session or a key for automation.','Register the endpoint in Hermes Agent.','Run a capability discovery request.']},
     {mark:'mcp',brand:'Model Context Protocol',name:'Generic MCP client',mode:'OAuth MCP',tone:'orange',steps:['Register the endpoint in any Streamable HTTP client.','Follow protected-resource discovery.','Authorize scopes and test the connection.']},
     {mark:'api',brand:'HTTP API',name:'Direct API',mode:'Bearer key',tone:'cyan',steps:['Create a scoped API key.','Send it in the Authorization header.','Call only the capabilities granted to that key.']}
@@ -430,13 +460,13 @@ async function dashIntegrations(){
   });
 }
 async function dashWallet(){const [d,p]=await Promise.all([api('/api/wallet?limit=150'),getPlans()]),w=d.wallet||{};dashboardShell('wallet',`${pageHead('CREDITS','Wallet','Monthly credits spend first. Purchased credits roll over.')}<div class="wallet-hero">${[['MONTHLY',w.monthly_credits,'Refreshes with plan'],['PURCHASED',w.purchased_credits,'Rollover balance'],['RESERVED',w.reserved_credits,'Work currently held']].map(x=>`<article><span>${x[0]}</span><b>${fmt(x[1])}</b><small>${x[2]}</small></article>`).join('')}</div><header class="subhead"><span><span class="overline">TOP UP</span><h2>Add rollover credits</h2></span></header><div class="pack-grid">${(p.credit_packs||[]).map(x=>`<article><span>${esc(x.name)}</span><b>${fmt(x.credits)} credits</b><em>${money(x.price_inr)}</em><button class="btn primary small" data-buy="${x.slug}">Purchase</button></article>`).join('')||'<div class="notice">Credit packs unavailable.</div>'}</div><article class="card"><header><span><span class="overline">LEDGER</span><h2>Wallet activity</h2></span></header>${d.ledger.length?`<div class="table-wrap"><table><thead><tr><th>Time</th><th>Kind</th><th>Bucket</th><th>Amount</th><th>Source</th></tr></thead><tbody>${d.ledger.map(x=>`<tr><td>${when(x.created_at)}</td><td>${esc(x.kind)}</td><td>${esc(x.bucket)}</td><td class="${Number(x.amount)>=0?'positive':''}">${Number(x.amount)>0?'+':''}${fmt(x.amount)}</td><td>${esc(x.source)}</td></tr>`).join('')}</tbody></table></div>`:'<div class="smart-empty compact"><span><b>No wallet activity yet</b><p>Grants and purchases appear here.</p></span></div>'}</article>`);$$('[data-buy]').forEach(b=>b.onclick=()=>startCheckout('credits',b.dataset.buy,b));}
-async function dashBilling(){const [p,s,pay]=await Promise.all([getPlans(),api('/api/billing/status'),api('/api/billing/payments')]),a=state.me.account||{};dashboardShell('billing',`${pageHead('COMMERCIAL','Billing & plans','Plan limits, renewal state and captured-payment history.',`<span class="badge ${s.configured?'success':'warning'}">Razorpay ${s.configured?'ready':'pending'}</span>`)}<div class="current-plan card"><span><span class="overline">CURRENT PLAN</span><h2>${esc(a.plan_name||'Free')}</h2><p>${fmt(a.monthly_credits)} monthly credits · resets ${when(a.current_period_end)}</p></span><div><span>Keys <b>${fmt(a.api_key_limit)}</b></span><span>Monitors <b>${fmt(a.monitor_limit)}</b></span><span>RPM <b>${fmt(a.rpm_limit)}</b></span></div></div>${planCards(p.plans)}<article class="card"><header><span><span class="overline">PAYMENTS</span><h2>Purchase history</h2></span><em>${icon('shield')} Verified server-side</em></header>${pay.payments.length?`<div class="table-wrap"><table><thead><tr><th>Created</th><th>Purpose</th><th>Amount</th><th>Status</th><th>Reference</th></tr></thead><tbody>${pay.payments.map(x=>`<tr><td>${when(x.created_at)}</td><td>${esc(x.purpose)}</td><td>${money(Number(x.amount_paise)/100)}</td><td><span class="badge ${['paid','captured'].includes(x.status)?'success':'warning'}">${esc(x.status)}</span></td><td><code>${esc(x.order_id||'—')}</code></td></tr>`).join('')}</tbody></table></div>`:'<div class="smart-empty compact"><span><b>No purchases yet</b><p>Captured payments appear here.</p></span></div>'}</article>`);$$('.plan-card a[href*="plan="]').forEach(a=>a.onclick=e=>{e.preventDefault();startCheckout('subscription',new URL(a.href).searchParams.get('plan'),a);});}
-async function startCheckout(purpose,slug,trigger){
+async function dashBilling(){const [p,s,pay]=await Promise.all([getPlans(),api('/api/billing/status'),api('/api/billing/payments')]),a=state.me.account||{};dashboardShell('billing',`${pageHead('COMMERCIAL','Billing & plans','Plan limits, renewal state and captured-payment history.',`<span class="badge ${s.configured?'success':'warning'}">Razorpay ${s.configured?'ready':'pending'}</span>`)}<div class="current-plan card"><span><span class="overline">CURRENT PLAN</span><h2>${esc(a.plan_name||'Free')}</h2><p>${walletMoney(a.monthly_credits,a)} monthly wallet · resets ${when(a.current_period_end)}</p></span><div><span>Keys <b>${fmt(a.api_key_limit)}</b></span><span>Monitors <b>${fmt(a.monitor_limit)}</b></span><span>RPM <b>${fmt(a.rpm_limit)}</b></span></div></div>${planCards(p.plans)}<article class="card"><header><span><span class="overline">PAYMENTS</span><h2>Purchase history</h2></span><em>${icon('shield')} Verified server-side</em></header>${pay.payments.length?`<div class="table-wrap"><table><thead><tr><th>Created</th><th>Purpose</th><th>Amount</th><th>Status</th><th>Reference</th></tr></thead><tbody>${pay.payments.map(x=>`<tr><td>${when(x.created_at)}</td><td>${esc(x.purpose)}</td><td>${money(Number(x.amount_paise)/100)}</td><td><span class="badge ${['paid','captured'].includes(x.status)?'success':'warning'}">${esc(x.status)}</span></td><td><code>${esc(x.order_id||'—')}</code></td></tr>`).join('')}</tbody></table></div>`:'<div class="smart-empty compact"><span><b>No purchases yet</b><p>Captured payments appear here.</p></span></div>'}</article>`);$$('.plan-card a[href*="plan="]').forEach(a=>a.onclick=e=>{e.preventDefault();startCheckout('subscription',new URL(a.href).searchParams.get('plan'),a);});}
+async function startCheckout(purpose,slug,trigger,extra={}){
   if(trigger&&!busy(trigger,true,'Opening checkout…'))return;
   try{
-    const r=await api('/api/billing/create-order',{method:'POST',body:{purpose,slug}});
+    const r=await api('/api/billing/create-order',{method:'POST',body:{purpose,slug,...extra}});
     if(!window.Razorpay)await new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://checkout.razorpay.com/v1/checkout.js';s.onload=ok;s.onerror=()=>no(new Error('Checkout could not load. Please try again.'));document.head.appendChild(s);});
-    new Razorpay({key:r.key_id,order_id:r.order.id,amount:r.order.amount,currency:'INR',name:'Internet Hands',description:purpose==='credits'?'Credit top-up':'Plan',theme:{color:'#5de1e6'},handler:async response=>{toast('Verifying payment with the server…');try{await api('/api/billing/verify',{method:'POST',body:response});toast('Payment verified','success');state.me=null;go(`/dashboard/${purpose==='credits'?'wallet':'billing'}`);}catch(error){toast(error.message,'error');}}}).open();
+    new Razorpay({key:r.key_id,order_id:r.order.id,amount:r.order.amount,currency:r.order.currency||'INR',name:'OpenCrawl',description:purpose==='credits'?(extra.amount_usd?'Custom wallet top-up':'Wallet top-up'):'Plan',theme:{color:'#5de1e6'},handler:async response=>{toast('Verifying payment with the server…');try{await api('/api/billing/verify',{method:'POST',body:response});toast('Payment verified','success');state.me=null;go(`/dashboard/${purpose==='credits'?'wallet':'billing'}`);}catch(error){toast(error.message,'error');}}}).open();
   }catch(error){toast(error.message,'error');}
   finally{if(trigger?.isConnected)busy(trigger,false);}
 }
@@ -445,7 +475,7 @@ async function showSetup2fa(trigger){
   if(trigger&&!busy(trigger,true,'Preparing…'))return;
   try{
     const setup=await api('/api/auth/2fa/setup',{method:'POST'});
-    const wrap=modal(`<div class="modal-head"><span><span class="overline">STEP 1 OF 2</span><h2>Set up authenticator</h2></span><button data-close aria-label="Close">×</button></div><div class="setup-panel"><div class="qr-panel"><img src="${esc(setup.qr_data_uri)}" width="176" height="176" alt="Authenticator setup QR code"><small>Scan with your authenticator</small></div><span><p>Add Internet Hands in your authenticator app.</p>${codeBlock(setup.secret,'Manual key')}${codeBlock(setup.otpauth_uri,'Authenticator URI')}</span></div><form id="confirm-2fa" class="form-stack"><label>Current 6-digit code<input class="code-input" name="code" required maxlength="6" pattern="[0-9]{6}" inputmode="numeric" autocomplete="one-time-code"></label><button class="btn primary large">Verify and enable</button></form>`,true);
+    const wrap=modal(`<div class="modal-head"><span><span class="overline">STEP 1 OF 2</span><h2>Set up authenticator</h2></span><button data-close aria-label="Close">×</button></div><div class="setup-panel"><div class="qr-panel"><img src="${esc(setup.qr_data_uri)}" width="176" height="176" alt="Authenticator setup QR code"><small>Scan with your authenticator</small></div><span><p>Add OpenCrawl in your authenticator app.</p>${codeBlock(setup.secret,'Manual key')}${codeBlock(setup.otpauth_uri,'Authenticator URI')}</span></div><form id="confirm-2fa" class="form-stack"><label>Current 6-digit code<input class="code-input" name="code" required maxlength="6" pattern="[0-9]{6}" inputmode="numeric" autocomplete="one-time-code"></label><button class="btn primary large">Verify and enable</button></form>`,true);
     $('#confirm-2fa',wrap).onsubmit=async e=>{
       e.preventDefault();const button=e.submitter||e.currentTarget.querySelector('button');busy(button,true,'Verifying…');
       try{const r=await api('/api/auth/2fa/confirm',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))});showCodes(wrap,r.recovery_codes);}
@@ -475,21 +505,21 @@ function legalSideNav(active=''){
   return `<nav class="ih-legal-side" aria-label="Legal documents"><a class="${!active?'active':''}" data-link href="/legal"><b>Legal center</b></a>${Object.entries(legalDocs()).map(([slug,doc])=>`<a class="${slug===active?'active':''}" data-link href="${legalHref(slug)}"><b>${esc(doc.shortTitle||doc.title)}</b></a>`).join('')}</nav>`;
 }
 function renderLegalHub(){
-  const items=legalDocs(),m=legalMeta();document.title='Legal Center — Internet Hands';
-  publicShell(`<main class="ih-legal-page"><section class="ih-legal-hero"><div class="container"><span class="ih-legal-kicker">TRUST / POLICY / CONTROL</span><h1>Rules that match the product.</h1><p>Internet Hands can search, browse, extract, monitor, route, and execute. These documents define the boundaries around that power, the data it processes, and how paid usage works.</p><div class="ih-legal-meta"><span>Policy version <b>${esc(m.version||'current')}</b></span><span>Effective <b>${esc(m.effective||'')}</b></span><span>Governing law <b>${esc(m.governingLaw||'')}</b></span></div></div></section><section class="container ih-legal-hub"><div class="ih-legal-principles"><article><span>01</span><b>Authorized access only</b><p>Automation does not create permission you did not already have.</p></article><article><span>02</span><b>Scoped execution</b><p>Credentials, providers, costs, and external actions stay bounded and auditable.</p></article><article><span>03</span><b>Data minimization</b><p>Send connected services only what a requested operation reasonably needs.</p></article><article><span>04</span><b>Verified payment state</b><p>Paid capacity is fulfilled only after server-side confirmation of captured payment state.</p></article></div><div class="ih-legal-card-grid">${Object.entries(items).map(([slug,doc])=>`<a class="ih-legal-card" data-link href="${legalHref(slug)}"><span>${esc(doc.shortTitle||doc.title)}</span><h2>${esc(doc.title)}</h2><p>${esc(doc.summary)}</p><em>Read policy ${icon('arrow')}</em></a>`).join('')}</div><aside class="ih-legal-review"><div>${icon('shield')}<span><b>Implementation-aligned policies</b><p>These pages are versioned against current product behavior. Review them whenever payment behavior, data flows, providers, or the legal operator changes.</p></span></div><a data-link href="/legal/security">Security policy ${icon('arrow')}</a></aside></section></main>`);
+  const items=legalDocs(),m=legalMeta();document.title='Legal Center — OpenCrawl';
+  publicShell(`<main class="ih-legal-page"><section class="ih-legal-hero"><div class="container"><span class="ih-legal-kicker">TRUST / POLICY / CONTROL</span><h1>Rules that match the product.</h1><p>OpenCrawl can search, browse, extract, monitor, route, and execute. These documents define the boundaries around that power, the data it processes, and how paid usage works.</p><div class="ih-legal-meta"><span>Policy version <b>${esc(m.version||'current')}</b></span><span>Effective <b>${esc(m.effective||'')}</b></span><span>Governing law <b>${esc(m.governingLaw||'')}</b></span></div></div></section><section class="container ih-legal-hub"><div class="ih-legal-principles"><article><span>01</span><b>Authorized access only</b><p>Automation does not create permission you did not already have.</p></article><article><span>02</span><b>Scoped execution</b><p>Credentials, providers, costs, and external actions stay bounded and auditable.</p></article><article><span>03</span><b>Data minimization</b><p>Send connected services only what a requested operation reasonably needs.</p></article><article><span>04</span><b>Verified payment state</b><p>Paid capacity is fulfilled only after server-side confirmation of captured payment state.</p></article></div><div class="ih-legal-card-grid">${Object.entries(items).map(([slug,doc])=>`<a class="ih-legal-card" data-link href="${legalHref(slug)}"><span>${esc(doc.shortTitle||doc.title)}</span><h2>${esc(doc.title)}</h2><p>${esc(doc.summary)}</p><em>Read policy ${icon('arrow')}</em></a>`).join('')}</div><aside class="ih-legal-review"><div>${icon('shield')}<span><b>Implementation-aligned policies</b><p>These pages are versioned against current product behavior. Review them whenever payment behavior, data flows, providers, or the legal operator changes.</p></span></div><a data-link href="/legal/security">Security policy ${icon('arrow')}</a></aside></section></main>`);
 }
 function renderLegalDocument(slug){
-  const items=legalDocs(),doc=items[slug],m=legalMeta();if(!doc)return renderLegalHub();document.title=`${doc.title} — Internet Hands`;
+  const items=legalDocs(),doc=items[slug],m=legalMeta();if(!doc)return renderLegalHub();document.title=`${doc.title} — OpenCrawl`;
   const toc=(doc.sections||[]).map(s=>`<a href="#${esc(s.id)}">${esc(s.title)}</a>`).join('');
   const related=(doc.related||[]).map(k=>items[k]?`<a data-link href="${legalHref(k)}">${esc(items[k].shortTitle||items[k].title)} ${icon('arrow')}</a>`:'').join('');
-  publicShell(`<main class="ih-legal-page ih-legal-doc-page"><section class="container ih-legal-doc-head"><a class="ih-legal-back" data-link href="/legal">${icon('arrow')} Legal center</a><span class="ih-legal-kicker">INTERNET HANDS / POLICY</span><h1>${esc(doc.title)}</h1><p>${esc(doc.summary)}</p><div class="ih-legal-meta"><span>Version <b>${esc(m.version||'current')}</b></span><span>Effective <b>${esc(m.effective||'')}</b></span><span>Updated <b>${esc(m.updated||'')}</b></span></div></section><section class="container ih-legal-layout">${legalSideNav(slug)}<article class="ih-legal-article"><nav class="ih-legal-toc"><b>On this page</b>${toc}</nav>${(doc.sections||[]).map(s=>`<section id="${esc(s.id)}"><h2>${esc(s.title)}</h2>${(s.blocks||[]).map(legalBlock).join('')}</section>`).join('')}<footer class="ih-legal-related"><div><span>RELATED POLICIES</span>${related}</div><p>Policy version ${esc(m.version||'current')} · Last updated ${esc(m.updated||'')}</p></footer></article></section></main>`);
+  publicShell(`<main class="ih-legal-page ih-legal-doc-page"><section class="container ih-legal-doc-head"><a class="ih-legal-back" data-link href="/legal">${icon('arrow')} Legal center</a><span class="ih-legal-kicker">OPENCRAWL / POLICY</span><h1>${esc(doc.title)}</h1><p>${esc(doc.summary)}</p><div class="ih-legal-meta"><span>Version <b>${esc(m.version||'current')}</b></span><span>Effective <b>${esc(m.effective||'')}</b></span><span>Updated <b>${esc(m.updated||'')}</b></span></div></section><section class="container ih-legal-layout">${legalSideNav(slug)}<article class="ih-legal-article"><nav class="ih-legal-toc"><b>On this page</b>${toc}</nav>${(doc.sections||[]).map(s=>`<section id="${esc(s.id)}"><h2>${esc(s.title)}</h2>${(s.blocks||[]).map(legalBlock).join('')}</section>`).join('')}<footer class="ih-legal-related"><div><span>RELATED POLICIES</span>${related}</div><p>Policy version ${esc(m.version||'current')} · Last updated ${esc(m.updated||'')}</p></footer></article></section></main>`);
 }
 function renderLegal(){const path=location.pathname.replace(/\/+$/,'')||'/';const alias=LEGAL_ALIASES[path];if(alias)return renderLegalDocument(alias);if(path==='/legal')return renderLegalHub();const slug=path.startsWith('/legal/')?decodeURIComponent(path.slice(7)):'';return slug?renderLegalDocument(slug):renderLegalHub()}
 
 async function dashGames(){
   const [data,keyData]=await Promise.all([api('/api/games'),api('/api/api-keys')]);
   const games=data.games||[],keys=(keyData.keys||[]).filter(k=>!k.revoked_at&&(!k.expires_at||new Date(k.expires_at)>new Date()));
-  dashboardShell('games',`${pageHead('GAME INTELLIGENCE','Games & public data','Explore registered capabilities. Internet Hands checks each operation when you open it.')}<section class="game-catalog"><label class="game-filter">Find a game<input id="game-search" type="search" placeholder="Search games" autocomplete="off"></label><p id="game-count" class="muted" role="status"></p><div id="game-list" class="game-list"></div><nav id="game-pagination" class="game-actions" aria-label="Game catalog pages"></nav><div id="game-detail" class="game-detail" aria-live="polite"></div></section>`);
+  dashboardShell('games',`${pageHead('GAME INTELLIGENCE','Games & public data','Explore registered capabilities. OpenCrawl checks each operation when you open it.')}<section class="game-catalog"><label class="game-filter">Find a game<input id="game-search" type="search" placeholder="Search games" autocomplete="off"></label><p id="game-count" class="muted" role="status"></p><div id="game-list" class="game-list"></div><nav id="game-pagination" class="game-actions" aria-label="Game catalog pages"></nav><div id="game-detail" class="game-detail" aria-live="polite"></div></section>`);
   const list=$('#game-list'),detail=$('#game-detail'),filter=$('#game-search');
   const draw=()=>{
     const q=filter.value.trim().toLowerCase();
@@ -513,7 +543,7 @@ async function dashGames(){
     try{
       const {game}=await api('/api/games/'+encodeURIComponent(id));
       if(run!==selectedRun)return;
-      detail.innerHTML=`<header><div><span class="overline">${esc(game.game_id)}</span><h2>${esc(game.name)}</h2><p>${fmt(game.capability_count)} registered capabilities · ${fmt(game.provider_ready_count)} ready to run. Open a capability to inspect its current operations.</p></div><div class="game-actions"><a class="btn primary" data-link href="/dashboard/playground?query=${encodeURIComponent(game.name+' latest patch and competitive meta')}">Research this game ${icon('arrow')}</a><a class="btn" data-link href="/dashboard/repositories?query=${encodeURIComponent(game.name+' public api tools')}">Find open-source tools</a></div></header><div class="game-capabilities">${(game.capabilities||[]).map(cap=>`<article><span class="game-cap-status ${cap.provider_ready?'ready':''}">${cap.provider_ready?(cap.providers.includes('gamecore')?(cap.id.startsWith('league.reference')?'Live reference':'Bundled reference'):'Ready to run'):cap.availability==='key_required'?'Access required':cap.availability==='discovery_required'?'Explore operations':'Currently unavailable'}</span><h3>${esc(cap.name)}</h3><p>${cap.providers.some(p=>['gamecore','gamepublic'].includes(p))?esc(cap.description):'Read public game data through a validated Internet Hands operation.'}</p><small>${cap.provider_ready?'Execution available':cap.availability==='discovery_required'?'Operations checked on open':'No operation ready'}</small>${cap.providers.includes('gamecore')&&cap.provider_ready?`<button type="button" class="game-run-button" data-game-tool="${esc(cap.id)}">Run tool ${icon('arrow')}</button>`:cap.availability==='ready'||cap.availability==='discovery_required'?`<button type="button" class="game-run-button" data-game-discover="${esc(cap.id)}">${cap.provider_ready?'Run tool':'Find operations'} ${icon('arrow')}</button>`:''}</article>`).join('')}</div><div id="game-tool-panel" aria-live="polite"></div>`;
+      detail.innerHTML=`<header><div><span class="overline">${esc(game.game_id)}</span><h2>${esc(game.name)}</h2><p>${fmt(game.capability_count)} registered capabilities · ${fmt(game.provider_ready_count)} ready to run. Open a capability to inspect its current operations.</p></div><div class="game-actions"><a class="btn primary" data-link href="/dashboard/playground?query=${encodeURIComponent(game.name+' latest patch and competitive meta')}">Research this game ${icon('arrow')}</a><a class="btn" data-link href="/dashboard/repositories?query=${encodeURIComponent(game.name+' public api tools')}">Find open-source tools</a></div></header><div class="game-capabilities">${(game.capabilities||[]).map(cap=>`<article><span class="game-cap-status ${cap.provider_ready?'ready':''}">${cap.provider_ready?(cap.providers.includes('gamecore')?(cap.id.startsWith('league.reference')?'Live reference':'Bundled reference'):'Ready to run'):cap.availability==='key_required'?'Access required':cap.availability==='discovery_required'?'Explore operations':'Currently unavailable'}</span><h3>${esc(cap.name)}</h3><p>${cap.providers.some(p=>['gamecore','gamepublic'].includes(p))?esc(cap.description):'Read public game data through a validated OpenCrawl operation.'}</p><small>${cap.provider_ready?'Execution available':cap.availability==='discovery_required'?'Operations checked on open':'No operation ready'}</small>${cap.providers.includes('gamecore')&&cap.provider_ready?`<button type="button" class="game-run-button" data-game-tool="${esc(cap.id)}">Run tool ${icon('arrow')}</button>`:cap.availability==='ready'||cap.availability==='discovery_required'?`<button type="button" class="game-run-button" data-game-discover="${esc(cap.id)}">${cap.provider_ready?'Run tool':'Find operations'} ${icon('arrow')}</button>`:''}</article>`).join('')}</div><div id="game-tool-panel" aria-live="polite"></div>`;
       const cards=$$('.game-capabilities > article',detail),grid=$('.game-capabilities',detail);
       const ready=cards.filter(card=>card.querySelector('.game-cap-status.ready'));
       const other=cards.filter(card=>!card.querySelector('.game-cap-status.ready'));
@@ -533,7 +563,7 @@ async function dashGames(){
     if(toolRunning)return;
     const currentPanel=++panelRun;
     const panel=$('#game-tool-panel',detail),cap=(game.capabilities||[]).find(c=>c.id===capability);
-    panel.innerHTML=`<section class="game-tool-runner"><header><div><span class="game-agent-mark" aria-hidden="true">👾</span><span class="overline">INTERNET HANDS / OPERATIONS</span><h3>${esc(cap?.name||capability)}</h3><p>Checking current read-only operations and required inputs…</p></div><button type="button" class="game-tool-close" aria-label="Close tool">×</button></header><div id="game-tool-options"></div></section>`;
+    panel.innerHTML=`<section class="game-tool-runner"><header><div><span class="game-agent-mark" aria-hidden="true">👾</span><span class="overline">OPENCRAWL / OPERATIONS</span><h3>${esc(cap?.name||capability)}</h3><p>Checking current read-only operations and required inputs…</p></div><button type="button" class="game-tool-close" aria-label="Close tool">×</button></header><div id="game-tool-options"></div></section>`;
     panel.querySelector('.game-tool-close').onclick=()=>{panelRun++;panel.replaceChildren();};
     panel.scrollIntoView({behavior:'smooth',block:'nearest'});
     try{
@@ -555,7 +585,7 @@ async function dashGames(){
           const number=['integer','number'].includes(schema.type);
           return `<input ${attr} ${number?'type="number"':'type="text"'} ${number?`step="${schema.type==='integer'?'1':'any'}"`:''} ${number&&Number.isFinite(schema.minimum)?`min="${esc(schema.minimum)}"`:''} ${number&&Number.isFinite(schema.maximum)?`max="${esc(schema.maximum)}"`:''} maxlength="512" placeholder="${esc(schema.description||name)}">`;
         };
-        $('#game-operation-form',box).innerHTML=`<p>Read public game data. Internet Hands validates these inputs before execution.</p><details class="game-operation-trace"><summary>Operation details</summary><p>${esc(tool.description||'Read-only public operation.')}</p><code>${esc(tool.metadata?.method||'GET')} ${esc(tool.metadata?.path||'')}</code></details>${keys.length?`<form id="game-discovered-form">${fields.map(([name,schema],index)=>`<label>${esc(name)}${required.includes(name)?' *':''}${fieldInput(name,schema,index)}</label>`).join('')}<label>Internet Hands API key<select name="api_key_id">${keys.map(key=>`<option value="${esc(key.id)}">${esc(key.name)} · ${esc(key.prefix)}…</option>`).join('')}</select></label><button class="btn primary" type="submit">Run read-only operation ${icon('arrow')}</button></form>`:`<p>Create an Internet Hands API key to run this operation.</p><a data-link class="btn primary" href="/dashboard/api-keys">Create API key</a>`}<div id="game-discovered-output" aria-live="polite"></div>`;
+        $('#game-operation-form',box).innerHTML=`<p>Read public game data. OpenCrawl validates these inputs before execution.</p><details class="game-operation-trace"><summary>Operation details</summary><p>${esc(tool.description||'Read-only public operation.')}</p><code>${esc(tool.metadata?.method||'GET')} ${esc(tool.metadata?.path||'')}</code></details>${keys.length?`<form id="game-discovered-form">${fields.map(([name,schema],index)=>`<label>${esc(name)}${required.includes(name)?' *':''}${fieldInput(name,schema,index)}</label>`).join('')}<label>OpenCrawl API key<select name="api_key_id">${keys.map(key=>`<option value="${esc(key.id)}">${esc(key.name)} · ${esc(key.prefix)}…</option>`).join('')}</select></label><button class="btn primary" type="submit">Run read-only operation ${icon('arrow')}</button></form>`:`<p>Create an OpenCrawl API key to run this operation.</p><a data-link class="btn primary" href="/dashboard/api-keys">Create API key</a>`}<div id="game-discovered-output" aria-live="polite"></div>`;
         const form=$('#game-discovered-form',box);if(!form)return;
         form.onsubmit=async event=>{
           event.preventDefault();if(toolRunning)return;
@@ -575,8 +605,8 @@ async function dashGames(){
           toolRunning=true;draw();selector.disabled=true;panel.querySelector('.game-tool-close').disabled=true;
           output.innerHTML='<p class="game-progress" role="status">Operation sent · waiting for the execution result…</p>';submit.disabled=true;submit.setAttribute('aria-busy','true');
           try{const result=await api('/api/games/'+encodeURIComponent(game.game_id)+'/tools/'+encodeURIComponent(capability),{method:'POST',body:{ref:tool.ref,arguments:arguments_,api_key_id:form.elements.api_key_id.value}});
-            output.innerHTML=`<div class="game-tool-output" role="status"><small>Complete · ${fmt(result.usage?.credits_charged)} credits · ${esc(result.request_id||'')}</small><pre>${esc(JSON.stringify(result.result,null,2))}</pre><details class="game-operation-trace"><summary>Source evidence</summary><p>${/^https?:\/\//.test(result.result?.source_url||'')?`<a href="${esc(result.result.source_url)}" target="_blank" rel="noopener noreferrer">Open source</a>`:'Source URL unavailable for this operation.'} · ${esc(result.result?.captured_at||'')}</p></details></div>`;
-          }catch(error){output.innerHTML=`<p class="game-error" role="alert">${esc(error.message)}${error.requestId?` · ${esc(error.requestId)}`:''}${error.usage?` · ${fmt(error.usage.credits_charged)} credits charged`:''}</p>`;}
+            output.innerHTML=`<div class="game-tool-output" role="status"><small>Complete · ${walletMoney(result.usage?.credits_charged)} · ${esc(result.request_id||'')}</small><pre>${esc(JSON.stringify(result.result,null,2))}</pre><details class="game-operation-trace"><summary>Source evidence</summary><p>${/^https?:\/\//.test(result.result?.source_url||'')?`<a href="${esc(result.result.source_url)}" target="_blank" rel="noopener noreferrer">Open source</a>`:'Source URL unavailable for this operation.'} · ${esc(result.result?.captured_at||'')}</p></details></div>`;
+          }catch(error){output.innerHTML=`<p class="game-error" role="alert">${esc(error.message)}${error.requestId?` · ${esc(error.requestId)}`:''}${error.usage?` · ${walletMoney(error.usage.credits_charged)} charged`:''}</p>`;}
           finally{toolRunning=false;draw();selector.disabled=false;panel.querySelector('.game-tool-close').disabled=false;submit.disabled=false;submit.removeAttribute('aria-busy');}
         };
       }
@@ -588,7 +618,7 @@ async function dashGames(){
     panelRun++;
     const panel=$('#game-tool-panel',detail),match=capability==='game.matches.analyze';
     const hero=capability==='mlbb.reference.hero',items=capability.endsWith('.items'),league=capability.startsWith('league.reference');
-    panel.innerHTML=`<section class="game-tool-runner"><header><div><span class="overline">RUN INSIDE INTERNET HANDS</span><h3>${esc((game.capabilities||[]).find(c=>c.id===capability)?.name||capability)}</h3><p>${match?'Paste your own matches, oldest first. This works for any game.':league?'Fetch the published patch reference; no extra game key required.':'Bundled historical MLBB data; dates and attribution appear with the result.'}</p></div><button type="button" class="game-tool-close" aria-label="Close tool">×</button></header>${keys.length?`<form id="game-tool-form"><label>${match?'Match results (JSON array)':hero?'Hero name or ID':items?'Item name or category':'Name, role or lane'}${match?'<textarea name="match_results" rows="7" required spellcheck="false" placeholder=\'[{&quot;win&quot;:true,&quot;hero&quot;:&quot;Fanny&quot;,&quot;kills&quot;:8,&quot;deaths&quot;:2,&quot;assists&quot;:5}]\'></textarea>':`<input name="query" maxlength="60" ${hero?'required':''} placeholder="${hero?'Lancelot':items?'Blade':league?'Ahri':'jungle'}">`}</label><label>Internet Hands API key<select name="api_key_id">${keys.map(k=>`<option value="${esc(k.id)}">${esc(k.name)} · ${esc(k.prefix)}…</option>`).join('')}</select></label><button class="btn primary" type="submit">Run · 1 credit ${icon('arrow')}</button></form>`:`<p>Create an Internet Hands API key to record and run this tool.</p><a data-link class="btn primary" href="/dashboard/api-keys">Create API key</a>`}<div id="game-tool-output" aria-live="polite"></div></section>`;
+    panel.innerHTML=`<section class="game-tool-runner"><header><div><span class="overline">RUN INSIDE OPENCRAWL</span><h3>${esc((game.capabilities||[]).find(c=>c.id===capability)?.name||capability)}</h3><p>${match?'Paste your own matches, oldest first. This works for any game.':league?'Fetch the published patch reference; no extra game key required.':'Bundled historical MLBB data; dates and attribution appear with the result.'}</p></div><button type="button" class="game-tool-close" aria-label="Close tool">×</button></header>${keys.length?`<form id="game-tool-form"><label>${match?'Match results (JSON array)':hero?'Hero name or ID':items?'Item name or category':'Name, role or lane'}${match?'<textarea name="match_results" rows="7" required spellcheck="false" placeholder=\'[{&quot;win&quot;:true,&quot;hero&quot;:&quot;Fanny&quot;,&quot;kills&quot;:8,&quot;deaths&quot;:2,&quot;assists&quot;:5}]\'></textarea>':`<input name="query" maxlength="60" ${hero?'required':''} placeholder="${hero?'Lancelot':items?'Blade':league?'Ahri':'jungle'}">`}</label><label>OpenCrawl API key<select name="api_key_id">${keys.map(k=>`<option value="${esc(k.id)}">${esc(k.name)} · ${esc(k.prefix)}…</option>`).join('')}</select></label><button class="btn primary" type="submit">Run · 1 credit ${icon('arrow')}</button></form>`:`<p>Create an OpenCrawl API key to record and run this tool.</p><a data-link class="btn primary" href="/dashboard/api-keys">Create API key</a>`}<div id="game-tool-output" aria-live="polite"></div></section>`;
     panel.querySelector('.game-tool-close').onclick=()=>{panelRun++;panel.replaceChildren();};
     panel.scrollIntoView({behavior:'smooth',block:'nearest'});
     const form=$('#game-tool-form',panel);if(!form)return;
@@ -605,7 +635,7 @@ async function dashGames(){
         const response=await api('/api/games/'+encodeURIComponent(game.game_id)+'/tools/'+encodeURIComponent(capability),{method:'POST',body:{api_key_id:form.elements.api_key_id.value,arguments:arguments_}});
         const data=response.result||{},provenance=data.provenance||{},rows=data.results||[];
         const summary=match?`<article><strong>${fmt(data.overall?.games)} matches · ${fmt(data.overall?.win_rate)}% wins</strong><p>Recent 10: ${fmt(data.recent_10?.win_rate)}% · KDA ${fmt(data.overall?.kda)} · ${fmt(data.current_streak?.games)} ${esc(data.current_streak?.outcome||'')} streak</p></article>`:data.hero?`<article><strong>${esc(data.hero.name)} · ${esc(data.hero.role)}</strong><p>Lanes: ${esc((data.hero.lanes||[]).join(', '))}</p><p>Synergies: ${esc((data.hero.synergies||[]).join(', '))}</p><p>Community counters: ${esc((data.hero.counters||[]).join(', '))}</p></article>`:`<p>${fmt(data.total)} matches · showing ${fmt(rows.length)}</p><div class="game-tool-rows">${rows.map(row=>`<article><strong>${esc(row.name)}</strong><span>${esc(row.role||(row.roles||[]).join(', ')||row.category||'')} ${row.cost?' · '+esc(row.cost)+' gold':''}</span></article>`).join('')}</div>`;
-        output.innerHTML=`<div class="game-tool-output" role="status">${summary}<small>${match?'Calculated from your supplied games.':league?`Data Dragon version ${esc(provenance.version||'')} · <a href="${esc(provenance.source||'')}" target="_blank" rel="noopener noreferrer">Riot documentation</a>`:`Snapshot ${esc(provenance.hero_revision||'')} (heroes) / ${esc(provenance.item_revision||'')} (items) · <a href="${esc(provenance.source||'')}" target="_blank" rel="noopener noreferrer">Source and license: MIT</a>`} · ${fmt(response.usage?.credits_charged)} credit · ${esc(response.request_id||'')}</small><details><summary>Full structured result</summary><pre>${esc(JSON.stringify(data,null,2))}</pre></details></div>`;
+        output.innerHTML=`<div class="game-tool-output" role="status">${summary}<small>${match?'Calculated from your supplied games.':league?`Data Dragon version ${esc(provenance.version||'')} · <a href="${esc(provenance.source||'')}" target="_blank" rel="noopener noreferrer">Riot documentation</a>`:`Snapshot ${esc(provenance.hero_revision||'')} (heroes) / ${esc(provenance.item_revision||'')} (items) · <a href="${esc(provenance.source||'')}" target="_blank" rel="noopener noreferrer">Source and license: MIT</a>`} · ${walletMoney(response.usage?.credits_charged)} · ${esc(response.request_id||'')}</small><details><summary>Full structured result</summary><pre>${esc(JSON.stringify(data,null,2))}</pre></details></div>`;
       }catch(error){output.innerHTML=`<p class="game-error" role="alert">${esc(error.message)}${error.requestId?` · ${esc(error.requestId)}`:''}</p>`;}
       finally{toolRunning=false;draw();panel.querySelector('.game-tool-close').disabled=false;submit.disabled=false;submit.removeAttribute('aria-busy');}
     };
@@ -636,7 +666,7 @@ async function dashRepositories(){
       const response=await api('/api/repos/'+(inspect?'inspect':'search'),{method:'POST',body:{[inspect?'repository':'query']:value,api_key_id:$('#repo-key').value}});
       if(run!==activeRun)return;
       const data=response.result||{},usage=response.usage||{};
-      const metric=`${fmt(usage.credits_charged)} credits · ${fmt(usage.github_api_calls)} GitHub requests${response.request_id?' · '+esc(response.request_id):''}`;
+      const metric=`${walletMoney(usage.credits_charged)} · ${fmt(usage.github_api_calls)} GitHub requests${response.request_id?' · '+esc(response.request_id):''}`;
       if(!inspect){
         const rows=data.repositories||[];
         results.innerHTML=`<header class="repo-result-head"><h2>${fmt(rows.length)} public repositories</h2><small>${esc(metric)}${data.incomplete_results?' · GitHub returned partial results':''}</small></header>${rows.length?`<div class="repo-result-list">${rows.map(row=>{const url=source(row.name);return `<article class="repo-card"><div><strong>${esc(row.name)}</strong><p>${esc(row.description||'No description provided.')}</p><small>${esc(row.language||'Language unknown')} · ${fmt(row.stars)} stars · ${esc(row.license||'License not declared')}${esc(pushed(row.updated_at))}</small></div><div class="repo-card-actions">${url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">View source</a><button data-repo-inspect="${esc(row.name)}">Inspect ${icon('arrow')}</button>`:''}</div></article>`}).join('')}</div>`:'<p class="repo-empty">No public repositories found. Try a broader topic.</p>'}`;
@@ -673,7 +703,7 @@ async function dashPublicData(){
     form.elements.max_pages.disabled=!research;
     $('#public-data-url-help').textContent=research?'One URL per line, up to 10. Research follows links within these origins.':'Enter one public HTTP(S) URL.';
     const budget=search?form.querySelectorAll('[name="source"]:checked').length:research?Math.max(1,Math.min(20,Number(form.elements.max_pages.value)||5))*2:1;
-    $('#public-data-budget').textContent=`Reserve up to ${2+budget*3} credits. Final charge: 2 credits + 3 per attempted source fetch${research?', including crawl-policy checks':''}. Unused credits are released.`;
+    $('#public-data-budget').textContent=`Reserve up to ${walletMoney(2+budget*3)}. Final charge is metered in USD wallet balance per attempted source fetch${research?', including crawl-policy checks':''}. Unused credits are released.`;
   };
   form.elements.operation.onchange=update;form.elements.max_pages.oninput=update;form.querySelectorAll('[name="source"]').forEach(input=>input.onchange=update);update();
   form.onsubmit=async event=>{
@@ -692,9 +722,9 @@ async function dashPublicData(){
       const response=await api('/api/public-data/'+operation,{method:'POST',body:{api_key_id:form.elements.api_key_id.value,arguments:args}});
       if(!output.isConnected)return;
       const result=response.result||{},items=result.results||result.evidence||(result.source_url?[result]:[]);
-      output.innerHTML=`<h3>${result.partial?'Partial evidence collected':'Collection complete'}</h3><p>${fmt(response.usage?.credits_charged||0)} credits charged · <code>${esc(response.request_id)}</code></p>${items.length?'':'<p>No matching public records were returned.</p>'}${items.map(source=>`<article><h4>${esc(source.title||source.source_url)}</h4><p>${esc((source.snippets||[source.snippet||source.text||'']).join(' ').slice(0,1600))}</p><a href="${esc(source.source_url||source.url)}" target="_blank" rel="noopener noreferrer">Open source</a><small> · ${source.sources?`${source.sources.length} public ${source.sources.length===1?'index':'indexes'}`:esc(source.captured_at||'')}</small></article>`).join('')}<details class="game-operation-trace"><summary>Structured results &amp; source diagnostics</summary><pre>${esc(JSON.stringify(result,null,2))}</pre></details>`;
+      output.innerHTML=`<h3>${result.partial?'Partial evidence collected':'Collection complete'}</h3><p>${walletMoney(response.usage?.credits_charged||0)} charged · <code>${esc(response.request_id)}</code></p>${items.length?'':'<p>No matching public records were returned.</p>'}${items.map(source=>`<article><h4>${esc(source.title||source.source_url)}</h4><p>${esc((source.snippets||[source.snippet||source.text||'']).join(' ').slice(0,1600))}</p><a href="${esc(source.source_url||source.url)}" target="_blank" rel="noopener noreferrer">Open source</a><small> · ${source.sources?`${source.sources.length} public ${source.sources.length===1?'index':'indexes'}`:esc(source.captured_at||'')}</small></article>`).join('')}<details class="game-operation-trace"><summary>Structured results &amp; source diagnostics</summary><pre>${esc(JSON.stringify(result,null,2))}</pre></details>`;
     }catch(error){if(output.isConnected){
-      output.innerHTML=`<p>${esc(error.message)}</p>${error.requestId?`<p>Request <code>${esc(error.requestId)}</code>${error.usage?` · ${fmt(error.usage.credits_charged)} credits charged`:''}</p>`:''}${error.result?`<details><summary>Source diagnostics</summary><pre>${esc(JSON.stringify(error.result,null,2))}</pre></details>`:''}`;
+      output.innerHTML=`<p>${esc(error.message)}</p>${error.requestId?`<p>Request <code>${esc(error.requestId)}</code>${error.usage?` · ${walletMoney(error.usage.credits_charged)} charged`:''}</p>`:''}${error.result?`<details><summary>Source diagnostics</summary><pre>${esc(JSON.stringify(error.result,null,2))}</pre></details>`:''}`;
     }}
     finally{running=false;busy(button,false);form.removeAttribute('aria-busy');}
   };
@@ -747,7 +777,7 @@ function openRunInspector(event) {
     <div class="ih-inspector-status"><span>${statusDot(runStatus(event.status))}<b>${esc(event.status||'unknown')}</b></span><code>${esc(event.request_id||'No request id')}</code></div>
     <div class="ih-inspector-grid">
       <div><small>Workflow</small><b>${esc(runWorkflow(event))}</b></div>
-      <div><small>Credits</small><b>${fmt(event.credits_charged||0)}</b></div>
+      <div><small>Spend</small><b>${walletMoney(event.credits_charged||0)}</b></div>
       <div><small>Latency</small><b>${event.latency_ms==null?'—':`${fmt(event.latency_ms)} ms`}</b></div>
       <div><small>Created</small><b>${esc(when(event.created_at))}</b></div>
     </div>
@@ -760,21 +790,15 @@ function openRunInspector(event) {
 
 
 /* === Product experience ================================================= */
-/* Internet Hands product UI layer.
+/* OpenCrawl product UI layer.
  * Keeps the existing control-plane/auth/billing implementation intact while
  * replacing the public product story and the primary dashboard experience.
  */
 (() => {
-  const providerBadge = (mark, brand, detail) => `
-    <div class="ih-provider">
-      <span class="ih-provider-mark">${platformMark(mark, brand)}</span>
-      <span><b>${esc(brand)}</b><small>${esc(detail)}</small></span>
-    </div>`;
-
-
   brand = function brandV2() {
-    return `<a class="brand ih-brand ih-logo-only" data-link href="/" aria-label="Internet Hands home">
-      <img class="ih-brand-art" src="/assets/internet-hands-logo.webp" alt="Internet Hands">
+    return `<a class="brand ih-brand oc-brand" data-link href="/" aria-label="OpenCrawl home">
+      <img class="oc-brand-mark" src="/assets/opencrawl-crab.png" width="44" height="44" alt="">
+      <span class="oc-wordmark"><b>Open<span>Crawl</span></b><small>PUBLIC WEB ENGINE</small></span>
     </a>`;
   };
 
@@ -815,7 +839,7 @@ function openRunInspector(event) {
           <div><b>Operate</b><a data-link href="/docs/capabilities">Capabilities</a><a data-link href="/docs/monitoring">Monitoring</a><a data-link href="/status">System status</a></div>
           <div><b>Build</b><a data-link href="/docs/quickstart">Quickstart</a><a data-link href="/docs/mcp">MCP gateway</a><a href="https://github.com/sphangcho203-afk/Web-Scrapping-CLI" target="_blank" rel="noreferrer">GitHub</a></div>
           <div><b>Legal</b><a data-link href="/legal/terms">Terms</a><a data-link href="/legal/privacy">Privacy</a><a data-link href="/legal/acceptable-use">Acceptable use</a><a data-link href="/legal">Legal center</a></div>
-          <div class="ih-footer-meta">Internet Hands<br><span>Explicit · scoped · auditable</span></div>
+          <div class="ih-footer-meta">OpenCrawl<br><span>Explicit · scoped · auditable</span></div>
         </div>
       </footer>
     </div>`;
@@ -823,7 +847,7 @@ function openRunInspector(event) {
   };
 
   const demoRun = () => `
-    <div class="ih-run-demo" aria-label="Internet Hands execution preview">
+    <div class="ih-run-demo" aria-label="OpenCrawl execution preview">
       <div class="ih-run-demo-head">
         <div><span class="ih-window-dot"></span><span class="ih-window-dot"></span><span class="ih-window-dot"></span></div>
         <span>EXAMPLE EXECUTION</span>
@@ -862,8 +886,9 @@ function openRunInspector(event) {
       <section class="ih-hero">
         <div class="container ih-hero-grid">
           <div class="ih-hero-copy">
+            <div class="oc-hero-kicker"><img src="/assets/opencrawl-crab.png" width="24" height="24" alt="" aria-hidden="true"> OPENCRAWL / PUBLIC WEB OPERATIONS</div>
             <h1>The internet,<br><span>as an executable workspace.</span></h1>
-            <p>Search it. Browse it. Extract from it. Monitor it. Route into APIs and remote tools. Internet Hands gives agents one controlled surface for real internet work.</p>
+            <p>Search it. Browse it. Extract from it. Monitor it. Route into APIs and remote tools. OpenCrawl gives agents one controlled surface for real internet work.</p>
             <div class="ih-hero-actions">
               <a class="btn primary large" data-link href="${state.me?.user?.email_verified ? '/dashboard' : '/signup'}">Open command center ${icon('arrow')}</a>
               <a class="ih-text-link" data-link href="/docs/quickstart">See how it works ${icon('arrow')}</a>
@@ -878,13 +903,9 @@ function openRunInspector(event) {
 
       <section class="ih-client-band">
         <div class="container">
-          <div class="ih-band-label"><span>BUILT TO SIT BEHIND THE AGENTS YOU ALREADY USE</span><i></i></div>
-          <div class="ih-provider-row">
-            ${providerBadge('openai','OpenAI','ChatGPT')}
-            ${providerBadge('anthropic','Anthropic','Claude')}
-            ${providerBadge('xai','xAI','Grok')}
-            ${providerBadge('github','GitHub','Automation')}
-            ${providerBadge('mcp','MCP','Any compatible client')}
+          <div class="ih-band-label"><span>OPENCRAWL / INTERNET OPERATIONS</span><i></i></div>
+          <div class="oc-capability-row" aria-label="OpenCrawl operations">
+            ${['Search','Crawl','Extract','Execute','Observe'].map((operation,index)=>`<span><i>${String(index+1).padStart(2,'0')}</i><b>${operation}</b></span>`).join('')}
           </div>
         </div>
       </section>
@@ -893,7 +914,7 @@ function openRunInspector(event) {
         <div class="container">
           <div class="ih-section-lead">
             <h2>One instruction becomes a traceable operation.</h2>
-            <p>Instead of exposing a wall of tools, Internet Hands discovers the capability, executes through the right provider, and keeps the run inspectable.</p>
+            <p>Instead of exposing a wall of tools, OpenCrawl discovers the capability, chooses an execution path, and keeps the run inspectable.</p>
           </div>
           <div class="ih-operation-grid">
             <article class="ih-operation-primary">
@@ -905,9 +926,9 @@ function openRunInspector(event) {
               <div class="ih-operation-footer"><span>Discover</span><span>Route</span><span>Execute</span><b>Inspect</b></div>
             </article>
             <div class="ih-operation-stack">
-              <article><span>SEARCH + FETCH</span><h3>Public web intelligence</h3><p>Discover, fetch, crawl and preserve provenance instead of returning a dead blob of text.</p></article>
-              <article><span>BROWSER</span><h3>Dynamic web execution</h3><p>Use controlled Chromium sessions for pages that need a real browser, state, clicks or extraction.</p></article>
-              <article><span>TOOL MESH</span><h3>APIs and remote MCPs</h3><p>Route to external capabilities without loading every provider schema into the model at once.</p></article>
+              <article><span>SEARCH + FETCH</span><h3>Public web intelligence</h3><p>Discover, fetch, crawl and preserve provenance instead of returning a dead blob of text.</p><a class="ih-text-link" data-link href="/docs/capabilities#web">How web intelligence works ${icon('arrow')}</a></article>
+              <article><span>BROWSER</span><h3>Dynamic web execution</h3><p>Use controlled Chromium sessions for pages that need a real browser, state, clicks or extraction.</p><a class="ih-text-link" data-link href="/docs/capabilities#browser">When browser execution is appropriate ${icon('arrow')}</a></article>
+              <article><span>TOOL MESH</span><h3>APIs and remote MCPs</h3><p>Route to external capabilities without loading every provider schema into the model at once.</p><a class="ih-text-link" data-link href="/docs/tool-mesh">How routing and execution work ${icon('arrow')}</a></article>
             </div>
           </div>
         </div>
@@ -917,13 +938,13 @@ function openRunInspector(event) {
         <div class="container ih-evidence-grid">
           <div class="ih-section-lead">
             <h2>Power means nothing if the result is impossible to inspect.</h2>
-            <p>Every useful run should leave behind enough context to understand what happened: route, provider, latency, cost, status and evidence.</p>
+            <p>Every useful run should leave behind enough context to understand what happened: route, latency, cost, status and evidence.</p>
             <a class="ih-text-link" data-link href="/docs/capabilities">Explore the capability fabric ${icon('arrow')}</a>
           </div>
           <div class="ih-ledger">
-            <div class="ih-ledger-head"><span>RUN LEDGER FIELDS</span><span>PROVIDER</span><span>STATE</span><span>LATENCY</span></div>
+            <div class="ih-ledger-head"><span>RUN LEDGER FIELDS</span><span>ROUTE</span><span>STATE</span><span>LATENCY</span></div>
             <div class="ih-ledger-row"><code>Request ID</code><span>Selected route</span><em>Measured status</em><b>Elapsed time</b></div>
-            <div class="ih-ledger-row"><code>Capability</code><span>Provider used</span><em>Credit charge</em><b>Timestamp</b></div>
+            <div class="ih-ledger-row"><code>Capability</code><span>Path used</span><em>Credit charge</em><b>Timestamp</b></div>
           </div>
         </div>
       </section>
@@ -931,7 +952,7 @@ function openRunInspector(event) {
       <section class="ih-final">
         <div class="container ih-final-inner">
           <div><h2>Give the agent reach.<br>Keep the operation under control.</h2><p>One endpoint. Real internet capability. Runs you can actually inspect.</p></div>
-          <a class="btn primary large" data-link href="${state.me?.user?.email_verified ? '/dashboard' : '/signup'}">Launch Internet Hands ${icon('arrow')}</a>
+          <a class="btn primary large" data-link href="${state.me?.user?.email_verified ? '/dashboard' : '/signup'}">Launch OpenCrawl ${icon('arrow')}</a>
         </div>
       </section>
     </main>`);
@@ -971,7 +992,7 @@ function openRunInspector(event) {
     const health=Number(u.success_rate??100);
     dashboardShell('overview',`
       <section class="ih-command-head">
-        <div><span>COMMAND CENTER</span><h1>What should Internet Hands do?</h1><p>Describe the outcome. The execution fabric handles capability discovery, routing and metering behind the boundary.</p></div>
+        <div><span>COMMAND CENTER</span><h1>What should OpenCrawl do?</h1><p>Describe the outcome. The execution fabric handles capability discovery, routing and metering behind the boundary.</p></div>
         <div class="ih-command-health"><span>${statusDot()} Gateway live</span><b>${health.toFixed(1)}%</b><small>30-day success</small></div>
       </section>
 
@@ -984,7 +1005,7 @@ function openRunInspector(event) {
       </section>
 
       <section class="ih-command-stats">
-        <div><span>AVAILABLE CREDITS</span><b>${fmt(credits)}</b><small>${fmt(a.monthly_credits)} monthly · ${fmt(a.purchased_credits)} rollover</small></div>
+        <div><span>AVAILABLE WALLET</span><b>${walletMoney(credits,a)}</b><small>${walletMoney(a.monthly_credits,a)} monthly · ${walletMoney(a.purchased_credits,a)} rollover</small></div>
         <div><span>REQUESTS · 24H</span><b>${fmt(u.calls_24h)}</b><small>${fmt(u.calls_30d)} in 30 days</small></div>
         <div><span>AVG LATENCY</span><b>${fmt(u.avg_latency_ms)}<em> ms</em></b><small>Metered execution</small></div>
         <div><span>MONITOR SLOTS</span><b>${fmt(a.monitor_limit)}</b><small>Plan allowance</small></div>
@@ -1019,11 +1040,11 @@ function openRunInspector(event) {
     const latency=events.map(x=>Number(x.latency_ms)).filter(Number.isFinite).sort((a,b)=>a-b);
     const p95=latency.length ? latency[Math.min(latency.length-1,Math.floor(latency.length*.95))] : 0;
     dashboardShell('usage',`
-      <section class="ih-runs-head"><div><span>RUNS</span><h1>Every internet operation, traceable.</h1><p>Requests, workflows, status, credits and latency from the metered execution ledger.</p></div><button class="btn primary" data-new-run-inline>${icon('activity')} New run</button></section>
-      <section class="ih-runs-summary"><div><span>RUNS LOADED</span><b>${fmt(events.length)}</b></div><div><span>SUCCESS</span><b>${success.toFixed(1)}%</b></div><div><span>CREDITS</span><b>${fmt(credits)}</b></div><div><span>P95 LATENCY</span><b>${fmt(p95)} <small>ms</small></b></div></section>
+      <section class="ih-runs-head"><div><span>RUNS</span><h1>Every internet operation, traceable.</h1><p>Requests, workflows, status, wallet spend and latency from the metered execution ledger.</p></div><button class="btn primary" data-new-run-inline>${icon('activity')} New run</button></section>
+      <section class="ih-runs-summary"><div><span>RUNS LOADED</span><b>${fmt(events.length)}</b></div><div><span>SUCCESS</span><b>${success.toFixed(1)}%</b></div><div><span>SPEND</span><b>${walletMoney(credits)}</b></div><div><span>P95 LATENCY</span><b>${fmt(p95)} <small>ms</small></b></div></section>
       <section class="ih-run-table-wrap">
-        <div class="ih-run-table-head"><span>STATE</span><span>RUN</span><span>WORKFLOW</span><span>CREDITS</span><span>LATENCY</span><span>TIME</span><span></span></div>
-        ${events.length ? events.map((e,i)=>`<button class="ih-run-table-row" data-run-index="${i}"><span>${statusDot(runStatus(e.status))}<b>${esc(e.status||'unknown')}</b></span><span><b>${esc(runLabel(e))}</b><code>${esc((e.request_id||'—').slice(0,22))}</code></span><span>${esc(runWorkflow(e))}</span><span>${fmt(e.credits_charged||0)}</span><span>${e.latency_ms==null?'—':`${fmt(e.latency_ms)} ms`}</span><span>${esc(when(e.created_at))}</span><span>${icon('arrow')}</span></button>`).join('') : `<div class="ih-empty-run large"><span>${icon('activity')}</span><div><b>Your run ledger is empty</b><p>Requests executed through your connected clients appear here automatically.</p></div><a class="btn primary" data-link href="/dashboard/connections">Connect a client</a></div>`}
+        <div class="ih-run-table-head"><span>STATE</span><span>RUN</span><span>WORKFLOW</span><span>SPEND</span><span>LATENCY</span><span>TIME</span><span></span></div>
+        ${events.length ? events.map((e,i)=>`<button class="ih-run-table-row" data-run-index="${i}"><span>${statusDot(runStatus(e.status))}<b>${esc(e.status||'unknown')}</b></span><span><b>${esc(runLabel(e))}</b><code>${esc((e.request_id||'—').slice(0,22))}</code></span><span>${esc(runWorkflow(e))}</span><span>${walletMoney(e.credits_charged||0)}</span><span>${e.latency_ms==null?'—':`${fmt(e.latency_ms)} ms`}</span><span>${esc(when(e.created_at))}</span><span>${icon('arrow')}</span></button>`).join('') : `<div class="ih-empty-run large"><span>${icon('activity')}</span><div><b>Your run ledger is empty</b><p>Requests executed through your connected clients appear here automatically.</p></div><a class="btn primary" data-link href="/dashboard/connections">Connect a client</a></div>`}
       </section>`);
     $('[data-new-run-inline]')?.addEventListener('click',()=>go('/dashboard'));
     $$('[data-run-index]').forEach(b=>b.addEventListener('click',()=>openRunInspector(events[Number(b.dataset.runIndex)])));
@@ -1033,7 +1054,7 @@ function openRunInspector(event) {
 
 
 /* === Extended authenticated surfaces ==================================== */
-/* Internet Hands extended product UI.
+/* OpenCrawl extended product UI.
  * Second-stage presentation layer for the remaining control-plane surfaces.
  * Reuses the existing API/security/billing handlers instead of duplicating backend logic.
  */
@@ -1049,13 +1070,13 @@ function openRunInspector(event) {
       <section class="auth-story ihx-auth-story">
         <div class="ihx-auth-top">${brand()}<span>SECURE ACCESS</span></div>
         <div class="ihx-auth-copy">
-          <span>INTERNET HANDS / SECURE ACCESS</span>
+          <span>OPENCRAWL / SECURE ACCESS</span>
           <h1>${esc(story)}</h1>
           <p>Identity, permissions, execution and evidence stay inside one auditable boundary.</p>
         </div>
         <div class="ihx-auth-console">
           <div class="ihx-auth-console-head"><span>AUTHENTICATED EDGE</span><code>/mcp</code></div>
-          <div class="ihx-auth-route"><span>Agent</span><i></i><strong><img src="/assets/mark.svg" alt="">IH</strong><i></i><span>Internet</span></div>
+          <div class="ihx-auth-route"><span>Agent</span><i></i><strong><img src="/assets/opencrawl-crab.png" alt="">OC</strong><i></i><span>Internet</span></div>
           <div class="ihx-auth-console-foot"><span>${icon('shield')} Verified identity</span><span>${icon('key')} Scoped access</span><span>${icon('activity')} Request ledger</span></div>
         </div>
       </section>
@@ -1072,22 +1093,81 @@ function openRunInspector(event) {
   };
 
   dashIntegrations = async function dashIntegrationsV3() {
-    const endpoint=location.origin+'/mcp', d=await api('/api/connections'), cs=d.connections||[];
-    const rows=cs.length?cs.map(c=>'<article class="mcp-row"><div><b>'+esc(c.name)+'</b><code>'+esc(c.endpoint_url)+'</code><small>'+esc(c.transport)+' · '+esc(c.auth_type)+' · '+esc((c.header_names||[]).join(', '))+'</small></div><button class="btn quiet small" data-del-mcp="'+esc(c.id)+'">Delete</button></article>').join(''):'<div class="mcp-empty"><b>No remote MCP connections</b><p>Add one manually or import a cURL command.</p></div>';
-    dashboardShell('connections', headline('CONNECTIONS','MCP connections','Connect remote MCP servers with the authentication they actually require.','<button class="btn primary" id="mcp-add">+ Add connection</button>')+
-      '<section class="ihx-endpoint-hero"><div><span>YOUR INTERNET HANDS MCP</span><h2>'+esc(endpoint)+'</h2><p>Use this endpoint when ChatGPT, Claude, Grok or another MCP client connects to Internet Hands.</p></div><div class="ihx-endpoint-meta"><span><small>Transport</small><b>Streamable HTTP</b></span><span><small>Identity</small><b>OAuth / key</b></span><span><small>State</small><b>View system status</b></span></div></section>'+
-      '<section class="agent-connect"><header><span>CONNECT YOUR CODING AGENT</span><h2>Use Internet Hands from your terminal</h2><p>Pick your agent, copy the setup, then verify the MCP connection.</p></header><div class="agent-tabs" role="group" aria-label="Agent setup"><button class="active" aria-pressed="true" data-agent-tab="codex">Codex CLI</button><button aria-pressed="false" data-agent-tab="claude">Claude Code</button><button aria-pressed="false" data-agent-tab="config">MCP config</button><button aria-pressed="false" data-agent-tab="curl">HTTP / cURL</button></div><div id="agent-setup"></div></section><section class="mcp-secondary"><button id="mcp-add2"><b>Connect remote MCP</b><small>Internet Hands → another MCP server</small></button><button id="mcp-curl"><b>Import provider cURL</b><small>Outbound remote MCP setup</small></button></section>'+
-      '<section class="mcp-saved"><header><span>SAVED CONNECTIONS</span><h2>Remote MCP servers</h2><p>Credential values are never rendered back.</p></header>'+rows+'</section>'+
-      '<section class="ihx-connection-modes"><article><span>'+icon('shield')+'</span><div><small>INTERACTIVE CLIENTS</small><h3>OAuth MCP</h3><p>Consent + PKCE + short-lived bearer tokens.</p></div><button class="mcp-link" data-mcp-guide="oauth">OAuth guide →</button></article><article><span>'+icon('key')+'</span><div><small>AUTOMATION</small><h3>Scoped API keys</h3><p>Independent credentials for scripts, CI and servers.</p></div><a data-link href="/dashboard/api-keys">Manage keys →</a></article></section>');
+    const endpoint=location.origin+'/mcp';
+    const [d,connectedData,catalogData]=await Promise.all([
+      api('/api/connections'),
+      api('/api/integrations/apps').catch(error=>({configured:false,apps:[],connections:[],error:error.message})),
+      api('/api/integrations/catalog?limit=100').catch(error=>({configured:false,apps:[],error:error.message}))
+    ]);
+    const cs=d.connections||[];
+    const connectedApps=connectedData.apps||[];
+    const catalogApps=catalogData.apps||[];
+    const appAccounts=connectedData.connections||[];
+    const accountByToolkit=appAccounts.reduce((map,item)=>{
+      const key=String(item.toolkit||'').toLowerCase();
+      if(!map[key])map[key]=[];
+      map[key].push(item);
+      return map;
+    },{});
+    const appMeta=new Map(connectedApps.map(item=>[String(item.toolkit||'').toLowerCase(),item]));
+    catalogApps.forEach(item=>{
+      const key=String(item.toolkit||'').toLowerCase();
+      if(key&&!appMeta.has(key))appMeta.set(key,item);
+    });
+    const accountToolkits=[...new Set(appAccounts.map(x=>String(x.toolkit||'').toLowerCase()).filter(Boolean))];
+    const accountApps=accountToolkits.map(toolkit=>appMeta.get(toolkit)||{toolkit,name:toolkit.replaceAll('_',' '),auth_configs:[],auth_schemes:[]});
+    const connectedAppCards=connectedData.configured
+      ? (accountApps.length?accountApps.map(appItem=>{
+          const toolkit=String(appItem.toolkit||'').toLowerCase();
+          const accounts=accountByToolkit[toolkit]||[];
+          const active=accounts.filter(x=>String(x.status||'').toUpperCase()==='ACTIVE').length;
+          const expired=accounts.filter(x=>['EXPIRED','FAILED'].includes(String(x.status||'').toUpperCase())).length;
+          const initiated=accounts.filter(x=>String(x.status||'').toUpperCase()==='INITIATED').length;
+          const state=active?'on':expired?'off':initiated?'idle':'idle';
+          const stateLabel=active?active+' active':expired?'Needs reconnect':initiated?'Awaiting authorization':'Not connected';
+          const configs=(appItem.auth_configs||[]);
+          const configAttr=esc(JSON.stringify(configs));
+          const accountRows=accounts.length?'<div class="connected-app-accounts">'+accounts.map(a=>{
+            const status=String(a.status||'UNKNOWN').toUpperCase();
+            const alias=a.alias||a.id;
+            const tone=status==='ACTIVE'?'on':status==='EXPIRED'||status==='FAILED'?'off':'idle';
+            const reason=a.status_reason?'<small>'+esc(a.status_reason)+'</small>':'';
+            const reconnect=status==='EXPIRED'||status==='FAILED'
+              ? '<button class="btn small" data-reconnect-app="'+esc(a.id)+'">Reconnect</button>'
+              : '';
+            const toggle=status==='ACTIVE'
+              ? '<button class="btn quiet small" data-toggle-app="'+esc(a.id)+'" data-enable-app="false">Pause</button>'
+              : (status==='INACTIVE'||status==='DISABLED'
+                ? '<button class="btn small" data-toggle-app="'+esc(a.id)+'" data-enable-app="true">Enable</button>'
+                : '');
+            return '<article><div><b>'+esc(alias)+'</b><code>'+esc(a.id)+'</code>'+reason+'</div><span class="ihx-state '+tone+'">'+dot(status==='ACTIVE'?'ok':status==='EXPIRED'||status==='FAILED'?'warn':'idle')+' '+esc(status)+'</span><div>'+reconnect+toggle+'<button class="btn quiet small" data-rename-app="'+esc(a.id)+'" data-app-alias="'+esc(a.alias||'')+'">Rename</button><button class="btn quiet small" data-disconnect-app="'+esc(a.id)+'">Disconnect</button></div></article>';
+          }).join('')+'</div>':'<p class="connected-app-empty">No account connected yet. Connecting opens the provider authorization flow; credentials stay with the connection provider and never pass through the browser as raw tokens.</p>';
+          return '<article class="connected-app-card"><header><div class="connected-app-mark">'+esc((appItem.name||toolkit||'?').slice(0,1).toUpperCase())+'</div><div><small>'+esc(toolkit)+'</small><h3>'+esc(appItem.name||toolkit)+'</h3><p>'+esc((appItem.auth_schemes||[]).join(' · ')||'Managed connection')+'</p></div><span class="ihx-state '+state+'">'+dot(active?'ok':expired?'warn':'idle')+' '+esc(stateLabel)+'</span></header>'+accountRows+'<footer><button class="btn primary small" data-connect-app="'+esc(toolkit)+'" data-app-name="'+esc(appItem.name||toolkit)+'" data-auth-configs="'+configAttr+'" data-allow-multiple="'+String(accounts.some(x=>String(x.status||'').toUpperCase()==='ACTIVE'))+'">'+(accounts.length?'Connect another account':'Connect account')+'</button><small>When active, this toolkit becomes eligible for user-scoped Tool Mesh discovery and execution.</small></footer></article>';
+        }).join(''):'<div class="mcp-empty"><b>No provider accounts connected</b><p>Choose Connect app to authorize GitHub, Gmail, Slack, Notion or another supported toolkit. OpenCrawl stores only the connected-account reference; provider credentials remain server-side.</p></div>')
+      : '<div class="mcp-empty"><b>Connected apps are not configured</b><p>OpenCrawl cannot start account authorization until the server-side Composio project key is available.</p></div>';
+    const rows=cs.length?cs.map(c=>{
+      const checked=c.last_checked_at?when(c.last_checked_at):'Never tested';
+      const state=!c.enabled?'paused':c.last_status==='ok'?'ok':c.last_status==='error'?'error':'unchecked';
+      const statusLabel=!c.enabled?'Paused':c.last_status==='ok'?'Connected':c.last_status==='error'?'Needs attention':'Not tested';
+      const detail=c.last_status==='ok'?(fmt(c.tool_count||0)+' tools discovered'):(c.last_error||checked);
+      return '<article class="mcp-row mcp-row-live"><div class="mcp-row-main"><span class="ihx-state '+(state==='ok'?'on':state==='error'?'off':'idle')+'">'+dot(state==='ok'?'ok':state==='error'?'warn':'idle')+' '+esc(statusLabel)+'</span><b>'+esc(c.name)+'</b><code>'+esc(c.endpoint_url)+'</code><small>'+esc(c.transport)+' · '+esc(c.auth_type)+' · '+esc((c.header_names||[]).join(', ')||'no credential headers')+'</small><em>'+esc(detail)+' · last check '+esc(checked)+'</em></div><div class="mcp-row-actions"><button class="btn small" data-test-mcp="'+esc(c.id)+'">Test & discover</button><button class="btn quiet small" data-toggle-mcp="'+esc(c.id)+'" data-enabled="'+String(Boolean(c.enabled))+'">'+(c.enabled?'Pause':'Enable')+'</button><button class="btn danger small" data-del-mcp="'+esc(c.id)+'">Delete</button></div></article>';
+    }).join(''):'<div class="mcp-empty"><b>No remote MCP connections</b><p>Add one manually or import a cURL command. Saving is only step one; OpenCrawl will then perform a live MCP handshake and discover the remote tool catalog.</p></div>';
+    dashboardShell('connections', headline('CONNECTIONS','MCP connections','One page, two directions: connect AI clients into OpenCrawl, and connect trusted remote MCP servers outward from OpenCrawl. Keep those permission boundaries separate.','<button class="btn primary" id="mcp-add">+ Add remote MCP</button>')+
+      '<section class="ihx-endpoint-hero"><div><span>YOUR OPENCRAWL MCP</span><h2>'+esc(endpoint)+'</h2><p>This is the inbound endpoint for supported MCP hosts such as Codex, Claude Code, VS Code, Cursor and compatible remote MCP clients. Authentication is handled separately through OAuth or a dedicated scoped key.</p><a class="mcp-link" data-link href="/docs/clients">Read exact client setup guides →</a></div><div class="ihx-endpoint-meta"><span><small>Transport</small><b>Streamable HTTP</b></span><span><small>Identity</small><b>OAuth / key</b></span><span><small>State</small><b>Server-side policy</b></span></div></section>'+
+      '<section class="ihx-connection-direction"><article><span>INBOUND</span><h3>Client → OpenCrawl</h3><p>Your AI host connects to <code>'+esc(endpoint)+'</code>. Give each host its own OAuth grant or scoped key so it can be revoked independently.</p><a data-link href="/docs/clients">Client guides →</a></article><article><span>OUTBOUND</span><h3>OpenCrawl → provider / remote MCP</h3><p>These saved connections let the Tool Mesh reach another trusted MCP server. Provider credentials stay server-side and are not rendered back into the browser.</p><a data-link href="/docs/sync#remote-mcp">How federation works →</a></article></section><section class="agent-connect"><header><span>CONNECT A CLIENT</span><h2>Use OpenCrawl from the tools you already work in</h2><p>These are starter configurations. The full guide explains authentication, scope, secret storage, what happens after connection, and host-specific limitations.</p><a class="mcp-link" data-link href="/docs/clients">Open detailed client documentation →</a></header><div class="agent-tabs" role="group" aria-label="Client setup"><button class="active" aria-pressed="true" data-agent-tab="codex">Codex</button><button aria-pressed="false" data-agent-tab="claude">Claude Code</button><button aria-pressed="false" data-agent-tab="vscode">VS Code</button><button aria-pressed="false" data-agent-tab="cursor">Cursor</button><button aria-pressed="false" data-agent-tab="http">HTTP probe</button></div><div id="agent-setup"></div></section><section class="mcp-secondary"><button id="mcp-add2"><b>Connect remote MCP</b><small>OpenCrawl → another MCP server</small></button><button id="mcp-curl"><b>Import provider cURL</b><small>Parse endpoint + supported auth headers; never execute shell text</small></button></section><div class="mcp-doc-strip"><span>Need the model, not just the button?</span><a data-link href="/docs/sync">Connections & synchronization →</a><a data-link href="/docs/tool-mesh">Tool Mesh execution →</a><a data-link href="/docs/security#mcp-trust">MCP trust & security →</a></div>'+
+      '<section class="connected-apps"><header><div><span>CONNECTED APPS</span><h2>Provider accounts</h2><p>Authorize GitHub, Gmail, Slack, Notion and other supported toolkits through hosted provider authentication. Active accounts become available to your Tool Mesh; expired accounts are never executed silently.</p></div><div class="connected-app-head-actions"><span>'+fmt(appAccounts.filter(x=>String(x.status||'').toUpperCase()==='ACTIVE').length)+' active accounts</span><button class="btn primary small" id="connect-app-catalog">+ Connect app</button></div></header><div class="connected-app-grid">'+connectedAppCards+'</div></section>'+
+      '<section class="mcp-saved"><header><span>REMOTE MCP</span><h2>Saved MCP servers</h2><p>These are outbound MCP servers. Credential values are never rendered back.</p></header>'+rows+'</section>'+
+      '<section class="ihx-connection-modes"><article><span>'+icon('shield')+'</span><div><small>INTERACTIVE CLIENTS</small><h3>OAuth MCP</h3><p>Browser consent, PKCE and token-based access for compatible clients.</p></div><a class="mcp-link" data-link href="/docs/oauth">Understand the OAuth flow →</a></article><article><span>'+icon('key')+'</span><div><small>AUTOMATION</small><h3>Scoped API keys</h3><p>Independent long-lived machine credentials for scripts, CI and services.</p></div><a class="mcp-link" data-link href="/docs/keys">Understand keys & scopes →</a><a data-link href="/dashboard/api-keys">Manage keys →</a></article></section>');
     bindCommon();
     const agentSetup=(kind)=>{
       const configs={
-        codex:{title:'Codex CLI',desc:'Add Internet Hands as a Streamable HTTP MCP server.',cmd:'codex mcp add internet-hands --url '+endpoint,verify:'codex mcp list',extra:'OAuth: codex mcp login internet-hands. Manual config: ~/.codex/config.toml.'},
-        claude:{title:'Claude Code',desc:'Register Internet Hands over HTTP from your terminal.',cmd:'claude mcp add --transport http internet-hands '+endpoint,verify:'claude mcp list',extra:'Choose project or user scope when you want the connection shared.'},
-        config:{title:'Codex config.toml',desc:'Manual MCP configuration.',cmd:'[mcp_servers.internet_hands]\nurl = "'+endpoint+'"',verify:'codex mcp list',extra:'Save in ~/.codex/config.toml or .codex/config.toml for a trusted project.'},
-        curl:{title:'Raw HTTP / cURL',desc:'Inspect the endpoint or wire a custom client.',cmd:'curl -i '+endpoint,verify:'curl -i '+endpoint,extra:'Add the issued auth header when required. Never commit secrets.'}
+        codex:{title:'Codex CLI',desc:'OpenAI documents remote MCP setup with codex mcp add --url.',cmd:'codex mcp add opencrawl --url '+endpoint,verify:'codex mcp list',extra:'This registers the remote server for Codex CLI/IDE configuration. Read the client guide before adding long-lived credentials or broad scopes.',docs:'/docs/clients#codex'},
+        claude:{title:'Claude Code',desc:'Anthropic documents remote HTTP MCP setup with --transport http.',cmd:'claude mcp add --transport http opencrawl '+endpoint,verify:'/mcp',extra:'Use /mcp inside Claude Code to inspect/manage the server and complete browser authentication when the remote server requires OAuth.',docs:'/docs/clients#claude-code'},
+        vscode:{title:'VS Code / GitHub Copilot',desc:'Use a remote HTTP MCP server in .vscode/mcp.json. Keep secrets in input variables rather than committing them.',cmd:'{\n  "servers": {\n    "opencrawl": {\n      "type": "http",\n      "url": "'+endpoint+'"\n    }\n  }\n}',verify:'MCP: List Servers',extra:'For key auth, add an Authorization header backed by a VS Code input variable. OAuth is also supported for HTTP MCP servers.',docs:'/docs/clients#vscode'},
+        cursor:{title:'Cursor',desc:'Register the hosted endpoint as a remote Streamable HTTP MCP server.',cmd:'{\n  "mcpServers": {\n    "opencrawl": {\n      "url": "'+endpoint+'"\n    }\n  }\n}',verify:'Review MCP server status/tools in Cursor',extra:'Project configuration belongs in .cursor/mcp.json. Use supported OAuth or secure credential configuration; do not commit a real key.',docs:'/docs/clients#cursor'},
+        http:{title:'Raw HTTP probe',desc:'Use this only to inspect reachability/auth behavior. A curl GET is not a complete MCP initialize/tool session.',cmd:'curl -i '+endpoint,verify:'Expected: protected-resource/auth response or MCP transport response',extra:'For a real custom integration, use an MCP SDK/client over Streamable HTTP and follow OAuth discovery or send a scoped Bearer credential.',docs:'/docs/mcp'}
       },x=configs[kind]||configs.codex,box=document.querySelector('#agent-setup');if(!box)return;
-      box.innerHTML='<article class="agent-command"><div class="agent-command-head"><div><small>'+esc(x.title)+'</small><h3>'+esc(x.desc)+'</h3></div><button class="btn quiet small" data-copy-agent>Copy setup</button></div><pre><code>'+esc(x.cmd)+'</code></pre><div class="agent-verify"><span>VERIFY</span><code>'+esc(x.verify)+'</code><button class="btn quiet small" data-copy-verify>Copy</button></div><p>'+esc(x.extra)+'</p></article>';
+      box.innerHTML='<article class="agent-command"><div class="agent-command-head"><div><small>'+esc(x.title)+'</small><h3>'+esc(x.desc)+'</h3></div><button class="btn quiet small" data-copy-agent>Copy setup</button></div><pre><code>'+esc(x.cmd)+'</code></pre><div class="agent-verify"><span>VERIFY</span><code>'+esc(x.verify)+'</code><button class="btn quiet small" data-copy-verify>Copy</button></div><p>'+esc(x.extra)+'</p><a class="mcp-link" data-link href="'+esc(x.docs)+'">Read the complete '+esc(x.title)+' setup →</a></article>';
       box.querySelector('[data-copy-agent]')?.addEventListener('click',e=>copyText(x.cmd,e.currentTarget));
       box.querySelector('[data-copy-verify]')?.addEventListener('click',e=>copyText(x.verify,e.currentTarget));
     };
@@ -1095,8 +1175,15 @@ function openRunInspector(event) {
     agentSetup('codex');
     const panel=(title,body)=>modal('<div class="modal-head"><h2>'+esc(title)+'</h2><button class="icon-btn" data-close aria-label="Close dialog">×</button></div>'+body,true);
     const fields=t=>t==='api_key'?'<label>Header name<input name="header_name" value="X-API-Key"></label><label>API key<input type="password" name="secret" required autocomplete="new-password"></label>':(t==='bearer'||t==='oauth')?'<label>'+(t==='oauth'?'Existing OAuth access token':'Bearer token')+'<input type="password" name="secret" required autocomplete="new-password"></label>'+(t==='oauth'?'<p class="mcp-note">Use an already-issued token. Automatic OAuth sign-in and token refresh are not part of this connection.</p>':''):t==='headers'?'<label>Custom headers<textarea name="headers_text" rows="5" placeholder="X-API-Key: …&#10;X-Workspace: …"></textarea></label>':'<p class="mcp-note">No credentials will be sent.</p>';
-    const add=()=>{const w=panel('Add MCP connection','<form id="mcp-form" class="form-stack"><label>Name<input name="name" required maxlength="80" placeholder="Production MCP"></label><label>Server URL<input type="url" name="endpoint_url" required placeholder="https://example.com/mcp"></label><div class="mcp-grid"><label>Transport<select name="transport"><option value="streamable_http">Streamable HTTP</option><option value="sse">SSE</option></select></label><label>Authentication<select name="auth_type"><option value="none">No auth</option><option value="api_key">API key</option><option value="bearer">Bearer token</option><option value="headers">Custom headers</option><option value="oauth">OAuth access token</option></select></label></div><div id="mcp-auth">'+fields('none')+'</div><p class="mcp-note">Credentials are submitted server-side and are not displayed after creation.</p><button class="btn primary" type="submit">Save connection</button></form>');const f=w.querySelector('#mcp-form'),a=f.elements.auth_type;a.onchange=()=>w.querySelector('#mcp-auth').innerHTML=fields(a.value);f.onsubmit=async e=>{e.preventDefault();const body=Object.fromEntries(new FormData(f));if(body.headers_text){body.headers={};body.headers_text.split(/\r?\n/).forEach(x=>{const i=x.indexOf(':');if(i>0)body.headers[x.slice(0,i).trim()]=x.slice(i+1).trim()});delete body.headers_text}const button=f.querySelector('button[type=submit]');busy(button,true,'Saving…');try{await api('/api/connections',{method:'POST',body});w.remove();toast('MCP connection saved','success');await dashIntegrations()}catch(x){busy(button,false);toast(x.message,'error')}}};
-    const guide=k=>{const g=k==='curl'?['cURL import guide','<h3>Import, never execute</h3><p>Paste a provider cURL example. Internet Hands parses the URL and supported headers without running shell commands.</p><pre><code>curl https://example.com/mcp -H &quot;Authorization: Bearer YOUR_TOKEN&quot;</code></pre><h3>Safety</h3><p>Client certificates, key files, cookies and unsafe credential-bearing file options are rejected. Imported credential values stay redacted.</p>']:k==='oauth'?['OAuth MCP guide','<h3>Client → Internet Hands</h3><ol><li>Copy <code>'+esc(endpoint)+'</code>.</li><li>Add it as a remote MCP server.</li><li>Follow OAuth discovery and browser consent.</li><li>Approve only required scopes.</li><li>Run a capability discovery test.</li></ol>']:['MCP connection guide','<h3>Two directions</h3><p><b>Client → Internet Hands:</b> use <code>'+esc(endpoint)+'</code>. <b>Internet Hands → remote MCP:</b> Add MCP connection.</p><h3>Transport</h3><p>Prefer Streamable HTTP. Use SSE only for servers that explicitly expose SSE.</p><h3>Authentication</h3><p>No auth, API key, Bearer token, custom headers, or an already-issued OAuth access token are supported by the connection form.</p>'];panel(g[0],'<div class="mcp-guide">'+g[1]+'</div>')};
+    const add=()=>{const w=panel('Add MCP connection','<form id="mcp-form" class="form-stack"><label>Name<input name="name" required maxlength="80" placeholder="Production MCP"></label><label>Server URL<input type="url" name="endpoint_url" required placeholder="https://example.com/mcp"></label><div class="mcp-grid"><label>Transport<select name="transport"><option value="streamable_http">Streamable HTTP</option><option value="sse">SSE</option></select></label><label>Authentication<select name="auth_type"><option value="none">No auth</option><option value="api_key">API key</option><option value="bearer">Bearer token</option><option value="headers">Custom headers</option><option value="oauth">OAuth access token</option></select></label></div><div id="mcp-auth">'+fields('none')+'</div><div class="mcp-note"><b>What saving does</b><p>This does not mirror or continuously sync the remote server. It stores the connection policy and secret material server-side so the remote MCP becomes eligible for Tool Mesh discovery/execution when an agent actually needs it.</p><a data-link href="/docs/sync#remote-mcp">Read federation, trust and account-selection behavior →</a></div><button class="btn primary" type="submit">Save connection</button></form>');const f=w.querySelector('#mcp-form'),a=f.elements.auth_type;a.onchange=()=>w.querySelector('#mcp-auth').innerHTML=fields(a.value);f.onsubmit=async e=>{e.preventDefault();const body=Object.fromEntries(new FormData(f));if(body.headers_text){body.headers={};body.headers_text.split(/\r?\n/).forEach(x=>{const i=x.indexOf(':');if(i>0)body.headers[x.slice(0,i).trim()]=x.slice(i+1).trim()});delete body.headers_text}const button=f.querySelector('button[type=submit]');busy(button,true,'Saving…');try{
+      const saved=await api('/api/connections',{method:'POST',body});
+      const id=saved.connection?.id;
+      let probe=null;
+      if(id)probe=await api('/api/connections/'+encodeURIComponent(id)+'/test',{method:'POST',body:{}});
+      w.remove();
+      toast(probe?.ok?'Connected · '+fmt(probe.tool_count||0)+' tools discovered':'Saved, but the live MCP handshake failed',probe?.ok?'success':'error');
+      await dashIntegrations();
+    }catch(x){busy(button,false);toast(x.message,'error')}}};
     const curl=()=>{
       const w=panel('Import cURL','<form id="curl-form" class="form-stack"><label>Name<input name="name" maxlength="80" placeholder="Imported MCP"></label><label>cURL command<textarea name="command" rows="8" required spellcheck="false"></textarea></label><p class="mcp-note">Only the endpoint and supported headers are imported. The command is never executed; credential values are hidden in the preview and stored server-side on save.</p><div id="curl-result" aria-live="polite"></div><button class="btn primary" type="submit">Preview import</button></form>');
       const f=w.querySelector('#curl-form'), result=w.querySelector('#curl-result');
@@ -1116,8 +1203,12 @@ function openRunInspector(event) {
             const save=event.currentTarget;
             if(!busy(save,true,'Saving…'))return;
             try{
-              await api('/api/connections/import-curl',{method:'POST',body:{...Object.fromEntries(new FormData(f)),save:true}});
-              w.remove();toast('MCP connection imported','success');
+              const saved=await api('/api/connections/import-curl',{method:'POST',body:{...Object.fromEntries(new FormData(f)),save:true}});
+              const id=saved.connection?.id;
+              let probe=null;
+              if(id)probe=await api('/api/connections/'+encodeURIComponent(id)+'/test',{method:'POST',body:{}});
+              w.remove();
+              toast(probe?.ok?'Imported · '+fmt(probe.tool_count||0)+' tools discovered':'Imported, but the live MCP handshake failed',probe?.ok?'success':'error');
               if(location.pathname==='/dashboard/connections')await dashIntegrations();
             }catch(error){busy(save,false);toast(error.message,'error');}
           };
@@ -1125,7 +1216,146 @@ function openRunInspector(event) {
         finally{if(button.isConnected)busy(button,false);}
       };
     };
-    document.querySelector('#mcp-add')?.addEventListener('click',add);document.querySelector('#mcp-add2')?.addEventListener('click',add);document.querySelector('#mcp-curl')?.addEventListener('click',curl);document.querySelectorAll('[data-mcp-guide]').forEach(b=>b.onclick=()=>guide(b.dataset.mcpGuide));document.querySelectorAll('[data-del-mcp]').forEach(b=>b.onclick=async()=>{if(!confirm('Delete this MCP connection?'))return;busy(b,true,'Deleting…');try{await api('/api/connections/'+encodeURIComponent(b.dataset.delMcp),{method:'DELETE'});toast('Connection deleted','success');await dashIntegrations()}catch(x){busy(b,false);toast(x.message,'error')}});
+    const openAppCatalog=()=>{
+      if(!connectedData.configured){
+        toast('Connected-app provider is not configured on this deployment','error');
+        return;
+      }
+      const list=catalogApps;
+      const w=panel('Connect an app','<div class="connected-catalog"><label>Search apps<input id="connected-catalog-search" placeholder="GitHub, Gmail, Slack, Notion…"></label><div id="connected-catalog-list"></div></div>');
+      const input=$('#connected-catalog-search',w),box=$('#connected-catalog-list',w);
+      const render=()=>{
+        const q=String(input.value||'').trim().toLowerCase();
+        const rows=list.filter(item=>!q||String(item.name||item.toolkit||'').toLowerCase().includes(q)||String(item.toolkit||'').toLowerCase().includes(q)).slice(0,60);
+        box.innerHTML=rows.length?rows.map(item=>{
+          const toolkit=String(item.toolkit||'').toLowerCase();
+          const configured=appMeta.get(toolkit)||item;
+          const existing=accountByToolkit[toolkit]||[];
+          return '<button type="button" class="connected-catalog-row" data-catalog-toolkit="'+esc(toolkit)+'"><span class="connected-app-mark">'+esc((item.name||toolkit||'?').slice(0,1).toUpperCase())+'</span><span><b>'+esc(item.name||toolkit)+'</b><small>'+esc(toolkit)+(item.auth_schemes?.length?' · '+esc(item.auth_schemes.join(' / ')):'')+'</small><p>'+esc(item.description||'Connect this toolkit to make its authorized tools available to your OpenCrawl account.')+'</p></span><em>'+ (existing.some(x=>String(x.status||'').toUpperCase()==='ACTIVE')?'Add account':'Connect') +' →</em></button>';
+        }).join(''):'<div class="mcp-empty"><b>No matching apps</b><p>Try another toolkit name.</p></div>';
+        box.querySelectorAll('[data-catalog-toolkit]').forEach(row=>row.onclick=()=>{
+          const toolkit=row.dataset.catalogToolkit;
+          const meta=appMeta.get(toolkit)||list.find(x=>String(x.toolkit||'').toLowerCase()===toolkit)||{toolkit,name:toolkit};
+          const existing=accountByToolkit[toolkit]||[];
+          w.remove();
+          connectApp({dataset:{
+            connectApp:toolkit,
+            appName:meta.name||toolkit,
+            authConfigs:JSON.stringify(meta.auth_configs||[]),
+            allowMultiple:String(existing.some(x=>String(x.status||'').toUpperCase()==='ACTIVE'))
+          }});
+        });
+      };
+      input.oninput=render;
+      render();
+      input.focus();
+    };
+
+    const connectApp=(button)=>{
+      const toolkit=button.dataset.connectApp;
+      const name=button.dataset.appName||toolkit;
+      let configs=[];
+      try{configs=JSON.parse(button.dataset.authConfigs||'[]')}catch{}
+      const options=configs.map(c=>'<option value="'+esc(c.id)+'">'+esc(c.name||c.id)+(c.auth_scheme?' · '+esc(c.auth_scheme):'')+'</option>').join('');
+      const multi=button.dataset.allowMultiple==='true';
+      const body='<form id="connected-app-form" class="form-stack"><p class="mcp-note">OpenCrawl will create a short-lived hosted authorization link for <b>'+esc(name)+'</b>. After consent, the resulting account is attached only to your OpenCrawl user ID and becomes eligible for Tool Mesh calls.</p>'+(multi?'<div class="mcp-note"><b>Multiple-account mode</b><p>You already have an active '+esc(name)+' account. This flow intentionally adds another account, so give it a clear label; Tool Mesh execution will require explicit account selection when more than one account can satisfy a call.</p></div>':'')+'<label>Account label <input name="alias" maxlength="80" placeholder="Work, personal, bot account…"></label>'+(configs.length>1?'<label>Authentication configuration<select name="auth_config_id">'+options+'</select></label>':'')+'<button class="btn primary" type="submit">Continue to '+esc(name)+'</button></form>';
+      const w=panel('Connect '+name,body);
+      const form=$('#connected-app-form',w);
+      form.onsubmit=async e=>{
+        e.preventDefault();
+        const submit=e.submitter||form.querySelector('button[type=submit]');
+        if(!busy(submit,true,'Creating secure link…'))return;
+        const payload=Object.fromEntries(new FormData(form));
+        if(configs.length===1)payload.auth_config_id=configs[0].id;
+        if(button.dataset.allowMultiple==='true')payload.allow_multiple=true;
+        try{
+          const result=await api('/api/integrations/'+encodeURIComponent(toolkit)+'/connect',{method:'POST',body:payload});
+          if(!String(result.redirect_url||'').startsWith('https://'))throw new Error('Provider did not return a secure authorization URL');
+          location.assign(result.redirect_url);
+        }catch(error){busy(submit,false);toast(error.message,'error')}
+      };
+    };
+    document.querySelector('#connect-app-catalog')?.addEventListener('click',openAppCatalog);
+    document.querySelectorAll('[data-connect-app]').forEach(b=>b.onclick=()=>connectApp(b));
+    document.querySelectorAll('[data-rename-app]').forEach(b=>b.onclick=()=>{
+      const w=panel('Rename connected account','<form id="rename-connected-app" class="form-stack"><label>Account label<input name="alias" maxlength="80" value="'+esc(b.dataset.appAlias||'')+'" placeholder="Work, personal, bot account…"></label><p class="mcp-note">This label is safe routing metadata. When multiple accounts exist for the same toolkit, agents can use it to select the intended account without seeing provider credentials.</p><button class="btn primary" type="submit">Save label</button></form>');
+      const form=$('#rename-connected-app',w);
+      form.onsubmit=async e=>{
+        e.preventDefault();
+        const submit=e.submitter||form.querySelector('button[type=submit]');
+        if(!busy(submit,true,'Saving…'))return;
+        try{
+          const payload=Object.fromEntries(new FormData(form));
+          await api('/api/integrations/connections/'+encodeURIComponent(b.dataset.renameApp),{method:'PATCH',body:payload});
+          w.remove();toast('Account label updated','success');await dashIntegrations();
+        }catch(error){busy(submit,false);toast(error.message,'error')}
+      };
+    });
+    document.querySelectorAll('[data-toggle-app]').forEach(b=>b.onclick=async()=>{
+      const enabled=b.dataset.enableApp==='true';
+      if(!busy(b,true,enabled?'Enabling…':'Pausing…'))return;
+      try{
+        await api('/api/integrations/connections/'+encodeURIComponent(b.dataset.toggleApp),{method:'PATCH',body:{enabled}});
+        toast(enabled?'Provider account enabled':'Provider account paused','success');
+        await dashIntegrations();
+      }catch(error){busy(b,false);toast(error.message,'error')}
+    });
+    document.querySelectorAll('[data-reconnect-app]').forEach(b=>b.onclick=async()=>{
+      if(!busy(b,true,'Preparing…'))return;
+      try{
+        const result=await api('/api/integrations/connections/'+encodeURIComponent(b.dataset.reconnectApp)+'/reconnect',{method:'POST',body:{}});
+        if(!String(result.redirect_url||'').startsWith('https://'))throw new Error('Provider did not return a secure authorization URL');
+        location.assign(result.redirect_url);
+      }catch(error){busy(b,false);toast(error.message,'error')}
+    });
+    document.querySelectorAll('[data-disconnect-app]').forEach(b=>b.onclick=async()=>{
+      if(!confirm('Disconnect this provider account from OpenCrawl?'))return;
+      if(!busy(b,true,'Disconnecting…'))return;
+      try{
+        await api('/api/integrations/connections/'+encodeURIComponent(b.dataset.disconnectApp),{method:'DELETE'});
+        toast('Connected account removed','success');
+        await dashIntegrations();
+      }catch(error){busy(b,false);toast(error.message,'error')}
+    });
+    const returnParams=new URLSearchParams(location.search);
+    if(returnParams.has('connected')||returnParams.has('reconnected')){
+      toast('Authorization returned. Refreshing connected-account state…','success');
+      history.replaceState({},'',location.pathname);
+    }
+
+    document.querySelector('#mcp-add')?.addEventListener('click',add);
+    document.querySelector('#mcp-add2')?.addEventListener('click',add);
+    document.querySelector('#mcp-curl')?.addEventListener('click',curl);
+    document.querySelectorAll('[data-test-mcp]').forEach(b=>b.onclick=async()=>{
+      if(!busy(b,true,'Testing…'))return;
+      try{
+        const result=await api('/api/connections/'+encodeURIComponent(b.dataset.testMcp)+'/test',{method:'POST',body:{}});
+        if(result.ok){
+          const tools=(result.tools||[]).map(t=>'<article><div><b>'+esc(t.name)+'</b><code>'+esc(t.ref)+'</code></div><span class="ihx-state '+(t.side_effecting?'idle':'on')+'">'+dot(t.side_effecting?'warn':'ok')+' '+(t.side_effecting?'May write':'Read-only')+'</span><p>'+esc(t.description||'No description supplied by the remote MCP server.')+'</p></article>').join('');
+          panel('MCP connection verified','<div class="mcp-probe-summary"><span>'+dot('ok')+'</span><div><b>'+fmt(result.tool_count||0)+' tools discovered</b><p>The remote server completed an MCP handshake and its catalog is now available to this user\'s Tool Mesh.</p></div></div><div class="mcp-tool-preview">'+(tools||'<p>No tools were advertised by this MCP server.</p>')+'</div>');
+          toast('Connection verified','success');
+        }else{
+          panel('MCP connection needs attention','<div class="mcp-probe-summary error"><span>'+dot('warn')+'</span><div><b>Handshake failed</b><p>'+esc(result.error||'The remote server could not complete the MCP handshake.')+'</p></div></div>');
+          toast('MCP handshake failed','error');
+        }
+        await dashIntegrations();
+      }catch(x){busy(b,false);toast(x.message,'error')}
+    });
+    document.querySelectorAll('[data-toggle-mcp]').forEach(b=>b.onclick=async()=>{
+      const enabled=b.dataset.enabled!=='true';
+      if(!busy(b,true,enabled?'Enabling…':'Pausing…'))return;
+      try{
+        await api('/api/connections/'+encodeURIComponent(b.dataset.toggleMcp),{method:'PATCH',body:{enabled}});
+        toast(enabled?'Connection enabled':'Connection paused','success');
+        await dashIntegrations();
+      }catch(x){busy(b,false);toast(x.message,'error')}
+    });
+    document.querySelectorAll('[data-del-mcp]').forEach(b=>b.onclick=async()=>{
+      if(!confirm('Delete this MCP connection?'))return;
+      busy(b,true,'Deleting…');
+      try{await api('/api/connections/'+encodeURIComponent(b.dataset.delMcp),{method:'DELETE'});toast('Connection deleted','success');await dashIntegrations()}
+      catch(x){busy(b,false);toast(x.message,'error')}
+    });
   };
 
   dashKeys = async function dashKeysV3() {
@@ -1164,7 +1394,7 @@ function openRunInspector(event) {
 
     const keyOptions=keys.map((k,i)=>'<option value="'+esc(k.id)+'" '+(i===0?'selected':'')+'>'+esc(k.name)+' · '+esc(k.prefix)+'…</option>').join('');
     const html=
-      headline('PLAYGROUND','Search the web','Type what you want to know. Internet Hands will search public sources; paste a URL and it will crawl the site instead.','<a class="btn" data-link href="/dashboard/usage">'+icon('activity')+' Runs</a>')+
+      headline('PLAYGROUND','Search the web','Type what you want to know. OpenCrawl will search public sources; paste a URL and it will crawl the site instead.','<a class="btn" data-link href="/dashboard/usage">'+icon('activity')+' Runs</a>')+
       '<section class="web-search-console">'+
         '<form id="ihp-form" class="web-search-form">'+
           '<div class="web-search-box">'+
@@ -1197,7 +1427,7 @@ function openRunInspector(event) {
               '<label><input id="ihp-subdomains" type="checkbox"> Include subdomains</label>'+
               '<label><input id="ihp-queryparams" type="checkbox"> Preserve query params</label>'+
             '</div>'+
-            '<p class="search-security">'+icon('shield')+' Public targets only · robots respected · SSRF protected · <span data-available-credits aria-live="polite">'+esc(String(available.toLocaleString()))+'</span> credits available</p>'+
+            '<p class="search-security">'+icon('shield')+' Public targets only · robots respected · SSRF protected · <span data-available-credits aria-live="polite">'+esc(walletMoney(available))+'</span> wallet available</p>'+
           '</details>'+
         '</form>'+
       '</section>'+
@@ -1224,7 +1454,7 @@ function openRunInspector(event) {
       const title=operation==='crawl'?(domainOf(inputValue)||inputValue):inputValue;
       const meta=[
         count+(operation==='crawl'?' pages':count===1?' result':' results'),
-        (usage.credits_charged||0)+' credit'+((usage.credits_charged||0)===1?'':'s'),
+        walletMoney(usage.credits_charged||0)+' spent',
         fmtTime(summary.duration_ms||0)
       ].join(' · ');
 
@@ -1320,7 +1550,7 @@ function openRunInspector(event) {
       submit.setAttribute('aria-label','Request running');
       submit.innerHTML=icon('activity');
       results.hidden=false;
-      results.innerHTML='<div class="ih-execution-progress" role="status"><div class="ih-execution-head"><span class="ih-execution-symbol" aria-hidden="true">⚙️</span><div><b>Request prepared</b><p>'+esc(operation.toUpperCase())+' · '+esc(inputValue)+'</p></div><button class="btn small" type="button" id="ihp-cancel">Stop waiting</button></div><ol class="ih-execution-stages"><li class="done">Queued in this browser</li><li class="done">Request sent to gateway</li><li class="current">Awaiting routing and execution</li><li>Reading response</li><li>Complete</li></ol><p class="ih-execution-note">Internet Hands returns the work and measured credits when this request completes.</p></div>';
+      results.innerHTML='<div class="ih-execution-progress" role="status"><div class="ih-execution-head"><span class="ih-execution-symbol" aria-hidden="true">⚙️</span><div><b>Request prepared</b><p>'+esc(operation.toUpperCase())+' · '+esc(inputValue)+'</p></div><button class="btn small" type="button" id="ihp-cancel">Stop waiting</button></div><ol class="ih-execution-stages"><li class="done">Queued in this browser</li><li class="done">Request sent to gateway</li><li class="current">Awaiting routing and execution</li><li>Reading response</li><li>Complete</li></ol><p class="ih-execution-note">OpenCrawl returns the work and measured credits when this request completes.</p></div>';
       $('#ihp-cancel').onclick=()=>controller.abort();
       try{
         const data=await api('/api/playground/run',{method:'POST',body,signal:controller.signal});
@@ -1333,7 +1563,7 @@ function openRunInspector(event) {
         api('/api/dashboard').then(d=>{
           const a=d.account||{}, updated=Number(a.monthly_credits||0)+Number(a.purchased_credits||0)-Number(a.reserved_credits||0);
           const credits=$('[data-available-credits]');
-          if(credits)credits.textContent=updated.toLocaleString();
+          if(credits)credits.textContent=walletMoney(updated);
         }).catch(()=>{});
       }catch(err){
         if(controller.signal.aborted){
@@ -1377,7 +1607,7 @@ function openRunInspector(event) {
       </section>
       <section class="ihx-monitor-board">
         <header><div><span>WATCHLIST</span><h2>Persistent targets</h2></div><small>${fmt(items.length)} configured</small></header>
-        ${items.length?`<div class="ihx-monitor-list">${items.map(x=>`<article class="ihx-monitor-row"><span class="ihx-monitor-orb ${x.last_status==='ok'?'ok':''}"></span><div class="ihx-monitor-target"><b>${esc(x.name)}</b><small>${esc(x.type)} · ${esc(x.target)}</small></div><div><small>LAST CHECK</small><b>${esc(when(x.last_checked_at))}</b></div><span class="ihx-state ${x.last_status==='ok'?'on':'idle'}">${dot(x.last_status==='ok'?'ok':'warn')} ${esc(x.last_status||'Not run')}</span><button class="btn small" data-toggle="${x.id}" data-enabled="${x.enabled}">${x.enabled?'Pause':'Enable'}</button></article>`).join('')}</div>`:empty('monitor','Nothing is watching yet','Create a monitor from a template and Internet Hands will keep the target in view.','<button class="btn primary" id="empty-monitor">Create monitor</button>')}
+        ${items.length?`<div class="ihx-monitor-list">${items.map(x=>`<article class="ihx-monitor-row"><span class="ihx-monitor-orb ${x.last_status==='ok'?'ok':''}"></span><div class="ihx-monitor-target"><b>${esc(x.name)}</b><small>${esc(x.type)} · ${esc(x.target)}</small></div><div><small>LAST CHECK</small><b>${esc(when(x.last_checked_at))}</b></div><span class="ihx-state ${x.last_status==='ok'?'on':'idle'}">${dot(x.last_status==='ok'?'ok':'warn')} ${esc(x.last_status||'Not run')}</span><button class="btn small" data-toggle="${x.id}" data-enabled="${x.enabled}">${x.enabled?'Pause':'Enable'}</button></article>`).join('')}</div>`:empty('monitor','Nothing is watching yet','Create a monitor from a template and OpenCrawl will keep the target in view.','<button class="btn primary" id="empty-monitor">Create monitor</button>')}
       </section>`);
     const open=t=>showMonitorModal(t||'');
     $('#new-monitor')?.addEventListener('click',()=>open('')); $('#empty-monitor')?.addEventListener('click',()=>open(''));
@@ -1386,23 +1616,23 @@ function openRunInspector(event) {
   };
 
   dashWallet = async function dashWalletV3() {
-    const [d,p]=await Promise.all([api('/api/wallet?limit=150'),getPlans()]), w=d.wallet||{}, ledger=d.ledger||[];
+    const [d,p]=await Promise.all([api('/api/wallet?limit=150'),getPlans()]), w=d.wallet||{}, ledger=d.ledger||[], scale=d.wallet_units_per_usd||p.wallet_units_per_usd||DEFAULT_WALLET_UNITS_PER_USD;
     const available=Number(w.monthly_credits||0)+Number(w.purchased_credits||0)-Number(w.reserved_credits||0);
     dashboardShell('wallet',`
-      ${headline('CAPACITY','Credits','See exactly how much execution capacity is available, reserved and persistent across billing cycles.')}
-      <section class="ihx-credit-hero"><div><span>${dot()} AVAILABLE NOW</span><b>${fmt(available)}</b><p>credits ready for execution</p></div><div class="ihx-credit-split"><span><small>MONTHLY</small><b>${fmt(w.monthly_credits)}</b><em>refreshes with plan</em></span><span><small>PURCHASED</small><b>${fmt(w.purchased_credits)}</b><em>rolls over</em></span><span><small>RESERVED</small><b>${fmt(w.reserved_credits)}</b><em>held by active work</em></span></div></section>
-      <section class="ihx-credit-packs"><header><div><span>ROLLOVER CAPACITY</span><h2>Add credits without changing plan.</h2></div><p>Purchased credits persist until used.</p></header><div>${(p.credit_packs||[]).map(x=>`<article><span>${esc(x.name)}</span><b>${fmt(x.credits)}</b><small>credits</small><em>${money(x.price_inr)}</em><button class="btn primary small" data-buy="${x.slug}">Purchase</button></article>`).join('')||'<div class="notice">Credit packs unavailable.</div>'}</div></section>
-      <section class="ihx-ledger-panel"><header><div><span>LEDGER</span><h2>Wallet activity</h2></div><small>${fmt(ledger.length)} entries loaded</small></header>${ledger.length?`<div class="ihx-ledger-table"><div class="ihx-ledger-table-head"><span>TIME</span><span>KIND</span><span>BUCKET</span><span>SOURCE</span><span>AMOUNT</span></div>${ledger.map(x=>`<div><span>${esc(when(x.created_at))}</span><span>${esc(x.kind)}</span><span>${esc(x.bucket)}</span><span>${esc(x.source)}</span><b class="${Number(x.amount)>=0?'positive':'negative'}">${Number(x.amount)>0?'+':''}${fmt(x.amount)}</b></div>`).join('')}</div>`:empty('wallet','No wallet activity yet','Grants, reservations and purchases will appear here.')}</section>`);
-    $$('[data-buy]').forEach(b=>b.addEventListener('click',()=>startCheckout('credits',b.dataset.buy,b)));
+      ${headline('WALLET','USD balance','See exactly how much service balance is available, reserved and persistent across billing cycles.')}
+      <section class="ihx-credit-hero"><div><span>${dot()} AVAILABLE NOW</span><b>${walletMoney(available,{wallet_units_per_usd:scale})}</b><p>USD service balance ready for execution</p></div><div class="ihx-credit-split"><span><small>MONTHLY</small><b>${walletMoney(w.monthly_credits,{wallet_units_per_usd:scale})}</b><em>refreshes with plan</em></span><span><small>PURCHASED</small><b>${walletMoney(w.purchased_credits,{wallet_units_per_usd:scale})}</b><em>rolls over</em></span><span><small>RESERVED</small><b>${walletMoney(w.reserved_credits,{wallet_units_per_usd:scale})}</b><em>held by active work</em></span></div></section>
+      <section class="ihx-custom-topup"><header><div><span>MANUAL TOP-UP</span><h2>Add exactly what you need.</h2></div><p>Enter a USD wallet amount. Captured payment verification still applies.</p></header><form id="custom-topup-form"><label><span>USD AMOUNT</span><div class="ihx-dollar-input"><b>$</b><input name="amount_usd" type="number" min="1" max="500" step="0.01" value="10.00" inputmode="decimal" required></div></label><div><small>$1.00–$500.00 per manual top-up · service balance is non-cash and non-transferable</small><button class="btn primary" type="submit">Top up wallet</button></div></form></section><section class="ihx-credit-packs"><header><div><span>PRESET TOP-UPS</span><h2>Or use a preset wallet pack.</h2></div><p>Purchased balance persists until used.</p></header><div>${(p.credit_packs||[]).map(x=>`<article><span>PRESET WALLET</span><b>${walletMoney(x.credits,{wallet_units_per_usd:scale})}</b><small>service balance</small><em>${money(x.price_inr)}</em><button class="btn primary small" data-buy="${x.slug}">Purchase</button></article>`).join('')||'<div class="notice">Wallet packs unavailable.</div>'}</div></section>
+      <section class="ihx-ledger-panel"><header><div><span>LEDGER</span><h2>Wallet activity</h2></div><small>${fmt(ledger.length)} entries loaded</small></header>${ledger.length?`<div class="ihx-ledger-table"><div class="ihx-ledger-table-head"><span>TIME</span><span>KIND</span><span>BUCKET</span><span>SOURCE</span><span>AMOUNT</span></div>${ledger.map(x=>`<div><span>${esc(when(x.created_at))}</span><span>${esc(x.kind)}</span><span>${esc(x.bucket)}</span><span>${esc(x.source)}</span><b class="${Number(x.amount)>=0?'positive':'negative'}">${Number(x.amount)>0?'+':''}${walletMoney(x.amount,{wallet_units_per_usd:scale})}</b></div>`).join('')}</div>`:empty('wallet','No wallet activity yet','Grants, reservations and purchases will appear here.')}</section>`);
+    $$('[data-buy]').forEach(b=>b.addEventListener('click',()=>startCheckout('credits',b.dataset.buy,b))); $('#custom-topup-form')?.addEventListener('submit',e=>{e.preventDefault();const form=e.currentTarget,input=form.elements.amount_usd,button=e.submitter||form.querySelector('button');startCheckout('credits','',button,{amount_usd:input.value});});
   };
 
   dashBilling = async function dashBillingV3() {
     const [p,s,pay]=await Promise.all([getPlans(),api('/api/billing/status'),api('/api/billing/payments')]), a=state.me.account||{}, payments=pay.payments||[];
     dashboardShell('billing',`
       ${headline('COMMERCIAL','Billing & plans','Plan capacity, renewal state and payment history without hiding the operational limits behind marketing.',`<span class="ihx-provider-status">${dot(s.configured?'ok':'warn')} Razorpay ${s.configured?'ready':'pending'}</span>`)}
-      <section class="ihx-plan-current"><div><span>CURRENT PLAN</span><h2>${esc(a.plan_name||'Free')}</h2><p>${fmt(a.monthly_credits)} monthly credits · resets ${esc(when(a.current_period_end))}</p></div><div><span><small>API KEYS</small><b>${fmt(a.api_key_limit)}</b></span><span><small>MONITORS</small><b>${fmt(a.monitor_limit)}</b></span><span><small>RATE LIMIT</small><b>${fmt(a.rpm_limit)}<em> rpm</em></b></span></div></section>
-      <section class="ihx-plan-grid">${(p.plans||[]).map(plan=>`<article class="${plan.slug==='pro'?'featured':''}"><header><span>${esc(plan.name)}</span>${plan.slug==='pro'?'<em>RECOMMENDED</em>':''}</header><div class="ihx-plan-price">${money(plan.monthly_price_inr)}<small>/month</small></div><p>${fmt(plan.included_credits)} monthly credits</p><ul><li>${icon('check')} ${fmt(plan.rpm_limit)} requests / minute</li><li>${icon('check')} ${fmt(plan.api_key_limit)} API keys</li><li>${icon('check')} ${fmt(plan.monitor_limit)} monitors</li><li>${icon('check')} ${plan.browser_enabled?'Browser access':'Public data tools'}</li><li>${icon('check')} ${plan.sandbox_enabled?'Sandbox execution':'Core execution'}</li></ul>${plan.slug==='free'?'<span class="ihx-current-label">Base tier</span>':`<button class="btn ${plan.slug==='pro'?'primary':''}" data-plan="${plan.slug}">Choose ${esc(plan.name)}</button>`}</article>`).join('')}</section>
-      <section class="ihx-payment-panel"><header><div><span>PAYMENTS</span><h2>Captured purchase history</h2></div><small>${icon('shield')} server verified</small></header>${payments.length?`<div class="ihx-payment-table"><div class="ihx-payment-head"><span>CREATED</span><span>PURPOSE</span><span>AMOUNT</span><span>STATUS</span><span>REFERENCE</span></div>${payments.map(x=>`<div><span>${esc(when(x.created_at))}</span><span>${esc(x.purpose)}</span><b>${money(Number(x.amount_paise)/100)}</b><span class="ihx-state ${['paid','captured'].includes(x.status)?'on':'idle'}">${dot(['paid','captured'].includes(x.status)?'ok':'warn')} ${esc(x.status)}</span><code>${esc(x.order_id||'—')}</code></div>`).join('')}</div>`:empty('wallet','No purchases yet','Captured payments will appear here after server verification.')}</section>`);
+      <section class="ihx-plan-current"><div><span>CURRENT PLAN</span><h2>${esc(a.plan_name||'Free')}</h2><p>${walletMoney(a.monthly_credits,a)} monthly wallet · resets ${esc(when(a.current_period_end))}</p></div><div><span><small>API KEYS</small><b>${fmt(a.api_key_limit)}</b></span><span><small>MONITORS</small><b>${fmt(a.monitor_limit)}</b></span><span><small>RATE LIMIT</small><b>${fmt(a.rpm_limit)}<em> rpm</em></b></span></div></section>
+      <section class="ihx-plan-grid">${(p.plans||[]).map(plan=>`<article class="${plan.slug==='pro'?'featured':''}"><header><span>${esc(plan.name)}</span>${plan.slug==='pro'?'<em>RECOMMENDED</em>':''}</header><div class="ihx-plan-price">${money(plan.monthly_price_inr)}<small>/month</small></div><p>${walletMoney(plan.included_credits,p)} monthly wallet</p><ul><li>${icon('check')} ${fmt(plan.rpm_limit)} requests / minute</li><li>${icon('check')} ${fmt(plan.api_key_limit)} API keys</li><li>${icon('check')} ${fmt(plan.monitor_limit)} monitors</li><li>${icon('check')} ${plan.browser_enabled?'Browser access':'Public data tools'}</li><li>${icon('check')} ${plan.sandbox_enabled?'Sandbox execution':'Core execution'}</li></ul>${plan.slug==='free'?'<span class="ihx-current-label">Base tier</span>':`<button class="btn ${plan.slug==='pro'?'primary':''}" data-plan="${plan.slug}">Choose ${esc(plan.name)}</button>`}</article>`).join('')}</section>
+      <section class="ihx-payment-panel"><header><div><span>PAYMENTS</span><h2>Captured purchase history</h2></div><small>${icon('shield')} server verified</small></header>${payments.length?`<div class="ihx-payment-table"><div class="ihx-payment-head"><span>CREATED</span><span>PURPOSE</span><span>AMOUNT</span><span>STATUS</span><span>REFERENCE</span></div>${payments.map(x=>`<div><span>${esc(when(x.created_at))}</span><span>${esc(x.purpose)}</span><b>${paymentMoney(x.amount_paise,x.currency)}</b><span class="ihx-state ${['paid','captured'].includes(x.status)?'on':'idle'}">${dot(['paid','captured'].includes(x.status)?'ok':'warn')} ${esc(x.status)}</span><code>${esc(x.order_id||'—')}</code></div>`).join('')}</div>`:empty('wallet','No purchases yet','Captured payments will appear here after server verification.')}</section>`);
     $$('[data-plan]').forEach(b=>b.addEventListener('click',()=>startCheckout('subscription',b.dataset.plan,b)));
   };
 
@@ -1412,7 +1642,7 @@ function openRunInspector(event) {
       ${headline('ACCOUNT','Settings & security','Identity, login protection and active sessions presented as one security surface.')}
       <section class="ihx-settings-grid">
         <article class="ihx-profile-panel"><header><div><span>PROFILE</span><h2>Workspace identity</h2></div><span class="ihx-state on">${dot()} Verified</span></header><form id="profile-form" class="form-stack"><label>Email<input value="${esc(u.email)}" disabled></label><label>Display name<input name="display_name" value="${esc(u.display_name||'')}" maxlength="80" required></label><div class="ihx-linked-account">${clientMark('github','GitHub')}<span><b>GitHub</b><small>${u.github_connected?'Connected to this identity':'Not connected'}</small></span><em>${u.github_connected?'Linked':'Optional'}</em></div><button class="btn">Save profile</button></form></article>
-        <article class="ihx-security-panel"><header><div><span>SECURITY POSTURE</span><h2>Protection status</h2></div><span class="ihx-state ${s.two_factor_enabled?'on':'idle'}">${dot(s.two_factor_enabled?'ok':'warn')} ${s.two_factor_enabled?'2FA enabled':s.two_factor_available?'2FA available':'Server configuration required'}</span></header><div class="ihx-security-rail"><div>${icon('check')}<span><b>Email verification</b><small>Privileged actions unlocked</small></span><em>On</em></div><div>${icon('shield')}<span><b>Authenticator 2FA</b><small>${s.two_factor_enabled?'Required after primary sign-in':'Add a second factor to reach full protection'}</small></span><button class="btn ${s.two_factor_enabled?'danger':'primary'} small" id="toggle-2fa">${s.two_factor_enabled?'Disable':'Set up'}</button></div>${s.two_factor_enabled?`<div>${icon('activity')}<span><b>Recovery codes</b><small>One-use emergency access</small></span><button class="btn small" id="regen">Regenerate</button></div>`:''}</div></article>
+        <article class="ihx-security-panel"><header><div><span>SECURITY POSTURE</span><h2>Protection status</h2></div><span class="ihx-state ${s.two_factor_enabled?'on':'idle'}">${dot(s.two_factor_enabled?'ok':'warn')} ${s.two_factor_enabled?'2FA enabled':s.two_factor_available?'2FA available':'Server configuration required'}</span></header><div class="ihx-security-rail"><div>${icon('check')}<span><b>Email verification</b><small>Privileged actions unlocked</small></span><em>On</em></div><div>${icon('shield')}<span><b>Authenticator 2FA</b><small>${s.two_factor_enabled?'Required after primary sign-in':'Add a second factor to reach full protection'}</small></span><button class="btn ${s.two_factor_enabled?'danger':'primary'} small" id="toggle-2fa">${s.two_factor_enabled?'Disable':'Set up'}</button></div>${s.two_factor_enabled?`<div>${icon('activity')}<span><b>Recovery codes</b><small>One-use emergency access</small></span><button class="btn small" id="regen">Regenerate</button></div>`:''}</div><footer class="ihx-context-help"><span>Before changing login protection, understand the challenge, recovery-code and lockout behavior.</span><a data-link href="/docs/two-factor">How OpenCrawl 2FA works →</a></footer></article>
         <article class="ihx-sessions-panel"><header><div><span>SESSIONS</span><h2>Active web sessions</h2></div><button class="btn danger small" id="revoke-all">Sign out everywhere</button></header><div>${list.map(x=>`<div class="ihx-session-row">${icon('activity')}<span><b>${x.current?'This session':'Web session'}</b><small>Created ${esc(when(x.created_at))} · expires ${esc(when(x.expires_at))}</small></span><em class="ihx-state ${x.current?'on':'idle'}">${dot(x.current?'ok':'warn')} ${x.current?'Current':'Active'}</em><button class="btn small" data-session="${x.id}">Revoke</button></div>`).join('')||'<div class="notice">No active sessions found.</div>'}</div></article>
         <article class="ihx-password-panel"><header><div><span>PASSWORD</span><h2>Change primary credential</h2></div><p>Changing your password revokes existing sessions.</p></header><form id="password-form" class="ihx-password-form"><label>Current password<input type="password" name="current_password" autocomplete="current-password" required></label><label>New password<input type="password" name="new_password" autocomplete="new-password" minlength="8" required></label><button class="btn">Change and sign out</button></form></article>
       </section>`);
@@ -1425,14 +1655,14 @@ function openRunInspector(event) {
 
   renderPricing = async function renderPricingV3() {
     const data=await getPlans();
-    publicShell(`<main class="ihx-pricing-page"><section class="container ihx-pricing-hero"><span>PRICING / EXECUTION CAPACITY</span><h1>Pay for useful work.<br><em>See the limits before you hit them.</em></h1><p>Monthly capacity refreshes. Purchased credits roll over. Resource-intensive work spends according to the operation performed.</p></section><section class="container ihx-public-plan-grid">${(data.plans||[]).map(plan=>`<article class="${plan.slug==='pro'?'featured':''}"><header><b>${esc(plan.name)}</b>${plan.slug==='pro'?'<em>RECOMMENDED</em>':''}</header><div>${money(plan.monthly_price_inr)}<small>/month</small></div><p>${fmt(plan.included_credits)} monthly credits</p><ul><li>${fmt(plan.rpm_limit)} requests / minute</li><li>${fmt(plan.api_key_limit)} API keys</li><li>${fmt(plan.monitor_limit)} monitors</li><li>${plan.browser_enabled?'Browser execution':'Public data tools'}</li><li>${plan.sandbox_enabled?'Sandbox execution':'Core execution'}</li></ul><a class="btn ${plan.slug==='pro'?'primary':''}" data-link href="/signup${plan.slug==='free'?'':`?plan=${plan.slug}`}">${plan.slug==='free'?'Start free':`Choose ${esc(plan.name)}`}</a></article>`).join('')}</section><section class="container ihx-pricing-note"><div><span>CREDIT MODEL</span><h2>Meter the operation, not the mystery.</h2></div><p>Request IDs, provider routing, credit charges and latency are visible in Runs so usage is inspectable after execution.</p></section></main>`);
+    publicShell(`<main class="ihx-pricing-page"><section class="container ihx-pricing-hero"><span>PRICING / EXECUTION CAPACITY</span><h1>Pay for useful work.<br><em>See the limits before you hit them.</em></h1><p>Monthly USD wallet balance refreshes. Purchased balance rolls over. Resource-intensive work spends according to the operation performed.</p></section><section class="container ihx-public-plan-grid">${(data.plans||[]).map(plan=>`<article class="${plan.slug==='pro'?'featured':''}"><header><b>${esc(plan.name)}</b>${plan.slug==='pro'?'<em>RECOMMENDED</em>':''}</header><div>${money(plan.monthly_price_inr)}<small>/month</small></div><p>${walletMoney(plan.included_credits,data)} monthly wallet</p><ul><li>${fmt(plan.rpm_limit)} requests / minute</li><li>${fmt(plan.api_key_limit)} API keys</li><li>${fmt(plan.monitor_limit)} monitors</li><li>${plan.browser_enabled?'Browser execution':'Public data tools'}</li><li>${plan.sandbox_enabled?'Sandbox execution':'Core execution'}</li></ul><a class="btn ${plan.slug==='pro'?'primary':''}" data-link href="/signup${plan.slug==='free'?'':`?plan=${plan.slug}`}">${plan.slug==='free'?'Start free':`Choose ${esc(plan.name)}`}</a></article>`).join('')}</section><section class="container ihx-pricing-note"><div><span>WALLET MODEL</span><h2>Meter the operation, not the mystery.</h2></div><p>Request IDs, provider routing, USD wallet spend and latency are visible in Runs so usage is inspectable after execution.</p></section></main>`);
   };
 
 })();
 
 
 /* === Command workspace shell ============================================ */
-/* Internet Hands Command OS
+/* OpenCrawl Command OS
  * Final visual shell. Keeps all existing route renderers and backend handlers,
  * but replaces the dashboard chrome with an operations-first workspace.
  */
@@ -1449,8 +1679,9 @@ function openRunInspector(event) {
   const hrefFor = slug => `/dashboard${slug === 'overview' ? '' : `/${slug}`}`;
 
   brand = function commandBrand() {
-    return `<a class="brand ih-brand cos-brand ih-logo-only" data-link href="/" aria-label="Internet Hands home">
-      <img class="ih-brand-art" src="/assets/internet-hands-logo.webp" alt="Internet Hands">
+    return `<a class="brand ih-brand cos-brand oc-brand" data-link href="/" aria-label="OpenCrawl home">
+      <img class="oc-brand-mark" src="/assets/opencrawl-crab.png" width="44" height="44" alt="">
+      <span class="oc-wordmark"><b>Open<span>Crawl</span></b><small>PUBLIC WEB ENGINE</small></span>
     </a>`;
   };
 
@@ -1471,7 +1702,7 @@ function openRunInspector(event) {
       ['connections','plug','Connections']
     ]],
     ['Manage', [
-      ['wallet','wallet','Credits'],
+      ['wallet','wallet','Wallet'],
       ['billing','billing','Billing & Plans'],
       ['settings','settings','Settings & Security']
     ]]
@@ -1513,7 +1744,7 @@ function openRunInspector(event) {
         <header class="cos-topbar topbar ih-topbar">
           <div class="cos-topbar-left">
             <button class="cos-mobile-menu icon-btn" data-sidebar-toggle aria-controls="ih-sidebar" aria-expanded="false" aria-label="Open navigation">${icon('menu')}</button>
-            <div class="cos-breadcrumb"><span>Internet Hands</span><i>/</i><b>${esc(title)}</b></div>
+            <div class="cos-breadcrumb"><span>OpenCrawl</span><i>/</i><b>${esc(title)}</b></div>
           </div>
           <div class="cos-topbar-right">
             ${active === 'playground' ? '' : `<a class="cos-command-cta" data-link href="/dashboard/playground">${icon('terminal')}<span>New run</span><kbd>⌘ K</kbd></a>`}
@@ -1523,10 +1754,10 @@ function openRunInspector(event) {
         </header>
 
         <div class="cos-account-menu" id="ih-account-menu" data-account-menu popover="auto">
-          <div><span class="cos-account-avatar">${initials}</span><span><b>${esc(u.display_name || 'Internet Hands')}</b><small>${esc(u.email || '')}</small></span></div>
+          <div><span class="cos-account-avatar">${initials}</span><span><b>${esc(u.display_name || 'OpenCrawl')}</b><small>${esc(u.email || '')}</small></span></div>
           <a data-link href="/dashboard/settings">${icon('settings')} Settings & Security</a>
           <a data-link href="/dashboard/billing">${icon('billing')} Billing & Plans</a>
-          <a data-link href="/dashboard/wallet">${icon('wallet')} Credits</a>
+          <a data-link href="/dashboard/wallet">${icon('wallet')} Wallet</a>
           <a data-link href="/docs">${icon('docs')} Documentation</a>
           <button id="account-logout">Sign out</button>
         </div>
@@ -1550,7 +1781,7 @@ function openRunInspector(event) {
         <span class="cos-sheet-label">Build & observe</span>
         ${[['api-keys','key','API Keys'],['data','search','Public data'],['games','activity','Game Intelligence'],['repositories','api','Repositories'],['monitors','monitor','Monitors']].map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${icon(ico)} ${label}</a>`).join('')}
         <span class="cos-sheet-label">Account & product</span>
-        ${[['wallet','wallet','Credits'],['billing','billing','Billing & Plans'],['settings','settings','Settings & Security']].map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${icon(ico)} ${label}</a>`).join('')}
+        ${[['wallet','wallet','Wallet'],['billing','billing','Billing & Plans'],['settings','settings','Settings & Security']].map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${icon(ico)} ${label}</a>`).join('')}
         <a data-link href="/docs">${icon('docs')} Documentation</a>
         <a data-link href="/status">${icon('activity')} System Status</a>
         <button id="mobile-logout">Sign out</button>

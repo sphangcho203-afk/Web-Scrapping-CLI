@@ -1,6 +1,6 @@
 # Gaming Intelligence
 
-Internet Hands v0.5 includes a public/read-only gaming intelligence plane on the same MCP endpoint as the Tool Mesh.
+OpenCrawl v0.5 includes a public/read-only gaming intelligence plane on the same MCP endpoint as the Tool Mesh.
 
 The goal is to let an agent resolve a player identity, fetch public profile/rank data, inspect mains or most-used characters, recent matches, leaderboards, titles/badges/achievements, game libraries/playtime, and game-specific progression without exposing provider credentials or stuffing every provider schema into model context.
 
@@ -8,7 +8,7 @@ The goal is to let an agent resolve a player identity, fetch public profile/rank
 
 ### `gaming_profile`
 
-The normal high-level path. Give Internet Hands a game plus that game's public identity fields and it builds the appropriate evidence bundle automatically.
+The normal high-level path. Give OpenCrawl a game plus that game's public identity fields and it builds the appropriate evidence bundle automatically.
 
 ```json
 {
@@ -92,7 +92,7 @@ Capabilities:
 - `league.matches.recent`
 - `league.match.detail`
 
-The profile flow follows Riot's current Riot-ID/PUUID model rather than deprecated summoner-name lookup. Riot platform and regional routing values are allowlisted by Internet Hands; agent input cannot turn the route into an arbitrary host.
+The profile flow follows Riot's current Riot-ID/PUUID model rather than deprecated summoner-name lookup. Riot platform and regional routing values are allowlisted by OpenCrawl; agent input cannot turn the route into an arbitrary host.
 
 Champion mastery is the official mains/mastery signal. Recent match discovery returns Match-V5 IDs first, after which selected matches can be expanded with `league.match.detail`.
 
@@ -260,7 +260,7 @@ identity resolution
     -> game-specific extras
 ```
 
-Not every game exposes every field. Internet Hands therefore returns the evidence bundle and selected provider refs instead of inventing missing statistics. Community and unofficial APIs are treated as fallible sources; official APIs are preferred where they expose the requested data.
+Not every game exposes every field. OpenCrawl therefore returns the evidence bundle and selected provider refs instead of inventing missing statistics. Community and unofficial APIs are treated as fallible sources; official APIs are preferred where they expose the requested data.
 
 ## Safety and data boundary
 

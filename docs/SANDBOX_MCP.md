@@ -1,6 +1,6 @@
-# Internet Hands Sandbox MCP
+# OpenCrawl Sandbox MCP
 
-Internet Hands v0.4 adds an isolated cloud-computer plane beside the crawler/data plane. The first provider is Vercel Sandbox, while orchestration depends on a provider protocol so E2B or self-hosted Firecracker-style providers can be added without changing the MCP tool contract.
+OpenCrawl v0.4 adds an isolated cloud-computer plane beside the crawler/data plane. The first provider is Vercel Sandbox, while orchestration depends on a provider protocol so E2B or self-hosted Firecracker-style providers can be added without changing the MCP tool contract.
 
 ## Architecture
 
@@ -9,7 +9,7 @@ MCP client / agent
         |
         | Streamable HTTP + API key
         v
-Internet Hands /mcp
+OpenCrawl /mcp
         |
         +----------------------------+
         |                            |
@@ -65,7 +65,7 @@ Artifact and ordinary file responses are capped by the manager policy so a tool 
 
 - `sandbox_start_service` resumes a named sandbox, validates a pre-published port, starts the service as a detached process, and returns its provider route/public URL.
 
-Vercel requires exposed ports to be declared when the sandbox is created. Internet Hands therefore does not invent a post-creation `publish-port` operation: create the sandbox with `ports=[3000]`, then start the service on port 3000. `sandbox_start_service` refuses undeclared ports.
+Vercel requires exposed ports to be declared when the sandbox is created. OpenCrawl therefore does not invent a post-creation `publish-port` operation: create the sandbox with `ports=[3000]`, then start the service on port 3000. `sandbox_start_service` refuses undeclared ports.
 
 ## Live browser subsystem
 
@@ -153,7 +153,7 @@ Default manager limits:
 - package install: up to 50 packages per call
 - process signals exposed through MCP: SIGINT, SIGTERM, SIGKILL only
 
-The provider remains the final isolation boundary. Internet Hands does not mount host filesystems or expose Docker-in-Docker/host sockets.
+The provider remains the final isolation boundary. OpenCrawl does not mount host filesystems or expose Docker-in-Docker/host sockets.
 
 ## Typical agent workflow
 

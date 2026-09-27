@@ -79,25 +79,29 @@ async def _send_payment_confirmation(payment: dict[str, Any]) -> None:
     if event_id is None:
         return
     amount = int(payment.get("amount_paise") or 0) / 100
+    currency = str(payment.get("currency") or "INR").upper()
+    amount_label = f"${amount:.2f}" if currency == "USD" else f"₹{amount:.2f}"
     purpose = str(payment.get("purpose") or "purchase")
     if purpose == "subscription":
-        item = f"Internet Hands {payment.get('plan_slug') or ''} plan"
+        item = f"OpenCrawl {payment.get('plan_slug') or ''} plan"
+    elif payment.get("credit_pack_slug"):
+        item = f"OpenCrawl {payment.get('credit_pack_slug')} wallet pack"
     else:
-        item = f"Internet Hands {payment.get('credit_pack_slug') or 'credit pack'}"
-    subject = "Internet Hands payment confirmed"
+        item = "OpenCrawl custom wallet top-up"
+    subject = "OpenCrawl payment confirmed"
     text = (
-        f"Payment confirmed for {item}. Amount: INR {amount:.2f}. "
+        f"Payment confirmed for {item}. Amount: {currency} {amount:.2f}. "
         f"Order: {order_id}. Payment: {payment_id}."
     )
     html_body = (
         "<!doctype html><html><body style='font-family:Arial,sans-serif;background:#080b0f;color:#eef5f9;padding:28px'>"
         "<div style='max-width:620px;margin:auto;background:#0d1218;border:1px solid #26343b;border-radius:18px;padding:28px'>"
-        "<div style='color:#73e5ef;font-weight:800;letter-spacing:.12em'>INTERNET HANDS</div>"
+        "<div style='color:#ef39df;font-weight:800;letter-spacing:.12em'>OPENCRAWL</div>"
         "<h2>Payment confirmed</h2>"
         f"<p>Your purchase of <strong>{html.escape(item)}</strong> has been confirmed.</p>"
-        f"<p><strong>Amount:</strong> ₹{amount:.2f}<br><strong>Order:</strong> {html.escape(order_id)}<br>"
+        f"<p><strong>Amount:</strong> {html.escape(amount_label)}<br><strong>Order:</strong> {html.escape(order_id)}<br>"
         f"<strong>Payment:</strong> {html.escape(payment_id)}</p>"
-        "<p style='color:#8aa0aa'>Your credits or plan entitlement are already active in the dashboard.</p>"
+        "<p style='color:#8aa0aa'>Your wallet balance or plan entitlement is already active in the dashboard.</p>"
         "</div></body></html>"
     )
     try:
@@ -228,10 +232,10 @@ async def _send_reset_email(*, email: str, reset_url: str) -> None:
     try:
         await send_mail(
             to=email,
-            subject="Reset your Internet Hands password",
-            text=f"Reset your Internet Hands password: {reset_url}\nThis link expires in 30 minutes.",
+            subject="Reset your OpenCrawl password",
+            text=f"Reset your OpenCrawl password: {reset_url}\nThis link expires in 30 minutes.",
             html=(
-                "<p>You requested a password reset for Internet Hands.</p>"
+                "<p>You requested a password reset for OpenCrawl.</p>"
                 f"<p><a href=\"{html.escape(reset_url, quote=True)}\">Reset password</a></p>"
                 "<p>This link expires in 30 minutes. If you did not request it, ignore this email.</p>"
             ),

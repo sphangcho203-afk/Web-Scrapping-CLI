@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 
+from .auth import current_auth
 from .tool_mesh import ToolDescriptor
 from .tool_providers import ComposioToolProvider
 
@@ -23,11 +24,11 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 class ComposioBridgeProvider(ComposioToolProvider):
-    """Connected-account-aware Composio provider for the public Tool Mesh.
+    """Tenant-aware Composio provider for the public Tool Mesh.
 
-    Discovery can be limited to toolkits with ACTIVE connections. Execution is
-    fail-closed by default: project-level connected accounts are never selected
-    implicitly unless an operator opts in or explicitly allowlists an account.
+    Authenticated OpenCrawl requests are scoped to Composio connected accounts whose
+    user_id matches the stable OpenCrawl user id. Project-level accounts remain
+    fail-closed unless an operator explicitly enables or allowlists them.
     """
 
     name = "composio"
@@ -77,7 +78,7 @@ class ComposioBridgeProvider(ComposioToolProvider):
             if connection_ttl_seconds is not None
             else int(os.getenv("INTERNET_HANDS_COMPOSIO_CONNECTION_TTL", "60")),
         )
-        self._connection_cache: tuple[float, list[dict[str, Any]]] | None = None
+        self._connection_cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
         self._connection_lock = asyncio.Lock()
 
     @staticmethod
@@ -114,8 +115,17 @@ class ComposioBridgeProvider(ComposioToolProvider):
         return str(item.get("id") or item.get("connected_account_id") or "").strip()
 
     @staticmethod
+    def _connection_user(item: dict[str, Any]) -> str:
+        return str(item.get("user_id") or item.get("userId") or "").strip()
+
+    @staticmethod
     def _connection_status(item: dict[str, Any]) -> str:
         return str(item.get("status") or "").strip().upper()
+
+    @staticmethod
+    def _request_user_id() -> str | None:
+        identity = current_auth.get()
+        return identity.user_id if identity is not None else None
 
     def _connections_url_candidates(self) -> list[str]:
         base = self.base_url.rstrip("/")
@@ -125,11 +135,17 @@ class ComposioBridgeProvider(ComposioToolProvider):
         return list(dict.fromkeys(candidates))
 
     async def _request_connections_page(
-        self, url: str, *, cursor: str | None = None
+        self,
+        url: str,
+        *,
+        cursor: str | None = None,
+        user_id: str | None = None,
     ) -> tuple[list[dict[str, Any]], str | None]:
         params: dict[str, Any] = {"limit": 100}
         if cursor:
             params["cursor"] = cursor
+        if user_id:
+            params["user_ids"] = [user_id]
         response = await self._request("GET", url, params=params, headers=self._headers())
         payload = response.json()
         if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
@@ -148,14 +164,16 @@ class ComposioBridgeProvider(ComposioToolProvider):
     async def _fetch_connections(self, *, force: bool = False) -> list[dict[str, Any]]:
         if not self.api_key:
             return []
+        user_id = self._request_user_id()
+        cache_key = user_id or "__project__"
         now = time.monotonic()
-        cached = self._connection_cache
+        cached = self._connection_cache.get(cache_key)
         if not force and cached and now - cached[0] < self.connection_ttl_seconds:
             return cached[1]
 
         async with self._connection_lock:
             now = time.monotonic()
-            cached = self._connection_cache
+            cached = self._connection_cache.get(cache_key)
             if not force and cached and now - cached[0] < self.connection_ttl_seconds:
                 return cached[1]
 
@@ -165,7 +183,11 @@ class ComposioBridgeProvider(ComposioToolProvider):
                     items: list[dict[str, Any]] = []
                     cursor: str | None = None
                     while True:
-                        page, cursor = await self._request_connections_page(url, cursor=cursor)
+                        page, cursor = await self._request_connections_page(
+                            url,
+                            cursor=cursor,
+                            user_id=user_id,
+                        )
                         items.extend(page)
                         if not cursor:
                             break
@@ -174,8 +196,9 @@ class ComposioBridgeProvider(ComposioToolProvider):
                         for item in items
                         if self._connection_status(item) in {"", "ACTIVE"}
                         and self._connection_id(item)
+                        and (user_id is None or self._connection_user(item) == user_id)
                     ]
-                    self._connection_cache = (time.monotonic(), active)
+                    self._connection_cache[cache_key] = (time.monotonic(), active)
                     return active
                 except httpx.HTTPStatusError as exc:
                     last_error = exc
@@ -189,6 +212,9 @@ class ComposioBridgeProvider(ComposioToolProvider):
             return []
 
     def _connection_allowed(self, item: dict[str, Any]) -> bool:
+        identity = current_auth.get()
+        if identity is not None:
+            return self._connection_user(item) == identity.user_id
         if not self.allowed_accounts:
             return self.allow_project_accounts
         identifiers = {self._connection_id(item), self._connection_alias(item)}
@@ -229,7 +255,18 @@ class ComposioBridgeProvider(ComposioToolProvider):
                 else "locked"
             ),
         }
-        if self.expose_account_aliases and candidates:
+        if candidates and self._request_user_id():
+            descriptor.metadata["account_selection_required"] = len(candidates) > 1
+            descriptor.metadata["connected_accounts"] = [
+                {
+                    "id": self._connection_id(item),
+                    "alias": self._connection_alias(item) or None,
+                    "status": self._connection_status(item) or "ACTIVE",
+                }
+                for item in candidates
+                if self._connection_allowed(item)
+            ]
+        elif self.expose_account_aliases and candidates:
             descriptor.metadata["connected_account_aliases"] = [
                 alias
                 for item in candidates
@@ -261,11 +298,14 @@ class ComposioBridgeProvider(ComposioToolProvider):
             toolkit = self._connection_toolkit(item)
             if toolkit and (not self.allowed_toolkits or toolkit in self.allowed_toolkits):
                 counts[toolkit] = counts.get(toolkit, 0) + 1
+        user_id = self._request_user_id()
         return {
             **base,
             "connected_only": self.connected_only,
             "account_routing": (
-                "project_accounts_enabled"
+                "user_scoped"
+                if user_id
+                else "project_accounts_enabled"
                 if self.allow_project_accounts
                 else "allowlist"
                 if self.allowed_accounts
@@ -335,6 +375,11 @@ class ComposioBridgeProvider(ComposioToolProvider):
 
         allowed = [item for item in candidates if self._connection_allowed(item)]
         if not allowed:
+            if self._request_user_id():
+                raise PermissionError(
+                    f"no active connected account is available for {toolkit or 'this toolkit'} "
+                    "for the current OpenCrawl user"
+                )
             raise PermissionError(
                 "Composio account routing is locked; configure "
                 "INTERNET_HANDS_COMPOSIO_ACCOUNT_ALLOW or explicitly opt in to project accounts"
