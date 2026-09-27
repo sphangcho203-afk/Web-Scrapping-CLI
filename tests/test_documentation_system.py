@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 
@@ -9,6 +8,8 @@ WEB = ROOT / "web"
 
 
 def _docs() -> dict[str, list[str]]:
+    import json
+
     raw = (WEB / "docs-content.js").read_text(encoding="utf-8").strip()
     prefix = "window.OPENCRAWL_DOCS = "
     assert raw.startswith(prefix)
