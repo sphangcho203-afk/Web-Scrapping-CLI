@@ -17,6 +17,7 @@ from .provider_errors import (
 )
 from .provider_reliability import provider_reliability
 
+
 def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
     try:
         value = int(os.getenv(name, str(default)))
