@@ -173,7 +173,7 @@ RAW_PROVIDER_SURCHARGES: dict[str, tuple[str, int]] = {
     "publicapi": ("public", 1),
     "openapi": ("public", 1),
     "mcp": ("public", 2),
-    "composio": ("metered", 3),
+    "composio": ("public", 0),
     "firecrawl": ("metered", 250),
     "rapidapi": ("metered", 5),
     # The run is capped at $0.10 in ApifyToolProvider. At the least expensive
@@ -183,6 +183,16 @@ RAW_PROVIDER_SURCHARGES: dict[str, tuple[str, int]] = {
     "gamecore": ("local", 0),
     "githubpublic": ("public", 1),
 }
+
+def _is_byo_route(ref: str) -> bool:
+    normalized = str(ref or "").strip().lower()
+    if normalized.startswith("composio:"):
+        return True
+    if not normalized.startswith("mcp:"):
+        return False
+    source = normalized.split(":", 1)[1].split("::", 1)[0]
+    return source.startswith(("con_", "connection_"))
+
 
 FIRECRAWL_CREDITS_PER_UNIT = 250
 FIRECRAWL_WORK_BUDGETS = {
@@ -577,6 +587,7 @@ def estimate_call(
         cost = base
         breakdown = [{"kind": "base", "credits": base}]
         highest_class = rule.provider_class
+        nested_billable = False
         for index, request in enumerate(requests):
             if reason:
                 break
@@ -604,6 +615,7 @@ def estimate_call(
                     reason = quote.reason
                     break
                 cost += quote.credits
+                nested_billable = nested_billable or quote.credits > 0
                 breakdown.append({
                     "kind": "capability_attempt", "index": index,
                     "capability": capability, "credits": quote.credits,
@@ -613,6 +625,15 @@ def estimate_call(
                     highest_class = quote.provider_class
         if not requests and not reason and tool_name == "mesh_capability_execute":
             reason = "capability is required"
+        if (
+            tool_name == "mesh_capability_execute"
+            and reason is None
+            and requests
+            and not nested_billable
+        ):
+            cost = 0
+            breakdown[0] = {"kind": "base", "credits": 0}
+            highest_class = "public"
         return CostEstimate(
             allowed=reason is None, plan=plan.slug, tool_name=tool_name,
             category=rule.category, credits=cost, minimum_plan=rule.minimum_plan,
@@ -630,6 +651,25 @@ def estimate_call(
             if isinstance(args.get("arguments"), dict)
             else {}
         )
+        if _is_byo_route(ref):
+            return CostEstimate(
+                allowed=True,
+                plan=plan.slug,
+                tool_name=tool_name,
+                category="byo_external",
+                credits=0,
+                minimum_plan="free",
+                provider_class="public",
+                reason=None,
+                breakdown=(
+                    {
+                        "kind": "byo_external",
+                        "ref": ref,
+                        "credits": 0,
+                    },
+                ),
+                limits=plan.to_dict(),
+            )
         if ref == "phoneintel:lookup":
             nested = estimate_call(
                 "phone_number_lookup",
@@ -807,6 +847,25 @@ def estimate_call(
                 tuple(breakdown),
                 plan.to_dict(),
             )
+        if isinstance(calls, list) and calls and all(
+            isinstance(call, dict)
+            and _is_byo_route(str(call.get("ref") or call.get("tool") or ""))
+            for call in calls
+        ):
+            return CostEstimate(
+                allowed=True,
+                plan=plan.slug,
+                tool_name=tool_name,
+                category="byo_external",
+                credits=0,
+                minimum_plan="free",
+                provider_class="public",
+                reason=None,
+                breakdown=(
+                    {"kind": "byo_batch", "calls": count, "credits": 0},
+                ),
+                limits=plan.to_dict(),
+            )
         if isinstance(calls, list):
             for index, call in enumerate(calls):
                 if not isinstance(call, dict):
@@ -917,8 +976,12 @@ def _measured_mesh_attempts(provider_calls: dict[str, Any], counters: dict[str, 
             count = max(0, int(raw_count))
         except (TypeError, ValueError):
             continue
-        _, surcharge = RAW_PROVIDER_SURCHARGES.get(str(provider).lower(), ("public", 0))
-        if provider == "githubpublic":
+        provider_name = str(provider).lower()
+        if provider_name == "composio":
+            # Connected-app execution is supplied by the user's linked account.
+            continue
+        _, surcharge = RAW_PROVIDER_SURCHARGES.get(provider_name, ("public", 0))
+        if provider_name == "githubpublic":
             total += count
         elif provider == "firecrawl":
             total += count * 2
@@ -982,6 +1045,14 @@ def settle_measured_cost(
         return min(reserved, 1 if usage.get("completed") else 0)
 
     if tool_name in {"mesh_capability_execute", "gaming_intel", "gaming_profile", "mesh_batch_execute"}:
+        if tool_name == "mesh_batch_execute":
+            calls = args.get("calls")
+            if isinstance(calls, list) and calls and all(
+                isinstance(call, dict)
+                and _is_byo_route(str(call.get("ref") or call.get("tool") or ""))
+                for call in calls
+            ):
+                return 0
         if tool_name == "mesh_capability_execute":
             capability = str(args.get("capability") or "").strip()
             nested_args = args.get("arguments") or {}
@@ -995,8 +1066,33 @@ def settle_measured_cost(
                     phone_tools[capability], nested_args, plan_slug,
                     reserved_credits=reserved, execution_usage=usage, latency_ms=latency_ms,
                 )
-        base = _rule_for(tool_name).base_credits if provider_calls else 0
-        actual = base + _measured_mesh_attempts(provider_calls, counters)
+        billable_provider_calls = dict(provider_calls)
+        billable_provider_calls.pop("composio", None)
+        if tool_name == "mesh_batch_execute":
+            calls = args.get("calls")
+            if isinstance(calls, list):
+                mcp_calls = [
+                    call
+                    for call in calls
+                    if isinstance(call, dict)
+                    and str(call.get("ref") or call.get("tool") or "").strip().lower().startswith("mcp:")
+                ]
+                if mcp_calls:
+                    billable_mcp_calls = sum(
+                        1
+                        for call in mcp_calls
+                        if not _is_byo_route(str(call.get("ref") or call.get("tool") or ""))
+                    )
+                    if billable_mcp_calls:
+                        try:
+                            observed_mcp = max(0, int(billable_provider_calls.get("mcp") or 0))
+                        except (TypeError, ValueError):
+                            observed_mcp = 0
+                        billable_provider_calls["mcp"] = min(observed_mcp, billable_mcp_calls)
+                    else:
+                        billable_provider_calls.pop("mcp", None)
+        base = _rule_for(tool_name).base_credits if billable_provider_calls else 0
+        actual = base + _measured_mesh_attempts(billable_provider_calls, counters)
         if provider_calls.get("githubpublic"):
             try:
                 github_requests = max(0, int(counters.get("github_api_calls") or 0))
@@ -1007,6 +1103,8 @@ def settle_measured_cost(
 
     if tool_name == "mesh_execute":
         ref = str(args.get("ref") or args.get("tool") or "").strip().lower()
+        if _is_byo_route(ref):
+            return 0
         nested_args = (
             dict(args.get("arguments") or {})
             if isinstance(args.get("arguments"), dict)

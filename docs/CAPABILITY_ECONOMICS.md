@@ -31,6 +31,21 @@ base capability cost
 
 A local metadata lookup therefore costs less than a paid provider call or a multi-source investigation.
 
+#### BYO capability rule
+
+OpenCrawl does **not** charge wallet balance for the external capability itself when the user supplies it.
+
+That currently includes:
+
+- user-connected apps executed through the user-scoped connected-account bridge;
+- remote MCP servers saved by that user.
+
+Those calls are recorded in usage telemetry with a zero OpenCrawl execution charge. Any fees charged by the connected SaaS, API, MCP operator, or the user's own subscription remain between the user and that provider.
+
+OpenCrawl wallet charges apply when the request consumes OpenCrawl-supplied capability or infrastructure, such as first-party crawling, hosted browser/sandbox runtime, OpenCrawl-funded provider routes, or other explicitly metered OpenCrawl execution.
+
+A BYO route does not become billable merely because it passes through `mesh_execute`, a semantic capability, or a batch.
+
 ### 3. Output policy
 
 Output safety/privacy policy is not purchasable. A higher subscription may unlock more providers, sources, runtime and depth, but never hidden credentials, secrets, private addresses, or other prohibited private records.
@@ -114,16 +129,16 @@ External phone enrichment requires an explicit provider list so the cost is know
 
 ## Raw provider examples
 
-Current policy differentiates raw Tool Mesh providers instead of treating all provider calls as equivalent:
+Current policy distinguishes **who supplies the capability**, not just which transport executes it:
 
-- first-party/native provider: low/no surcharge;
-- public API/OpenAPI: small surcharge;
-- remote MCP: small surcharge;
-- Composio: metered surcharge;
-- Firecrawl/RapidAPI: higher metered surcharge;
-- Apify: higher metered surcharge.
+- user-connected app: **0 OpenCrawl wallet charge**;
+- user-saved remote MCP: **0 OpenCrawl wallet charge**;
+- OpenCrawl first-party/native capability: priced from its own work units;
+- OpenCrawl-provided public/API route: priced by the route policy;
+- OpenCrawl-funded Firecrawl/RapidAPI/Apify or similar execution: priced from the provider/work budget;
+- operator-managed remote MCP supplied as part of OpenCrawl: may carry an OpenCrawl route charge.
 
-These values are policy inputs, not permanent constants. They can evolve as real provider costs and product economics become clearer.
+The transport is not the product. A Composio or MCP hop is free when it is only carrying a capability the user brought; it can be metered when OpenCrawl is actually supplying the underlying resource.
 
 ## Receipts and telemetry
 
