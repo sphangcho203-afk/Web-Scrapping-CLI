@@ -8,7 +8,7 @@ from .crawler import crawl
 from .execution_meter import record_usage
 from .fetcher import extract_links, fetch_url
 from .tool_mesh import ToolDescriptor
-from .web_search import SearchKind, brave_search
+from .web_search import SearchKind, brave_llm_context, brave_search
 
 
 class NativeWebToolProvider:
@@ -68,6 +68,55 @@ class NativeWebToolProvider:
                 requires_auth=True,
                 side_effecting=False,
                 metadata={"configured": bool(os.getenv("BRAVE_SEARCH_API_KEY"))},
+            ),
+            "context": ToolDescriptor(
+                ref="nativeweb:context",
+                provider=self.name,
+                tool_id="context",
+                name="Brave LLM grounding context",
+                description=(
+                    "Retrieve pre-extracted public-web chunks optimized for agents, RAG, "
+                    "fact-checking and grounded model calls."
+                ),
+                input_schema={
+                    "type": "object",
+                    "required": ["query"],
+                    "properties": {
+                        "query": {"type": "string"},
+                        "count": {"type": "integer", "minimum": 1, "maximum": 50},
+                        "country": {"type": "string"},
+                        "language": {"type": "string"},
+                        "freshness": {"type": "string"},
+                        "maximum_number_of_urls": {
+                            "type": "integer", "minimum": 1, "maximum": 50
+                        },
+                        "maximum_number_of_tokens": {
+                            "type": "integer", "minimum": 1024, "maximum": 32768
+                        },
+                        "maximum_number_of_snippets": {
+                            "type": "integer", "minimum": 1, "maximum": 256
+                        },
+                        "maximum_number_of_tokens_per_url": {
+                            "type": "integer", "minimum": 512, "maximum": 8192
+                        },
+                        "maximum_number_of_snippets_per_url": {
+                            "type": "integer", "minimum": 1, "maximum": 100
+                        },
+                        "context_threshold_mode": {
+                            "type": "string",
+                            "enum": ["strict", "balanced", "lenient", "disabled"],
+                        },
+                        "enable_local": {"type": "boolean"},
+                        "enable_source_metadata": {"type": "boolean"},
+                    },
+                },
+                tags=["web", "search", "context", "rag", "agent", "brave", "native"],
+                requires_auth=True,
+                side_effecting=False,
+                metadata={
+                    "configured": bool(os.getenv("BRAVE_SEARCH_API_KEY")),
+                    "endpoint": "/res/v1/llm/context",
+                },
             ),
             "map": ToolDescriptor(
                 ref="nativeweb:map",
@@ -189,6 +238,33 @@ class NativeWebToolProvider:
                 country=arguments.get("country"),
                 language=arguments.get("language"),
                 freshness=arguments.get("freshness"),
+            )
+            return {"status": "completed", "data": result}
+
+        if tool_id == "context":
+            record_usage("native_web_requests")
+            result = await brave_llm_context(
+                str(arguments["query"]),
+                count=int(arguments.get("count", 20)),
+                country=arguments.get("country"),
+                language=arguments.get("language"),
+                freshness=arguments.get("freshness"),
+                maximum_number_of_urls=int(arguments.get("maximum_number_of_urls", 20)),
+                maximum_number_of_tokens=int(arguments.get("maximum_number_of_tokens", 8192)),
+                maximum_number_of_snippets=int(arguments.get("maximum_number_of_snippets", 50)),
+                maximum_number_of_tokens_per_url=int(
+                    arguments.get("maximum_number_of_tokens_per_url", 4096)
+                ),
+                maximum_number_of_snippets_per_url=int(
+                    arguments.get("maximum_number_of_snippets_per_url", 50)
+                ),
+                context_threshold_mode=str(
+                    arguments.get("context_threshold_mode", "balanced")
+                ),
+                enable_local=arguments.get("enable_local"),
+                enable_source_metadata=bool(
+                    arguments.get("enable_source_metadata", True)
+                ),
             )
             return {"status": "completed", "data": result}
 
