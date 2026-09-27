@@ -98,6 +98,10 @@ class ProviderReliabilityTracker:
         self._lock = threading.Lock()
 
     @staticmethod
+    def enabled() -> bool:
+        return _enabled()
+
+    @staticmethod
     def _threshold() -> int:
         return _env_int(
             "OPENCRAWL_PROVIDER_CIRCUIT_FAILURES",
