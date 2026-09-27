@@ -68,9 +68,7 @@ def _should_render(result: FetchResult, text_length: int, minimum_text: int) -> 
     if text_length < minimum_text:
         return True
     scripts = body.count("<script")
-    if scripts >= 6 and any(marker in body for marker in _DYNAMIC_MARKERS):
-        return True
-    return False
+    return scripts >= 6 and any(marker in body for marker in _DYNAMIC_MARKERS)
 
 
 def _backend_ready(name: str) -> bool:
@@ -165,7 +163,7 @@ async def resilient_public_fetch(
                 }
             )
             selected, selected_backend = result, name
-        except Exception as exc:  # noqa: BLE001 - provider fallback boundary
+        except Exception as exc:
             attempts.append(
                 {
                     "backend": name,
