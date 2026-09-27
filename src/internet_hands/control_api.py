@@ -32,6 +32,7 @@ from .control_store import (
     ControlStore,
     random_token,
 )
+from .mailer import mail_provider, resend_configured, smtp_configured
 from .policy import validate_public_http_url
 from .remote_mcp_provider import AUTH_TYPES, TRANSPORTS, parse_curl_connection
 from .supabase_auth import configuration_status as supabase_auth_configuration_status
@@ -830,10 +831,24 @@ def public_status():
     return {
         "service": "OpenCrawl",
         "control_database": store.configured,
+        "control_database_backend": (
+            "neon"
+            if (os.getenv("OPENCRAWL_PRIMARY_DATABASE") or "").strip().lower() == "neon"
+            else "supabase"
+        ),
         "mcp": "/mcp",
         "oauth": True,
         "billing": bool(os.getenv("RAZORPAY_KEY_ID") and os.getenv("RAZORPAY_KEY_SECRET")),
         "github_oauth": bool(os.getenv("GITHUB_CLIENT_ID") and os.getenv("GITHUB_CLIENT_SECRET")),
         "supabase_auth": supabase_auth_configuration_status(),
+        "mail": {
+            "provider": mail_provider(),
+            "configured": bool(mail_provider()),
+            "resend": resend_configured(),
+            "smtp": smtp_configured(),
+        },
+        "control_migration": {
+            "requested": bool((os.getenv("OPENCRAWL_CONTROL_MIGRATION_ID") or "").strip())
+        },
         "time": datetime.now(UTC).isoformat(),
     }
