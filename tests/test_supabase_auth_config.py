@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
-from starlette.requests import Request
 
 from internet_hands.security_api import _mail_origin
 from internet_hands.supabase_auth import (
@@ -84,23 +85,10 @@ def test_newlines_in_auth_keys_are_rejected(monkeypatch: pytest.MonkeyPatch) -> 
     assert exc.value.code == "auth_configuration_invalid"
 
 
-def _request(host: str = "preview.example.test") -> Request:
-    return Request(
-        {
-            "type": "http",
-            "http_version": "1.1",
-            "method": "GET",
-            "scheme": "https",
-            "path": "/signup",
-            "raw_path": b"/signup",
-            "query_string": b"",
-            "headers": [
-                (b"host", host.encode("ascii")),
-                (b"x-forwarded-proto", b"https"),
-            ],
-            "client": ("127.0.0.1", 12345),
-            "server": (host, 443),
-        }
+def _request(host: str = "preview.example.test"):
+    return SimpleNamespace(
+        headers={"host": host, "x-forwarded-proto": "https"},
+        url=SimpleNamespace(scheme="https", netloc=host),
     )
 
 
