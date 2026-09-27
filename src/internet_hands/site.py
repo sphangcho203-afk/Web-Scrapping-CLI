@@ -20,6 +20,7 @@ NO_STORE_HEADERS = {
 ASSET_MEDIA_TYPES = {
     "cognitive-foundation.css": "text/css",
     "app.js": "application/javascript",
+    "docs-content.js": "application/javascript",
     "mark.svg": "image/svg+xml",
     "internet-hands-mark.webp": "image/webp",
     "internet-hands-logo.webp": "image/webp",
@@ -63,7 +64,11 @@ def site_asset(name: str):
         raise HTTPException(status_code=404, detail="asset not found")
     if name == "app.js":
         return _browser_runtime()
-    return _file(name, media_type, no_store=name == "cognitive-foundation.css")
+    return _file(
+        name,
+        media_type,
+        no_store=name in {"cognitive-foundation.css", "docs-content.js"},
+    )
 
 
 def _index():
