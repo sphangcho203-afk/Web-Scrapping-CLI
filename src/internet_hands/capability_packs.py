@@ -159,9 +159,11 @@ class CapabilityRegistry:
             raise PermissionError(
                 "side-effecting capability requires allow_side_effects=true or dry_run=true"
             )
+        # Python's sort is stable: equal-priority candidates retain declaration order.
+        # That matters for conditional routes that intentionally share a provider/priority.
         base_candidates = sorted(
             capability.candidates,
-            key=lambda item: (item.priority, item.provider, item.ref or item.search or ""),
+            key=lambda item: item.priority,
         )
         reliability_before = {
             candidate.provider: provider_reliability.routing_state(candidate.provider)
