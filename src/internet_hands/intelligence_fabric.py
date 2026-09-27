@@ -455,7 +455,15 @@ class IntelligenceFabricProvider:
                 discover_interfaces=bool(arguments.get("discover_interfaces", True)),
                 max_frontier_urls=int(arguments.get("max_frontier_urls", 250)),
             )
-            return {"status": "completed", "data": data}
+            return {
+                "status": "blocked" if data.get("blocked") else "completed",
+                "data": data,
+                "error": (
+                    f"public collection blocked by upstream challenge: {data.get('block_reason')}"
+                    if data.get("blocked")
+                    else None
+                ),
+            }
 
         if tool_id == "discover-interfaces":
             probe_openapi = bool(arguments.get("probe_openapi", False))
