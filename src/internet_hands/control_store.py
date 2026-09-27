@@ -1413,21 +1413,9 @@ class ControlStore:
                     metadata["measured_usage"] = execution_usage
 
                 if event["status"] != "reserved":
-                    cur.execute(
-                        """
-                        UPDATE ih_usage_events
-                        SET status=%s,latency_ms=%s,output_bytes=%s,metadata=%s::jsonb
-                        WHERE request_id=%s
-                        """,
-                        (
-                            status,
-                            latency_ms,
-                            output_bytes,
-                            json.dumps(metadata),
-                            request_id,
-                        ),
-                    )
-                    conn.commit()
+                    # Settlement is terminal and idempotent. A duplicated completion,
+                    # timeout handler, or late worker must never rewrite a settled or
+                    # abandoned request after wallet/ledger state has been finalized.
                     return int(event["credits_charged"] or 0)
 
                 provider_events = (execution_usage or {}).get("provider_events") or []
