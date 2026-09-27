@@ -24,11 +24,33 @@ class _Request:
 class _Store:
     def __init__(self):
         self.calls = []
+        self.checks = []
+        self.enabled = []
 
     def create_connection(self, **kwargs):
         self.calls.append(kwargs)
         return {"id": "con_fixture", "name": kwargs["name"],
                 "header_names": kwargs["config"]["header_names"]}
+
+    def get_connection_private(self, user_id, connection_id):
+        if user_id != "usr_fixture" or connection_id != "con_fixture":
+            return None
+        return {
+            "id": connection_id,
+            "user_id": user_id,
+            "name": "Provider",
+            "endpoint_url": "https://example.com/mcp",
+            "transport": "streamable_http",
+            "auth_type": "bearer",
+            "secret_config": {"headers": {"Authorization": "Bearer fixture-token"}},
+        }
+
+    def update_connection_check(self, user_id, connection_id, **kwargs):
+        self.checks.append((user_id, connection_id, kwargs))
+
+    def set_connection_enabled(self, user_id, connection_id, enabled):
+        self.enabled.append((user_id, connection_id, enabled))
+        return user_id == "usr_fixture" and connection_id == "con_fixture"
 
 
 @pytest.fixture
@@ -69,3 +91,63 @@ async def test_curl_import_previews_redacted_then_saves_headers(connection_store
         "headers": {"Authorization": "Bearer fixture-access-token"}
     }
     assert "fixture-access-token" not in json.dumps(saved)
+
+
+@pytest.mark.asyncio
+async def test_connection_probe_persists_live_tool_health(connection_store, monkeypatch):
+    async def probe(_connection):
+        return {
+            "ok": True,
+            "tool_count": 2,
+            "tools": [
+                {
+                    "ref": "mcp:con_fixture::search",
+                    "name": "Search",
+                    "description": "Search public data",
+                    "side_effecting": False,
+                    "requires_auth": True,
+                }
+            ],
+            "source": {"connection_id": "con_fixture"},
+        }
+
+    monkeypatch.setattr(control_api, "probe_saved_connection", probe)
+
+    response = await control_api.test_connection_endpoint("con_fixture", _Request({}))
+
+    assert response["ok"] is True
+    assert response["tool_count"] == 2
+    assert response["tools"][0]["name"] == "Search"
+    assert connection_store.checks == [
+        (
+            "usr_fixture",
+            "con_fixture",
+            {"status": "ok", "tool_count": 2, "error": None},
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_connection_probe_persists_bounded_failure(connection_store, monkeypatch):
+    async def probe(_connection):
+        raise RuntimeError("upstream MCP rejected initialize")
+
+    monkeypatch.setattr(control_api, "probe_saved_connection", probe)
+
+    response = await control_api.test_connection_endpoint("con_fixture", _Request({}))
+
+    assert response["ok"] is False
+    assert response["status"] == "error"
+    assert "rejected initialize" in response["error"]
+    assert connection_store.checks[0][2]["status"] == "error"
+    assert connection_store.checks[0][2]["tool_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_connection_can_be_paused_without_deleting_secret_state(connection_store):
+    response = await control_api.update_connection_endpoint(
+        "con_fixture", _Request({"enabled": False})
+    )
+
+    assert response == {"ok": True, "enabled": False}
+    assert connection_store.enabled == [("usr_fixture", "con_fixture", False)]
