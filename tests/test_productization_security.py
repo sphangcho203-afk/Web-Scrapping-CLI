@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from internet_hands import control_api, security_api
+from internet_hands import control_api, security_api, security_hardening
 from internet_hands.control_store import AuthIdentity, ControlStore
 
 
@@ -35,7 +35,8 @@ async def test_signup_enters_dedicated_verification_flow(monkeypatch) -> None:
         "created_at": datetime(2026, 9, 14, tzinfo=UTC),
     }
 
-    async def signup(**_kwargs):
+    async def signup(**kwargs):
+        assert kwargs["email_confirm"] is False
         return {
             "user": {
                 "id": "auth_pending",
@@ -45,7 +46,10 @@ async def test_signup_enters_dedicated_verification_flow(monkeypatch) -> None:
             "session": None,
         }
 
-    monkeypatch.setattr(security_api, "supabase_sign_up", signup)
+    monkeypatch.setattr(security_api, "supabase_admin_create_user", signup)
+    async def send_verification(*_args):
+        return True
+    monkeypatch.setattr(security_api, "_send_verification", send_verification)
     monkeypatch.setattr(security_api.store, "get_user_by_email", lambda _email: user)
     monkeypatch.setattr(security_api.store, "create_session", lambda **_kwargs: None)
 
@@ -57,7 +61,7 @@ async def test_signup_enters_dedicated_verification_flow(monkeypatch) -> None:
     assert response.status_code == 200
     assert payload["verification_required"] is True
     assert payload["verification_sent"] is True
-    assert payload["verification_mode"] == "supabase_link"
+    assert payload["verification_mode"] == "link_or_code"
     assert payload["next"] == "/verify-email"
     assert "ih_session=" in response.headers["set-cookie"]
 
@@ -65,16 +69,9 @@ async def test_signup_enters_dedicated_verification_flow(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_signup_rejects_existing_supabase_identity(monkeypatch) -> None:
     async def duplicate(**_kwargs):
-        return {
-            "user": {
-                "id": "auth_existing",
-                "email": "pending@example.test",
-                "identities": [],
-            },
-            "session": None,
-        }
+        raise security_api.SupabaseAuthError("User already registered", status_code=422)
 
-    monkeypatch.setattr(security_api, "supabase_sign_up", duplicate)
+    monkeypatch.setattr(security_api, "supabase_admin_create_user", duplicate)
 
     with pytest.raises(HTTPException) as exc:
         await security_api.signup_secure(
@@ -91,6 +88,62 @@ async def test_signup_rejects_existing_supabase_identity(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_verification_keeps_local_challenge_when_identity_sync_fails(monkeypatch) -> None:
+    user = {"id": "usr_pending", "email": "pending@example.test", "email_verified": False}
+    monkeypatch.setattr(security_api, "_require_user", lambda _request: user)
+    monkeypatch.setattr(security_api.security, "email_code_matches", lambda *_args: True)
+    monkeypatch.setattr(security_api.store, "auth_user_id_for_legacy", lambda _id: "auth_pending")
+    consumed = []
+    monkeypatch.setattr(security_api.security, "consume_email_code", lambda *_args: consumed.append(True))
+
+    async def unavailable(*_args, **_kwargs):
+        raise security_api.SupabaseAuthError("unavailable", status_code=503)
+
+    monkeypatch.setattr(security_api, "supabase_admin_update_user", unavailable)
+    with pytest.raises(HTTPException) as exc:
+        await security_api.confirm_verification_code(_Request({"code": "123456"}))
+    assert exc.value.status_code == 503
+    assert consumed == []
+
+
+@pytest.mark.asyncio
+async def test_password_recovery_uses_transactional_mail_for_linked_identity(monkeypatch) -> None:
+    user = {"id": "usr_linked", "email": "linked@example.test"}
+    monkeypatch.setattr(security_hardening.store, "get_user_by_email", lambda _email: user)
+    monkeypatch.setattr(security_hardening.security, "email_send_allowed", lambda *_args, **_kw: True)
+    monkeypatch.setattr(security_hardening.store, "create_password_reset", lambda *_args: None)
+    sent = []
+
+    async def deliver(**kwargs):
+        sent.append(kwargs)
+        return True
+
+    monkeypatch.setattr(security_hardening, "_deliver", deliver)
+    result = await security_hardening.password_reset_request_limited(
+        _Request({"email": user["email"]})
+    )
+    assert result["ok"] is True
+    assert len(sent) == 1
+    assert sent[0]["event_type"] == "password_reset"
+    assert "/reset-password?token=ih_reset_" in sent[0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_failed_second_factor_counts_against_challenge(monkeypatch) -> None:
+    challenge = {"id": "lch_1", "user_id": "usr_1"}
+    monkeypatch.setattr(security_api.security, "login_challenge", lambda _hash: challenge)
+    monkeypatch.setattr(security_api, "_verify_second_factor", lambda *_args: False)
+    failed = []
+    monkeypatch.setattr(security_api.security, "fail_login_challenge", failed.append)
+    with pytest.raises(HTTPException) as exc:
+        await security_api.complete_2fa_login(
+            _Request({"code": "000000"}, cookies={security_api.TWO_FACTOR_COOKIE: "challenge"})
+        )
+    assert exc.value.status_code == 401
+    assert failed == ["lch_1"]
+
+
+@pytest.mark.asyncio
 async def test_verification_setup_failure_does_not_strand_signup_response(monkeypatch) -> None:
     def fail_verification(**_kwargs):
         raise RuntimeError("verification storage unavailable")
@@ -98,6 +151,7 @@ async def test_verification_setup_failure_does_not_strand_signup_response(monkey
     monkeypatch.setattr(
         security_api.security, "create_email_verification", fail_verification
     )
+    monkeypatch.setattr(security_api.security, "email_send_allowed", lambda *_args, **_kwargs: True)
 
     sent = await security_api._send_verification(
         _Request(),
@@ -159,7 +213,7 @@ async def test_unverified_password_login_returns_verification_next_step(monkeypa
             code="email_not_confirmed",
         )
 
-    async def resend(**_kwargs):
+    async def resend(*_args):
         return True
 
     monkeypatch.setattr(security_api.store, "get_user_by_email", lambda _email: current)
@@ -170,7 +224,7 @@ async def test_unverified_password_login_returns_verification_next_step(monkeypa
     )
     monkeypatch.setattr(security_api.store, "create_session", lambda **_kwargs: None)
     monkeypatch.setattr(security_api, "supabase_sign_in", sign_in)
-    monkeypatch.setattr(security_api, "supabase_resend_signup", resend)
+    monkeypatch.setattr(security_api, "_send_verification", resend)
 
     response = await security_api.login_secure(
         _Request(
@@ -184,7 +238,7 @@ async def test_unverified_password_login_returns_verification_next_step(monkeypa
 
     assert payload["verification_required"] is True
     assert payload["verification_sent"] is True
-    assert payload["verification_mode"] == "supabase_link"
+    assert payload["verification_mode"] == "link_or_code"
     assert payload["verification_context"] == "signin"
     assert payload["next"] == "/verify-email"
 
@@ -205,11 +259,8 @@ async def test_unverified_password_login_reports_delivery_failure(monkeypatch) -
             code="email_not_confirmed",
         )
 
-    async def fail_resend(**_kwargs):
-        raise security_api.SupabaseAuthError(
-            "mail delivery unavailable",
-            status_code=503,
-        )
+    async def fail_resend(*_args):
+        return False
 
     monkeypatch.setattr(security_api.store, "get_user_by_email", lambda _email: current)
     monkeypatch.setattr(
@@ -219,7 +270,7 @@ async def test_unverified_password_login_reports_delivery_failure(monkeypatch) -
     )
     monkeypatch.setattr(security_api.store, "create_session", lambda **_kwargs: None)
     monkeypatch.setattr(security_api, "supabase_sign_in", sign_in)
-    monkeypatch.setattr(security_api, "supabase_resend_signup", fail_resend)
+    monkeypatch.setattr(security_api, "_send_verification", fail_resend)
 
     response = await security_api.login_secure(
         _Request(
@@ -233,7 +284,7 @@ async def test_unverified_password_login_reports_delivery_failure(monkeypatch) -
 
     assert payload["verification_required"] is True
     assert payload["verification_sent"] is False
-    assert payload["verification_mode"] == "supabase_link"
+    assert payload["verification_mode"] == "link_or_code"
     assert payload["verification_context"] == "signin"
 
 

@@ -283,11 +283,12 @@ async function renderVerify(seed=null) {
   const deliveryFailed=params.get('delivery')==='failed';
   const fromSignin=params.get('context')==='signin';
   const verificationMessage=deliveryFailed
-    ? `Supabase could not send the confirmation email just now. Retry for ${esc(email)}.`
+    ? `The confirmation email could not be delivered just now. Retry for ${esc(email)}.`
     : fromSignin
-      ? `This account still needs email confirmation. Open the newest Supabase verification email sent to ${esc(email)}.`
-      : `Supabase sent a secure confirmation link to ${esc(email)}. Open it in this browser or any browser, then this page will unlock automatically.`;
-  authShell('Verify your email',verificationMessage,`<div class="verify-mark">${icon('mail')}</div><div class="notice">Email verification is now handled by Supabase Auth. Confirmation links are single-use; request a new one if the previous link expired.</div><div class="verify-actions"><button id="resend">Resend verification email <span></span></button><button id="other-account">Use another account</button></div>`,'One small gate before the internet opens up.');
+      ? `This account still needs email confirmation. Enter the latest code sent to ${esc(email)} or open its link.`
+      : `Enter the six-digit code sent to ${esc(email)}, or open the confirmation link. Both expire in 15 minutes.`;
+  authShell('Verify your email',verificationMessage,`<div class="verify-mark">${icon('mail')}</div><form id="verify-code-form" class="form-stack"><label>Verification code<input required name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="000000"></label><button class="btn primary large" type="submit">Verify email ${icon('arrow')}</button></form><div class="verify-actions"><button id="resend">Resend verification email <span></span></button><button id="other-account">Use another account</button></div>`,'One small gate before the internet opens up.');
+  $('#verify-code-form').onsubmit=async e=>{e.preventDefault();const button=$('button[type=submit]',e.currentTarget);busy(button,true,'Verifying…');try{await api('/api/auth/email-verification/confirm',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))});state.me=null;go('/verify-email?verified=1',true);}catch(error){toast(error.message,'error');busy(button,false);}};
   let seconds=0;
   const resend=$('#resend');
   const tick=()=>{if(!resend.isConnected)return;$('span',resend).textContent=seconds?`(${seconds}s)`:'';resend.disabled=seconds>0;if(seconds-->0)setTimeout(tick,1000);};
@@ -305,7 +306,7 @@ function renderRecovery(reset=false){
   const hasResetCredential=Boolean(token||accessToken);
   authShell(
     reset?'Choose a new password':'Reset your password',
-    reset?'A successful reset signs every web session out.':'Enter the email connected to your account. Supabase Auth will send the recovery link after the account has migrated.',
+    reset?'A successful reset signs every web session out.':'Enter the email connected to your account. We will send a single-use recovery link.',
     `<form id="recovery-form" class="form-stack">${reset?'<label>New password<input required minlength="8" type="password" name="password" autocomplete="new-password"></label><label>Confirm password<input required minlength="8" type="password" name="confirm" autocomplete="new-password"></label>':'<label>Account email<input required type="email" name="email" autocomplete="email" placeholder="you@example.com"></label>'}<button class="btn primary large" ${reset&&!hasResetCredential?'disabled':''}>${reset?'Update password':'Send reset link'} ${icon('arrow')}</button></form>${reset&&!hasResetCredential?'<div class="notice warning">This reset link is missing its recovery credential. Request a new one.</div>':''}<p class="auth-foot"><a data-link href="/login">Back to sign in</a></p>`
   );
   if(reset)$('#recovery-form [name="confirm"]').addEventListener('input',e=>e.currentTarget.setCustomValidity(''));
@@ -328,7 +329,7 @@ function renderRecovery(reset=false){
       authShell(
         'Check your inbox',
         result.message,
-        `<div class="verify-mark">${icon('activity')}</div><div class="notice">Migrated accounts receive a Supabase recovery link. Legacy accounts are securely adopted into Supabase when that reset completes.</div><a class="btn primary large" data-link href="/login">Back to sign in ${icon('arrow')}</a>`,
+        `<div class="verify-mark">${icon('activity')}</div><div class="notice">If the address is registered, use the newest link in your inbox. It expires in 30 minutes.</div><a class="btn primary large" data-link href="/login">Back to sign in ${icon('arrow')}</a>`,
         'Recover access without weakening account security.'
       );
     }catch(error){

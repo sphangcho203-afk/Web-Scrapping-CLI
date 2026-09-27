@@ -86,14 +86,18 @@ async def _request(
     access_token: str | None = None,
     expected: tuple[int, ...] = (200,),
 ) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        response = await client.request(
-            method,
-            f"{_base_url()}{path}",
-            headers=_headers(secret=secret, access_token=access_token),
-            json=payload,
-            params=params,
-        )
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.request(
+                method,
+                f"{_base_url()}{path}",
+                headers=_headers(secret=secret, access_token=access_token),
+                json=payload,
+                params=params,
+            )
+    except httpx.RequestError as exc:
+        raise SupabaseAuthError("identity service temporarily unavailable", status_code=503,
+                                code="auth_unavailable") from exc
     if response.status_code not in expected:
         message, code = _error_payload(response)
         raise SupabaseAuthError(message, status_code=response.status_code, code=code)

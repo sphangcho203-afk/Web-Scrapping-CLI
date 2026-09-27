@@ -42,11 +42,8 @@ from .security_store import SecurityStore
 from .supabase_auth import SupabaseAuthError
 from .supabase_auth import admin_create_user as supabase_admin_create_user
 from .supabase_auth import admin_update_user as supabase_admin_update_user
-from .supabase_auth import resend_signup as supabase_resend_signup
 from .supabase_auth import sign_in as supabase_sign_in
-from .supabase_auth import sign_up as supabase_sign_up
 from .supabase_auth import update_password_with_access_token as supabase_update_password
-from .supabase_auth import verify_signup_otp as supabase_verify_signup_otp
 from .totp import (
     decrypt_secret,
     encrypt_secret,
@@ -66,6 +63,13 @@ logger = logging.getLogger(__name__)
 
 def _verification_code() -> str:
     return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def _mail_origin(request: Request) -> str:
+    configured = os.getenv("INTERNET_HANDS_PUBLIC_ORIGIN") or os.getenv("VERCEL_PROJECT_PRODUCTION_URL")
+    if configured:
+        return (configured if configured.startswith("https://") else f"https://{configured}").rstrip("/")
+    return _origin(request)
 
 
 def _qr_data_uri(value: str) -> str:
@@ -148,6 +152,8 @@ async def _deliver(
 
 
 async def _send_verification(request: Request, user: dict[str, Any]) -> bool:
+    if not security.email_send_allowed(user["id"], "email_verification", min_interval_seconds=60):
+        return False
     token = random_token("ih_verify_")
     code = _verification_code()
     try:
@@ -162,7 +168,7 @@ async def _send_verification(request: Request, user: dict[str, Any]) -> bool:
             "could not create email-verification challenge", extra={"user_id": user["id"]}
         )
         return False
-    verify_url = f"{_origin(request)}/api/auth/verify-email?token={token}"
+    verify_url = f"{_mail_origin(request)}/api/auth/verify-email?token={token}"
     safe_url = html.escape(verify_url, quote=True)
     body = (
         "<p style='color:#a8bbc5'>Confirm this email address for your Internet Hands account.</p>"
@@ -293,41 +299,37 @@ async def signup_secure(request: Request):
     if len(password) < 8:
         raise HTTPException(status_code=400, detail="password must contain at least 8 characters")
 
-    redirect_to = f"{_origin(request)}/verify-email?verified=1"
     try:
-        auth_result = await supabase_sign_up(
+        auth_result = await supabase_admin_create_user(
             email=email,
             password=password,
             display_name=display_name,
-            redirect_to=redirect_to,
+            email_confirm=False,
         )
     except SupabaseAuthError as exc:
-        status = 429 if exc.status_code == 429 else 400 if exc.status_code < 500 else 503
+        duplicate = exc.status_code in {409, 422} and ("already" in str(exc).lower() or "registered" in str(exc).lower())
+        status = 409 if duplicate else 429 if exc.status_code == 429 else 400 if exc.status_code < 500 else 503
         raise HTTPException(
             status_code=status,
-            detail={"code": exc.code, "message": str(exc)},
+            detail={"code": "email_in_use" if duplicate else exc.code,
+                    "message": "an account with this email already exists" if duplicate else str(exc)},
         ) from exc
 
-    auth_user = auth_result.get("user") if isinstance(auth_result, dict) else None
+    auth_user = auth_result.get("user", auth_result) if isinstance(auth_result, dict) else None
     if not isinstance(auth_user, dict) or not auth_user.get("id"):
         raise HTTPException(status_code=502, detail="Supabase Auth did not create an account")
-    if auth_user.get("identities") == []:
-        raise HTTPException(
-            status_code=409,
-            detail={"code": "email_in_use", "message": "an account with this email already exists"},
-        )
 
     user = store.get_user_by_email(email)
     if not user:
         raise HTTPException(status_code=502, detail="Supabase identity bridge did not create the account profile")
 
-    verified = bool(user.get("email_verified"))
+    sent = await _send_verification(request, user)
     payload = {
         "user": user,
-        "verification_required": not verified,
-        "verification_sent": not verified,
-        "verification_mode": "supabase_link" if not verified else None,
-        "next": "/dashboard" if verified else "/verify-email",
+        "verification_required": True,
+        "verification_sent": sent,
+        "verification_mode": "link_or_code",
+        "next": "/verify-email",
     }
     return _session_response(request, user["id"], payload)
 
@@ -356,13 +358,7 @@ async def login_secure(request: Request):
         email_unconfirmed = code == "email_not_confirmed" or "email not confirmed" in message
 
         if email_unconfirmed and current:
-            try:
-                sent = await supabase_resend_signup(
-                    email=email,
-                    redirect_to=f"{_origin(request)}/verify-email?verified=1",
-                )
-            except SupabaseAuthError:
-                sent = False
+            sent = await _send_verification(request, current)
             return _session_response(
                 request,
                 current["id"],
@@ -370,7 +366,7 @@ async def login_secure(request: Request):
                     "user": current,
                     "verification_required": True,
                     "verification_sent": sent,
-                    "verification_mode": "supabase_link",
+                    "verification_mode": "link_or_code",
                     "verification_context": "signin",
                     "next": "/verify-email",
                 },
@@ -436,13 +432,7 @@ async def login_secure(request: Request):
                     detail={"code": "auth_migration_failed", "message": str(exc)},
                 ) from exc
         else:
-            try:
-                sent = await supabase_resend_signup(
-                    email=email,
-                    redirect_to=f"{_origin(request)}/verify-email?verified=1",
-                )
-            except SupabaseAuthError:
-                sent = False
+            sent = await _send_verification(request, current)
             return _session_response(
                 request,
                 current["id"],
@@ -450,7 +440,7 @@ async def login_secure(request: Request):
                     "user": current,
                     "verification_required": True,
                     "verification_sent": sent,
-                    "verification_mode": "supabase_link",
+                    "verification_mode": "link_or_code",
                     "verification_context": "signin",
                     "next": "/verify-email",
                 },
@@ -472,13 +462,7 @@ async def login_secure(request: Request):
         return _create_2fa_challenge(request, current["id"])
 
     if not current["email_verified"]:
-        try:
-            sent = await supabase_resend_signup(
-                email=email,
-                redirect_to=f"{_origin(request)}/verify-email?verified=1",
-            )
-        except SupabaseAuthError:
-            sent = False
+        sent = await _send_verification(request, current)
         return _session_response(
             request,
             current["id"],
@@ -486,7 +470,7 @@ async def login_secure(request: Request):
                 "user": current,
                 "verification_required": True,
                 "verification_sent": sent,
-                "verification_mode": "supabase_link",
+                "verification_mode": "link_or_code",
                 "verification_context": "signin",
                 "next": "/verify-email",
             },
@@ -510,6 +494,7 @@ async def complete_2fa_login(request: Request):
     if not challenge or not value:
         raise HTTPException(status_code=401, detail="2FA challenge is missing or expired")
     if not _verify_second_factor(challenge["user_id"], value):
+        security.fail_login_challenge(challenge["id"])
         raise HTTPException(status_code=401, detail="invalid authenticator or recovery code")
     if not security.finish_login_challenge(challenge["id"]):
         raise HTTPException(status_code=401, detail="2FA challenge is no longer valid")
@@ -550,17 +535,8 @@ async def resend_verification(request: Request):
         raise HTTPException(status_code=404, detail="account not found")
     if current["email_verified"]:
         return {"ok": True, "already_verified": True}
-    try:
-        sent = await supabase_resend_signup(
-            email=current["email"],
-            redirect_to=f"{_origin(request)}/verify-email?verified=1",
-        )
-    except SupabaseAuthError as exc:
-        raise HTTPException(
-            status_code=429 if exc.status_code == 429 else 503,
-            detail={"code": exc.code, "message": str(exc)},
-        ) from exc
-    return {"ok": True, "sent": sent, "verification_mode": "supabase_link"}
+    sent = await _send_verification(request, current)
+    return {"ok": True, "sent": sent, "verification_mode": "link_or_code"}
 
 
 @router.post("/api/auth/email-verification/confirm")
@@ -570,14 +546,16 @@ async def confirm_verification_code(request: Request):
     code = "".join(ch for ch in str(body.get("code") or "") if ch.isdigit())
     if len(code) != 6:
         raise HTTPException(status_code=400, detail="enter the 6-digit verification code")
-    try:
-        await supabase_verify_signup_otp(email=user["email"], token=code)
-    except SupabaseAuthError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail={"code": exc.code, "message": "verification code is invalid or expired"},
-        ) from exc
-    security.set_email_verified(user["id"], True)
+    if not security.email_code_matches(user["id"], sha256_text(code)):
+        raise HTTPException(status_code=400, detail="verification code is invalid or expired")
+    auth_id = store.auth_user_id_for_legacy(user["id"])
+    if auth_id:
+        try:
+            await supabase_admin_update_user(auth_id, email_confirm=True)
+        except SupabaseAuthError as exc:
+            raise HTTPException(status_code=503, detail="verification could not be synchronized; retry") from exc
+    if not security.consume_email_code(user["id"], sha256_text(code)):
+        raise HTTPException(status_code=400, detail="verification code is invalid or expired")
     current = store.get_user(user["id"])
     if current:
         await _send_verified(current)
@@ -589,7 +567,7 @@ async def verify_email_link(token: str = ""):
     # Compatibility for verification links issued before the Supabase cutover.
     if not token:
         return RedirectResponse("/login?verify=missing", status_code=302)
-    row = security.consume_email_token(sha256_text(token))
+    row = security.email_token_user(sha256_text(token))
     if not row:
         return RedirectResponse("/login?verify=invalid_or_expired", status_code=302)
     current = store.get_user(row["user_id"])
@@ -600,6 +578,10 @@ async def verify_email_link(token: str = ""):
                 await supabase_admin_update_user(auth_id, email_confirm=True)
             except SupabaseAuthError:
                 return RedirectResponse("/verify-email?sync=failed", status_code=302)
+    row = security.consume_email_token(sha256_text(token))
+    if not row:
+        return RedirectResponse("/login?verify=invalid_or_expired", status_code=302)
+    if current:
         await _send_verified(current)
     return RedirectResponse("/verify-email?verified=1", status_code=302)
 
