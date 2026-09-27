@@ -282,7 +282,7 @@ class RemoteMcpToolProvider:
     def _load_saved_connections(self, user_id: str) -> list[dict[str, Any]]:
         """Load private runtime connection material without exposing it through the control API."""
         self.store.ensure_schema()
-        with self.store._connect() as conn, conn.cursor() as cur:  # noqa: SLF001
+        with self.store._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT id,name,endpoint_url,transport,auth_type,secret_config
