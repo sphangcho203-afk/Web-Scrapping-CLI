@@ -1637,6 +1637,8 @@ class ControlStore:
                 row = dict(raw)
                 config = dict(row.get("config") or {})
                 row["header_names"] = list(config.get("header_names") or [])
+                row["tool_count"] = int(config.get("last_tool_count") or 0)
+                row["last_error"] = str(config.get("last_error") or "") or None
                 rows.append(row)
             return rows
 
@@ -1657,6 +1659,65 @@ class ControlStore:
             conn.commit()
         row["header_names"] = list((row.get("config") or {}).get("header_names") or [])
         return row
+
+    def get_connection_private(self, user_id: str, connection_id: str) -> dict[str, Any] | None:
+        """Load one connection including secret runtime material for server-side execution only."""
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id,user_id,name,kind,endpoint_url,transport,auth_type,config,secret_config,
+                       enabled,last_status,last_checked_at,created_at,updated_at
+                FROM ih_connections
+                WHERE id=%s AND user_id=%s
+                """,
+                (connection_id, user_id),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def set_connection_enabled(self, user_id: str, connection_id: str, enabled: bool) -> bool:
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE ih_connections
+                SET enabled=%s,updated_at=now()
+                WHERE id=%s AND user_id=%s
+                """,
+                (enabled, connection_id, user_id),
+            )
+            changed = cur.rowcount > 0
+            conn.commit()
+            return changed
+
+    def update_connection_check(
+        self,
+        user_id: str,
+        connection_id: str,
+        *,
+        status: str,
+        tool_count: int | None,
+        error: str | None,
+    ) -> None:
+        self.ensure_schema()
+        detail = {
+            "last_tool_count": int(tool_count or 0),
+            "last_error": (error or "")[:300] or None,
+        }
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE ih_connections
+                SET last_status=%s,
+                    last_checked_at=now(),
+                    config=COALESCE(config,'{}'::jsonb) || %s::jsonb,
+                    updated_at=now()
+                WHERE id=%s AND user_id=%s
+                """,
+                (status, json.dumps(detail), connection_id, user_id),
+            )
+            conn.commit()
 
     def delete_connection(self, user_id: str, connection_id: str) -> bool:
         self.ensure_schema()
