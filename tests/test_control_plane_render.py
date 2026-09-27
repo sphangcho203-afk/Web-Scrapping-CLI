@@ -22,8 +22,13 @@ def frontend_url():
             elif path.startswith("/assets/"):
                 asset = WEB_ROOT / path.rsplit("/", 1)[-1]
                 body = asset.read_bytes()
-                content_type = ({".css": "text/css", ".png": "image/png", ".webp": "image/webp"}
-                                .get(asset.suffix, "image/svg+xml"))
+                content_type = ({
+                    ".css": "text/css",
+                    ".js": "application/javascript",
+                    ".png": "image/png",
+                    ".webp": "image/webp",
+                    ".svg": "image/svg+xml",
+                }.get(asset.suffix, "application/octet-stream"))
             else:
                 body = (WEB_ROOT / "index.html").read_bytes()
                 content_type = "text/html"
@@ -107,6 +112,8 @@ def test_initial_control_plane_render(frontend_url, mode):
             "/dashboard/billing": ".ih-route-billing",
             "/dashboard/settings": ".ih-route-settings",
             "/dashboard/integrations": ".ih-route-connections",
+            "/docs/clients": ".docs-article",
+            "/docs/two-factor": ".docs-article",
         }
         for route, selector in routes.items():
             page.goto(frontend_url + route)
