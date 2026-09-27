@@ -58,7 +58,10 @@ def test_control_store_rejects_provider_class_above_plan() -> None:
     assert exc.value.status_code == 403
 
 
-def test_free_plan_still_has_real_public_tool_execution() -> None:
+def test_free_plan_still_has_real_public_tool_execution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENCRAWL_PROVIDER_READ_RETRIES", "1")
     store = ControlStore(dsn=None)
     quote = store.quote_tool_call(
         identity=_identity("free"),
@@ -68,8 +71,14 @@ def test_free_plan_still_has_real_public_tool_execution() -> None:
             "arguments": {"query": "example"},
         },
     )
-    assert quote["credits"] == 3
+    assert quote["credits"] == 6
     assert quote["provider_class"] == "public"
+    assert quote["retry_reservation"] == {
+        "attempts": 2,
+        "retries": 1,
+        "quoted_once": 3,
+        "reserved": 6,
+    }
 
 
 def test_free_plan_cannot_route_around_paid_provider_gate() -> None:
@@ -86,7 +95,10 @@ def test_free_plan_cannot_route_around_paid_provider_gate() -> None:
     assert exc.value.code == "plan_restricted"
 
 
-def test_nested_phone_mesh_route_gets_phone_price() -> None:
+def test_nested_phone_mesh_route_gets_phone_price(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENCRAWL_PROVIDER_READ_RETRIES", "1")
     store = ControlStore(dsn=None)
     quote = store.quote_tool_call(
         identity=_identity("pro"),
@@ -100,5 +112,46 @@ def test_nested_phone_mesh_route_gets_phone_price() -> None:
             },
         },
     )
-    assert quote["credits"] == 10
+    assert quote["credits"] == 20
     assert quote["category"] == "phone_intelligence"
+    assert quote["retry_reservation"]["quoted_once"] == 10
+
+
+
+def test_byo_connected_tool_stays_zero_with_retry_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENCRAWL_PROVIDER_READ_RETRIES", "3")
+    store = ControlStore(dsn=None)
+
+    quote = store.quote_tool_call(
+        identity=_identity("free"),
+        tool_name="mesh_execute",
+        arguments={
+            "ref": "composio:GMAIL_SEARCH_EMAILS",
+            "arguments": {"query": "invoice"},
+            "account": "ca_mail",
+        },
+    )
+
+    assert quote["credits"] == 0
+    assert "retry_reservation" not in quote
+
+
+def test_disabling_read_retries_removes_retry_headroom(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENCRAWL_PROVIDER_READ_RETRIES", "0")
+    store = ControlStore(dsn=None)
+
+    quote = store.quote_tool_call(
+        identity=_identity("free"),
+        tool_name="mesh_execute",
+        arguments={
+            "ref": "publicapi:lookup",
+            "arguments": {"query": "example"},
+        },
+    )
+
+    assert quote["credits"] == 3
+    assert "retry_reservation" not in quote
