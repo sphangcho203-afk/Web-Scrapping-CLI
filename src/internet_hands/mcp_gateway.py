@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -166,9 +167,18 @@ class MCPGatewayASGI:
                 output_bytes += len(message.get("body", b""))
             await send(message)
 
+        terminal_status = "ok"
         try:
             await self.app(scope, replay_receive if body else receive, metered_send)
+        except asyncio.CancelledError:
+            terminal_status = "cancelled"
+            raise
+        except Exception:
+            terminal_status = "error"
+            raise
         finally:
+            if status_code >= 400 and terminal_status == "ok":
+                terminal_status = "error"
             if identity and tool_name:
                 elapsed = int((time.monotonic() - started) * 1000)
                 usage = execution_usage_snapshot() if meter_token is not None else {}
@@ -196,7 +206,7 @@ class MCPGatewayASGI:
                 try:
                     self.store.finish_usage(
                         request_id,
-                        status="ok" if status_code < 400 else "error",
+                        status=terminal_status,
                         latency_ms=elapsed,
                         output_bytes=output_bytes,
                         actual_credits=actual_credits,
