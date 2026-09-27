@@ -369,3 +369,87 @@ async def test_authenticated_user_executes_own_account_without_project_allowlist
 
     assert result["status"] == "completed"
     assert seen["connected_account_id"] == "ca_alice"
+
+
+@pytest.mark.asyncio
+async def test_authenticated_user_sees_safe_account_choices_for_multi_account_tools() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/connected_accounts"):
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        _connection(
+                            "ca_work",
+                            "gmail",
+                            "work",
+                            user_id="usr_alice",
+                        ),
+                        _connection(
+                            "ca_personal",
+                            "gmail",
+                            "personal",
+                            user_id="usr_alice",
+                        ),
+                    ]
+                },
+            )
+        if request.url.path.endswith("/tools/GMAIL_SEND_EMAIL"):
+            return httpx.Response(200, json=_tool("GMAIL_SEND_EMAIL", "gmail"))
+        raise AssertionError(str(request.url))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = ComposioBridgeProvider(
+            api_key="key",
+            base_url="https://composio.test/api/v3.1",
+            client=client,
+            allowed_accounts=set(),
+            allow_project_accounts=False,
+        )
+        token = current_auth.set(_identity("usr_alice"))
+        try:
+            descriptor = await provider.describe("GMAIL_SEND_EMAIL")
+        finally:
+            current_auth.reset(token)
+
+    assert descriptor.metadata["account_selection_required"] is True
+    assert descriptor.metadata["connected_accounts"] == [
+        {"id": "ca_work", "alias": "work", "status": "ACTIVE"},
+        {"id": "ca_personal", "alias": "personal", "status": "ACTIVE"},
+    ]
+    encoded = json.dumps(descriptor.metadata)
+    assert "access_token" not in encoded
+    assert "refresh_token" not in encoded
+
+
+@pytest.mark.asyncio
+async def test_authenticated_multi_account_execution_requires_explicit_account() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/connected_accounts"):
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        _connection("ca_work", "github", "work", user_id="usr_alice"),
+                        _connection("ca_personal", "github", "personal", user_id="usr_alice"),
+                    ]
+                },
+            )
+        if request.url.path.endswith("/tools/GITHUB_CREATE_ISSUE"):
+            return httpx.Response(200, json=_tool("GITHUB_CREATE_ISSUE"))
+        raise AssertionError(str(request.url))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = ComposioBridgeProvider(
+            api_key="key",
+            base_url="https://composio.test/api/v3.1",
+            client=client,
+            allowed_accounts=set(),
+            allow_project_accounts=False,
+        )
+        token = current_auth.set(_identity("usr_alice"))
+        try:
+            with pytest.raises(PermissionError, match="multiple allowed"):
+                await provider.execute("GITHUB_CREATE_ISSUE", {"title": "x"})
+        finally:
+            current_auth.reset(token)
