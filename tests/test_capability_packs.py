@@ -591,3 +591,53 @@ async def test_explicit_provider_preference_overrides_open_circuit(
         assert provider_reliability.snapshot("preferred")["circuit_open"] is False
     finally:
         provider_reliability.reset()
+
+
+
+@pytest.mark.asyncio
+async def test_write_capability_ignores_runtime_reliability_reordering() -> None:
+    provider_reliability.reset()
+    try:
+        provider_reliability.record("primary", status="failed", error="old failure")
+        primary = CountingSideEffectProvider("primary")
+        fallback = CountingSideEffectProvider("fallback")
+        mesh = ToolMesh([primary, fallback])
+        registry = CapabilityRegistry(
+            mesh,
+            [
+                Capability(
+                    id="messaging.static-order",
+                    name="Static write routing",
+                    description="Static write routing",
+                    pack="connected",
+                    tags=("messaging",),
+                    read_only=False,
+                    candidates=(
+                        CapabilityCandidate(
+                            provider="primary",
+                            ref="primary:send",
+                            priority=10,
+                        ),
+                        CapabilityCandidate(
+                            provider="fallback",
+                            ref="fallback:send",
+                            priority=20,
+                        ),
+                    ),
+                )
+            ],
+        )
+
+        result = await registry.execute(
+            "messaging.static-order",
+            {"message": "hello"},
+            allow_side_effects=True,
+        )
+
+        assert result["selected"] == "primary:send"
+        assert result["routing"]["order"][0]["provider"] == "primary"
+        assert result["routing"]["order"][0]["adaptive_priority"] == 10
+        assert primary.execute_calls == 1
+        assert fallback.execute_calls == 0
+    finally:
+        provider_reliability.reset()
