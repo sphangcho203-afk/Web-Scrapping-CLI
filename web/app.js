@@ -1132,10 +1132,15 @@ function openRunInspector(event) {
             const alias=a.alias||a.id;
             const tone=status==='ACTIVE'?'on':status==='EXPIRED'||status==='FAILED'?'off':'idle';
             const reason=a.status_reason?'<small>'+esc(a.status_reason)+'</small>':'';
-            const action=status==='EXPIRED'||status==='FAILED'
+            const reconnect=status==='EXPIRED'||status==='FAILED'
               ? '<button class="btn small" data-reconnect-app="'+esc(a.id)+'">Reconnect</button>'
               : '';
-            return '<article><div><b>'+esc(alias)+'</b><code>'+esc(a.id)+'</code>'+reason+'</div><span class="ihx-state '+tone+'">'+dot(status==='ACTIVE'?'ok':status==='EXPIRED'||status==='FAILED'?'warn':'idle')+' '+esc(status)+'</span><div>'+action+'<button class="btn quiet small" data-disconnect-app="'+esc(a.id)+'">Disconnect</button></div></article>';
+            const toggle=status==='ACTIVE'
+              ? '<button class="btn quiet small" data-toggle-app="'+esc(a.id)+'" data-enable-app="false">Pause</button>'
+              : (status==='INACTIVE'||status==='DISABLED'
+                ? '<button class="btn small" data-toggle-app="'+esc(a.id)+'" data-enable-app="true">Enable</button>'
+                : '');
+            return '<article><div><b>'+esc(alias)+'</b><code>'+esc(a.id)+'</code>'+reason+'</div><span class="ihx-state '+tone+'">'+dot(status==='ACTIVE'?'ok':status==='EXPIRED'||status==='FAILED'?'warn':'idle')+' '+esc(status)+'</span><div>'+reconnect+toggle+'<button class="btn quiet small" data-rename-app="'+esc(a.id)+'" data-app-alias="'+esc(a.alias||'')+'">Rename</button><button class="btn quiet small" data-disconnect-app="'+esc(a.id)+'">Disconnect</button></div></article>';
           }).join('')+'</div>':'<p class="connected-app-empty">No account connected yet. Connecting opens the provider authorization flow; credentials stay with the connection provider and never pass through the browser as raw tokens.</p>';
           return '<article class="connected-app-card"><header><div class="connected-app-mark">'+esc((appItem.name||toolkit||'?').slice(0,1).toUpperCase())+'</div><div><small>'+esc(toolkit)+'</small><h3>'+esc(appItem.name||toolkit)+'</h3><p>'+esc((appItem.auth_schemes||[]).join(' · ')||'Managed connection')+'</p></div><span class="ihx-state '+state+'">'+dot(active?'ok':expired?'warn':'idle')+' '+esc(stateLabel)+'</span></header>'+accountRows+'<footer><button class="btn primary small" data-connect-app="'+esc(toolkit)+'" data-app-name="'+esc(appItem.name||toolkit)+'" data-auth-configs="'+configAttr+'" data-allow-multiple="'+String(accounts.some(x=>String(x.status||'').toUpperCase()==='ACTIVE'))+'">'+(accounts.length?'Connect another account':'Connect account')+'</button><small>When active, this toolkit becomes eligible for user-scoped Tool Mesh discovery and execution.</small></footer></article>';
         }).join(''):'<div class="mcp-empty"><b>No provider accounts connected</b><p>Choose Connect app to authorize GitHub, Gmail, Slack, Notion or another supported toolkit. OpenCrawl stores only the connected-account reference; provider credentials remain server-side.</p></div>')
@@ -1272,6 +1277,29 @@ function openRunInspector(event) {
     };
     document.querySelector('#connect-app-catalog')?.addEventListener('click',openAppCatalog);
     document.querySelectorAll('[data-connect-app]').forEach(b=>b.onclick=()=>connectApp(b));
+    document.querySelectorAll('[data-rename-app]').forEach(b=>b.onclick=()=>{
+      const w=panel('Rename connected account','<form id="rename-connected-app" class="form-stack"><label>Account label<input name="alias" maxlength="80" value="'+esc(b.dataset.appAlias||'')+'" placeholder="Work, personal, bot account…"></label><p class="mcp-note">This label is safe routing metadata. When multiple accounts exist for the same toolkit, agents can use it to select the intended account without seeing provider credentials.</p><button class="btn primary" type="submit">Save label</button></form>');
+      const form=$('#rename-connected-app',w);
+      form.onsubmit=async e=>{
+        e.preventDefault();
+        const submit=e.submitter||form.querySelector('button[type=submit]');
+        if(!busy(submit,true,'Saving…'))return;
+        try{
+          const payload=Object.fromEntries(new FormData(form));
+          await api('/api/integrations/connections/'+encodeURIComponent(b.dataset.renameApp),{method:'PATCH',body:payload});
+          w.remove();toast('Account label updated','success');await dashIntegrations();
+        }catch(error){busy(submit,false);toast(error.message,'error')}
+      };
+    });
+    document.querySelectorAll('[data-toggle-app]').forEach(b=>b.onclick=async()=>{
+      const enabled=b.dataset.enableApp==='true';
+      if(!busy(b,true,enabled?'Enabling…':'Pausing…'))return;
+      try{
+        await api('/api/integrations/connections/'+encodeURIComponent(b.dataset.toggleApp),{method:'PATCH',body:{enabled}});
+        toast(enabled?'Provider account enabled':'Provider account paused','success');
+        await dashIntegrations();
+      }catch(error){busy(b,false);toast(error.message,'error')}
+    });
     document.querySelectorAll('[data-reconnect-app]').forEach(b=>b.onclick=async()=>{
       if(!busy(b,true,'Preparing…'))return;
       try{
