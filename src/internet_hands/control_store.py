@@ -14,6 +14,7 @@ from psycopg.errors import UniqueViolation
 from psycopg.rows import dict_row
 
 from .capability_economics import estimate_call, plan_privileges
+from .provider_reliability_store import record_provider_reliability_event
 
 SCHEMA_SQL = r"""
 CREATE TABLE IF NOT EXISTS ih_users (
@@ -156,9 +157,40 @@ CREATE TABLE IF NOT EXISTS ih_provider_usage (
     operation text NOT NULL,
     credits_used integer,
     status text NOT NULL,
+    ref text,
+    latency_ms integer,
+    error_class text,
+    retryable boolean NOT NULL DEFAULT false,
+    error_text text,
+    attempt integer,
     created_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE ih_provider_usage ADD COLUMN IF NOT EXISTS ref text;
+ALTER TABLE ih_provider_usage ADD COLUMN IF NOT EXISTS latency_ms integer;
+ALTER TABLE ih_provider_usage ADD COLUMN IF NOT EXISTS error_class text;
+ALTER TABLE ih_provider_usage ADD COLUMN IF NOT EXISTS retryable boolean NOT NULL DEFAULT false;
+ALTER TABLE ih_provider_usage ADD COLUMN IF NOT EXISTS error_text text;
+ALTER TABLE ih_provider_usage ADD COLUMN IF NOT EXISTS attempt integer;
 CREATE INDEX IF NOT EXISTS ih_provider_usage_request_idx ON ih_provider_usage(request_id);
+CREATE INDEX IF NOT EXISTS ih_provider_usage_provider_time_idx
+    ON ih_provider_usage(provider, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS ih_provider_reliability (
+    provider text PRIMARY KEY,
+    successes bigint NOT NULL DEFAULT 0,
+    failures bigint NOT NULL DEFAULT 0,
+    neutral bigint NOT NULL DEFAULT 0,
+    consecutive_failures integer NOT NULL DEFAULT 0,
+    ewma_latency_ms double precision,
+    last_success_at timestamptz,
+    last_failure_at timestamptz,
+    last_error text,
+    last_error_class text,
+    circuit_open_until timestamptz,
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ih_provider_reliability_updated_idx
+    ON ih_provider_reliability(updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS ih_monitors (
     id text PRIMARY KEY,
@@ -1349,6 +1381,62 @@ class ControlStore:
                     )
                     conn.commit()
                     return int(event["credits_charged"] or 0)
+
+                provider_events = (execution_usage or {}).get("provider_events") or []
+                for item in provider_events:
+                    if not isinstance(item, dict):
+                        continue
+                    provider = str(item.get("provider") or "").strip().lower()[:80]
+                    ref = str(item.get("ref") or "").strip()[:200]
+                    if not provider:
+                        continue
+                    operation = (
+                        ref.split(":", 1)[1][:80]
+                        if ":" in ref
+                        else ref[:80] or "execute"
+                    )
+                    duration_raw = item.get("duration_ms")
+                    duration_ms = (
+                        max(0, int(duration_raw))
+                        if isinstance(duration_raw, (int, float))
+                        and not isinstance(duration_raw, bool)
+                        else None
+                    )
+                    attempt_raw = item.get("attempt")
+                    attempt = (
+                        max(1, int(attempt_raw))
+                        if isinstance(attempt_raw, (int, float))
+                        and not isinstance(attempt_raw, bool)
+                        else None
+                    )
+                    error_class = (
+                        str(item.get("error_class") or "").strip().lower()[:80]
+                        or None
+                    )
+                    error_text = str(item.get("error") or "").strip()[:500] or None
+                    event_status = str(item.get("status") or "unknown")[:40]
+                    cur.execute(
+                        """
+                        INSERT INTO ih_provider_usage(
+                            id,request_id,provider,operation,credits_used,status,
+                            ref,latency_ms,error_class,retryable,error_text,attempt
+                        ) VALUES (%s,%s,%s,%s,NULL,%s,%s,%s,%s,%s,%s,%s)
+                        """,
+                        (
+                            self._new_id("pru"),
+                            request_id,
+                            provider,
+                            operation,
+                            event_status,
+                            ref or None,
+                            duration_ms,
+                            error_class,
+                            bool(item.get("retryable")),
+                            error_text,
+                            attempt,
+                        ),
+                    )
+                    record_provider_reliability_event(cur, item)
 
                 provider_usage = (execution_usage or {}).get("provider_usage") or []
                 for item in provider_usage:
