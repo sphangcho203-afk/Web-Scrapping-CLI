@@ -323,3 +323,137 @@ def test_public_connection_exposes_status_reason_but_not_secrets() -> None:
     assert public["status"] == "EXPIRED"
     assert public["status_reason"] == "refresh token revoked"
     assert "credentials" not in public
+
+
+@pytest.mark.asyncio
+async def test_toolkit_catalog_returns_safe_connectable_metadata() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/toolkits")
+        assert request.url.params.get("search") == "mail"
+        assert request.url.params.get("sort_by") == "usage"
+        return httpx.Response(
+            200,
+            json={
+                "items": [
+                    {
+                        "slug": "gmail",
+                        "name": "Gmail",
+                        "description": "Email tools",
+                        "logo": "https://cdn.example/gmail.svg",
+                        "auth_schemes": ["oauth2"],
+                        "type": "native",
+                        "internal_secret": "never-public",
+                    }
+                ],
+                "next_cursor": "cursor-2",
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        service = ComposioConnectionService(
+            api_key="key",
+            base_url="https://composio.test/api/v3.1",
+            client=client,
+        )
+        result = await service.toolkits(search="mail", limit=25)
+
+    assert result == {
+        "apps": [
+            {
+                "toolkit": "gmail",
+                "name": "Gmail",
+                "description": "Email tools",
+                "logo": "https://cdn.example/gmail.svg",
+                "auth_schemes": ["OAUTH2"],
+                "type": "native",
+            }
+        ],
+        "next_cursor": "cursor-2",
+    }
+    assert "never-public" not in json.dumps(result)
+
+
+@pytest.mark.asyncio
+async def test_connect_auto_creates_composio_managed_auth_when_missing() -> None:
+    posted_auth: dict[str, object] = {}
+    posted_link: dict[str, object] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path.endswith("/connected_accounts"):
+            return httpx.Response(200, json={"items": []})
+        if request.method == "GET" and request.url.path.endswith("/auth_configs"):
+            return httpx.Response(200, json={"items": []})
+        if request.method == "POST" and request.url.path.endswith("/auth_configs"):
+            posted_auth.update(json.loads(request.content))
+            return httpx.Response(
+                201,
+                json={
+                    "toolkit": {"slug": "gmail"},
+                    "auth_config": {
+                        "id": "ac_gmail_managed",
+                        "auth_scheme": "OAUTH2",
+                        "is_composio_managed": True,
+                    },
+                },
+            )
+        if request.method == "POST" and request.url.path.endswith("/connected_accounts/link"):
+            posted_link.update(json.loads(request.content))
+            return httpx.Response(
+                201,
+                json={
+                    "redirect_url": "https://connect.composio.dev/link/gmail",
+                    "connected_account_id": "ca_pending",
+                },
+            )
+        raise AssertionError(str(request.url))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        service = ComposioConnectionService(
+            api_key="key",
+            base_url="https://composio.test/api/v3.1",
+            client=client,
+        )
+        result = await service.create_link(
+            user_id="usr_alice",
+            toolkit="gmail",
+            callback_url="https://opencrawl.example/dashboard/connections?connected=gmail",
+        )
+
+    assert posted_auth == {
+        "toolkit": {"slug": "gmail"},
+        "auth_config": {
+            "type": "use_composio_managed_auth",
+            "credentials": {},
+            "restrict_to_following_tools": [],
+        },
+    }
+    assert posted_link["auth_config_id"] == "ac_gmail_managed"
+    assert posted_link["user_id"] == "usr_alice"
+    assert result["auth_config_id"] == "ac_gmail_managed"
+
+
+@pytest.mark.asyncio
+async def test_connect_reports_setup_required_when_managed_auth_is_not_supported() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path.endswith("/connected_accounts"):
+            return httpx.Response(200, json={"items": []})
+        if request.method == "GET" and request.url.path.endswith("/auth_configs"):
+            return httpx.Response(200, json={"items": []})
+        if request.method == "POST" and request.url.path.endswith("/auth_configs"):
+            return httpx.Response(
+                422,
+                json={"message": "toolkit requires custom credentials"},
+            )
+        raise AssertionError(str(request.url))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        service = ComposioConnectionService(
+            api_key="key",
+            base_url="https://composio.test/api/v3.1",
+            client=client,
+        )
+        with pytest.raises(HTTPException) as exc:
+            await service.create_link(user_id="usr_alice", toolkit="custom_toolkit")
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail["code"] == "integration_auth_setup_required"
