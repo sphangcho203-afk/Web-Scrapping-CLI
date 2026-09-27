@@ -834,6 +834,19 @@ def estimate_call(
     if tool_name == "mesh_batch_execute":
         calls = args.get("calls")
         count = len(calls) if isinstance(calls, list) else 0
+        if count > plan.max_batch_calls:
+            return CostEstimate(
+                False,
+                plan.slug,
+                tool_name,
+                rule.category,
+                cost,
+                rule.minimum_plan,
+                provider_class,
+                f"plan allows at most {plan.max_batch_calls} calls per batch",
+                tuple(breakdown),
+                plan.to_dict(),
+            )
         if isinstance(calls, list) and calls and all(
             isinstance(call, dict)
             and _is_byo_route(str(call.get("ref") or call.get("tool") or ""))
@@ -852,19 +865,6 @@ def estimate_call(
                     {"kind": "byo_batch", "calls": count, "credits": 0},
                 ),
                 limits=plan.to_dict(),
-            )
-        if count > plan.max_batch_calls:
-            return CostEstimate(
-                False,
-                plan.slug,
-                tool_name,
-                rule.category,
-                cost,
-                rule.minimum_plan,
-                provider_class,
-                f"plan allows at most {plan.max_batch_calls} calls per batch",
-                tuple(breakdown),
-                plan.to_dict(),
             )
         if isinstance(calls, list):
             for index, call in enumerate(calls):
