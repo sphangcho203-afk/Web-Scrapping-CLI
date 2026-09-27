@@ -330,7 +330,9 @@ class IgdbGamingCatalogProvider:
                 provider="igdb",
                 tool_id="search-games",
                 name="IGDB game search",
-                description="Search Twitch/IGDB's documented game database with a fixed safe field set.",
+                description=(
+                    "Search Twitch/IGDB's documented game database with a fixed safe field set."
+                ),
                 input_schema=_schema(
                     {
                         "query": _str("Game title", max_length=200),
@@ -434,6 +436,7 @@ class IgdbGamingCatalogProvider:
         text = str(value or "").strip()[:maximum]
         if not text:
             raise ValueError("query is required")
+        text = re.sub(r"[;\r\n\t]+", " ", text)
         return text.replace("\\", "\\\\").replace('"', '\\"')
 
     async def _post(
