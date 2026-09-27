@@ -283,8 +283,14 @@ def _verify_second_factor(user_id: str, value: str) -> bool:
         return True
     try:
         secret = decrypt_secret(str(record["totp_secret_enc"]))
-    except RuntimeError:
-        return False
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "two_factor_unavailable",
+                "message": "two-factor authentication is temporarily unavailable; retry shortly",
+            },
+        ) from exc
     counter = verify_totp(secret, value)
     if counter is None:
         return False
@@ -655,7 +661,17 @@ def two_factor_setup(request: Request):
     if not encryption_configured():
         raise HTTPException(status_code=503, detail="2FA encryption key is not configured")
     secret = generate_totp_secret()
-    security.put_pending_totp(user["id"], encrypt_secret(secret))
+    try:
+        encrypted_secret = encrypt_secret(secret)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "two_factor_unavailable",
+                "message": "two-factor authentication is not configured correctly",
+            },
+        ) from exc
+    security.put_pending_totp(user["id"], encrypted_secret)
     uri = provisioning_uri(secret, user["email"])
     return {
         "secret": secret,
@@ -675,7 +691,16 @@ async def two_factor_confirm(request: Request):
     record = security.totp_record(user["id"])
     if not record or not record.get("totp_secret_enc"):
         raise HTTPException(status_code=409, detail="start 2FA setup first")
-    secret = decrypt_secret(str(record["totp_secret_enc"]))
+    try:
+        secret = decrypt_secret(str(record["totp_secret_enc"]))
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "two_factor_unavailable",
+                "message": "two-factor setup cannot be verified; start setup again",
+            },
+        ) from exc
     counter = verify_totp(secret, code)
     if counter is None:
         raise HTTPException(status_code=400, detail="invalid authenticator code")
