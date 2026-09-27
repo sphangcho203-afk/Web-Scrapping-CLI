@@ -22,6 +22,11 @@ deadline.
 Provider status, search, and descriptor discovery are separately bounded by
 `OPENCRAWL_PROVIDER_DISCOVERY_TIMEOUT_SECONDS`.
 
+Provider status snapshots are cached briefly through
+`OPENCRAWL_PROVIDER_STATUS_CACHE_SECONDS`. This prevents deep capability health checks
+from repeatedly fanning out across every provider while still keeping operational state
+fresh.
+
 ## Health isolation
 
 Deep semantic capability checks use
