@@ -175,6 +175,12 @@ RAW_PROVIDER_SURCHARGES: dict[str, tuple[str, int]] = {
     "mcp": ("public", 2),
     "composio": ("public", 0),
     "firecrawl": ("metered", 250),
+    # Tavily basic search is one upstream API credit. With 5,000 internal wallet
+    # units per displayed USD, $0.008 maps to roughly 40 wallet units.
+    "tavily": ("metered", 40),
+    # Exa reports dollar cost in responses; 100 units is conservative reservation
+    # headroom for the bounded search/contents shapes exposed by OpenCrawl.
+    "exa": ("metered", 100),
     "rapidapi": ("metered", 5),
     # The run is capped at $0.10 in ApifyToolProvider. At the least expensive
     # credit-pack rate, 1,500 credits represent INR 15 before payment fees.
@@ -1224,6 +1230,23 @@ def settle_measured_cost(
             return min(reserved, actual)
         if prefix in {"firecrawl", "publicdata", "gamepublic", "nativeweb"}:
             return min(reserved, _measured_mesh_attempts(provider_calls, counters))
+        if prefix == "tavily":
+            try:
+                upstream_credits = max(0, int(counters.get("tavily_credits") or 0))
+            except (TypeError, ValueError):
+                upstream_credits = 0
+            if upstream_credits:
+                return min(reserved, 2 + upstream_credits * 40)
+
+        if prefix == "exa":
+            try:
+                micro_usd = max(0, int(counters.get("exa_cost_microusd") or 0))
+            except (TypeError, ValueError):
+                micro_usd = 0
+            if micro_usd:
+                # 1 USD = 5,000 internal wallet units -> 1 unit per 200 micro-USD.
+                return min(reserved, 2 + math.ceil(micro_usd / 200))
+
         economics = RAW_PROVIDER_SURCHARGES.get(prefix)
         if economics is not None:
             _, surcharge = economics
