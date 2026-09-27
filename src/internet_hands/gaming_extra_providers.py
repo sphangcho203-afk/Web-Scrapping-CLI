@@ -645,6 +645,111 @@ class RiotGamingProvider(_GamingProviderBase):
                 side_effecting=False,
                 metadata={"source": "Riot Games API", "official": True},
             ),
+            ToolDescriptor(
+                ref="riot:lol-challenges-player",
+                provider="riot",
+                tool_id="lol-challenges-player",
+                name="League player challenges",
+                description="Get public League Challenge progress for a PUUID.",
+                input_schema=_schema(
+                    {"platform": route_prop, "puuid": _string("Riot PUUID")},
+                    ["platform", "puuid"],
+                ),
+                tags=["gaming", "league", "lol", "challenges", "progress", "achievements"],
+                requires_auth=True,
+                side_effecting=False,
+                metadata={"source": "Riot Games API", "official": True},
+            ),
+            ToolDescriptor(
+                ref="riot:lol-challenges-config",
+                provider="riot",
+                tool_id="lol-challenges-config",
+                name="League challenge catalog",
+                description="Get the public League Challenge configuration catalog.",
+                input_schema=_schema({"platform": route_prop}, ["platform"]),
+                tags=["gaming", "league", "lol", "challenges", "reference"],
+                requires_auth=True,
+                side_effecting=False,
+                metadata={"source": "Riot Games API", "official": True},
+            ),
+            ToolDescriptor(
+                ref="riot:lol-challenges-percentiles",
+                provider="riot",
+                tool_id="lol-challenges-percentiles",
+                name="League challenge percentiles",
+                description="Get public League Challenge percentile distributions.",
+                input_schema=_schema({"platform": route_prop}, ["platform"]),
+                tags=["gaming", "league", "lol", "challenges", "percentiles", "stats"],
+                requires_auth=True,
+                side_effecting=False,
+                metadata={"source": "Riot Games API", "official": True},
+            ),
+            ToolDescriptor(
+                ref="riot:lol-live-game",
+                provider="riot",
+                tool_id="lol-live-game",
+                name="League current live game",
+                description="Get current League spectator information for a PUUID when the player is in a game.",
+                input_schema=_schema(
+                    {"platform": route_prop, "puuid": _string("Riot PUUID")},
+                    ["platform", "puuid"],
+                ),
+                tags=["gaming", "league", "lol", "spectator", "live", "match"],
+                requires_auth=True,
+                side_effecting=False,
+                metadata={"source": "Riot Games API", "official": True},
+            ),
+            ToolDescriptor(
+                ref="riot:lol-featured-games",
+                provider="riot",
+                tool_id="lol-featured-games",
+                name="League featured live games",
+                description="Get Riot's current public featured League spectator games.",
+                input_schema=_schema({"platform": route_prop}, ["platform"]),
+                tags=["gaming", "league", "lol", "spectator", "featured", "live"],
+                requires_auth=True,
+                side_effecting=False,
+                metadata={"source": "Riot Games API", "official": True},
+            ),
+            ToolDescriptor(
+                ref="riot:lol-status",
+                provider="riot",
+                tool_id="lol-status",
+                name="League platform status",
+                description="Get League platform maintenance and incident status.",
+                input_schema=_schema({"platform": route_prop}, ["platform"]),
+                tags=["gaming", "league", "lol", "status", "incidents"],
+                requires_auth=True,
+                side_effecting=False,
+                metadata={"source": "Riot Games API", "official": True},
+            ),
+            ToolDescriptor(
+                ref="riot:tft-live-game",
+                provider="riot",
+                tool_id="tft-live-game",
+                name="TFT current live game",
+                description="Get current TFT spectator information for a PUUID when available.",
+                input_schema=_schema(
+                    {"platform": route_prop, "puuid": _string("Riot PUUID")},
+                    ["platform", "puuid"],
+                ),
+                tags=["gaming", "tft", "teamfight-tactics", "spectator", "live"],
+                requires_auth=True,
+                side_effecting=False,
+                metadata={"source": "Riot Games API", "official": True},
+            ),
+            ToolDescriptor(
+                ref="riot:tft-status",
+                provider="riot",
+                tool_id="tft-status",
+                name="TFT platform status",
+                description="Get Teamfight Tactics platform maintenance and incident status.",
+                input_schema=_schema({"platform": route_prop}, ["platform"]),
+                tags=["gaming", "tft", "teamfight-tactics", "status", "incidents"],
+                requires_auth=True,
+                side_effecting=False,
+                metadata={"source": "Riot Games API", "official": True},
+            ),
         ]
         super().__init__(descriptors, client=client, validate_urls=validate_urls)
 
@@ -778,6 +883,48 @@ class RiotGamingProvider(_GamingProviderBase):
                 f"https://{regional}.api.riotgames.com/tft/match/v1/matches/"
                 f"{quote(match_id, safe='')}"
             )
+        elif tool_id == "lol-challenges-player":
+            platform = self._platform(arguments)
+            puuid = str(arguments.get("puuid") or "").strip()
+            if not puuid:
+                raise ValueError("puuid is required")
+            url = (
+                f"https://{platform}.api.riotgames.com/lol/challenges/v1/player-data/"
+                f"{quote(puuid, safe='')}"
+            )
+        elif tool_id == "lol-challenges-config":
+            platform = self._platform(arguments)
+            url = f"https://{platform}.api.riotgames.com/lol/challenges/v1/challenges/config"
+        elif tool_id == "lol-challenges-percentiles":
+            platform = self._platform(arguments)
+            url = f"https://{platform}.api.riotgames.com/lol/challenges/v1/challenges/percentiles"
+        elif tool_id == "lol-live-game":
+            platform = self._platform(arguments)
+            puuid = str(arguments.get("puuid") or "").strip()
+            if not puuid:
+                raise ValueError("puuid is required")
+            url = (
+                f"https://{platform}.api.riotgames.com/lol/spectator/v5/"
+                f"active-games/by-summoner/{quote(puuid, safe='')}"
+            )
+        elif tool_id == "lol-featured-games":
+            platform = self._platform(arguments)
+            url = f"https://{platform}.api.riotgames.com/lol/spectator/v5/featured-games"
+        elif tool_id == "lol-status":
+            platform = self._platform(arguments)
+            url = f"https://{platform}.api.riotgames.com/lol/status/v4/platform-data"
+        elif tool_id == "tft-live-game":
+            platform = self._platform(arguments)
+            puuid = str(arguments.get("puuid") or "").strip()
+            if not puuid:
+                raise ValueError("puuid is required")
+            url = (
+                f"https://{platform}.api.riotgames.com/lol/spectator/tft/v5/"
+                f"active-games/by-puuid/{quote(puuid, safe='')}"
+            )
+        elif tool_id == "tft-status":
+            platform = self._platform(arguments)
+            url = f"https://{platform}.api.riotgames.com/tft/status/v1/platform-data"
         else:
             raise ValueError(f"unknown Riot tool: {tool_id}")
 
