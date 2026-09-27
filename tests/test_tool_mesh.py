@@ -301,3 +301,22 @@ async def test_provider_error_status_is_normalized_to_failed_without_retry() -> 
     assert result["status"] == "failed"
     assert provider.execute_calls == 1
     assert result["metadata"]["failure"]["category"] == "invalid_request"
+
+
+
+def test_default_tool_mesh_registers_search_and_game_catalog_providers() -> None:
+    from internet_hands.tool_mcp import get_capability_registry, get_tool_mesh
+
+    get_tool_mesh.cache_clear()
+    get_capability_registry.cache_clear()
+    mesh = get_tool_mesh()
+    registry = get_capability_registry()
+
+    assert {"you", "rawg", "igdb"}.issubset(mesh.providers)
+    assert {
+        "web.search.news",
+        "web.research.synthesized",
+        "web.search.developer",
+        "games.catalog.search",
+        "games.platform.search",
+    }.issubset(registry.capabilities)
