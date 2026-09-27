@@ -322,9 +322,19 @@ async def signup_secure(request: Request):
     if not isinstance(auth_user, dict) or not auth_user.get("id"):
         raise HTTPException(status_code=502, detail="Supabase Auth did not create an account")
 
-    user = store.get_user_by_email(email)
-    if not user:
-        raise HTTPException(status_code=502, detail="Supabase identity bridge did not create the account profile")
+    auth_subject = str(auth_user["id"])
+    try:
+        user = store.ensure_auth_user(
+            email=email,
+            display_name=display_name,
+            provider="supabase",
+            subject=auth_subject,
+            email_verified=bool(
+                auth_user.get("email_confirmed_at") or auth_user.get("confirmed_at")
+            ),
+        )
+    except ControlError as exc:
+        raise _json_error(exc) from exc
 
     sent = await _send_verification(request, user)
     payload = {
@@ -400,8 +410,9 @@ async def login_secure(request: Request):
             (current or {}).get("display_name")
             or legacy_user.get("display_name")
         )
+        created_auth: dict[str, Any] | None = None
         try:
-            await supabase_admin_create_user(
+            created_auth = await supabase_admin_create_user(
                 email=email,
                 password=password,
                 display_name=display_name,
@@ -424,6 +435,21 @@ async def login_secure(request: Request):
         current = store.get_user_by_email(email) or current
         if not current:
             raise HTTPException(status_code=502, detail="migrated account could not be loaded")
+
+        created_user = (
+            created_auth.get("user", created_auth)
+            if isinstance(created_auth, dict)
+            else None
+        )
+        if isinstance(created_user, dict) and created_user.get("id"):
+            try:
+                store.link_auth_identity(
+                    str(current["id"]),
+                    provider="supabase",
+                    subject=str(created_user["id"]),
+                )
+            except ControlError as exc:
+                raise _json_error(exc) from exc
 
         auth_id = store.auth_user_id_for_legacy(str(current["id"]))
         if confirmed:
@@ -449,11 +475,26 @@ async def login_secure(request: Request):
                 },
             )
 
-    current = store.get_user_by_email(email)
+    auth_user = auth_result.get("user") if isinstance(auth_result, dict) else None
+    if isinstance(auth_user, dict) and auth_user.get("id"):
+        try:
+            current = store.ensure_auth_user(
+                email=email,
+                display_name=(current or {}).get("display_name"),
+                provider="supabase",
+                subject=str(auth_user["id"]),
+                email_verified=bool(
+                    auth_user.get("email_confirmed_at") or auth_user.get("confirmed_at")
+                ),
+            )
+        except ControlError as exc:
+            raise _json_error(exc) from exc
+    else:
+        current = store.get_user_by_email(email)
+
     if not current:
         raise HTTPException(status_code=502, detail="authenticated account profile is unavailable")
 
-    auth_user = auth_result.get("user") if isinstance(auth_result, dict) else None
     if isinstance(auth_user, dict) and (
         auth_user.get("email_confirmed_at") or auth_user.get("confirmed_at")
     ) and not current.get("email_verified"):
