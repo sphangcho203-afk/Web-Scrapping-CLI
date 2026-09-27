@@ -1094,7 +1094,13 @@ function openRunInspector(event) {
 
   dashIntegrations = async function dashIntegrationsV3() {
     const endpoint=location.origin+'/mcp', d=await api('/api/connections'), cs=d.connections||[];
-    const rows=cs.length?cs.map(c=>'<article class="mcp-row"><div><b>'+esc(c.name)+'</b><code>'+esc(c.endpoint_url)+'</code><small>'+esc(c.transport)+' · '+esc(c.auth_type)+' · '+esc((c.header_names||[]).join(', '))+'</small></div><button class="btn quiet small" data-del-mcp="'+esc(c.id)+'">Delete</button></article>').join(''):'<div class="mcp-empty"><b>No remote MCP connections</b><p>Add one manually or import a cURL command.</p></div>';
+    const rows=cs.length?cs.map(c=>{
+      const checked=c.last_checked_at?when(c.last_checked_at):'Never tested';
+      const state=!c.enabled?'paused':c.last_status==='ok'?'ok':c.last_status==='error'?'error':'unchecked';
+      const statusLabel=!c.enabled?'Paused':c.last_status==='ok'?'Connected':c.last_status==='error'?'Needs attention':'Not tested';
+      const detail=c.last_status==='ok'?(fmt(c.tool_count||0)+' tools discovered'):(c.last_error||checked);
+      return '<article class="mcp-row mcp-row-live"><div class="mcp-row-main"><span class="ihx-state '+(state==='ok'?'on':state==='error'?'off':'idle')+'">'+dot(state==='ok'?'ok':state==='error'?'warn':'idle')+' '+esc(statusLabel)+'</span><b>'+esc(c.name)+'</b><code>'+esc(c.endpoint_url)+'</code><small>'+esc(c.transport)+' · '+esc(c.auth_type)+' · '+esc((c.header_names||[]).join(', ')||'no credential headers')+'</small><em>'+esc(detail)+' · last check '+esc(checked)+'</em></div><div class="mcp-row-actions"><button class="btn small" data-test-mcp="'+esc(c.id)+'">Test & discover</button><button class="btn quiet small" data-toggle-mcp="'+esc(c.id)+'" data-enabled="'+String(Boolean(c.enabled))+'">'+(c.enabled?'Pause':'Enable')+'</button><button class="btn danger small" data-del-mcp="'+esc(c.id)+'">Delete</button></div></article>';
+    }).join(''):'<div class="mcp-empty"><b>No remote MCP connections</b><p>Add one manually or import a cURL command. Saving is only step one; OpenCrawl will then perform a live MCP handshake and discover the remote tool catalog.</p></div>';
     dashboardShell('connections', headline('CONNECTIONS','MCP connections','One page, two directions: connect AI clients into OpenCrawl, and connect trusted remote MCP servers outward from OpenCrawl. Keep those permission boundaries separate.','<button class="btn primary" id="mcp-add">+ Add remote MCP</button>')+
       '<section class="ihx-endpoint-hero"><div><span>YOUR OPENCRAWL MCP</span><h2>'+esc(endpoint)+'</h2><p>This is the inbound endpoint for supported MCP hosts such as Codex, Claude Code, VS Code, Cursor and compatible remote MCP clients. Authentication is handled separately through OAuth or a dedicated scoped key.</p><a class="mcp-link" data-link href="/docs/clients">Read exact client setup guides →</a></div><div class="ihx-endpoint-meta"><span><small>Transport</small><b>Streamable HTTP</b></span><span><small>Identity</small><b>OAuth / key</b></span><span><small>State</small><b>Server-side policy</b></span></div></section>'+
       '<section class="ihx-connection-direction"><article><span>INBOUND</span><h3>Client → OpenCrawl</h3><p>Your AI host connects to <code>'+esc(endpoint)+'</code>. Give each host its own OAuth grant or scoped key so it can be revoked independently.</p><a data-link href="/docs/clients">Client guides →</a></article><article><span>OUTBOUND</span><h3>OpenCrawl → provider / remote MCP</h3><p>These saved connections let the Tool Mesh reach another trusted MCP server. Provider credentials stay server-side and are not rendered back into the browser.</p><a data-link href="/docs/sync#remote-mcp">How federation works →</a></article></section><section class="agent-connect"><header><span>CONNECT A CLIENT</span><h2>Use OpenCrawl from the tools you already work in</h2><p>These are starter configurations. The full guide explains authentication, scope, secret storage, what happens after connection, and host-specific limitations.</p><a class="mcp-link" data-link href="/docs/clients">Open detailed client documentation →</a></header><div class="agent-tabs" role="group" aria-label="Client setup"><button class="active" aria-pressed="true" data-agent-tab="codex">Codex</button><button aria-pressed="false" data-agent-tab="claude">Claude Code</button><button aria-pressed="false" data-agent-tab="vscode">VS Code</button><button aria-pressed="false" data-agent-tab="cursor">Cursor</button><button aria-pressed="false" data-agent-tab="http">HTTP probe</button></div><div id="agent-setup"></div></section><section class="mcp-secondary"><button id="mcp-add2"><b>Connect remote MCP</b><small>OpenCrawl → another MCP server</small></button><button id="mcp-curl"><b>Import provider cURL</b><small>Parse endpoint + supported auth headers; never execute shell text</small></button></section><div class="mcp-doc-strip"><span>Need the model, not just the button?</span><a data-link href="/docs/sync">Connections & synchronization →</a><a data-link href="/docs/tool-mesh">Tool Mesh execution →</a><a data-link href="/docs/security#mcp-trust">MCP trust & security →</a></div>'+
@@ -1117,7 +1123,15 @@ function openRunInspector(event) {
     agentSetup('codex');
     const panel=(title,body)=>modal('<div class="modal-head"><h2>'+esc(title)+'</h2><button class="icon-btn" data-close aria-label="Close dialog">×</button></div>'+body,true);
     const fields=t=>t==='api_key'?'<label>Header name<input name="header_name" value="X-API-Key"></label><label>API key<input type="password" name="secret" required autocomplete="new-password"></label>':(t==='bearer'||t==='oauth')?'<label>'+(t==='oauth'?'Existing OAuth access token':'Bearer token')+'<input type="password" name="secret" required autocomplete="new-password"></label>'+(t==='oauth'?'<p class="mcp-note">Use an already-issued token. Automatic OAuth sign-in and token refresh are not part of this connection.</p>':''):t==='headers'?'<label>Custom headers<textarea name="headers_text" rows="5" placeholder="X-API-Key: …&#10;X-Workspace: …"></textarea></label>':'<p class="mcp-note">No credentials will be sent.</p>';
-    const add=()=>{const w=panel('Add MCP connection','<form id="mcp-form" class="form-stack"><label>Name<input name="name" required maxlength="80" placeholder="Production MCP"></label><label>Server URL<input type="url" name="endpoint_url" required placeholder="https://example.com/mcp"></label><div class="mcp-grid"><label>Transport<select name="transport"><option value="streamable_http">Streamable HTTP</option><option value="sse">SSE</option></select></label><label>Authentication<select name="auth_type"><option value="none">No auth</option><option value="api_key">API key</option><option value="bearer">Bearer token</option><option value="headers">Custom headers</option><option value="oauth">OAuth access token</option></select></label></div><div id="mcp-auth">'+fields('none')+'</div><div class="mcp-note"><b>What saving does</b><p>This does not mirror or continuously sync the remote server. It stores the connection policy and secret material server-side so the remote MCP becomes eligible for Tool Mesh discovery/execution when an agent actually needs it.</p><a data-link href="/docs/sync#remote-mcp">Read federation, trust and account-selection behavior →</a></div><button class="btn primary" type="submit">Save connection</button></form>');const f=w.querySelector('#mcp-form'),a=f.elements.auth_type;a.onchange=()=>w.querySelector('#mcp-auth').innerHTML=fields(a.value);f.onsubmit=async e=>{e.preventDefault();const body=Object.fromEntries(new FormData(f));if(body.headers_text){body.headers={};body.headers_text.split(/\r?\n/).forEach(x=>{const i=x.indexOf(':');if(i>0)body.headers[x.slice(0,i).trim()]=x.slice(i+1).trim()});delete body.headers_text}const button=f.querySelector('button[type=submit]');busy(button,true,'Saving…');try{await api('/api/connections',{method:'POST',body});w.remove();toast('MCP connection saved','success');await dashIntegrations()}catch(x){busy(button,false);toast(x.message,'error')}}};
+    const add=()=>{const w=panel('Add MCP connection','<form id="mcp-form" class="form-stack"><label>Name<input name="name" required maxlength="80" placeholder="Production MCP"></label><label>Server URL<input type="url" name="endpoint_url" required placeholder="https://example.com/mcp"></label><div class="mcp-grid"><label>Transport<select name="transport"><option value="streamable_http">Streamable HTTP</option><option value="sse">SSE</option></select></label><label>Authentication<select name="auth_type"><option value="none">No auth</option><option value="api_key">API key</option><option value="bearer">Bearer token</option><option value="headers">Custom headers</option><option value="oauth">OAuth access token</option></select></label></div><div id="mcp-auth">'+fields('none')+'</div><div class="mcp-note"><b>What saving does</b><p>This does not mirror or continuously sync the remote server. It stores the connection policy and secret material server-side so the remote MCP becomes eligible for Tool Mesh discovery/execution when an agent actually needs it.</p><a data-link href="/docs/sync#remote-mcp">Read federation, trust and account-selection behavior →</a></div><button class="btn primary" type="submit">Save connection</button></form>');const f=w.querySelector('#mcp-form'),a=f.elements.auth_type;a.onchange=()=>w.querySelector('#mcp-auth').innerHTML=fields(a.value);f.onsubmit=async e=>{e.preventDefault();const body=Object.fromEntries(new FormData(f));if(body.headers_text){body.headers={};body.headers_text.split(/\r?\n/).forEach(x=>{const i=x.indexOf(':');if(i>0)body.headers[x.slice(0,i).trim()]=x.slice(i+1).trim()});delete body.headers_text}const button=f.querySelector('button[type=submit]');busy(button,true,'Saving…');try{
+      const saved=await api('/api/connections',{method:'POST',body});
+      const id=saved.connection?.id;
+      let probe=null;
+      if(id)probe=await api('/api/connections/'+encodeURIComponent(id)+'/test',{method:'POST',body:{}});
+      w.remove();
+      toast(probe?.ok?'Connected · '+fmt(probe.tool_count||0)+' tools discovered':'Saved, but the live MCP handshake failed',probe?.ok?'success':'error');
+      await dashIntegrations();
+    }catch(x){busy(button,false);toast(x.message,'error')}}};
     const curl=()=>{
       const w=panel('Import cURL','<form id="curl-form" class="form-stack"><label>Name<input name="name" maxlength="80" placeholder="Imported MCP"></label><label>cURL command<textarea name="command" rows="8" required spellcheck="false"></textarea></label><p class="mcp-note">Only the endpoint and supported headers are imported. The command is never executed; credential values are hidden in the preview and stored server-side on save.</p><div id="curl-result" aria-live="polite"></div><button class="btn primary" type="submit">Preview import</button></form>');
       const f=w.querySelector('#curl-form'), result=w.querySelector('#curl-result');
@@ -1137,8 +1151,12 @@ function openRunInspector(event) {
             const save=event.currentTarget;
             if(!busy(save,true,'Saving…'))return;
             try{
-              await api('/api/connections/import-curl',{method:'POST',body:{...Object.fromEntries(new FormData(f)),save:true}});
-              w.remove();toast('MCP connection imported','success');
+              const saved=await api('/api/connections/import-curl',{method:'POST',body:{...Object.fromEntries(new FormData(f)),save:true}});
+              const id=saved.connection?.id;
+              let probe=null;
+              if(id)probe=await api('/api/connections/'+encodeURIComponent(id)+'/test',{method:'POST',body:{}});
+              w.remove();
+              toast(probe?.ok?'Imported · '+fmt(probe.tool_count||0)+' tools discovered':'Imported, but the live MCP handshake failed',probe?.ok?'success':'error');
               if(location.pathname==='/dashboard/connections')await dashIntegrations();
             }catch(error){busy(save,false);toast(error.message,'error');}
           };
@@ -1146,7 +1164,39 @@ function openRunInspector(event) {
         finally{if(button.isConnected)busy(button,false);}
       };
     };
-    document.querySelector('#mcp-add')?.addEventListener('click',add);document.querySelector('#mcp-add2')?.addEventListener('click',add);document.querySelector('#mcp-curl')?.addEventListener('click',curl);document.querySelectorAll('[data-del-mcp]').forEach(b=>b.onclick=async()=>{if(!confirm('Delete this MCP connection?'))return;busy(b,true,'Deleting…');try{await api('/api/connections/'+encodeURIComponent(b.dataset.delMcp),{method:'DELETE'});toast('Connection deleted','success');await dashIntegrations()}catch(x){busy(b,false);toast(x.message,'error')}});
+    document.querySelector('#mcp-add')?.addEventListener('click',add);
+    document.querySelector('#mcp-add2')?.addEventListener('click',add);
+    document.querySelector('#mcp-curl')?.addEventListener('click',curl);
+    document.querySelectorAll('[data-test-mcp]').forEach(b=>b.onclick=async()=>{
+      if(!busy(b,true,'Testing…'))return;
+      try{
+        const result=await api('/api/connections/'+encodeURIComponent(b.dataset.testMcp)+'/test',{method:'POST',body:{}});
+        if(result.ok){
+          const tools=(result.tools||[]).map(t=>'<article><div><b>'+esc(t.name)+'</b><code>'+esc(t.ref)+'</code></div><span class="ihx-state '+(t.side_effecting?'idle':'on')+'">'+dot(t.side_effecting?'warn':'ok')+' '+(t.side_effecting?'May write':'Read-only')+'</span><p>'+esc(t.description||'No description supplied by the remote MCP server.')+'</p></article>').join('');
+          panel('MCP connection verified','<div class="mcp-probe-summary"><span>'+dot('ok')+'</span><div><b>'+fmt(result.tool_count||0)+' tools discovered</b><p>The remote server completed an MCP handshake and its catalog is now available to this user\'s Tool Mesh.</p></div></div><div class="mcp-tool-preview">'+(tools||'<p>No tools were advertised by this MCP server.</p>')+'</div>');
+          toast('Connection verified','success');
+        }else{
+          panel('MCP connection needs attention','<div class="mcp-probe-summary error"><span>'+dot('warn')+'</span><div><b>Handshake failed</b><p>'+esc(result.error||'The remote server could not complete the MCP handshake.')+'</p></div></div>');
+          toast('MCP handshake failed','error');
+        }
+        await dashIntegrations();
+      }catch(x){busy(b,false);toast(x.message,'error')}
+    });
+    document.querySelectorAll('[data-toggle-mcp]').forEach(b=>b.onclick=async()=>{
+      const enabled=b.dataset.enabled!=='true';
+      if(!busy(b,true,enabled?'Enabling…':'Pausing…'))return;
+      try{
+        await api('/api/connections/'+encodeURIComponent(b.dataset.toggleMcp),{method:'PATCH',body:{enabled}});
+        toast(enabled?'Connection enabled':'Connection paused','success');
+        await dashIntegrations();
+      }catch(x){busy(b,false);toast(x.message,'error')}
+    });
+    document.querySelectorAll('[data-del-mcp]').forEach(b=>b.onclick=async()=>{
+      if(!confirm('Delete this MCP connection?'))return;
+      busy(b,true,'Deleting…');
+      try{await api('/api/connections/'+encodeURIComponent(b.dataset.delMcp),{method:'DELETE'});toast('Connection deleted','success');await dashIntegrations()}
+      catch(x){busy(b,false);toast(x.message,'error')}
+    });
   };
 
   dashKeys = async function dashKeysV3() {
