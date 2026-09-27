@@ -5,7 +5,9 @@ import json
 import httpx
 import pytest
 
+from internet_hands.auth import current_auth
 from internet_hands.composio_bridge import ComposioBridgeProvider
+from internet_hands.control_store import AuthIdentity
 
 
 def _tool(slug: str, toolkit: str = "github") -> dict:
@@ -21,13 +23,33 @@ def _tool(slug: str, toolkit: str = "github") -> dict:
     }
 
 
-def _connection(account_id: str, toolkit: str, alias: str) -> dict:
-    return {
+def _connection(
+    account_id: str,
+    toolkit: str,
+    alias: str,
+    *,
+    user_id: str | None = None,
+) -> dict:
+    row = {
         "id": account_id,
         "status": "ACTIVE",
         "alias": alias,
         "toolkit": {"slug": toolkit},
     }
+    if user_id is not None:
+        row["user_id"] = user_id
+    return row
+
+
+def _identity(user_id: str = "usr_1") -> AuthIdentity:
+    return AuthIdentity(
+        user_id=user_id,
+        api_key_id="key_1",
+        scopes=["mcp:read", "mcp:execute"],
+        plan_slug="pro",
+        rpm_limit=120,
+        source="api_key",
+    )
 
 
 @pytest.mark.asyncio
@@ -228,3 +250,122 @@ async def test_status_is_sanitized_by_default() -> None:
             {"toolkit": "github", "accounts": 1},
             {"toolkit": "gmail", "accounts": 1},
         ]
+
+
+@pytest.mark.asyncio
+async def test_authenticated_user_filters_connected_accounts_by_user_id() -> None:
+    seen_user_ids: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/connected_accounts"):
+            seen_user_ids.extend(request.url.params.get_list("user_ids"))
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        _connection(
+                            "ca_alice",
+                            "github",
+                            "primary",
+                            user_id="usr_alice",
+                        )
+                    ]
+                },
+            )
+        raise AssertionError(str(request.url))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = ComposioBridgeProvider(
+            api_key="key",
+            base_url="https://composio.test/api/v3.1",
+            client=client,
+        )
+        token = current_auth.set(_identity("usr_alice"))
+        try:
+            status = await provider.status()
+        finally:
+            current_auth.reset(token)
+
+    assert seen_user_ids == ["usr_alice"]
+    assert status["account_routing"] == "user_scoped"
+    assert status["connected_toolkits"] == [{"toolkit": "github", "accounts": 1}]
+
+
+@pytest.mark.asyncio
+async def test_authenticated_user_rejects_cross_tenant_connection_from_upstream() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/connected_accounts"):
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        _connection(
+                            "ca_bob",
+                            "github",
+                            "bob",
+                            user_id="usr_bob",
+                        )
+                    ]
+                },
+            )
+        raise AssertionError(str(request.url))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = ComposioBridgeProvider(
+            api_key="key",
+            base_url="https://composio.test/api/v3.1",
+            client=client,
+        )
+        token = current_auth.set(_identity("usr_alice"))
+        try:
+            status = await provider.status()
+        finally:
+            current_auth.reset(token)
+
+    assert status["account_routing"] == "user_scoped"
+    assert status["connected_toolkits"] == []
+
+
+@pytest.mark.asyncio
+async def test_authenticated_user_executes_own_account_without_project_allowlist() -> None:
+    seen: dict[str, object] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/connected_accounts"):
+            assert request.url.params.get_list("user_ids") == ["usr_alice"]
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        _connection(
+                            "ca_alice",
+                            "github",
+                            "primary",
+                            user_id="usr_alice",
+                        )
+                    ]
+                },
+            )
+        if request.method == "GET" and request.url.path.endswith("/tools/GITHUB_CREATE_ISSUE"):
+            return httpx.Response(200, json=_tool("GITHUB_CREATE_ISSUE"))
+        if request.method == "POST" and request.url.path.endswith("/tools/execute/GITHUB_CREATE_ISSUE"):
+            seen.update(json.loads(request.content))
+            return httpx.Response(200, json={"successful": True, "data": {"ok": True}})
+        raise AssertionError(str(request.url))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = ComposioBridgeProvider(
+            api_key="key",
+            base_url="https://composio.test/api/v3.1",
+            client=client,
+            allowed_accounts=set(),
+            allow_project_accounts=False,
+        )
+        token = current_auth.set(_identity("usr_alice"))
+        try:
+            result = await provider.execute("GITHUB_CREATE_ISSUE", {"title": "x"})
+        finally:
+            current_auth.reset(token)
+
+    assert result["status"] == "completed"
+    assert seen["connected_account_id"] == "ca_alice"
