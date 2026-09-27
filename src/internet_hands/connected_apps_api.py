@@ -110,6 +110,53 @@ class ComposioConnectionService:
             pass
         raise HTTPException(status_code=502, detail=detail)
 
+    async def toolkits(
+        self,
+        *,
+        search: str | None = None,
+        limit: int = 100,
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {
+            "limit": max(1, min(int(limit), 100)),
+            "sort_by": "usage",
+            "include_deprecated": "false",
+            "managed_by": "all",
+        }
+        if search:
+            params["search"] = search[:120]
+        if cursor:
+            params["cursor"] = cursor
+        response = await self._request("GET", "/toolkits", params=params)
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=502, detail="connected apps provider returned an invalid toolkit catalog")
+        rows: list[dict[str, Any]] = []
+        for item in payload.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            slug = str(item.get("slug") or "").strip().lower()
+            if not slug or not _TOOLKIT_RE.fullmatch(slug):
+                continue
+            rows.append(
+                {
+                    "toolkit": slug,
+                    "name": str(item.get("name") or item.get("display_name") or slug.replace("_", " ").title()),
+                    "description": str(item.get("description") or "")[:320] or None,
+                    "logo": item.get("logo"),
+                    "auth_schemes": [
+                        str(value).upper()
+                        for value in (item.get("auth_schemes") or [])
+                        if str(value).strip()
+                    ],
+                    "type": str(item.get("type") or item.get("managed_by") or "") or None,
+                }
+            )
+        return {
+            "apps": rows,
+            "next_cursor": payload.get("next_cursor") or payload.get("nextCursor"),
+        }
+
     async def auth_configs(self, toolkit: str | None = None) -> list[dict[str, Any]]:
         output: list[dict[str, Any]] = []
         cursor: str | None = None
@@ -164,10 +211,41 @@ class ComposioConnectionService:
                 break
         return output
 
+    async def create_managed_auth_config(self, toolkit: str) -> dict[str, Any]:
+        response = await self._request(
+            "POST",
+            "/auth_configs",
+            json={
+                "toolkit": {"slug": toolkit},
+                "auth_config": {
+                    "type": "use_composio_managed_auth",
+                    "credentials": {},
+                    "restrict_to_following_tools": [],
+                },
+            },
+        )
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=502, detail="connected apps provider returned an invalid auth config")
+        raw = payload.get("auth_config") if isinstance(payload.get("auth_config"), dict) else payload
+        config_id = str(raw.get("id") or "").strip()
+        if not config_id:
+            raise HTTPException(status_code=502, detail="connected apps provider did not return an auth config id")
+        return {
+            "id": config_id,
+            "name": str(raw.get("name") or f"{toolkit} managed auth"),
+            "status": str(raw.get("status") or "ENABLED"),
+            "auth_scheme": raw.get("auth_scheme"),
+            "is_composio_managed": bool(raw.get("is_composio_managed", True)),
+            "toolkit": {"slug": toolkit},
+        }
+
     async def resolve_auth_config(
         self,
         toolkit: str,
         requested_id: str | None = None,
+        *,
+        create_managed_if_missing: bool = False,
     ) -> dict[str, Any]:
         configs = [
             item
@@ -185,6 +263,22 @@ class ComposioConnectionService:
         if len(configs) == 1:
             return configs[0]
         if not configs:
+            if create_managed_if_missing:
+                try:
+                    return await self.create_managed_auth_config(toolkit)
+                except HTTPException as exc:
+                    if exc.status_code in {400, 404, 422}:
+                        raise HTTPException(
+                            status_code=409,
+                            detail={
+                                "code": "integration_auth_setup_required",
+                                "message": (
+                                    "this toolkit cannot use automatic managed authentication; "
+                                    "configure an auth method for it in the connected-app provider"
+                                ),
+                            },
+                        ) from exc
+                    raise
             raise HTTPException(status_code=409, detail="no enabled auth config exists for this toolkit")
         raise HTTPException(
             status_code=409,
@@ -204,7 +298,11 @@ class ComposioConnectionService:
         callback_url: str | None = None,
         allow_multiple: bool = False,
     ) -> dict[str, Any]:
-        config = await self.resolve_auth_config(toolkit, auth_config_id)
+        config = await self.resolve_auth_config(
+            toolkit,
+            auth_config_id,
+            create_managed_if_missing=auth_config_id is None,
+        )
         config_id = str(config["id"])
         if not allow_multiple:
             existing = await self.user_connections(user_id, toolkit=toolkit)
@@ -292,6 +390,21 @@ class ComposioConnectionService:
         if not any(str(item.get("id") or "") == account_id for item in owned):
             raise HTTPException(status_code=404, detail="connected account not found")
         await self._request("DELETE", f"/connected_accounts/{account_id}")
+
+
+@router.get("/api/integrations/catalog")
+async def integration_catalog(
+    request: Request,
+    search: str | None = None,
+    limit: int = 100,
+    cursor: str | None = None,
+):
+    _require_user(request)
+    service = ComposioConnectionService()
+    if not service.configured:
+        return {"configured": False, "apps": [], "next_cursor": None}
+    result = await service.toolkits(search=search, limit=limit, cursor=cursor)
+    return {"configured": True, **result}
 
 
 @router.get("/api/integrations/apps")
