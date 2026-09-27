@@ -50,7 +50,7 @@ async def test_tavily_crawl_defaults_external_traversal_off() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.url == "https://api.tavily.com/crawl"
         body = json.loads(request.content)
-        assert body["url"] == "https://docs.example.com"
+        assert body["url"] == "https://example.com/docs"
         assert body["allow_external"] is False
         assert body["limit"] == 100
         assert body["max_depth"] == 5
@@ -62,7 +62,7 @@ async def test_tavily_crawl_defaults_external_traversal_off() -> None:
         result = await provider.execute(
             "crawl",
             {
-                "url": "https://docs.example.com",
+                "url": "https://example.com/docs",
                 "limit": 999,
                 "max_depth": 99,
                 "max_breadth": 999,
