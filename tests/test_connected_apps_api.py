@@ -457,3 +457,77 @@ async def test_connect_reports_setup_required_when_managed_auth_is_not_supported
 
     assert exc.value.status_code == 409
     assert exc.value.detail["code"] == "integration_auth_setup_required"
+
+
+@pytest.mark.asyncio
+async def test_owned_connected_account_can_be_renamed_and_paused() -> None:
+    patches: list[tuple[str, dict[str, object]]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path.endswith("/connected_accounts"):
+            return httpx.Response(
+                200,
+                json={"items": [_connection("ca_work", "github", "usr_alice")]},
+            )
+        if request.method == "PATCH" and request.url.path.endswith("/connected_accounts/ca_work"):
+            patches.append((request.url.path, json.loads(request.content)))
+            return httpx.Response(200, json={"success": True, "id": "ca_work", "status": "ACTIVE"})
+        if request.method == "PATCH" and request.url.path.endswith("/connected_accounts/ca_work/status"):
+            patches.append((request.url.path, json.loads(request.content)))
+            return httpx.Response(200, json={"success": True})
+        raise AssertionError(str(request.url))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        service = ComposioConnectionService(
+            api_key="key",
+            base_url="https://composio.test/api/v3.1",
+            client=client,
+        )
+        await service.update_alias(
+            user_id="usr_alice",
+            account_id="ca_work",
+            alias="work-github",
+        )
+        await service.set_enabled(
+            user_id="usr_alice",
+            account_id="ca_work",
+            enabled=False,
+        )
+
+    assert patches == [
+        ("/api/v3.1/connected_accounts/ca_work", {"alias": "work-github"}),
+        ("/api/v3.1/connected_accounts/ca_work/status", {"enabled": False}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_cross_tenant_connected_account_cannot_be_renamed_or_paused() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path.endswith("/connected_accounts"):
+            return httpx.Response(
+                200,
+                json={"items": [_connection("ca_bob", "github", "usr_bob")]},
+            )
+        raise AssertionError("mutation should never be sent for another tenant")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        service = ComposioConnectionService(
+            api_key="key",
+            base_url="https://composio.test/api/v3.1",
+            client=client,
+        )
+        with pytest.raises(HTTPException) as rename_exc:
+            await service.update_alias(
+                user_id="usr_alice",
+                account_id="ca_bob",
+                alias="not-mine",
+            )
+        with pytest.raises(HTTPException) as pause_exc:
+            await service.set_enabled(
+                user_id="usr_alice",
+                account_id="ca_bob",
+                enabled=False,
+            )
+
+    assert rename_exc.value.status_code == 404
+    assert pause_exc.value.status_code == 404
