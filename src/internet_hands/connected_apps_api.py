@@ -202,10 +202,36 @@ class ComposioConnectionService:
         alias: str | None = None,
         auth_config_id: str | None = None,
         callback_url: str | None = None,
+        allow_multiple: bool = False,
     ) -> dict[str, Any]:
         config = await self.resolve_auth_config(toolkit, auth_config_id)
+        config_id = str(config["id"])
+        if not allow_multiple:
+            existing = await self.user_connections(user_id, toolkit=toolkit)
+            active_same_config = [
+                item
+                for item in existing
+                if str(item.get("status") or "").upper() == "ACTIVE"
+                and str(
+                    ((item.get("auth_config") or {}).get("id"))
+                    if isinstance(item.get("auth_config"), dict)
+                    else item.get("auth_config_id") or ""
+                )
+                == config_id
+            ]
+            if active_same_config:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "integration_account_exists",
+                        "message": (
+                            "an active account already exists for this authentication "
+                            "configuration; explicitly choose connect another account"
+                        ),
+                    },
+                )
         body: dict[str, Any] = {
-            "auth_config_id": str(config["id"]),
+            "auth_config_id": config_id,
             "user_id": user_id,
         }
         if alias:
@@ -252,13 +278,13 @@ class ComposioConnectionService:
         auth_config_id = str(
             auth_config.get("id") or account.get("auth_config_id") or ""
         ).strip() or None
-        alias = str(account.get("alias") or account.get("name") or "").strip() or None
         return await self.create_link(
             user_id=user_id,
             toolkit=toolkit,
-            alias=alias,
+            alias=None,
             auth_config_id=auth_config_id,
             callback_url=callback_url,
+            allow_multiple=False,
         )
 
     async def disconnect(self, *, user_id: str, account_id: str) -> None:
@@ -339,6 +365,7 @@ async def integration_connect(toolkit: str, request: Request):
     body = await request.json()
     alias = str(body.get("alias") or "").strip() or None
     auth_config_id = str(body.get("auth_config_id") or "").strip() or None
+    allow_multiple = body.get("allow_multiple") is True
     callback_url = f"{_origin(request)}/dashboard/connections?connected={slug}"
     service = ComposioConnectionService()
     return await service.create_link(
@@ -347,6 +374,7 @@ async def integration_connect(toolkit: str, request: Request):
         alias=alias,
         auth_config_id=auth_config_id,
         callback_url=callback_url,
+        allow_multiple=allow_multiple,
     )
 
 
