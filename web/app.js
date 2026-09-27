@@ -766,13 +766,6 @@ function openRunInspector(event) {
  * replacing the public product story and the primary dashboard experience.
  */
 (() => {
-  const providerBadge = (mark, brand, detail) => `
-    <div class="ih-provider">
-      <span class="ih-provider-mark">${platformMark(mark, brand)}</span>
-      <span><b>${esc(brand)}</b><small>${esc(detail)}</small></span>
-    </div>`;
-
-
   brand = function brandV2() {
     return `<a class="brand ih-brand oc-brand" data-link href="/" aria-label="OpenCrawl home">
       <img class="oc-brand-mark" src="/assets/opencrawl-robot.png" width="44" height="44" alt="">
@@ -881,13 +874,9 @@ function openRunInspector(event) {
 
       <section class="ih-client-band">
         <div class="container">
-          <div class="ih-band-label"><span>BUILT TO SIT BEHIND THE AGENTS YOU ALREADY USE</span><i></i></div>
-          <div class="ih-provider-row">
-            ${providerBadge('openai','OpenAI','ChatGPT')}
-            ${providerBadge('anthropic','Anthropic','Claude')}
-            ${providerBadge('xai','xAI','Grok')}
-            ${providerBadge('github','GitHub','Automation')}
-            ${providerBadge('mcp','MCP','Any compatible client')}
+          <div class="ih-band-label"><span>OPENCRAWL / INTERNET OPERATIONS</span><i></i></div>
+          <div class="oc-capability-row" aria-label="OpenCrawl operations">
+            ${['Search','Crawl','Extract','Execute','Observe'].map((operation,index)=>`<span><i>${String(index+1).padStart(2,'0')}</i><b>${operation}</b></span>`).join('')}
           </div>
         </div>
       </section>
@@ -896,7 +885,7 @@ function openRunInspector(event) {
         <div class="container">
           <div class="ih-section-lead">
             <h2>One instruction becomes a traceable operation.</h2>
-            <p>Instead of exposing a wall of tools, OpenCrawl discovers the capability, executes through the right provider, and keeps the run inspectable.</p>
+            <p>Instead of exposing a wall of tools, OpenCrawl discovers the capability, chooses an execution path, and keeps the run inspectable.</p>
           </div>
           <div class="ih-operation-grid">
             <article class="ih-operation-primary">
@@ -920,13 +909,13 @@ function openRunInspector(event) {
         <div class="container ih-evidence-grid">
           <div class="ih-section-lead">
             <h2>Power means nothing if the result is impossible to inspect.</h2>
-            <p>Every useful run should leave behind enough context to understand what happened: route, provider, latency, cost, status and evidence.</p>
+            <p>Every useful run should leave behind enough context to understand what happened: route, latency, cost, status and evidence.</p>
             <a class="ih-text-link" data-link href="/docs/capabilities">Explore the capability fabric ${icon('arrow')}</a>
           </div>
           <div class="ih-ledger">
-            <div class="ih-ledger-head"><span>RUN LEDGER FIELDS</span><span>PROVIDER</span><span>STATE</span><span>LATENCY</span></div>
+            <div class="ih-ledger-head"><span>RUN LEDGER FIELDS</span><span>ROUTE</span><span>STATE</span><span>LATENCY</span></div>
             <div class="ih-ledger-row"><code>Request ID</code><span>Selected route</span><em>Measured status</em><b>Elapsed time</b></div>
-            <div class="ih-ledger-row"><code>Capability</code><span>Provider used</span><em>Credit charge</em><b>Timestamp</b></div>
+            <div class="ih-ledger-row"><code>Capability</code><span>Path used</span><em>Credit charge</em><b>Timestamp</b></div>
           </div>
         </div>
       </section>
