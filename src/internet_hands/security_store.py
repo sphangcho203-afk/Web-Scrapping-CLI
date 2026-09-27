@@ -312,16 +312,19 @@ class SecurityStore:
             return dict(row) if row else None
 
     def enable_totp(self, user_id: str, counter: int, recovery_hashes: list[str]) -> None:
+        # The setup code proves possession of the secret; it is not yet a login event.
+        # Replay tracking begins with the first real second-factor authentication.
+        del counter
         self.ensure_schema()
         with self.control._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
                     UPDATE ih_user_security SET
-                        totp_enabled=true,totp_confirmed_at=now(),last_totp_counter=%s,updated_at=now()
+                        totp_enabled=true,totp_confirmed_at=now(),last_totp_counter=NULL,updated_at=now()
                     WHERE user_id=%s AND totp_secret_enc IS NOT NULL AND totp_enabled=false
                     """,
-                    (counter, user_id),
+                    (user_id,),
                 )
                 if cur.rowcount != 1:
                     raise ControlError("totp_setup_missing", "start TOTP setup first", 409)
