@@ -20,7 +20,6 @@ NO_STORE_HEADERS = {
 ASSET_MEDIA_TYPES = {
     "cognitive-foundation.css": "text/css",
     "app.js": "application/javascript",
-    "docs-content.js": "application/javascript",
     "mark.svg": "image/svg+xml",
     "internet-hands-mark.webp": "image/webp",
     "internet-hands-logo.webp": "image/webp",
@@ -43,10 +42,11 @@ def _file(name: str, media_type: str | None = None, *, no_store: bool = False):
 def _browser_runtime() -> Response:
     """Ship one runtime while keeping bounded feature source reviewable."""
     legal = WEB_ROOT / "legal-content.js"
+    docs = WEB_ROOT / "docs-content.js"
     runtime = WEB_ROOT / "app.js"
     usage = WEB_ROOT / "usage-intelligence.js"
     monitors = WEB_ROOT / "monitor-lifecycle.js"
-    sources = [legal, runtime, usage, monitors]
+    sources = [legal, docs, runtime, usage, monitors]
     if any(not source.is_file() for source in sources):
         raise HTTPException(status_code=404, detail="asset not found")
     content = "\n\n".join(source.read_text(encoding="utf-8") for source in sources)
@@ -64,11 +64,7 @@ def site_asset(name: str):
         raise HTTPException(status_code=404, detail="asset not found")
     if name == "app.js":
         return _browser_runtime()
-    return _file(
-        name,
-        media_type,
-        no_store=name in {"cognitive-foundation.css", "docs-content.js"},
-    )
+    return _file(name, media_type, no_store=name == "cognitive-foundation.css")
 
 
 def _index():
