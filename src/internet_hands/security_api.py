@@ -395,9 +395,9 @@ async def login_secure(request: Request):
             )
 
         legacy_user = (
-            legacy_store.get_user_by_email(email)
+            legacy_store.get_user_credentials_by_email(email)
             if legacy_store
-            else store.get_user_by_email(email)
+            else store.get_user_credentials_by_email(email)
         )
         if not legacy_user or not verify_password(password, legacy_user.get("password_hash")):
             raise HTTPException(
@@ -809,9 +809,9 @@ async def change_account_password(request: Request):
             raise HTTPException(status_code=400, detail=str(exc)) from exc
     else:
         legacy_user = (
-            legacy_store.get_user_by_email(user["email"])
+            legacy_store.get_user_credentials_by_email(user["email"])
             if legacy_store
-            else store.get_user_by_email(user["email"])
+            else store.get_user_credentials_by_email(user["email"])
         )
         if not legacy_user or not verify_password(current_password, legacy_user.get("password_hash")):
             raise HTTPException(status_code=401, detail="current password is incorrect")
