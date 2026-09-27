@@ -72,6 +72,9 @@ async def test_create_link_resolves_enabled_config_and_binds_user() -> None:
         if request.method == "GET" and request.url.path.endswith("/auth_configs"):
             assert request.url.params.get("toolkit_slug") == "github"
             return httpx.Response(200, json={"items": [_auth_config("ac_git", "github")]})
+        if request.method == "GET" and request.url.path.endswith("/connected_accounts"):
+            assert request.url.params.get_list("user_ids") == ["usr_alice"]
+            return httpx.Response(200, json={"items": []})
         if request.method == "POST" and request.url.path.endswith("/connected_accounts/link"):
             posted.update(json.loads(request.content))
             return httpx.Response(
@@ -111,6 +114,8 @@ async def test_create_link_rejects_non_https_provider_redirect() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/auth_configs"):
             return httpx.Response(200, json={"items": [_auth_config("ac_git", "github")]})
+        if request.url.path.endswith("/connected_accounts"):
+            return httpx.Response(200, json={"items": []})
         if request.url.path.endswith("/connected_accounts/link"):
             return httpx.Response(201, json={"redirect_url": "javascript:alert(1)"})
         raise AssertionError(str(request.url))
@@ -203,3 +208,118 @@ def test_public_connection_never_exposes_credentials() -> None:
     assert "credentials" not in public
     assert public["id"] == "ca_alice"
     assert public["toolkit"] == "github"
+
+
+@pytest.mark.asyncio
+async def test_duplicate_active_account_requires_explicit_multi_account_opt_in() -> None:
+    post_count = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal post_count
+        if request.url.path.endswith("/auth_configs"):
+            return httpx.Response(200, json={"items": [_auth_config("ac_git", "github")]})
+        if request.method == "GET" and request.url.path.endswith("/connected_accounts"):
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {
+                            **_connection("ca_existing", "github", "usr_alice"),
+                            "auth_config": {"id": "ac_git", "auth_scheme": "OAUTH2"},
+                        }
+                    ]
+                },
+            )
+        if request.method == "POST" and request.url.path.endswith("/connected_accounts/link"):
+            post_count += 1
+            return httpx.Response(
+                201,
+                json={
+                    "redirect_url": "https://connect.composio.dev/link/new",
+                    "connected_account_id": "ca_new",
+                },
+            )
+        raise AssertionError(str(request.url))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        service = ComposioConnectionService(
+            api_key="key",
+            base_url="https://composio.test/api/v3.1",
+            client=client,
+        )
+        with pytest.raises(HTTPException) as exc:
+            await service.create_link(user_id="usr_alice", toolkit="github")
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "integration_account_exists"
+
+        result = await service.create_link(
+            user_id="usr_alice",
+            toolkit="github",
+            alias="second",
+            allow_multiple=True,
+        )
+
+    assert post_count == 1
+    assert result["connected_account_id"] == "ca_new"
+
+
+@pytest.mark.asyncio
+async def test_expired_account_reconnect_starts_fresh_link_without_reusing_alias() -> None:
+    posted: dict[str, object] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path.endswith("/connected_accounts"):
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {
+                            **_connection("ca_mail", "gmail", "usr_alice"),
+                            "status": "EXPIRED",
+                            "alias": "personal",
+                            "auth_config": {"id": "ac_mail", "auth_scheme": "OAUTH2"},
+                        }
+                    ]
+                },
+            )
+        if request.url.path.endswith("/auth_configs"):
+            return httpx.Response(200, json={"items": [_auth_config("ac_mail", "gmail")]})
+        if request.method == "POST" and request.url.path.endswith("/connected_accounts/link"):
+            posted.update(json.loads(request.content))
+            return httpx.Response(
+                201,
+                json={
+                    "redirect_url": "https://connect.composio.dev/link/reconnect",
+                    "connected_account_id": "ca_mail_new",
+                },
+            )
+        raise AssertionError(str(request.url))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        service = ComposioConnectionService(
+            api_key="key",
+            base_url="https://composio.test/api/v3.1",
+            client=client,
+        )
+        result = await service.reconnect_link(
+            user_id="usr_alice",
+            account_id="ca_mail",
+            callback_url="https://opencrawl.example/dashboard/connections?reconnected=1",
+        )
+
+    assert posted["auth_config_id"] == "ac_mail"
+    assert posted["user_id"] == "usr_alice"
+    assert "alias" not in posted
+    assert result["redirect_url"].endswith("/reconnect")
+
+
+def test_public_connection_exposes_status_reason_but_not_secrets() -> None:
+    row = _connection("ca_alice", "github", "usr_alice")
+    row["status"] = "EXPIRED"
+    row["status_reason"] = "refresh token revoked"
+
+    public = _public_connection(row)
+
+    assert public["status"] == "EXPIRED"
+    assert public["status_reason"] == "refresh token revoked"
+    assert "credentials" not in public
