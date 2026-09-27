@@ -142,7 +142,16 @@ Usage events keep:
 
 The MCP HTTP response exposes `X-Credits-Reserved` before execution completes. Final settled cost is authoritative in the usage ledger.
 
-The settlement API already accepts an explicit `actual_credits` value. Current MCP calls settle the quoted reservation by default because provider/runtime unit reporting is the next implementation slice; tools that later report lower measured usage can release the unused reservation without changing the wallet contract.
+The settlement API accepts an explicit `actual_credits` value and the MCP gateway now carries a request-scoped execution meter.
+
+Measured settlement currently covers:
+
+- external phone-provider calls that were actually attempted;
+- caller public-search execution and the number of bounded evidence results returned;
+- raw Tool Mesh provider execution, so a provider surcharge is released when the provider never ran;
+- browser/sandbox runtime when the tool reserved timeout-based runtime headroom.
+
+Tools that do not yet expose reliable work units continue to settle their quoted reservation. The reservation remains a hard upper bound, so measured pricing can release unused credits but cannot unexpectedly exceed the preflight quote.
 
 ## Design rule for new capabilities
 

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from internet_hands.capability_economics import estimate_call, plan_privileges
+from internet_hands.capability_economics import (
+    estimate_call,
+    plan_privileges,
+    settle_measured_cost,
+)
 
 
 def test_every_plan_has_real_tool_calling_privileges() -> None:
@@ -348,3 +352,171 @@ def test_caller_evidence_breadth_scales_with_plan() -> None:
     assert builder.allowed is False
     assert "at most 15" in (builder.reason or "")
     assert pro.allowed is True
+
+
+
+def test_measured_caller_cost_releases_unused_result_budget() -> None:
+    settled = settle_measured_cost(
+        "phone_caller_lookup",
+        {
+            "number": "+14155552671",
+            "public_search": True,
+            "max_results": 8,
+        },
+        "builder",
+        reserved_credits=10,
+        execution_usage={
+            "counters": {
+                "public_search_call": 1,
+                "public_search_result": 3,
+            },
+            "provider_calls": {"brave": 1},
+        },
+        latency_ms=1200,
+    )
+    assert settled == 9
+
+
+def test_measured_caller_cost_refunds_search_when_provider_never_ran() -> None:
+    settled = settle_measured_cost(
+        "phone_caller_lookup",
+        {
+            "number": "+14155552671",
+            "public_search": True,
+            "max_results": 8,
+        },
+        "builder",
+        reserved_credits=10,
+        execution_usage={"counters": {}, "provider_calls": {}},
+        latency_ms=50,
+    )
+    assert settled == 4
+
+
+def test_measured_phone_cost_uses_only_providers_actually_called() -> None:
+    settled = settle_measured_cost(
+        "phone_number_lookup",
+        {
+            "number": "+14155552671",
+            "external": True,
+            "providers": ["veriphone", "abstract"],
+        },
+        "builder",
+        reserved_credits=6,
+        execution_usage={
+            "counters": {},
+            "provider_calls": {"veriphone": 1},
+        },
+        latency_ms=200,
+    )
+    assert settled == 4
+
+
+def test_measured_phone_cost_survives_raw_mesh_routing() -> None:
+    settled = settle_measured_cost(
+        "mesh_execute",
+        {
+            "ref": "phoneintel:lookup",
+            "arguments": {
+                "number": "+14155552671",
+                "external": True,
+                "providers": ["veriphone", "abstract"],
+            },
+        },
+        "builder",
+        reserved_credits=6,
+        execution_usage={
+            "counters": {},
+            "provider_calls": {"abstract": 1},
+        },
+        latency_ms=200,
+    )
+    assert settled == 4
+
+
+def test_measured_sandbox_runtime_can_release_timeout_headroom() -> None:
+    settled = settle_measured_cost(
+        "sandbox_exec",
+        {"timeout_ms": 180_000},
+        "pro",
+        reserved_credits=18,
+        execution_usage={"counters": {}, "provider_calls": {}},
+        latency_ms=12_000,
+    )
+    assert settled == 8
+
+
+
+def test_measured_raw_provider_refunds_surcharge_when_not_executed() -> None:
+    settled = settle_measured_cost(
+        "mesh_execute",
+        {
+            "ref": "apify:actor",
+            "arguments": {"query": "example"},
+        },
+        "pro",
+        reserved_credits=12,
+        execution_usage={"counters": {}, "provider_calls": {}},
+        latency_ms=25,
+    )
+    assert settled == 2
+
+
+def test_measured_raw_provider_keeps_surcharge_when_executed() -> None:
+    settled = settle_measured_cost(
+        "mesh_execute",
+        {
+            "ref": "apify:actor",
+            "arguments": {"query": "example"},
+        },
+        "pro",
+        reserved_credits=12,
+        execution_usage={
+            "counters": {},
+            "provider_calls": {"apify": 1},
+        },
+        latency_ms=500,
+    )
+    assert settled == 12
+
+
+def test_measured_firecrawl_provider_settles_to_its_actual_route() -> None:
+    settled = settle_measured_cost(
+        "mesh_execute",
+        {
+            "ref": "firecrawl:scrape",
+            "arguments": {"url": "https://example.com"},
+        },
+        "pro",
+        reserved_credits=7,
+        execution_usage={
+            "counters": {},
+            "provider_calls": {"firecrawl": 1},
+        },
+        latency_ms=500,
+    )
+    assert settled == 7
+
+
+def test_deep_caller_investigation_pricing_is_plan_bounded() -> None:
+    builder = estimate_call("phone_caller_investigate", {"number": "+14155552671", "max_sources": 3}, "builder")
+    assert builder.allowed is True
+    assert builder.credits == 13
+    too_deep = estimate_call("phone_caller_investigate", {"number": "+14155552671", "max_sources": 4}, "builder")
+    assert too_deep.allowed is False
+    assert "at most 3" in (too_deep.reason or "")
+
+
+def test_deep_caller_investigation_measured_settlement_refunds_unused_fetches() -> None:
+    settled = settle_measured_cost("phone_caller_investigate", {"number": "+14155552671", "max_sources": 3}, "builder", reserved_credits=13, execution_usage={"counters": {"public_search_call": 1, "public_search_result": 4, "caller_source_fetch": 1}, "provider_calls": {"nativeweb": 1}})
+    assert settled == 12
+
+
+def test_deep_caller_investigation_measured_settlement_survives_raw_mesh_route() -> None:
+    settled = settle_measured_cost("mesh_execute", {"ref": "callerresearch:investigate", "arguments": {"number": "+14155552671", "max_sources": 3}}, "builder", reserved_credits=13, execution_usage={"counters": {"public_search_call": 1, "public_search_result": 4, "caller_source_fetch": 1}, "provider_calls": {"callerresearch": 1, "nativeweb": 1}})
+    assert settled == 12
+
+
+def test_deep_caller_investigation_measured_settlement_survives_semantic_route() -> None:
+    settled = settle_measured_cost("mesh_capability_execute", {"capability": "phone.caller.investigate", "arguments": {"number": "+14155552671", "max_sources": 3}}, "builder", reserved_credits=13, execution_usage={"counters": {"public_search_call": 1, "public_search_result": 4, "caller_source_fetch": 1}, "provider_calls": {"callerresearch": 1, "nativeweb": 1}})
+    assert settled == 12

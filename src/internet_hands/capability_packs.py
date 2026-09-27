@@ -667,6 +667,29 @@ def _caller_capabilities() -> list[Capability]:
                 ),
             ),
         ),
+        Capability(
+            id="phone.caller.investigate",
+            name="Deep unknown-caller public investigation",
+            description=(
+                "Corroborate an unknown phone number across bounded public web sources, "
+                "fetch selected evidence pages, and report confidence without exposing "
+                "private subscriber records or raw page content."
+            ),
+            pack="phone",
+            tags=("phone", "caller", "investigation", "osint", "public-web", "corroboration"),
+            input_schema={"type": "object", "required": ["number"], "properties": {
+                "number": {"type": "string"}, "region": {"type": "string"},
+                "max_sources": {"type": "integer", "minimum": 1, "maximum": 12},
+                "telecom_external": {"type": "boolean"},
+                "telecom_providers": {"type": "array", "items": {"type": "string", "enum": ["veriphone", "abstract", "numverify", "twilio"]}},
+            }},
+            candidates=(CapabilityCandidate(
+                provider="callerresearch", ref="callerresearch:investigate", priority=10,
+                argument_map={"number": "number", "region": "region", "max_sources": "max_sources", "telecom_external": "telecom_external", "telecom_providers": "telecom_providers"},
+                passthrough_arguments=False,
+                note="First-party bounded public corroboration engine with source verification.",
+            ),),
+        ),
     ]
 
 

@@ -4,6 +4,7 @@ import os
 from typing import Any
 from urllib.parse import urlsplit
 
+from .execution_meter import record_provider_call, record_usage
 from .phone_intelligence import lookup_phone_intelligence
 from .tool_mesh import ToolDescriptor
 from .web_search import SearchKind, brave_search
@@ -123,12 +124,15 @@ async def lookup_caller_intelligence(
         else:
             search_status = "completed"
             try:
+                record_usage("public_search_call")
+                record_provider_call("brave")
                 record = await brave_search(
                     f'"{e164}"',
                     kind=SearchKind.WEB,
                     count=limit,
                 )
                 evidence = _result_rows(record, limit)
+                record_usage("public_search_result", len(evidence))
             except Exception as exc:  # noqa: BLE001 - public search provider boundary
                 search_status = "failed"
                 search_error = f"{type(exc).__name__}: {exc}"[:300]

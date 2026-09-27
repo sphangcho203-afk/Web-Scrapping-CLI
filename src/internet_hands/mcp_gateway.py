@@ -10,7 +10,13 @@ from typing import Any
 from starlette.responses import JSONResponse
 
 from .auth import authenticate_secret, current_auth
+from .capability_economics import settle_measured_cost
 from .control_store import AuthIdentity, ControlError, ControlStore
+from .execution_meter import (
+    execution_usage_snapshot,
+    reset_execution_meter,
+    start_execution_meter,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +123,7 @@ class MCPGatewayASGI:
 
         started = time.monotonic()
         token = None
+        meter_token = None
         credits_reserved: int | None = None
         if identity:
             token = current_auth.set(identity)
@@ -129,6 +136,7 @@ class MCPGatewayASGI:
                         arguments=arguments,
                         input_bytes=len(body),
                     )
+                    meter_token = start_execution_meter()
                 except ControlError as exc:
                     current_auth.reset(token)
                     response = JSONResponse(
@@ -163,12 +171,36 @@ class MCPGatewayASGI:
         finally:
             if identity and tool_name:
                 elapsed = int((time.monotonic() - started) * 1000)
+                usage = execution_usage_snapshot() if meter_token is not None else {}
+                if usage:
+                    usage["elapsed_ms"] = elapsed
+
+                actual_credits: int | None = None
+                if credits_reserved is not None:
+                    try:
+                        actual_credits = settle_measured_cost(
+                            tool_name,
+                            arguments,
+                            identity.plan_slug,
+                            reserved_credits=credits_reserved,
+                            execution_usage=usage,
+                            latency_ms=elapsed,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning(
+                            "measured pricing failed for request %s; using reservation: %s",
+                            request_id,
+                            exc,
+                        )
+
                 try:
                     self.store.finish_usage(
                         request_id,
                         status="ok" if status_code < 400 else "error",
                         latency_ms=elapsed,
                         output_bytes=output_bytes,
+                        actual_credits=actual_credits,
+                        execution_usage=usage or None,
                     )
                 except Exception as exc:  # noqa: BLE001
                     # Metering must never corrupt the already-produced MCP protocol response.
@@ -177,6 +209,9 @@ class MCPGatewayASGI:
                         request_id,
                         exc,
                     )
+
+            if meter_token is not None:
+                reset_execution_meter(meter_token)
             if token is not None:
                 current_auth.reset(token)
 
