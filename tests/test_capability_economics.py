@@ -777,3 +777,130 @@ def test_search_extract_reservation_is_bounded_by_requested_result_count() -> No
     )
     assert quote.allowed is True
     assert quote.credits == 28
+
+
+
+def test_tavily_reservation_tracks_requested_upstream_work() -> None:
+    basic = estimate_call(
+        "mesh_execute",
+        {
+            "ref": "tavily:search",
+            "arguments": {"query": "agent systems", "search_depth": "basic"},
+        },
+        "pro",
+    )
+    advanced = estimate_call(
+        "mesh_execute",
+        {
+            "ref": "tavily:search",
+            "arguments": {"query": "agent systems", "search_depth": "advanced"},
+        },
+        "pro",
+    )
+    extract = estimate_call(
+        "mesh_execute",
+        {
+            "ref": "tavily:extract",
+            "arguments": {
+                "urls": [f"https://example.com/{index}" for index in range(10)],
+                "extract_depth": "basic",
+            },
+        },
+        "pro",
+    )
+    mapped = estimate_call(
+        "mesh_execute",
+        {
+            "ref": "tavily:map",
+            "arguments": {"url": "https://example.com", "limit": 20},
+        },
+        "pro",
+    )
+    crawl = estimate_call(
+        "mesh_execute",
+        {
+            "ref": "tavily:crawl",
+            "arguments": {
+                "url": "https://example.com",
+                "limit": 20,
+                "extract_depth": "advanced",
+            },
+        },
+        "pro",
+    )
+
+    assert basic.allowed is True and basic.credits == 42
+    assert advanced.allowed is True and advanced.credits == 82
+    assert extract.allowed is True and extract.credits == 82
+    assert mapped.allowed is True and mapped.credits == 82
+    # map: 2 upstream credits; advanced extraction: 8 upstream credits.
+    assert crawl.allowed is True and crawl.credits == 402
+
+
+def test_tavily_measured_settlement_uses_reported_api_credits() -> None:
+    args = {
+        "ref": "tavily:search",
+        "arguments": {"query": "agent systems", "search_depth": "advanced"},
+    }
+    quote = estimate_call("mesh_execute", args, "pro")
+    assert quote.credits == 82
+    assert settle_measured_cost(
+        "mesh_execute",
+        args,
+        "pro",
+        reserved_credits=quote.credits,
+        execution_usage={
+            "provider_calls": {"tavily": 1},
+            "counters": {"tavily_credits": 1},
+        },
+    ) == 42
+
+
+def test_exa_reserves_headroom_and_settles_from_reported_dollars() -> None:
+    args = {
+        "ref": "exa:search",
+        "arguments": {"query": "agent systems", "numResults": 25},
+    }
+    quote = estimate_call("mesh_execute", args, "pro")
+    assert quote.allowed is True
+    assert quote.credits == 502
+
+    # $0.007 == 7,000 micro-USD; at 5,000 wallet units/USD that is 35 units.
+    assert settle_measured_cost(
+        "mesh_execute",
+        args,
+        "pro",
+        reserved_credits=quote.credits,
+        execution_usage={
+            "provider_calls": {"exa": 1},
+            "counters": {"exa_cost_microusd": 7000},
+        },
+    ) == 37
+
+
+def test_provider_work_bounds_reject_unquotable_fanout() -> None:
+    tavily = estimate_call(
+        "mesh_execute",
+        {
+            "ref": "tavily:extract",
+            "arguments": {
+                "urls": [f"https://example.com/{index}" for index in range(21)],
+            },
+        },
+        "pro",
+    )
+    exa = estimate_call(
+        "mesh_execute",
+        {
+            "ref": "exa:contents",
+            "arguments": {
+                "urls": [f"https://example.com/{index}" for index in range(21)],
+            },
+        },
+        "pro",
+    )
+
+    assert tavily.allowed is False
+    assert "1 to 20" in (tavily.reason or "")
+    assert exa.allowed is False
+    assert "1 to 20" in (exa.reason or "")
