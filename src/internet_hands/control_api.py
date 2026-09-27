@@ -34,7 +34,12 @@ from .control_store import (
 )
 from .mailer import mail_provider, resend_configured, smtp_configured
 from .policy import validate_public_http_url
-from .remote_mcp_provider import AUTH_TYPES, TRANSPORTS, parse_curl_connection
+from .remote_mcp_provider import (
+    AUTH_TYPES,
+    TRANSPORTS,
+    parse_curl_connection,
+    probe_saved_connection,
+)
 from .supabase_auth import configuration_status as supabase_auth_configuration_status
 
 router = APIRouter()
@@ -554,6 +559,52 @@ async def create_connection_endpoint(request: Request):
         raise HTTPException(status_code=400, detail="this authentication type requires credential headers")
     config = {"header_names": list(secret_config["headers"]), "oauth": body.get("oauth") if auth_type == "oauth" and isinstance(body.get("oauth"), dict) else None}
     return {"connection": store.create_connection(user_id=user["id"], name=name, endpoint_url=endpoint_url, transport=transport, auth_type=auth_type, config=config, secret_config=secret_config)}
+
+
+@router.post("/api/connections/{connection_id}/test")
+async def test_connection_endpoint(connection_id: str, request: Request):
+    user = _require_verified(_require_user(request))
+    connection = store.get_connection_private(user["id"], connection_id)
+    if not connection:
+        raise HTTPException(status_code=404, detail="connection not found")
+    try:
+        result = await probe_saved_connection(connection)
+    except TimeoutError:
+        error = "MCP handshake timed out"
+        store.update_connection_check(
+            user["id"], connection_id, status="error", tool_count=0, error=error
+        )
+        return {"ok": False, "status": "error", "error": error, "tool_count": 0, "tools": []}
+    except Exception as exc:  # noqa: BLE001 - health probe must persist a bounded failure state
+        detail = str(exc).strip()
+        error = (detail if detail else exc.__class__.__name__)[:240]
+        store.update_connection_check(
+            user["id"], connection_id, status="error", tool_count=0, error=error
+        )
+        return {"ok": False, "status": "error", "error": error, "tool_count": 0, "tools": []}
+
+    tool_count = int(result.get("tool_count") or 0)
+    store.update_connection_check(
+        user["id"], connection_id, status="ok", tool_count=tool_count, error=None
+    )
+    return {
+        "ok": True,
+        "status": "ok",
+        "tool_count": tool_count,
+        "tools": result.get("tools") or [],
+        "source": result.get("source") or {},
+    }
+
+
+@router.patch("/api/connections/{connection_id}")
+async def update_connection_endpoint(connection_id: str, request: Request):
+    user = _require_verified(_require_user(request))
+    body = await request.json()
+    if "enabled" not in body or not isinstance(body["enabled"], bool):
+        raise HTTPException(status_code=400, detail="enabled boolean is required")
+    if not store.set_connection_enabled(user["id"], connection_id, body["enabled"]):
+        raise HTTPException(status_code=404, detail="connection not found")
+    return {"ok": True, "enabled": body["enabled"]}
 
 
 @router.delete("/api/connections/{connection_id}")
