@@ -491,7 +491,7 @@ class ControlStore:
                             email_verified=(email_verified OR %s),
                             updated_at=now()
                         WHERE id=%s
-                        RETURNING *
+                        RETURNING id,email,display_name,avatar_url,email_verified,created_at,updated_at
                         """,
                         (
                             normalized_provider,
@@ -513,7 +513,7 @@ class ControlStore:
                         INSERT INTO ih_users(
                             id,email,display_name,auth_provider,auth_subject,email_verified
                         ) VALUES (%s,%s,%s,%s,%s,%s)
-                        RETURNING *
+                        RETURNING id,email,display_name,avatar_url,email_verified,created_at,updated_at
                         """,
                         (
                             user_id,
