@@ -13,15 +13,26 @@ def test_curated_backend_catalog_contains_expected_engines():
     assert {
         "playwright-mcp",
         "crawlee-python",
+        "crawlee-js",
         "scrapy",
         "crawl4ai",
+        "colly",
+        "katana",
         "trafilatura",
+        "readability",
+        "scrapegraph-ai",
         "firecrawl",
     }.issubset(names)
 
 
 def test_firecrawl_is_not_cloned_by_default():
     assert get_backend("firecrawl").clone_by_default is False
+
+
+def test_default_clone_set_excludes_copyleft_backends():
+    default_specs = [spec for spec in backend_specs() if spec.clone_by_default]
+    assert default_specs
+    assert all("AGPL" not in spec.license and "GPL" not in spec.license for spec in default_specs)
 
 
 def test_playwright_mcp_config_is_portable():
