@@ -9,7 +9,7 @@ from .adapters import AdapterError, capture_with_backend
 from .backends import module_available
 from .browser import render_page
 from .discovery import discover_from_html, discover_frontier_urls, discover_public_interfaces
-from .execution_meter import record_provider_call, record_usage
+from .execution_meter import record_usage
 from .extractor import extract_document
 from .fetcher import fetch_url
 from .models import BrowserResult, FetchResult
@@ -441,7 +441,6 @@ class IntelligenceFabricProvider:
     ) -> dict[str, Any]:
         del account, wait_seconds, options
         await self.describe(tool_id)
-        record_provider_call(self.name)
 
         if tool_id == "smart-fetch":
             data = await resilient_public_fetch(
@@ -457,10 +456,11 @@ class IntelligenceFabricProvider:
             return {"status": "completed", "data": data}
 
         if tool_id == "discover-interfaces":
-            record_usage("intelligence_http_requests")
+            probe_openapi = bool(arguments.get("probe_openapi", False))
+            record_usage("intelligence_http_requests", 2 + (6 if probe_openapi else 0))
             data = await discover_public_interfaces(
                 str(arguments.get("url") or ""),
-                probe_openapi=bool(arguments.get("probe_openapi", False)),
+                probe_openapi=probe_openapi,
             )
             return {"status": "completed", "data": data}
 
