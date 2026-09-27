@@ -1,10 +1,38 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any
+
+
+_SENSITIVE_QUERY_RE = re.compile(
+    r"(?i)([?&](?:api[_-]?key|key|token|access_token|client_secret|secret|"
+    r"signature|password|auth|authorization)=)([^&#\\s]+)"
+)
+_SENSITIVE_ASSIGNMENT_RE = re.compile(
+    r"(?i)\\b(api[_-]?key|access[_-]?token|client[_-]?secret|password|"
+    r"authorization)\\s*[:=]\\s*([^\\s,&]+)"
+)
+_BEARER_RE = re.compile(r"(?i)\\bbearer\\s+[A-Za-z0-9._~+/=-]+")
+
+
+def safe_provider_error(value: Any, *, maximum: int = 500) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    text = _BEARER_RE.sub("Bearer [REDACTED]", text)
+    text = _SENSITIVE_QUERY_RE.sub(
+        lambda match: f"{match.group(1)}[REDACTED]",
+        text,
+    )
+    text = _SENSITIVE_ASSIGNMENT_RE.sub(
+        lambda match: f"{match.group(1)}=[REDACTED]",
+        text,
+    )
+    return text[: max(1, maximum)] or None
 
 
 def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
@@ -100,7 +128,7 @@ def classify_provider_failure(
 ) -> ProviderFailure:
     code = _status_code(exc)
     retry_after = _retry_after(exc)
-    detail = str(error if error is not None else exc or "").strip()[:500] or None
+    detail = safe_provider_error(error if error is not None else exc)
     normalized = (detail or "").casefold()
     status_name = str(status or "").strip().casefold()
 
