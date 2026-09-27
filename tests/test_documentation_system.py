@@ -16,13 +16,15 @@ def _docs() -> dict[str, list[str]]:
     return json.loads(raw[len(prefix) : -1])
 
 
-def test_detailed_docs_asset_is_loaded_before_runtime_and_served() -> None:
+def test_detailed_docs_are_composed_before_app_in_single_runtime() -> None:
     index = (WEB / "index.html").read_text(encoding="utf-8")
     site = (ROOT / "src/internet_hands/site.py").read_text(encoding="utf-8")
 
-    assert "/assets/docs-content.js" in index
-    assert index.index("/assets/docs-content.js") < index.index("/assets/app.js")
-    assert '"docs-content.js": "application/javascript"' in site
+    assert index.count('<script src="/assets/') == 1
+    assert '/assets/app.js' in index
+    assert 'docs = WEB_ROOT / "docs-content.js"' in site
+    assert "sources = [legal, docs, runtime, usage, monitors]" in site
+    assert '"docs-content.js": "application/javascript"' not in site
     assert 'window.OPENCRAWL_DOCS || {' in (WEB / "app.js").read_text(encoding="utf-8")
 
 
