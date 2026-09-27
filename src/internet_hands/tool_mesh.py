@@ -11,6 +11,7 @@ from typing import Any, Protocol
 
 from .execution_meter import record_provider_call, record_provider_outcome
 from .provider_errors import (
+    ProviderCapacityError,
     classify_provider_failure,
     read_retry_budget,
     retry_delay_seconds,
@@ -213,10 +214,15 @@ class ToolMesh:
         timeout: float,
     ) -> asyncio.Semaphore:
         semaphore = self._provider_semaphores[provider_name]
-        await asyncio.wait_for(
-            semaphore.acquire(),
-            timeout=max(0.001, timeout),
-        )
+        try:
+            await asyncio.wait_for(
+                semaphore.acquire(),
+                timeout=max(0.001, timeout),
+            )
+        except TimeoutError as exc:
+            raise ProviderCapacityError(
+                "provider concurrency queue deadline exceeded"
+            ) from exc
         return semaphore
 
     @staticmethod
@@ -446,11 +452,11 @@ class ToolMesh:
                 if remaining <= 0:
                     raise TimeoutError("provider execution deadline exceeded")
                 provider_timeout = max(1, min(int(remaining), int(total_timeout)))
-                record_provider_call(provider_name)
                 semaphore = await self._acquire_provider_slot(
                     provider_name,
                     timeout=remaining,
                 )
+                record_provider_call(provider_name)
                 try:
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
@@ -476,6 +482,11 @@ class ToolMesh:
                     else type(exc).__name__
                 )
                 failure = classify_provider_failure(exc=exc, error=error_text)
+                event_status = (
+                    "capacity_limited"
+                    if failure.category == "capacity_limited"
+                    else "failed"
+                )
                 delay = (
                     retry_delay_seconds(failure, attempt=attempt)
                     if not descriptor.side_effecting and attempt < max_attempts
@@ -484,7 +495,7 @@ class ToolMesh:
                 attempt_rows.append(
                     {
                         "attempt": attempt,
-                        "status": "failed",
+                        "status": event_status,
                         "duration_ms": duration_ms,
                         "error_class": failure.category,
                         "retryable": failure.retryable,
@@ -494,7 +505,7 @@ class ToolMesh:
                 record_provider_outcome(
                     provider_name,
                     ref=ref,
-                    status="failed",
+                    status=event_status,
                     duration_ms=duration_ms,
                     error=error_text,
                     error_class=failure.category,
@@ -503,7 +514,7 @@ class ToolMesh:
                 )
                 provider_reliability.record(
                     provider_name,
-                    status="failed",
+                    status=event_status,
                     duration_ms=duration_ms,
                     error=error_text,
                     error_class=failure.category,
