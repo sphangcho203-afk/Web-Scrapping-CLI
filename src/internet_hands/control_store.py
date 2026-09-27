@@ -267,6 +267,12 @@ CREATE TABLE IF NOT EXISTS ih_tool_costs (
 );
 """
 
+# Internal metering remains integer-based for exact reservations and settlement.
+# The product-facing wallet exposes these units as USD service balance.
+WALLET_UNITS_PER_USD = 5_000
+CUSTOM_TOPUP_MIN_USD_CENTS = 100
+CUSTOM_TOPUP_MAX_USD_CENTS = 50_000
+
 FREE_MONTHLY_CREDITS = 250
 PLAN_ROWS = [
     ("free", "Free", 0, FREE_MONTHLY_CREDITS, 10, 1, 1, 1, False, False, 0),
@@ -1415,7 +1421,12 @@ class ControlStore:
                 """,
                 (user_id, max(1, min(limit, 500))),
             )
-            return {"wallet": dict(wallet) if wallet else None, "ledger": [dict(r) for r in cur.fetchall()]}
+            return {
+                "wallet": dict(wallet) if wallet else None,
+                "ledger": [dict(r) for r in cur.fetchall()],
+                "display_currency": "USD",
+                "wallet_units_per_usd": WALLET_UNITS_PER_USD,
+            }
 
     def list_connections(self, user_id: str) -> list[dict[str, Any]]:
         self.ensure_schema()
@@ -1626,6 +1637,7 @@ class ControlStore:
         purpose: str,
         plan_slug: str | None,
         credit_pack_slug: str | None,
+        currency: str = "INR",
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         self.ensure_schema()
@@ -1634,13 +1646,13 @@ class ControlStore:
             cur.execute(
                 """
                 INSERT INTO ih_payments(
-                    id,user_id,order_id,amount_paise,status,purpose,plan_slug,credit_pack_slug,metadata
-                ) VALUES (%s,%s,%s,%s,'created',%s,%s,%s,%s::jsonb)
+                    id,user_id,order_id,amount_paise,currency,status,purpose,plan_slug,credit_pack_slug,metadata
+                ) VALUES (%s,%s,%s,%s,%s,'created',%s,%s,%s,%s::jsonb)
                 RETURNING *
                 """,
                 (
-                    payment_row_id, user_id, order_id, amount_paise, purpose, plan_slug,
-                    credit_pack_slug, json.dumps(metadata or {}),
+                    payment_row_id, user_id, order_id, amount_paise, currency.upper(), purpose,
+                    plan_slug, credit_pack_slug, json.dumps(metadata or {}),
                 ),
             )
             row = cur.fetchone()
@@ -1667,24 +1679,64 @@ class ControlStore:
                     return dict(payment)
                 user_id = payment["user_id"]
                 if payment["purpose"] == "credits":
-                    cur.execute(
-                        "SELECT credits FROM ih_credit_packs WHERE slug=%s AND active=true",
-                        (payment["credit_pack_slug"],),
-                    )
-                    pack = cur.fetchone()
-                    if not pack:
-                        raise ControlError("credit_pack_not_found", "credit pack not found", 404)
-                    credits = int(pack["credits"])
+                    metadata = dict(payment.get("metadata") or {})
+                    pack_slug = payment.get("credit_pack_slug")
+                    if pack_slug:
+                        cur.execute(
+                            "SELECT credits FROM ih_credit_packs WHERE slug=%s AND active=true",
+                            (pack_slug,),
+                        )
+                        pack = cur.fetchone()
+                        if not pack:
+                            raise ControlError("credit_pack_not_found", "credit pack not found", 404)
+                        credits = int(pack["credits"])
+                        topup_mode = "preset"
+                    else:
+                        credits = int(metadata.get("wallet_units") or 0)
+                        usd_cents = int(metadata.get("wallet_usd_cents") or 0)
+                        if credits <= 0 or usd_cents <= 0:
+                            raise ControlError(
+                                "invalid_custom_topup",
+                                "custom wallet top-up metadata is invalid",
+                                409,
+                            )
+                        expected_units = usd_cents * WALLET_UNITS_PER_USD // 100
+                        if credits != expected_units:
+                            raise ControlError(
+                                "wallet_amount_mismatch",
+                                "custom wallet top-up amount does not match the configured denomination",
+                                409,
+                            )
+                        topup_mode = "custom"
                     cur.execute(
                         "UPDATE ih_wallets SET purchased_credits=purchased_credits+%s,updated_at=now() WHERE user_id=%s",
                         (credits, user_id),
                     )
                     cur.execute(
                         """
-                        INSERT INTO ih_credit_ledger(id,user_id,amount,bucket,kind,source,reference_id)
-                        VALUES (%s,%s,%s,'purchased','purchase','razorpay',%s)
+                        INSERT INTO ih_credit_ledger(
+                            id,user_id,amount,bucket,kind,source,reference_id,metadata
+                        )
+                        VALUES (%s,%s,%s,'purchased','purchase','razorpay',%s,%s::jsonb)
                         """,
-                        (self._new_id("led"), user_id, credits, order_id),
+                        (
+                            self._new_id("led"),
+                            user_id,
+                            credits,
+                            order_id,
+                            json.dumps(
+                                {
+                                    "display_currency": "USD",
+                                    "wallet_units_per_usd": WALLET_UNITS_PER_USD,
+                                    "topup_mode": topup_mode,
+                                    "payment_currency": str(payment.get("currency") or "INR"),
+                                    "payment_amount_minor": int(payment.get("amount_paise") or 0),
+                                    "wallet_usd_cents": int(metadata.get("wallet_usd_cents") or 0)
+                                    if topup_mode == "custom"
+                                    else None,
+                                }
+                            ),
+                        ),
                     )
                 elif payment["purpose"] == "subscription":
                     plan_slug = payment["plan_slug"]
