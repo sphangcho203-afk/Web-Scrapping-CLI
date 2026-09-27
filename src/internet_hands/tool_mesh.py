@@ -165,6 +165,15 @@ class ToolMesh:
             minimum=1,
             maximum=64,
         )
+        self.provider_status_cache_seconds = _env_int(
+            "OPENCRAWL_PROVIDER_STATUS_CACHE_SECONDS",
+            3,
+            minimum=0,
+            maximum=30,
+        )
+        self._provider_status_cache: dict[str, dict[str, Any]] | None = None
+        self._provider_status_cache_at = 0.0
+        self._provider_status_lock = asyncio.Lock()
         self._provider_semaphores = {
             name: asyncio.Semaphore(self._provider_concurrency_limit(name))
             for name in self.providers
@@ -263,35 +272,69 @@ class ToolMesh:
             "preview": raw[: self.max_response_bytes].decode("utf-8", errors="replace"),
         }
 
-    async def provider_status(self) -> dict[str, Any]:
-        async def one(name: str, provider: ToolProvider) -> tuple[str, dict[str, Any]]:
-            try:
-                value = await asyncio.wait_for(
-                    provider.status(),
-                    timeout=float(self.discovery_timeout_seconds),
-                )
-            except TimeoutError:
-                value = {
-                    "configured": False,
-                    "searchable": False,
-                    "executable": False,
-                    "error": "provider status timed out",
-                    "error_class": "timeout",
-                }
-            except Exception as exc:  # noqa: BLE001 - isolate external provider failures
-                value = {
-                    "configured": False,
-                    "searchable": False,
-                    "executable": False,
-                    "error": str(exc)[:500],
-                    "error_class": type(exc).__name__,
-                }
-            return name, value
+    async def provider_status(self, *, force: bool = False) -> dict[str, Any]:
+        now = time.monotonic()
+        if (
+            not force
+            and self.provider_status_cache_seconds > 0
+            and self._provider_status_cache is not None
+            and now - self._provider_status_cache_at < self.provider_status_cache_seconds
+        ):
+            return {
+                name: dict(value)
+                for name, value in self._provider_status_cache.items()
+            }
 
-        rows = await asyncio.gather(
-            *(one(name, provider) for name, provider in self.providers.items())
-        )
-        return {name: value for name, value in rows}
+        async with self._provider_status_lock:
+            now = time.monotonic()
+            if (
+                not force
+                and self.provider_status_cache_seconds > 0
+                and self._provider_status_cache is not None
+                and now - self._provider_status_cache_at < self.provider_status_cache_seconds
+            ):
+                return {
+                    name: dict(value)
+                    for name, value in self._provider_status_cache.items()
+                }
+
+            async def one(
+                name: str,
+                provider: ToolProvider,
+            ) -> tuple[str, dict[str, Any]]:
+                try:
+                    value = await asyncio.wait_for(
+                        provider.status(),
+                        timeout=float(self.discovery_timeout_seconds),
+                    )
+                except TimeoutError:
+                    value = {
+                        "configured": False,
+                        "searchable": False,
+                        "executable": False,
+                        "error": "provider status timed out",
+                        "error_class": "timeout",
+                    }
+                except Exception as exc:  # noqa: BLE001 - isolate external provider failures
+                    value = {
+                        "configured": False,
+                        "searchable": False,
+                        "executable": False,
+                        "error": str(exc)[:500],
+                        "error_class": type(exc).__name__,
+                    }
+                return name, value
+
+            rows = await asyncio.gather(
+                *(one(name, provider) for name, provider in self.providers.items())
+            )
+            result = {name: value for name, value in rows}
+            self._provider_status_cache = {
+                name: dict(value)
+                for name, value in result.items()
+            }
+            self._provider_status_cache_at = time.monotonic()
+            return result
 
     async def search(
         self,
