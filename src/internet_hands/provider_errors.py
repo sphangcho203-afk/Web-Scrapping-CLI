@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any
 
-
 _SENSITIVE_QUERY_RE = re.compile(
     r"(?i)([?&](?:api[_-]?key|key|token|access_token|client_secret|secret|"
     r"signature|password|auth|authorization)=)([^&#\\s]+)"
