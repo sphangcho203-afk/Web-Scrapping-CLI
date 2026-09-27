@@ -176,3 +176,69 @@ async def test_steam_generic_game_intelligence_routes() -> None:
     assert current["data"]["response"]["player_count"] == 123456
     assert catalog["data"]["response"]["apps"][0]["appid"] == 730
     assert len(seen) == 4
+
+
+
+@pytest.mark.asyncio
+async def test_riot_challenges_spectator_and_status_routes_are_allowlisted() -> None:
+    seen: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        assert request.url.host == "sg2.api.riotgames.com"
+        assert request.headers["x-riot-token"] == "riot-secret"
+        if request.url.path.endswith("/player-data/PUUID123"):
+            return httpx.Response(200, json={"challenges": []})
+        if request.url.path.endswith("/active-games/by-summoner/PUUID123"):
+            return httpx.Response(200, json={"gameId": 123})
+        if request.url.path.endswith("/featured-games"):
+            return httpx.Response(200, json={"gameList": []})
+        if request.url.path.endswith("/lol/status/v4/platform-data"):
+            return httpx.Response(200, json={"maintenances": [], "incidents": []})
+        raise AssertionError(str(request.url))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = RiotGamingProvider(
+            api_key="riot-secret", client=client, validate_urls=False
+        )
+        challenges = await provider.execute(
+            "lol-challenges-player",
+            {"platform": "sg2", "puuid": "PUUID123"},
+        )
+        live = await provider.execute(
+            "lol-live-game",
+            {"platform": "sg2", "puuid": "PUUID123"},
+        )
+        featured = await provider.execute("lol-featured-games", {"platform": "sg2"})
+        status = await provider.execute("lol-status", {"platform": "sg2"})
+
+    assert challenges["data"]["challenges"] == []
+    assert live["data"]["gameId"] == 123
+    assert featured["data"]["gameList"] == []
+    assert status["data"]["incidents"] == []
+    assert len(seen) == 4
+
+
+@pytest.mark.asyncio
+async def test_riot_tft_live_and_status_routes() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "sg2.api.riotgames.com"
+        if "/lol/spectator/tft/v5/active-games/by-puuid/" in request.url.path:
+            assert request.url.path.endswith("/PUUID123")
+            return httpx.Response(200, json={"gameId": 88})
+        if request.url.path.endswith("/tft/status/v1/platform-data"):
+            return httpx.Response(200, json={"maintenances": [], "incidents": []})
+        raise AssertionError(str(request.url))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = RiotGamingProvider(
+            api_key="riot-secret", client=client, validate_urls=False
+        )
+        live = await provider.execute(
+            "tft-live-game",
+            {"platform": "sg2", "puuid": "PUUID123"},
+        )
+        status = await provider.execute("tft-status", {"platform": "sg2"})
+
+    assert live["data"]["gameId"] == 88
+    assert status["data"]["maintenances"] == []
