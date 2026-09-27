@@ -764,6 +764,8 @@ class ControlStore:
             account["capability_privileges"] = plan_privileges(
                 str(account.get("plan_slug") or "free")
             ).to_dict()
+            account["display_currency"] = "USD"
+            account["wallet_units_per_usd"] = WALLET_UNITS_PER_USD
             return account
 
     def create_api_key(
