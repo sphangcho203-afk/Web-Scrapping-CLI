@@ -18,6 +18,7 @@ from .gaming_extra_providers import build_extra_gaming_providers
 from .gaming_profiles import build_gaming_profile_plan
 from .gaming_providers import build_gaming_providers
 from .github_public_provider import GitHubPublicProvider
+from .intelligence_fabric import IntelligenceFabricProvider
 from .mcp_server import sandbox_mcp
 from .native_sandbox_provider import NativeSandboxToolProvider
 from .native_web_provider import NativeWebToolProvider
@@ -40,6 +41,7 @@ def get_tool_mesh() -> ToolMesh:
             FirecrawlToolProvider(),
             NativeWebToolProvider(),
             GitHubPublicProvider(),
+            IntelligenceFabricProvider(),
             GameCoreProvider(),
             PublicGameProvider(),
             PublicDataProvider(),
