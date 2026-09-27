@@ -926,9 +926,9 @@ function openRunInspector(event) {
               <div class="ih-operation-footer"><span>Discover</span><span>Route</span><span>Execute</span><b>Inspect</b></div>
             </article>
             <div class="ih-operation-stack">
-              <article><span>SEARCH + FETCH</span><h3>Public web intelligence</h3><p>Discover, fetch, crawl and preserve provenance instead of returning a dead blob of text.</p></article>
-              <article><span>BROWSER</span><h3>Dynamic web execution</h3><p>Use controlled Chromium sessions for pages that need a real browser, state, clicks or extraction.</p></article>
-              <article><span>TOOL MESH</span><h3>APIs and remote MCPs</h3><p>Route to external capabilities without loading every provider schema into the model at once.</p></article>
+              <article><span>SEARCH + FETCH</span><h3>Public web intelligence</h3><p>Discover, fetch, crawl and preserve provenance instead of returning a dead blob of text.</p><a class="ih-text-link" data-link href="/docs/capabilities#web">How web intelligence works ${icon('arrow')}</a></article>
+              <article><span>BROWSER</span><h3>Dynamic web execution</h3><p>Use controlled Chromium sessions for pages that need a real browser, state, clicks or extraction.</p><a class="ih-text-link" data-link href="/docs/capabilities#browser">When browser execution is appropriate ${icon('arrow')}</a></article>
+              <article><span>TOOL MESH</span><h3>APIs and remote MCPs</h3><p>Route to external capabilities without loading every provider schema into the model at once.</p><a class="ih-text-link" data-link href="/docs/tool-mesh">How routing and execution work ${icon('arrow')}</a></article>
             </div>
           </div>
         </div>
