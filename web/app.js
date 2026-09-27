@@ -1094,12 +1094,14 @@ function openRunInspector(event) {
 
   dashIntegrations = async function dashIntegrationsV3() {
     const endpoint=location.origin+'/mcp';
-    const [d,connectedData]=await Promise.all([
+    const [d,connectedData,catalogData]=await Promise.all([
       api('/api/connections'),
-      api('/api/integrations/apps').catch(error=>({configured:false,apps:[],connections:[],error:error.message}))
+      api('/api/integrations/apps').catch(error=>({configured:false,apps:[],connections:[],error:error.message})),
+      api('/api/integrations/catalog?limit=100').catch(error=>({configured:false,apps:[],error:error.message}))
     ]);
     const cs=d.connections||[];
     const connectedApps=connectedData.apps||[];
+    const catalogApps=catalogData.apps||[];
     const appAccounts=connectedData.connections||[];
     const accountByToolkit=appAccounts.reduce((map,item)=>{
       const key=String(item.toolkit||'').toLowerCase();
@@ -1107,8 +1109,15 @@ function openRunInspector(event) {
       map[key].push(item);
       return map;
     },{});
+    const appMeta=new Map(connectedApps.map(item=>[String(item.toolkit||'').toLowerCase(),item]));
+    catalogApps.forEach(item=>{
+      const key=String(item.toolkit||'').toLowerCase();
+      if(key&&!appMeta.has(key))appMeta.set(key,item);
+    });
+    const accountToolkits=[...new Set(appAccounts.map(x=>String(x.toolkit||'').toLowerCase()).filter(Boolean))];
+    const accountApps=accountToolkits.map(toolkit=>appMeta.get(toolkit)||{toolkit,name:toolkit.replaceAll('_',' '),auth_configs:[],auth_schemes:[]});
     const connectedAppCards=connectedData.configured
-      ? (connectedApps.length?connectedApps.map(appItem=>{
+      ? (accountApps.length?accountApps.map(appItem=>{
           const toolkit=String(appItem.toolkit||'').toLowerCase();
           const accounts=accountByToolkit[toolkit]||[];
           const active=accounts.filter(x=>String(x.status||'').toUpperCase()==='ACTIVE').length;
@@ -1129,8 +1138,8 @@ function openRunInspector(event) {
             return '<article><div><b>'+esc(alias)+'</b><code>'+esc(a.id)+'</code>'+reason+'</div><span class="ihx-state '+tone+'">'+dot(status==='ACTIVE'?'ok':status==='EXPIRED'||status==='FAILED'?'warn':'idle')+' '+esc(status)+'</span><div>'+action+'<button class="btn quiet small" data-disconnect-app="'+esc(a.id)+'">Disconnect</button></div></article>';
           }).join('')+'</div>':'<p class="connected-app-empty">No account connected yet. Connecting opens the provider authorization flow; credentials stay with the connection provider and never pass through the browser as raw tokens.</p>';
           return '<article class="connected-app-card"><header><div class="connected-app-mark">'+esc((appItem.name||toolkit||'?').slice(0,1).toUpperCase())+'</div><div><small>'+esc(toolkit)+'</small><h3>'+esc(appItem.name||toolkit)+'</h3><p>'+esc((appItem.auth_schemes||[]).join(' · ')||'Managed connection')+'</p></div><span class="ihx-state '+state+'">'+dot(active?'ok':expired?'warn':'idle')+' '+esc(stateLabel)+'</span></header>'+accountRows+'<footer><button class="btn primary small" data-connect-app="'+esc(toolkit)+'" data-app-name="'+esc(appItem.name||toolkit)+'" data-auth-configs="'+configAttr+'" data-allow-multiple="'+String(accounts.some(x=>String(x.status||'').toUpperCase()==='ACTIVE'))+'">'+(accounts.length?'Connect another account':'Connect account')+'</button><small>When active, this toolkit becomes eligible for user-scoped Tool Mesh discovery and execution.</small></footer></article>';
-        }).join(''):'<div class="mcp-empty"><b>No connected-app auth configs are enabled</b><p>The Composio project is reachable, but no enabled auth configuration is available for this OpenCrawl deployment.</p></div>')
-      : '<div class="mcp-empty"><b>Connected apps are not configured</b><p>OpenCrawl cannot start account authorization until the server-side Composio project key and auth configs are available.</p></div>';
+        }).join(''):'<div class="mcp-empty"><b>No provider accounts connected</b><p>Choose Connect app to authorize GitHub, Gmail, Slack, Notion or another supported toolkit. OpenCrawl stores only the connected-account reference; provider credentials remain server-side.</p></div>')
+      : '<div class="mcp-empty"><b>Connected apps are not configured</b><p>OpenCrawl cannot start account authorization until the server-side Composio project key is available.</p></div>';
     const rows=cs.length?cs.map(c=>{
       const checked=c.last_checked_at?when(c.last_checked_at):'Never tested';
       const state=!c.enabled?'paused':c.last_status==='ok'?'ok':c.last_status==='error'?'error':'unchecked';
@@ -1141,7 +1150,7 @@ function openRunInspector(event) {
     dashboardShell('connections', headline('CONNECTIONS','MCP connections','One page, two directions: connect AI clients into OpenCrawl, and connect trusted remote MCP servers outward from OpenCrawl. Keep those permission boundaries separate.','<button class="btn primary" id="mcp-add">+ Add remote MCP</button>')+
       '<section class="ihx-endpoint-hero"><div><span>YOUR OPENCRAWL MCP</span><h2>'+esc(endpoint)+'</h2><p>This is the inbound endpoint for supported MCP hosts such as Codex, Claude Code, VS Code, Cursor and compatible remote MCP clients. Authentication is handled separately through OAuth or a dedicated scoped key.</p><a class="mcp-link" data-link href="/docs/clients">Read exact client setup guides →</a></div><div class="ihx-endpoint-meta"><span><small>Transport</small><b>Streamable HTTP</b></span><span><small>Identity</small><b>OAuth / key</b></span><span><small>State</small><b>Server-side policy</b></span></div></section>'+
       '<section class="ihx-connection-direction"><article><span>INBOUND</span><h3>Client → OpenCrawl</h3><p>Your AI host connects to <code>'+esc(endpoint)+'</code>. Give each host its own OAuth grant or scoped key so it can be revoked independently.</p><a data-link href="/docs/clients">Client guides →</a></article><article><span>OUTBOUND</span><h3>OpenCrawl → provider / remote MCP</h3><p>These saved connections let the Tool Mesh reach another trusted MCP server. Provider credentials stay server-side and are not rendered back into the browser.</p><a data-link href="/docs/sync#remote-mcp">How federation works →</a></article></section><section class="agent-connect"><header><span>CONNECT A CLIENT</span><h2>Use OpenCrawl from the tools you already work in</h2><p>These are starter configurations. The full guide explains authentication, scope, secret storage, what happens after connection, and host-specific limitations.</p><a class="mcp-link" data-link href="/docs/clients">Open detailed client documentation →</a></header><div class="agent-tabs" role="group" aria-label="Client setup"><button class="active" aria-pressed="true" data-agent-tab="codex">Codex</button><button aria-pressed="false" data-agent-tab="claude">Claude Code</button><button aria-pressed="false" data-agent-tab="vscode">VS Code</button><button aria-pressed="false" data-agent-tab="cursor">Cursor</button><button aria-pressed="false" data-agent-tab="http">HTTP probe</button></div><div id="agent-setup"></div></section><section class="mcp-secondary"><button id="mcp-add2"><b>Connect remote MCP</b><small>OpenCrawl → another MCP server</small></button><button id="mcp-curl"><b>Import provider cURL</b><small>Parse endpoint + supported auth headers; never execute shell text</small></button></section><div class="mcp-doc-strip"><span>Need the model, not just the button?</span><a data-link href="/docs/sync">Connections & synchronization →</a><a data-link href="/docs/tool-mesh">Tool Mesh execution →</a><a data-link href="/docs/security#mcp-trust">MCP trust & security →</a></div>'+
-      '<section class="connected-apps"><header><div><span>CONNECTED APPS</span><h2>Provider accounts</h2><p>Connect GitHub, Gmail, Slack, Notion and other configured toolkits through hosted authorization. Active accounts become available to your Tool Mesh; expired accounts are never executed silently.</p></div><span>'+fmt(appAccounts.filter(x=>String(x.status||'').toUpperCase()==='ACTIVE').length)+' active accounts</span></header><div class="connected-app-grid">'+connectedAppCards+'</div></section>'+
+      '<section class="connected-apps"><header><div><span>CONNECTED APPS</span><h2>Provider accounts</h2><p>Authorize GitHub, Gmail, Slack, Notion and other supported toolkits through hosted provider authentication. Active accounts become available to your Tool Mesh; expired accounts are never executed silently.</p></div><div class="connected-app-head-actions"><span>'+fmt(appAccounts.filter(x=>String(x.status||'').toUpperCase()==='ACTIVE').length)+' active accounts</span><button class="btn primary small" id="connect-app-catalog">+ Connect app</button></div></header><div class="connected-app-grid">'+connectedAppCards+'</div></section>'+
       '<section class="mcp-saved"><header><span>REMOTE MCP</span><h2>Saved MCP servers</h2><p>These are outbound MCP servers. Credential values are never rendered back.</p></header>'+rows+'</section>'+
       '<section class="ihx-connection-modes"><article><span>'+icon('shield')+'</span><div><small>INTERACTIVE CLIENTS</small><h3>OAuth MCP</h3><p>Browser consent, PKCE and token-based access for compatible clients.</p></div><a class="mcp-link" data-link href="/docs/oauth">Understand the OAuth flow →</a></article><article><span>'+icon('key')+'</span><div><small>AUTOMATION</small><h3>Scoped API keys</h3><p>Independent long-lived machine credentials for scripts, CI and services.</p></div><a class="mcp-link" data-link href="/docs/keys">Understand keys & scopes →</a><a data-link href="/dashboard/api-keys">Manage keys →</a></article></section>');
     bindCommon();
@@ -1202,6 +1211,41 @@ function openRunInspector(event) {
         finally{if(button.isConnected)busy(button,false);}
       };
     };
+    const openAppCatalog=()=>{
+      if(!connectedData.configured){
+        toast('Connected-app provider is not configured on this deployment','error');
+        return;
+      }
+      const list=catalogApps;
+      const w=panel('Connect an app','<div class="connected-catalog"><label>Search apps<input id="connected-catalog-search" placeholder="GitHub, Gmail, Slack, Notion…"></label><div id="connected-catalog-list"></div></div>');
+      const input=$('#connected-catalog-search',w),box=$('#connected-catalog-list',w);
+      const render=()=>{
+        const q=String(input.value||'').trim().toLowerCase();
+        const rows=list.filter(item=>!q||String(item.name||item.toolkit||'').toLowerCase().includes(q)||String(item.toolkit||'').toLowerCase().includes(q)).slice(0,60);
+        box.innerHTML=rows.length?rows.map(item=>{
+          const toolkit=String(item.toolkit||'').toLowerCase();
+          const configured=appMeta.get(toolkit)||item;
+          const existing=accountByToolkit[toolkit]||[];
+          return '<button type="button" class="connected-catalog-row" data-catalog-toolkit="'+esc(toolkit)+'"><span class="connected-app-mark">'+esc((item.name||toolkit||'?').slice(0,1).toUpperCase())+'</span><span><b>'+esc(item.name||toolkit)+'</b><small>'+esc(toolkit)+(item.auth_schemes?.length?' · '+esc(item.auth_schemes.join(' / ')):'')+'</small><p>'+esc(item.description||'Connect this toolkit to make its authorized tools available to your OpenCrawl account.')+'</p></span><em>'+ (existing.some(x=>String(x.status||'').toUpperCase()==='ACTIVE')?'Add account':'Connect') +' →</em></button>';
+        }).join(''):'<div class="mcp-empty"><b>No matching apps</b><p>Try another toolkit name.</p></div>';
+        box.querySelectorAll('[data-catalog-toolkit]').forEach(row=>row.onclick=()=>{
+          const toolkit=row.dataset.catalogToolkit;
+          const meta=appMeta.get(toolkit)||list.find(x=>String(x.toolkit||'').toLowerCase()===toolkit)||{toolkit,name:toolkit};
+          const existing=accountByToolkit[toolkit]||[];
+          w.remove();
+          connectApp({dataset:{
+            connectApp:toolkit,
+            appName:meta.name||toolkit,
+            authConfigs:JSON.stringify(meta.auth_configs||[]),
+            allowMultiple:String(existing.some(x=>String(x.status||'').toUpperCase()==='ACTIVE'))
+          }});
+        });
+      };
+      input.oninput=render;
+      render();
+      input.focus();
+    };
+
     const connectApp=(button)=>{
       const toolkit=button.dataset.connectApp;
       const name=button.dataset.appName||toolkit;
@@ -1226,6 +1270,7 @@ function openRunInspector(event) {
         }catch(error){busy(submit,false);toast(error.message,'error')}
       };
     };
+    document.querySelector('#connect-app-catalog')?.addEventListener('click',openAppCatalog);
     document.querySelectorAll('[data-connect-app]').forEach(b=>b.onclick=()=>connectApp(b));
     document.querySelectorAll('[data-reconnect-app]').forEach(b=>b.onclick=async()=>{
       if(!busy(b,true,'Preparing…'))return;
