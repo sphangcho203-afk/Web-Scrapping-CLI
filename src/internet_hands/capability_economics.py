@@ -753,7 +753,7 @@ def estimate_call(
                 units = len(urls) if isinstance(urls, list) else 0
                 if not 1 <= units <= 20:
                     reason = "batch fetch requires 1 to 20 URLs"
-            elif operation in {"fetch", "map", "search"}:
+            elif operation in {"fetch", "map", "search", "context"}:
                 units = 1
             else:
                 reason, units = "unknown native web operation", 0
