@@ -14,6 +14,7 @@ from psycopg.errors import UniqueViolation
 from psycopg.rows import dict_row
 
 from .capability_economics import estimate_call, plan_privileges
+from .provider_errors import read_retry_budget
 from .provider_reliability_store import record_provider_reliability_event
 
 SCHEMA_SQL = r"""
@@ -368,6 +369,53 @@ class AuthIdentity:
     plan_slug: str
     rpm_limit: int
     source: str
+
+
+_RETRY_RESERVATION_TOOLS = {
+    "mesh_execute",
+    "mesh_batch_execute",
+    "mesh_capability_execute",
+    "gaming_intel",
+    "gaming_profile",
+}
+
+
+def _with_retry_reservation(
+    tool_name: str,
+    quote: dict[str, Any],
+) -> dict[str, Any]:
+    """Reserve worst-case read retry headroom; measured settlement refunds unused attempts."""
+    base_credits = max(0, int(quote.get("credits") or 0))
+    retries = read_retry_budget()
+    if (
+        tool_name not in _RETRY_RESERVATION_TOOLS
+        or base_credits <= 0
+        or retries <= 0
+    ):
+        return quote
+
+    attempts = 1 + retries
+    reserved = base_credits * attempts
+    result = dict(quote)
+    result["credits"] = reserved
+    breakdown = list(result.get("breakdown") or [])
+    breakdown.append(
+        {
+            "kind": "provider_retry_headroom",
+            "attempts": attempts,
+            "retries": retries,
+            "quoted_once": base_credits,
+            "credits": reserved - base_credits,
+        }
+    )
+    result["breakdown"] = breakdown
+    result["retry_reservation"] = {
+        "attempts": attempts,
+        "retries": retries,
+        "quoted_once": base_credits,
+        "reserved": reserved,
+    }
+    return result
 
 
 class ControlStore:
@@ -1149,7 +1197,7 @@ class ControlStore:
                 estimate.reason or "tool is unavailable on the current plan",
                 403,
             )
-        return quote
+        return _with_retry_reservation(tool_name, quote)
 
     def tool_cost(
         self,
