@@ -9,6 +9,7 @@ from internet_hands.execution_meter import (
     reset_execution_meter,
     start_execution_meter,
 )
+from internet_hands.provider_reliability import provider_reliability
 from internet_hands.tool_mesh import ToolDescriptor, ToolMesh
 
 
@@ -147,3 +148,41 @@ async def test_default_capability_registry_exposes_deep_caller_investigation() -
     assert capability.read_only is True
     resolved = await registry.resolve("phone.caller.investigate")
     assert resolved["resolved"][0]["ref"] == "callerresearch:investigate"
+
+
+
+@pytest.mark.asyncio
+async def test_tool_mesh_records_real_provider_success_but_not_dry_run() -> None:
+    provider_reliability.reset("one")
+    try:
+        mesh = ToolMesh([FakeProvider("one", "a")])
+        await mesh.execute("one:a0", {"x": 1})
+        after_success = provider_reliability.snapshot("one")
+        assert after_success["successes"] == 1
+        assert after_success["failures"] == 0
+
+        await mesh.execute("one:a0", {"x": 2}, dry_run=True)
+        after_dry_run = provider_reliability.snapshot("one")
+        assert after_dry_run["successes"] == 1
+        assert after_dry_run["neutral"] == 0
+    finally:
+        provider_reliability.reset("one")
+
+
+@pytest.mark.asyncio
+async def test_tool_mesh_records_provider_exception_as_failure() -> None:
+    class BrokenProvider(FakeProvider):
+        async def execute(self, *args, **kwargs):
+            raise RuntimeError("upstream exploded")
+
+    provider_reliability.reset("broken")
+    try:
+        mesh = ToolMesh([BrokenProvider("broken", "x")])
+        result = await mesh.execute("broken:x0", {})
+
+        assert result["status"] == "failed"
+        state = provider_reliability.snapshot("broken")
+        assert state["failures"] == 1
+        assert state["last_error"] == "upstream exploded"
+    finally:
+        provider_reliability.reset("broken")
