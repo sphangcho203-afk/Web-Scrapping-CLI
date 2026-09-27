@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import pytest
+from starlette.requests import Request
 
+from internet_hands.security_api import _mail_origin
 from internet_hands.supabase_auth import (
     SupabaseAuthError,
     _headers,
@@ -80,3 +82,36 @@ def test_newlines_in_auth_keys_are_rejected(monkeypatch: pytest.MonkeyPatch) -> 
         _headers(secret=False)
 
     assert exc.value.code == "auth_configuration_invalid"
+
+
+def _request(host: str = "preview.example.test") -> Request:
+    return Request(
+        {
+            "type": "http",
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "https",
+            "path": "/signup",
+            "raw_path": b"/signup",
+            "query_string": b"",
+            "headers": [
+                (b"host", host.encode("ascii")),
+                (b"x-forwarded-proto", b"https"),
+            ],
+            "client": ("127.0.0.1", 12345),
+            "server": (host, 443),
+        }
+    )
+
+
+def test_mail_origin_stays_on_preview_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("INTERNET_HANDS_PUBLIC_ORIGIN", raising=False)
+    monkeypatch.setenv("VERCEL_PROJECT_PRODUCTION_URL", "old-production.example.test")
+
+    assert _mail_origin(_request()) == "https://preview.example.test"
+
+
+def test_mail_origin_can_be_explicitly_pinned(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("INTERNET_HANDS_PUBLIC_ORIGIN", "https://opencrawl.example.test")
+
+    assert _mail_origin(_request()) == "https://opencrawl.example.test"
