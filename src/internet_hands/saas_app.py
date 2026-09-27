@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -7,6 +9,7 @@ from fastapi import FastAPI
 
 from . import account_mcp as _account_mcp  # noqa: F401
 from .control_api import router as control_router
+from .control_migration import run_requested_control_plane_migration
 from .control_hardening import router as hardening_router
 from .fleet_api import app as fleet_app
 from .game_api import router as game_router
@@ -25,8 +28,14 @@ from .system_health import router as system_health_router
 from .usage_api import router as usage_router
 
 
+logger = logging.getLogger(__name__)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    migration = await asyncio.to_thread(run_requested_control_plane_migration)
+    if migration:
+        logger.info("startup control-plane migration result", extra={"migration": migration})
     async with sandbox_mcp.session_manager.run():
         yield
 
