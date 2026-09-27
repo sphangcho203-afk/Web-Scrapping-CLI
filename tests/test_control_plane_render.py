@@ -502,11 +502,11 @@ def test_public_data_workspace_validates_executes_and_reports_partial_results(fr
         page.get_by_text("Partial evidence collected", exact=True).wait_for()
         assert len(calls) == 1 and calls[0]["arguments"]["max_pages"] == 5
         assert calls[0]["api_key_id"] == "key_fixture"
-        assert "8 credits charged" in page.locator("#public-data-output").inner_text()
+        assert "$0.0016 charged" in page.locator("#public-data-output").inner_text()
         assert page.get_by_role("link", name="Open source", exact=True).get_attribute("href") == "https://source.example/report"
         form.locator('[name="operation"]').select_option("extract")
         assert not page.locator("#public-data-research-fields").is_visible()
-        assert "5 credits" in page.locator("#public-data-budget").inner_text()
+        assert "$0.0010" in page.locator("#public-data-budget").inner_text()
         form.locator('[name="operation"]').select_option("search")
         assert not page.locator("#public-data-urls-field").is_visible()
         form.locator('[name="search_query"]').fill("agent research")
