@@ -11,6 +11,7 @@ from internet_hands.execution_meter import (
     reset_execution_meter,
     start_execution_meter,
 )
+from internet_hands.provider_errors import ProviderCapacityError
 from internet_hands.provider_reliability import provider_reliability
 from internet_hands.tool_mesh import ToolDescriptor, ToolMesh
 
@@ -446,3 +447,35 @@ async def test_provider_status_cache_collapses_repeated_health_fanout() -> None:
 
     await mesh.provider_status(force=True)
     assert provider.status_calls == 2
+
+
+
+@pytest.mark.asyncio
+async def test_bulkhead_queue_pressure_is_not_billed_or_scored_as_provider_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def saturated_slot(provider_name: str, *, timeout: float):
+        del provider_name, timeout
+        raise ProviderCapacityError("provider concurrency queue deadline exceeded")
+
+    provider_reliability.reset("busy")
+    provider = RetryProvider("busy", "x", statuses=["completed"])
+    mesh = ToolMesh([provider])
+    monkeypatch.setattr(mesh, "_acquire_provider_slot", saturated_slot)
+
+    token = start_execution_meter()
+    try:
+        result = await mesh.execute("busy:x0", {}, timeout_seconds=1)
+        usage = execution_usage_snapshot()
+        state = provider_reliability.snapshot("busy")
+    finally:
+        reset_execution_meter(token)
+        provider_reliability.reset("busy")
+
+    assert result["status"] == "failed"
+    assert result["metadata"]["failure"]["category"] == "capacity_limited"
+    assert provider.execute_calls == 0
+    assert usage["provider_calls"].get("busy", 0) == 0
+    assert usage["provider_events"][0]["status"] == "capacity_limited"
+    assert state["failures"] == 0
+    assert state["neutral"] == 1
