@@ -31,7 +31,7 @@ def _configured_auth_map() -> dict[str, str]:
     except json.JSONDecodeError as exc:
         raise RuntimeError("OPENCRAWL_COMPOSIO_AUTH_CONFIGS must be valid JSON") from exc
     if not isinstance(payload, dict):
-        raise RuntimeError("OPENCRAWL_COMPOSIO_AUTH_CONFIGS must be a JSON object")
+        raise TypeError("OPENCRAWL_COMPOSIO_AUTH_CONFIGS must be a JSON object")
     return {
         _toolkit_slug(key): str(value).strip()
         for key, value in payload.items()
@@ -224,6 +224,42 @@ class ComposioConnectionService:
             "connected_account_id": payload.get("connected_account_id"),
         }
 
+    async def reconnect_link(
+        self,
+        *,
+        user_id: str,
+        account_id: str,
+        callback_url: str | None = None,
+    ) -> dict[str, Any]:
+        owned = await self.user_connections(user_id, account_id=account_id)
+        account = next(
+            (item for item in owned if str(item.get("id") or "") == account_id),
+            None,
+        )
+        if account is None:
+            raise HTTPException(status_code=404, detail="connected account not found")
+        toolkit = _toolkit_slug(
+            (account.get("toolkit") or {}).get("slug")
+            if isinstance(account.get("toolkit"), dict)
+            else account.get("toolkit_slug")
+        )
+        auth_config = (
+            account.get("auth_config")
+            if isinstance(account.get("auth_config"), dict)
+            else {}
+        )
+        auth_config_id = str(
+            auth_config.get("id") or account.get("auth_config_id") or ""
+        ).strip() or None
+        alias = str(account.get("alias") or account.get("name") or "").strip() or None
+        return await self.create_link(
+            user_id=user_id,
+            toolkit=toolkit,
+            alias=alias,
+            auth_config_id=auth_config_id,
+            callback_url=callback_url,
+        )
+
     async def disconnect(self, *, user_id: str, account_id: str) -> None:
         owned = await self.user_connections(user_id, account_id=account_id)
         if not any(str(item.get("id") or "") == account_id for item in owned):
@@ -267,6 +303,11 @@ async def integration_apps(request: Request):
         entry = by_toolkit.get(str(connection["toolkit"]))
         if entry is not None:
             entry["connected_accounts"] += 1
+            status = str(connection.get("status") or "UNKNOWN").upper()
+            entry.setdefault("status_counts", {})
+            entry["status_counts"][status] = int(entry["status_counts"].get(status) or 0) + 1
+            if status == "ACTIVE":
+                entry["active_accounts"] = int(entry.get("active_accounts") or 0) + 1
     return {
         "configured": True,
         "apps": sorted(by_toolkit.values(), key=lambda item: (item["name"], item["toolkit"])),
@@ -281,7 +322,7 @@ async def integration_connect(toolkit: str, request: Request):
     body = await request.json()
     alias = str(body.get("alias") or "").strip() or None
     auth_config_id = str(body.get("auth_config_id") or "").strip() or None
-    callback_url = f"{_origin(request)}/dashboard#integrations"
+    callback_url = f"{_origin(request)}/dashboard/connections?connected={slug}"
     service = ComposioConnectionService()
     return await service.create_link(
         user_id=str(user["id"]),
@@ -300,6 +341,20 @@ async def integration_connections(request: Request):
         return {"configured": False, "connections": []}
     rows = await service.user_connections(str(user["id"]))
     return {"configured": True, "connections": [_public_connection(item) for item in rows]}
+
+
+@router.post("/api/integrations/connections/{account_id}/reconnect")
+async def integration_reconnect(account_id: str, request: Request):
+    user = _require_verified(_require_user(request))
+    if not re.fullmatch(r"[A-Za-z0-9_-]{3,128}", account_id):
+        raise HTTPException(status_code=400, detail="invalid connected account id")
+    service = ComposioConnectionService()
+    callback_url = f"{_origin(request)}/dashboard/connections?reconnected=1"
+    return await service.reconnect_link(
+        user_id=str(user["id"]),
+        account_id=account_id,
+        callback_url=callback_url,
+    )
 
 
 @router.delete("/api/integrations/connections/{account_id}")
