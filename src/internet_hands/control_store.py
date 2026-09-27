@@ -371,6 +371,14 @@ class AuthIdentity:
     source: str
 
 
+def _db_connect_timeout_seconds() -> int:
+    try:
+        value = int(os.getenv("OPENCRAWL_DB_CONNECT_TIMEOUT_SECONDS", "5"))
+    except (TypeError, ValueError):
+        value = 5
+    return max(1, min(value, 30))
+
+
 _RETRY_RESERVATION_TOOLS = {
     "mesh_execute",
     "mesh_batch_execute",
@@ -438,7 +446,10 @@ class ControlStore:
     def _connect(self):
         if not self.dsn:
             raise ControlError("control_plane_unavailable", "control database is not configured", 503)
-        options: dict[str, Any] = {"row_factory": dict_row}
+        options: dict[str, Any] = {
+            "row_factory": dict_row,
+            "connect_timeout": _db_connect_timeout_seconds(),
+        }
         # Supabase's transaction pooler must not receive named prepared
         # statements because a later transaction can land on another backend.
         if "pooler.supabase.com" in self.dsn:
