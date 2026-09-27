@@ -88,7 +88,10 @@ class YouSearchProvider:
                     {
                         "query": _str("Search query", max_length=4000),
                         "count": {"type": "integer", "minimum": 1, "maximum": 50},
-                        "freshness": _str("day/week/month/year or documented date range", max_length=64),
+                        "freshness": _str(
+                            "day/week/month/year or documented date range",
+                            max_length=64,
+                        ),
                         "offset": {"type": "integer", "minimum": 0, "maximum": 9},
                         "country": _str("Country code", max_length=8),
                         "language": _str("BCP-47 language code", max_length=16),
