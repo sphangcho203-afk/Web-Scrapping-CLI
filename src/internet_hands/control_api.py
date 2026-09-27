@@ -891,6 +891,11 @@ def public_status():
         "oauth": True,
         "billing": bool(os.getenv("RAZORPAY_KEY_ID") and os.getenv("RAZORPAY_KEY_SECRET")),
         "github_oauth": bool(os.getenv("GITHUB_CLIENT_ID") and os.getenv("GITHUB_CLIENT_SECRET")),
+        "connected_apps": {
+            "provider": "composio",
+            "configured": bool((os.getenv("COMPOSIO_API_KEY") or "").strip()),
+            "user_scoped": True,
+        },
         "supabase_auth": supabase_auth_configuration_status(),
         "mail": {
             "provider": mail_provider(),
