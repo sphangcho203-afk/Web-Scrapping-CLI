@@ -195,6 +195,19 @@ class ToolMesh:
             timeout=float(self.discovery_timeout_seconds),
         )
 
+    async def _acquire_provider_slot(
+        self,
+        provider_name: str,
+        *,
+        timeout: float,
+    ) -> asyncio.Semaphore:
+        semaphore = self._provider_semaphores[provider_name]
+        await asyncio.wait_for(
+            semaphore.acquire(),
+            timeout=max(0.001, timeout),
+        )
+        return semaphore
+
     @staticmethod
     def _safe_text(value: str) -> bool:
         normalized = value.casefold().replace("_", "-")
@@ -389,7 +402,14 @@ class ToolMesh:
                     raise TimeoutError("provider execution deadline exceeded")
                 provider_timeout = max(1, min(int(remaining), int(total_timeout)))
                 record_provider_call(provider_name)
-                async with self._provider_semaphores[provider_name]:
+                semaphore = await self._acquire_provider_slot(
+                    provider_name,
+                    timeout=remaining,
+                )
+                try:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError("provider execution deadline exceeded")
                     result = await asyncio.wait_for(
                         provider.execute(
                             tool_id,
@@ -401,9 +421,19 @@ class ToolMesh:
                         ),
                         timeout=remaining,
                     )
+                finally:
+                    semaphore.release()
             except Exception as exc:  # noqa: BLE001 - normalize provider execution failures
                 duration_ms = max(0, int((time.monotonic() - attempt_started) * 1000))
-                failure = classify_provider_failure(exc=exc)
+                error_text = (
+                    str(exc).strip()
+                    or (
+                        "provider execution deadline exceeded"
+                        if isinstance(exc, TimeoutError)
+                        else type(exc).__name__
+                    )
+                )
+                failure = classify_provider_failure(exc=exc, error=error_text)
                 delay = (
                     retry_delay_seconds(failure, attempt=attempt)
                     if not descriptor.side_effecting and attempt < max_attempts
@@ -424,7 +454,7 @@ class ToolMesh:
                     ref=ref,
                     status="failed",
                     duration_ms=duration_ms,
-                    error=str(exc),
+                    error=error_text,
                     error_class=failure.category,
                     retryable=failure.retryable,
                     attempt=attempt,
@@ -433,7 +463,7 @@ class ToolMesh:
                     provider_name,
                     status="failed",
                     duration_ms=duration_ms,
-                    error=str(exc),
+                    error=error_text,
                     error_class=failure.category,
                 )
                 remaining_after = deadline - time.monotonic()
@@ -442,7 +472,7 @@ class ToolMesh:
                     continue
                 finished = execution.finish(
                     status="failed",
-                    error=str(exc),
+                    error=error_text,
                     metadata={
                         "provider_attempts": attempt_rows,
                         "failure": failure.to_dict(),
@@ -571,11 +601,15 @@ class ToolMesh:
             float(self.discovery_timeout_seconds),
             float(wait + self.discovery_timeout_seconds),
         )
-        async with self._provider_semaphores[provider]:
+        target = self._provider(provider)
+        semaphore = await self._acquire_provider_slot(provider, timeout=timeout)
+        try:
             value = await asyncio.wait_for(
-                self._provider(provider).job_status(job_id, wait_seconds=wait),
+                target.job_status(job_id, wait_seconds=wait),
                 timeout=timeout,
             )
+        finally:
+            semaphore.release()
         return self._bounded(value)
 
     async def result_page(
@@ -586,13 +620,18 @@ class ToolMesh:
         offset: int = 0,
         limit: int = 100,
     ) -> dict[str, Any]:
-        async with self._provider_semaphores[provider]:
+        target = self._provider(provider)
+        timeout = float(self.discovery_timeout_seconds)
+        semaphore = await self._acquire_provider_slot(provider, timeout=timeout)
+        try:
             value = await asyncio.wait_for(
-                self._provider(provider).result_page(
+                target.result_page(
                     result_id,
                     offset=max(0, offset),
                     limit=max(1, min(limit, 1000)),
                 ),
-                timeout=float(self.discovery_timeout_seconds),
+                timeout=timeout,
             )
+        finally:
+            semaphore.release()
         return self._bounded(value)
