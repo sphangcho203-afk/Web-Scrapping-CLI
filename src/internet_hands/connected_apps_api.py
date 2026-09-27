@@ -96,10 +96,6 @@ class ComposioConnectionService:
                 await client.aclose()
         if response.is_success:
             return response
-        if response.status_code in {401, 403}:
-            raise HTTPException(status_code=503, detail="connected apps provider authorization failed")
-        if response.status_code == 429:
-            raise HTTPException(status_code=503, detail="connected apps provider is rate limited")
         detail = "connected apps provider request failed"
         try:
             payload = response.json()
@@ -108,6 +104,12 @@ class ComposioConnectionService:
                 detail = message.strip()[:240]
         except (ValueError, TypeError):
             pass
+        if response.status_code in {401, 403}:
+            raise HTTPException(status_code=503, detail="connected apps provider authorization failed")
+        if response.status_code == 429:
+            raise HTTPException(status_code=503, detail="connected apps provider is rate limited")
+        if response.status_code in {400, 404, 422}:
+            raise HTTPException(status_code=400, detail=detail)
         raise HTTPException(status_code=502, detail=detail)
 
     async def toolkits(
@@ -298,36 +300,29 @@ class ComposioConnectionService:
         callback_url: str | None = None,
         allow_multiple: bool = False,
     ) -> dict[str, Any]:
+        existing = await self.user_connections(user_id, toolkit=toolkit)
+        active = [
+            item
+            for item in existing
+            if str(item.get("status") or "").upper() == "ACTIVE"
+        ]
+        if active and not allow_multiple:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "integration_account_exists",
+                    "message": (
+                        "an active account already exists for this toolkit; "
+                        "explicitly choose connect another account"
+                    ),
+                },
+            )
         config = await self.resolve_auth_config(
             toolkit,
             auth_config_id,
             create_managed_if_missing=auth_config_id is None,
         )
         config_id = str(config["id"])
-        if not allow_multiple:
-            existing = await self.user_connections(user_id, toolkit=toolkit)
-            active_same_config = [
-                item
-                for item in existing
-                if str(item.get("status") or "").upper() == "ACTIVE"
-                and str(
-                    ((item.get("auth_config") or {}).get("id"))
-                    if isinstance(item.get("auth_config"), dict)
-                    else item.get("auth_config_id") or ""
-                )
-                == config_id
-            ]
-            if active_same_config:
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "code": "integration_account_exists",
-                        "message": (
-                            "an active account already exists for this authentication "
-                            "configuration; explicitly choose connect another account"
-                        ),
-                    },
-                )
         body: dict[str, Any] = {
             "auth_config_id": config_id,
             "user_id": user_id,
@@ -382,7 +377,7 @@ class ComposioConnectionService:
             alias=None,
             auth_config_id=auth_config_id,
             callback_url=callback_url,
-            allow_multiple=False,
+            allow_multiple=True,
         )
 
     async def disconnect(self, *, user_id: str, account_id: str) -> None:
