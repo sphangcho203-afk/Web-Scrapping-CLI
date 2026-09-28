@@ -410,13 +410,16 @@ class FirecrawlToolProvider:
         descriptor = await self.describe(tool_id)
         raw_payload = dict(arguments)
         self._validate_arguments(tool_id, raw_payload)
-        allowed = set((descriptor.input_schema.get("properties") or {}).keys())
-        payload = {
-            key: value
-            for key, value in raw_payload.items()
-            if key in allowed and value is not None
-        }
         if tool_id == "search":
+            # Search has a deliberately narrow public contract because it accepts
+            # agent-generated input directly. Other Firecrawl routes retain
+            # provider-supported options after the security validator runs.
+            allowed = set((descriptor.input_schema.get("properties") or {}).keys())
+            payload = {
+                key: value
+                for key, value in raw_payload.items()
+                if key in allowed and value is not None
+            }
             sources = payload.get("sources") or ["web"]
             if (
                 not isinstance(sources, list)
@@ -438,6 +441,12 @@ class FirecrawlToolProvider:
             payload["sources"] = sources[:3]
             payload["categories"] = categories[:3]
             payload.setdefault("safe", True)
+        else:
+            payload = {
+                key: value
+                for key, value in raw_payload.items()
+                if value is not None
+            }
         if tool_id in FIRECRAWL_WORK_BUDGETS:
             field, default, maximum = FIRECRAWL_WORK_BUDGETS[tool_id]
             try:
