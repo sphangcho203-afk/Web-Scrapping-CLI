@@ -17,3 +17,19 @@ def test_reward_catalog_wallet_values_match_display_currency() -> None:
     assert rows["wallet-100"][5] == 5_000
     assert rows["wallet-500"][5] == 25_000
     assert rewards.WALLET_UNITS_PER_USD == 5_000
+
+
+
+def test_accrual_uses_only_unprocessed_wallet_units() -> None:
+    # Existing processed spend is never re-priced when the earning rate changes.
+    points, consumed = rewards._accrual_delta(50_000, 25_000, 500)
+    assert points == 50
+    assert consumed == 25_000
+
+    # Incomplete spend remains available for the next accrual instead of being discarded.
+    points, consumed = rewards._accrual_delta(25_499, 25_000, 500)
+    assert points == 0
+    assert consumed == 0
+    points, consumed = rewards._accrual_delta(25_500, 25_000, 500)
+    assert points == 1
+    assert consumed == 500
