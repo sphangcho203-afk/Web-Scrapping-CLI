@@ -509,12 +509,25 @@ async function dashRewards(){
     const slug=button.dataset.redeem,name=button.dataset.rewardName||'this prize';
     if(!confirm('Redeem '+name+'? Reward points are deducted immediately once fulfilled.'))return;
     if(!busy(button,true,'Redeeming…'))return;
+    const storageKey='opencrawl:reward-redemption:'+slug;
+    let idempotencyKey='';
     try{
-      const result=await api('/api/rewards/'+encodeURIComponent(slug)+'/redeem',{method:'POST',body:{}});
+      idempotencyKey=sessionStorage.getItem(storageKey)||'rwd-'+(crypto.randomUUID?.()||Date.now().toString(36)+'-'+Math.random().toString(36).slice(2));
+      sessionStorage.setItem(storageKey,idempotencyKey);
+    }catch{
+      idempotencyKey='rwd-'+(crypto.randomUUID?.()||Date.now().toString(36)+'-'+Math.random().toString(36).slice(2));
+    }
+    try{
+      const result=await api('/api/rewards/'+encodeURIComponent(slug)+'/redeem',{
+        method:'POST',
+        headers:{'Idempotency-Key':idempotencyKey},
+        body:{}
+      });
+      try{sessionStorage.removeItem(storageKey)}catch{}
       if(result.redemption?.status==='fulfilled'){
-        toast('Prize redeemed and delivered to your wallet','success');
+        toast(result.replayed?'Prize already delivered — showing the existing redemption':'Prize redeemed and delivered to your wallet','success');
       }else{
-        toast('Redemption submitted','success');
+        toast(result.replayed?'Existing redemption restored':'Redemption submitted','success');
       }
       state.me=null;
       await ensureMe();
