@@ -206,7 +206,7 @@ def _parse_optional_datetime(value: Any, field: str) -> datetime | None:
     if value in (None, ""):
         return None
     try:
-        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(str(value))
     except ValueError as exc:
         raise ControlError("invalid_reward_code_window", f"{field} must be ISO-8601", 400) from exc
     if parsed.tzinfo is None:
