@@ -352,3 +352,29 @@ async def test_firecrawl_developer_category_cannot_be_combined() -> None:
                 "categories": ["developer", "research"],
             },
         )
+
+
+
+@pytest.mark.asyncio
+async def test_firecrawl_non_search_preserves_provider_supported_extras(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _disable_public_url_validation(monkeypatch)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert body["url"] == "https://example.com"
+        assert body["waitFor"] == 750
+        return httpx.Response(
+            200,
+            json={"success": True, "data": {"markdown": "ok"}},
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = FirecrawlToolProvider(api_key="fc-test", client=client)
+        result = await provider.execute(
+            "scrape",
+            {"url": "https://example.com", "waitFor": 750},
+        )
+
+    assert result["status"] == "completed"
