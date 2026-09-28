@@ -128,7 +128,8 @@ class ApifyToolProvider(_HttpProvider):
             output_schema={},
             tags=[str(value) for value in item.get("categories") or []],
             requires_auth=True,
-            side_effecting=False,
+            # Executing an Actor creates a paid run. Never retry this POST implicitly.
+            side_effecting=True,
             metadata=metadata,
         )
 
