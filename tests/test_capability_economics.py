@@ -17,8 +17,9 @@ def test_every_plan_has_real_tool_calling_privileges() -> None:
     assert free.max_depth >= 1
     assert builder.browser_enabled is True
     assert pro.sandbox_enabled is True
-    assert scale.max_external_sources > pro.max_external_sources
-    assert scale.max_batch_calls > builder.max_batch_calls
+    assert builder.sandbox_enabled is True
+    assert builder.max_provider_class == pro.max_provider_class == scale.max_provider_class == "premium"
+    assert builder.max_batch_calls == pro.max_batch_calls == scale.max_batch_calls == 50
 
 
 def test_phone_lookup_is_cheap_locally_for_free_plan() -> None:
@@ -57,14 +58,15 @@ def test_builder_can_use_free_tier_phone_enrichment() -> None:
     assert estimate.provider_class == "free_tier"
 
 
-def test_builder_cannot_use_metered_twilio_lookup() -> None:
+def test_builder_can_use_metered_twilio_lookup_with_wallet_charge() -> None:
     estimate = estimate_call(
         "phone_number_lookup",
         {"number": "+14155552671", "providers": ["twilio"]},
         "builder",
     )
-    assert estimate.allowed is False
-    assert "metered" in (estimate.reason or "")
+    assert estimate.allowed is True
+    assert estimate.credits == 10
+    assert estimate.provider_class == "metered"
 
 
 def test_pro_can_use_metered_twilio_lookup_at_higher_cost() -> None:
@@ -94,9 +96,31 @@ def test_raw_provider_costs_are_not_flat() -> None:
         {"ref": "apify:actor"},
         "pro",
     )
-    assert local.credits == 5
+    assert local.credits == 0
     assert firecrawl.credits == 252
     assert apify.credits == 1502
+
+
+def test_paid_hosted_routes_are_included_and_provider_calls_stay_metered() -> None:
+    for plan in ("builder", "pro", "scale"):
+        for ref, arguments in (
+            ("nativeweb:fetch", {"url": "https://example.com"}),
+            ("publicdata:extract", {"url": "https://example.com"}),
+            ("gamecore:reference", {}),
+        ):
+            quote = estimate_call("mesh_execute", {"ref": ref, "arguments": arguments}, plan)
+            assert quote.allowed is True
+            assert quote.credits == 0
+            assert quote.breakdown[0]["kind"] == "subscription_included"
+        assert estimate_call("sandbox_exec", {"timeout_ms": 120_000}, plan).credits == 0
+        hosted_batch = estimate_call("mesh_batch_execute", {
+            "calls": [{"ref": "nativeweb:fetch", "arguments": {"url": "https://example.com"}}],
+        }, plan)
+        assert hosted_batch.allowed and hosted_batch.credits == 0
+        assert estimate_call("mesh_execute", {"ref": "firecrawl:scrape"}, plan).credits == 252
+    assert estimate_call("mesh_execute", {"ref": "nativeweb:fetch"}, "free").credits == 5
+    invalid = estimate_call("mesh_execute", {"ref": "nativeweb:crawl", "arguments": {"max_pages": 501}}, "builder")
+    assert invalid.allowed is False
 
 
 def test_semantic_fallback_reserves_all_eligible_attempts_and_settles_measured_work() -> None:
@@ -126,17 +150,21 @@ def test_semantic_unknown_or_unbounded_work_is_not_one_credit() -> None:
     }, "pro").allowed is False
 
 
-def test_gaming_batches_reserve_each_operation_and_refund_unrun_work() -> None:
+def test_gaming_batches_charge_external_routes_and_include_hosted_routes() -> None:
     args = {"requests": [
         {"capability": "mlbb.reference.heroes", "arguments": {}},
         {"capability": "mlbb.hero.list", "arguments": {}},
     ]}
     quote = estimate_call("gaming_intel", args, "pro")
-    assert quote.credits >= 6
+    assert quote.credits == 5
     assert settle_measured_cost(
         "gaming_intel", args, "pro", reserved_credits=quote.credits,
         execution_usage={"provider_calls": {"gamecore": 1}},
     ) == 4
+    hosted = estimate_call("gaming_intel", {
+        "requests": [{"capability": "mlbb.reference.heroes", "arguments": {}}],
+    }, "pro")
+    assert hosted.allowed and hosted.credits == 0
 
 
 def test_free_plan_can_use_public_raw_tools_but_not_metered_backends() -> None:
@@ -177,7 +205,7 @@ def test_runtime_pricing_accounts_for_requested_time() -> None:
         "pro",
     )
     assert estimate.allowed is True
-    assert estimate.credits == 18
+    assert estimate.credits == 0
 
 
 def test_higher_plans_expand_privileges_not_privacy_boundaries() -> None:
@@ -186,14 +214,14 @@ def test_higher_plans_expand_privileges_not_privacy_boundaries() -> None:
     assert "privacy" not in plan_privileges("scale").to_dict()
 
 
-def test_builder_browser_is_allowed_and_runtime_metered() -> None:
+def test_builder_browser_is_subscription_included() -> None:
     estimate = estimate_call(
         "sandbox_browser_open",
         {"timeout_ms": 120_000},
         "builder",
     )
     assert estimate.allowed is True
-    assert estimate.credits == 10
+    assert estimate.credits == 0
 
 
 def test_nested_phone_lookup_through_mesh_execute_keeps_same_price() -> None:
@@ -261,7 +289,7 @@ def test_batch_pricing_sums_nested_provider_costs() -> None:
         "pro",
     )
     assert estimate.allowed is True
-    assert estimate.credits == 259
+    assert estimate.credits == 254
 
 
 def test_caller_lookup_requires_builder_or_higher() -> None:
@@ -370,7 +398,7 @@ def test_caller_lookup_has_same_price_through_semantic_route() -> None:
     assert semantic.credits == direct.credits
 
 
-def test_caller_evidence_breadth_scales_with_plan() -> None:
+def test_caller_evidence_breadth_is_available_on_all_paid_plans() -> None:
     builder = estimate_call(
         "phone_caller_lookup",
         {
@@ -389,8 +417,7 @@ def test_caller_evidence_breadth_scales_with_plan() -> None:
         },
         "pro",
     )
-    assert builder.allowed is False
-    assert "at most 15" in (builder.reason or "")
+    assert builder.allowed is True
     assert pro.allowed is True
 
 
@@ -538,13 +565,12 @@ def test_measured_firecrawl_provider_settles_to_its_actual_route() -> None:
     assert settled == 252
 
 
-def test_deep_caller_investigation_pricing_is_plan_bounded() -> None:
+def test_deep_caller_investigation_is_available_on_builder() -> None:
     builder = estimate_call("phone_caller_investigate", {"number": "+14155552671", "max_sources": 3}, "builder")
     assert builder.allowed is True
     assert builder.credits == 13
-    too_deep = estimate_call("phone_caller_investigate", {"number": "+14155552671", "max_sources": 4}, "builder")
-    assert too_deep.allowed is False
-    assert "at most 3" in (too_deep.reason or "")
+    deeper = estimate_call("phone_caller_investigate", {"number": "+14155552671", "max_sources": 4}, "builder")
+    assert deeper.allowed is True
 
 
 def test_deep_caller_investigation_measured_settlement_refunds_unused_fetches() -> None:

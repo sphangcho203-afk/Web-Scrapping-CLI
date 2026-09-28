@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .capability_economics import (
+    RAW_PROVIDER_SURCHARGES,
     _plan_allowed,
     _provider_allowed,
     _rule_for,
@@ -54,6 +55,7 @@ async def available_actions(
 
     if not scope_allowed(identity, "mcp:read") or not scope_allowed(identity, "mcp:execute"):
         return {"actions": [], "total": 0, "plan": identity.plan_slug}
+    plan = plan_privileges(identity.plan_slug)
     statuses = await get_tool_mesh().provider_status()
     registry = get_capability_registry()
     words = query.casefold().split()
@@ -86,9 +88,19 @@ async def available_actions(
             if candidate.provider == "mcp":
                 # A saved server does not prove this specific tool was synced.
                 continue
-            if not estimate_call(
-                "mesh_execute", {"ref": candidate.ref}, identity.plan_slug
-            ).allowed:
+            if candidate.ref == "firecrawl:extract":
+                # This unbounded operation has no safe execution quote.
+                continue
+            provider_class = RAW_PROVIDER_SURCHARGES.get(
+                candidate.ref.split(":", 1)[0], (None, 0)
+            )[0]
+            if provider_class is not None:
+                eligible = _provider_allowed(plan, provider_class)
+            else:
+                eligible = estimate_call(
+                    "mesh_execute", {"ref": candidate.ref}, identity.plan_slug
+                ).allowed
+            if not eligible:
                 continue
             routes.append(candidate.ref)
         if routes:

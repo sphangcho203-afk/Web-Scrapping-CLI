@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import fnmatch
 import math
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any
 
 PLAN_ORDER = {
@@ -49,21 +49,21 @@ PLAN_PRIVILEGES: dict[str, PlanPrivileges] = {
     ),
     "builder": PlanPrivileges(
         slug="builder",
-        access_level="standard",
-        max_provider_class="free_tier",
-        max_batch_calls=10,
-        max_external_sources=3,
-        max_depth=3,
+        access_level="full",
+        max_provider_class="premium",
+        max_batch_calls=50,
+        max_external_sources=12,
+        max_depth=12,
         browser_enabled=True,
-        sandbox_enabled=False,
+        sandbox_enabled=True,
     ),
     "pro": PlanPrivileges(
         slug="pro",
-        access_level="advanced",
-        max_provider_class="metered",
-        max_batch_calls=20,
-        max_external_sources=6,
-        max_depth=6,
+        access_level="full",
+        max_provider_class="premium",
+        max_batch_calls=50,
+        max_external_sources=12,
+        max_depth=12,
         browser_enabled=True,
         sandbox_enabled=True,
     ),
@@ -141,7 +141,7 @@ TOOL_ECONOMICS: tuple[ToolEconomics, ...] = (
         "sandbox_*",
         "sandbox",
         3,
-        minimum_plan="pro",
+        minimum_plan="builder",
         provider_class="metered",
         unit_field="timeout_ms",
         unit_size=60_000,
@@ -435,7 +435,7 @@ def _caller_cost(
     return total, highest_class, breakdown, None
 
 
-def estimate_call(
+def _estimate_call_priced(
     tool_name: str,
     arguments: dict[str, Any] | None,
     plan_slug: str,
@@ -647,6 +647,15 @@ def estimate_call(
             cost = 0
             breakdown[0] = {"kind": "base", "credits": 0}
             highest_class = "public"
+        if (
+            tool_name in {"gaming_intel", "gaming_profile"}
+            and plan.slug != "free"
+            and reason is None
+            and requests
+            and not nested_billable
+        ):
+            cost = 0
+            breakdown[0] = {"kind": "subscription_included", "credits": 0}
         return CostEstimate(
             allowed=reason is None, plan=plan.slug, tool_name=tool_name,
             category=rule.category, credits=cost, minimum_plan=rule.minimum_plan,
@@ -1095,6 +1104,13 @@ def estimate_call(
                     > PROVIDER_CLASS_ORDER[provider_class]
                 ):
                     provider_class = nested.provider_class
+            if plan.slug != "free" and calls and all(
+                item.get("credits") == 0
+                for item in breakdown
+                if item.get("kind") == "batch_call"
+            ):
+                cost = 0
+                breakdown[0] = {"kind": "subscription_included", "credits": 0}
 
     units = _bounded_units(rule, args)
     if units:
@@ -1136,6 +1152,47 @@ def estimate_call(
         limits=plan.to_dict(),
     )
 
+
+
+_SUBSCRIPTION_INCLUDED_ROUTES = frozenset({
+    "nativeweb", "publicdata", "gamepublic", "gamecore", "nativesandbox",
+})
+_SUBSCRIPTION_INCLUDED_TOOLS = frozenset({
+    "mesh_providers", "mesh_search", "mesh_describe", "mesh_describe_many",
+    "mesh_capabilities", "mesh_capability_resolve", "gaming_capabilities",
+    "gaming_profile_plan", "phone_number_lookup",
+})
+
+
+def estimate_call(
+    tool_name: str,
+    arguments: dict[str, Any] | None,
+    plan_slug: str,
+) -> CostEstimate:
+    """Include bounded OpenCrawl-hosted work in paid subscriptions.
+
+    Provider-backed calls keep their existing wallet quote and reservation.
+    The priced estimator still validates every argument and plan restriction.
+    """
+    quote = _estimate_call_priced(tool_name, arguments, plan_slug)
+    if not quote.allowed or quote.plan == "free":
+        return quote
+    args = arguments or {}
+    ref = str(args.get("ref") or args.get("tool") or "").strip().lower()
+    route_prefix = ref.split(":", 1)[0] if ":" in ref else ""
+    included = (
+        tool_name in _SUBSCRIPTION_INCLUDED_TOOLS
+        and (tool_name != "phone_number_lookup" or args.get("external") is False)
+    ) or tool_name.startswith(("sandbox_", "gamecore:")) or (
+        tool_name == "mesh_execute" and route_prefix in _SUBSCRIPTION_INCLUDED_ROUTES
+    )
+    if not included:
+        return quote
+    return replace(
+        quote,
+        credits=0,
+        breakdown=({"kind": "subscription_included", "credits": 0},),
+    )
 
 
 def _measured_provider_surcharge(

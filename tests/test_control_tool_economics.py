@@ -40,22 +40,21 @@ def test_control_store_quotes_variable_phone_costs_without_database() -> None:
     assert len(enriched["breakdown"]) == 3
 
 
-def test_control_store_rejects_provider_class_above_plan() -> None:
+def test_control_store_allows_paid_provider_with_wallet_charge() -> None:
     store = ControlStore(dsn=None)
 
-    with pytest.raises(ControlError) as exc:
-        store.quote_tool_call(
-            identity=_identity("builder"),
-            tool_name="phone_number_lookup",
-            arguments={
-                "number": "+14155552671",
-                "external": True,
-                "providers": ["twilio"],
-            },
-        )
+    quote = store.quote_tool_call(
+        identity=_identity("builder"),
+        tool_name="phone_number_lookup",
+        arguments={
+            "number": "+14155552671",
+            "external": True,
+            "providers": ["twilio"],
+        },
+    )
 
-    assert exc.value.code == "plan_restricted"
-    assert exc.value.status_code == 403
+    assert quote["credits"] == 10
+    assert quote["provider_class"] == "metered"
 
 
 def test_free_plan_still_has_real_public_tool_execution(

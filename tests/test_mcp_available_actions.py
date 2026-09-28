@@ -48,6 +48,7 @@ async def test_available_actions_exclude_unconnected_and_dynamic_routes(monkeypa
         async def provider_status(self):
             return {
                 "nativeweb": {"configured": True, "executable": True, "search_configured": False},
+                "publicdata": {"configured": True, "executable": True},
                 "composio": {"configured": True, "executable": True, "connected_toolkits": []},
             }
 
@@ -60,6 +61,7 @@ async def test_available_actions_exclude_unconnected_and_dynamic_routes(monkeypa
                 )
                 for name, provider, ref in (
                     ("fetch", "nativeweb", "nativeweb:fetch"),
+                    ("extract", "publicdata", "publicdata:extract"),
                     ("search", "nativeweb", "nativeweb:search"),
                     ("app", "composio", "composio:send"),
                     ("dynamic", "nativeweb", None),
@@ -69,4 +71,32 @@ async def test_available_actions_exclude_unconnected_and_dynamic_routes(monkeypa
     monkeypatch.setattr("internet_hands.tool_mcp.get_tool_mesh", lambda: Mesh())
     monkeypatch.setattr("internet_hands.tool_mcp.get_capability_registry", lambda: Registry())
     result = await available_actions(_identity("alice"))
-    assert [action["id"] for action in result["actions"]] == ["fetch"]
+    assert [action["id"] for action in result["actions"]] == ["extract", "fetch"]
+
+
+@pytest.mark.asyncio
+async def test_available_actions_follow_subscription_provider_access(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Mesh:
+        async def provider_status(self):
+            return {"firecrawl": {"configured": True, "executable": True}}
+
+    class Registry:
+        def __init__(self):
+            self.capabilities = {
+            "scrape": Capability(
+                id="scrape", name="Scrape", description="Scrape a page", pack="web",
+                tags=(), candidates=(CapabilityCandidate(provider="firecrawl", ref="firecrawl:scrape"),),
+            ),
+            "unbounded": Capability(
+                id="unbounded", name="Unbounded", description="Unquotable extraction", pack="web",
+                tags=(), candidates=(CapabilityCandidate(provider="firecrawl", ref="firecrawl:extract"),),
+            ),
+            }
+
+    monkeypatch.setattr("internet_hands.tool_mcp.get_tool_mesh", lambda: Mesh())
+    monkeypatch.setattr("internet_hands.tool_mcp.get_capability_registry", lambda: Registry())
+    assert (await available_actions(_identity("alice")))["actions"] == []
+    paid = _identity("alice")
+    paid.plan_slug = "builder"
+    result = await available_actions(paid)
+    assert [action["id"] for action in result["actions"]] == ["scrape"]

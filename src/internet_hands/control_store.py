@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS ih_plans (
     included_credits integer NOT NULL,
     rpm_limit integer NOT NULL,
     concurrent_limit integer NOT NULL,
-    api_key_limit integer NOT NULL,
+    api_key_limit integer,
     monitor_limit integer NOT NULL,
     browser_enabled boolean NOT NULL DEFAULT false,
     sandbox_enabled boolean NOT NULL DEFAULT false,
@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS ih_plans (
     metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
     active boolean NOT NULL DEFAULT true
 );
+ALTER TABLE ih_plans ALTER COLUMN api_key_limit DROP NOT NULL;
 
 CREATE TABLE IF NOT EXISTS ih_subscriptions (
     id text PRIMARY KEY,
@@ -321,10 +322,10 @@ CUSTOM_TOPUP_MAX_USD_CENTS = 50_000
 
 FREE_MONTHLY_CREDITS = 250
 PLAN_ROWS = [
-    ("free", "Free", 0, FREE_MONTHLY_CREDITS, 10, 1, 1, 1, False, False, 0),
-    ("builder", "Builder", 499, 25000, 60, 4, 5, 10, True, False, 10),
-    ("pro", "Pro", 1499, 150000, 240, 10, 20, 50, True, True, 20),
-    ("scale", "Scale", 4999, 750000, 600, 20, 100, 250, True, True, 30),
+    ("free", "Free", 0, FREE_MONTHLY_CREDITS, 60, 1, None, 1, False, False, 0),
+    ("builder", "Builder", 499, 25000, 240, 4, None, 10, True, True, 10),
+    ("pro", "Pro", 1499, 150000, 600, 10, None, 50, True, True, 20),
+    ("scale", "Scale", 4999, 750000, 1200, 20, None, 250, True, True, 30),
 ]
 
 CREDIT_PACK_ROWS = [
@@ -1072,16 +1073,8 @@ class ControlStore:
         environment: str,
     ) -> dict[str, Any]:
         self.ensure_schema()
-        account = self.account_snapshot(user_id)
         with self._connect() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT count(*) AS n FROM ih_api_keys WHERE user_id=%s AND revoked_at IS NULL",
-                    (user_id,),
-                )
-                count = int(cur.fetchone()["n"])
-                if count >= int(account["api_key_limit"]):
-                    raise ControlError("api_key_limit", "API key limit reached for current plan", 403)
                 key_id = self._new_id("key")
                 cur.execute(
                     """
@@ -1369,7 +1362,7 @@ class ControlStore:
                 total = int(wallet["monthly_credits"]) + int(wallet["purchased_credits"])
                 already_reserved = int(wallet["reserved_credits"])
                 available = total - already_reserved
-                if available < reserved:
+                if reserved and available < reserved:
                     raise ControlError(
                         "insufficient_credits",
                         (

@@ -4,7 +4,13 @@ from typing import Any
 
 import pytest
 
-from internet_hands.control_store import AuthIdentity, ControlError, ControlStore
+from internet_hands.control_store import (
+    PLAN_ROWS,
+    SCHEMA_SQL,
+    AuthIdentity,
+    ControlError,
+    ControlStore,
+)
 
 
 class _Cursor:
@@ -61,6 +67,25 @@ class _Store(ControlStore):
 
     def _connect(self):
         return self.connection
+
+
+def test_api_key_creation_has_no_per_plan_count_limit() -> None:
+    assert all(row[6] is None for row in PLAN_ROWS)
+    assert "ALTER TABLE ih_plans ALTER COLUMN api_key_limit DROP NOT NULL" in SCHEMA_SQL
+    cursor = _Cursor([
+        {"id": f"key_{index}", "name": f"key {index}"}
+        for index in range(25)
+    ])
+    store = _Store(cursor)
+    for index in range(25):
+        key = store.create_api_key(
+            user_id="usr_1", name=f"key {index}", prefix=f"ih_{index}",
+            key_hash=f"hash_{index}", scopes=["mcp:read"], environment="live",
+        )
+        assert key["name"] == f"key {index}"
+    assert len(cursor.executed) == 25
+    assert all(query.startswith("insert into ih_api_keys") for query in cursor.executed)
+    assert store.connection.commits == 25
 
 
 def test_terminal_settlement_is_idempotent_and_immutable() -> None:
