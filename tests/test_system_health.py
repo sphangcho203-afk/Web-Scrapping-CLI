@@ -31,6 +31,18 @@ class _Reliability:
     def enabled(self):
         return True
 
+    def shared_configured(self):
+        return True
+
+    def diagnostics(self):
+        return {
+            "enabled": True,
+            "shared_configured": True,
+            "shared_refresh_seconds": 15,
+            "shared_last_refresh_at": 123.0,
+            "shared_error": None,
+        }
+
     def snapshot(self, provider=None):
         rows = {
             "nativeweb": {
@@ -131,6 +143,11 @@ async def test_system_health_reports_provider_and_fallback_coverage(monkeypatch)
     assert result["fallbacks"]["adaptive_provider_routing"]["enabled"] is True
     assert result["fallbacks"]["adaptive_provider_routing"]["read_only_only"] is True
     assert result["fallbacks"]["adaptive_provider_routing"]["write_replay"] is False
+    assert result["fallbacks"]["adaptive_provider_routing"]["scope"] == "runtime+shared"
+    assert (
+        result["fallbacks"]["adaptive_provider_routing"]["diagnostics"]["shared_configured"]
+        is True
+    )
     assert result["fallbacks"]["single_provider_capabilities"] == ["vendor.only"]
 
 
@@ -184,6 +201,6 @@ async def test_provider_reliability_status_and_reset_are_authorized(monkeypatch)
     assert reset == {
         "ok": True,
         "provider": "firecrawl",
-        "scope": "runtime-local",
+        "scope": "runtime+shared",
     }
     assert reliability.reset_calls == ["firecrawl"]

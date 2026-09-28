@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import httpx
 import pytest
 
 from internet_hands.execution_meter import (
@@ -186,3 +187,117 @@ async def test_tool_mesh_records_provider_exception_as_failure() -> None:
         assert state["last_error"] == "upstream exploded"
     finally:
         provider_reliability.reset("broken")
+
+
+
+class RetryProvider(FakeProvider):
+    def __init__(
+        self,
+        name: str,
+        prefix: str,
+        *,
+        statuses: list[int | str],
+        side_effecting: bool = False,
+    ) -> None:
+        super().__init__(name, prefix)
+        self.statuses = list(statuses)
+        self.execute_calls = 0
+        self.side_effecting = side_effecting
+
+    async def describe(self, tool_id: str) -> ToolDescriptor:
+        descriptor = await super().describe(tool_id)
+        descriptor.side_effecting = self.side_effecting
+        return descriptor
+
+    async def execute(self, tool_id: str, arguments: dict[str, Any], **kwargs):
+        self.execute_calls += 1
+        state = self.statuses.pop(0) if self.statuses else "completed"
+        if isinstance(state, int):
+            request = httpx.Request("GET", "https://provider.example/tool")
+            response = httpx.Response(state, request=request)
+            raise httpx.HTTPStatusError(
+                f"provider returned {state}",
+                request=request,
+                response=response,
+            )
+        if state == "error":
+            return {"status": "error", "error": "invalid request"}
+        return await super().execute(tool_id, arguments, **kwargs)
+
+
+@pytest.mark.asyncio
+async def test_read_only_transient_failure_retries_and_meters_every_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def no_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setenv("OPENCRAWL_PROVIDER_READ_RETRIES", "1")
+    monkeypatch.setattr("internet_hands.tool_mesh.asyncio.sleep", no_sleep)
+    provider_reliability.reset("retry")
+    provider = RetryProvider("retry", "x", statuses=[503, "completed"])
+    mesh = ToolMesh([provider])
+    token = start_execution_meter()
+    try:
+        result = await mesh.execute("retry:x0", {"q": "hello"})
+        usage = execution_usage_snapshot()
+    finally:
+        reset_execution_meter(token)
+        provider_reliability.reset("retry")
+
+    assert result["status"] == "completed"
+    assert provider.execute_calls == 2
+    assert usage["provider_calls"]["retry"] == 2
+    assert [row["status"] for row in usage["provider_events"]] == [
+        "failed",
+        "completed",
+    ]
+    assert usage["provider_events"][0]["error_class"] == "upstream_unavailable"
+    assert usage["provider_events"][0]["retryable"] is True
+    assert [row["attempt"] for row in result["metadata"]["provider_attempts"]] == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_auth_failure_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENCRAWL_PROVIDER_READ_RETRIES", "3")
+    provider = RetryProvider("authfail", "x", statuses=[401, "completed"])
+    mesh = ToolMesh([provider])
+
+    result = await mesh.execute("authfail:x0", {})
+
+    assert result["status"] == "failed"
+    assert provider.execute_calls == 1
+    assert result["metadata"]["failure"]["category"] == "auth"
+    assert result["metadata"]["provider_attempts"][0]["retryable"] is False
+
+
+@pytest.mark.asyncio
+async def test_side_effecting_tool_never_retries_transient_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENCRAWL_PROVIDER_READ_RETRIES", "3")
+    provider = RetryProvider(
+        "writer",
+        "x",
+        statuses=[503, "completed"],
+        side_effecting=True,
+    )
+    mesh = ToolMesh([provider])
+
+    result = await mesh.execute("writer:x0", {"message": "hello"})
+
+    assert result["status"] == "failed"
+    assert provider.execute_calls == 1
+    assert result["metadata"]["failure"]["category"] == "upstream_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_provider_error_status_is_normalized_to_failed_without_retry() -> None:
+    provider = RetryProvider("errstatus", "x", statuses=["error"])
+    mesh = ToolMesh([provider])
+
+    result = await mesh.execute("errstatus:x0", {})
+
+    assert result["status"] == "failed"
+    assert provider.execute_calls == 1
+    assert result["metadata"]["failure"]["category"] == "invalid_request"

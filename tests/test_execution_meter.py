@@ -7,6 +7,7 @@ import pytest
 from internet_hands.execution_meter import (
     execution_usage_snapshot,
     record_provider_call,
+    record_provider_outcome,
     record_usage,
     reset_execution_meter,
     start_execution_meter,
@@ -21,6 +22,7 @@ def test_execution_meter_records_and_resets() -> None:
         assert execution_usage_snapshot() == {
             "counters": {"pages": 3},
             "provider_calls": {"twilio": 1},
+            "provider_events": [],
         }
     finally:
         reset_execution_meter(token)
@@ -28,6 +30,7 @@ def test_execution_meter_records_and_resets() -> None:
     assert execution_usage_snapshot() == {
         "counters": {},
         "provider_calls": {},
+        "provider_events": [],
     }
 
 
@@ -50,3 +53,35 @@ async def test_execution_meter_is_shared_by_child_tasks() -> None:
         }
     finally:
         reset_execution_meter(token)
+
+
+
+def test_execution_meter_records_structured_provider_outcome() -> None:
+    token = start_execution_meter()
+    try:
+        record_provider_outcome(
+            "exa",
+            ref="exa:search",
+            status="failed",
+            duration_ms=123,
+            error="service unavailable",
+            error_class="upstream_unavailable",
+            retryable=True,
+            attempt=1,
+        )
+        snapshot = execution_usage_snapshot()
+    finally:
+        reset_execution_meter(token)
+
+    assert snapshot["provider_events"] == [
+        {
+            "provider": "exa",
+            "ref": "exa:search",
+            "status": "failed",
+            "duration_ms": 123,
+            "error": "service unavailable",
+            "error_class": "upstream_unavailable",
+            "retryable": True,
+            "attempt": 1,
+        }
+    ]
