@@ -94,7 +94,7 @@ class MCPGatewayASGI:
 
         if identity and identity.source == "oauth":
             requested_resource = f"{scheme}://{host}/mcp"
-            if identity.resource != requested_resource:
+            if (identity.resource or "").rstrip("/") != requested_resource.rstrip("/"):
                 response = JSONResponse(
                     {"error": "invalid_token", "detail": "token was issued for a different MCP resource"},
                     status_code=401,

@@ -100,6 +100,21 @@ async def test_oauth_token_for_other_resource_is_rejected(monkeypatch: pytest.Mo
     assert "resource_metadata" in headers["www-authenticate"]
 
 
+@pytest.mark.asyncio
+async def test_oauth_token_accepts_trailing_slash_for_same_mcp_resource(monkeypatch: pytest.MonkeyPatch) -> None:
+    identity = AuthIdentity(
+        "usr_1", "key_1", ["mcp:read", "mcp:execute"], "free", 10, "oauth",
+        resource="https://mcp.example.test/mcp/",
+    )
+    monkeypatch.setattr("internet_hands.mcp_gateway.authenticate_secret", lambda _store, _secret: identity)
+    status, _, _ = await _request(
+        MCPGatewayASGI(_listing_app, store=_FakeStore()),  # type: ignore[arg-type]
+        headers=[(b"host", b"mcp.example.test"), (b"authorization", b"Bearer ih_at_fake")],
+        body=b'{"jsonrpc":"2.0","id":1,"method":"tools/list"}',
+    )
+    assert status == 200
+
+
 class _FakeStore:
     def __init__(self, reserved: int = 3) -> None:
         self.reserved = reserved

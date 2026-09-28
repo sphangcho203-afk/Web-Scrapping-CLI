@@ -26,6 +26,17 @@ Point an OAuth-capable MCP client at the same URL. The client discovers `/.well-
 
 `offline_access` permits refresh and does not require an extra API key scope. Other requested scopes must be granted by the key. A revoked or expired key cannot authorize a new connection. Keep `INTERNET_HANDS_OAUTH_SIGNING_SECRET` configured consistently across deployments so dynamic client IDs remain valid.
 
+## Public endpoint requirement
+
+External MCP registries must be able to reach the server **before** OpenCrawl authentication runs. Use a stable public HTTPS origin such as the production/custom domain. Do not register a Vercel preview hostname protected by Vercel Authentication: the platform can intercept `/.well-known/oauth-*` or `/mcp` before OpenCrawl sees the request, which looks like an OpenCrawl authentication failure even when the gateway code is healthy.
+
+A useful diagnostic split is:
+
+1. Anonymous `GET /.well-known/oauth-protected-resource` must reach OpenCrawl and return JSON.
+2. Anonymous MCP initialize should reach OpenCrawl and return its own `401` plus `WWW-Authenticate` metadata.
+3. Only then test the API key or OAuth grant.
+4. After authentication succeeds, run `tools/list` and then `account_available_actions` for the account-specific executable surface.
+
 ## Composio Custom MCP
 
 Composio's experimental Custom MCP integration is separate from OpenCrawl's outbound connected apps. Register OpenCrawl's public HTTPS URL as a `CUSTOM_*` toolkit. Select one authentication scheme at registration:
