@@ -107,6 +107,11 @@ class YouSearchProvider:
                             "type": "string",
                             "enum": ["snippets", "highlights", "full_page"],
                         },
+                        "result_section": {
+                            "type": "string",
+                            "enum": ["all", "web", "news"],
+                            "description": "OpenCrawl response-section filter; not sent upstream.",
+                        },
                     },
                     ["query"],
                 ),
@@ -312,6 +317,16 @@ class YouSearchProvider:
             if extraction_mode != "snippets":
                 payload["extraction"] = {"extraction_mode": extraction_mode}
             data = await self._post(endpoint, payload, timeout_seconds=timeout_seconds)
+            section = str(arguments.get("result_section") or "all").strip().lower()
+            if section not in {"all", "web", "news"}:
+                raise ValueError("invalid result_section")
+            if section != "all" and isinstance(data, dict):
+                results = data.get("results")
+                if isinstance(results, dict):
+                    data = {
+                        **data,
+                        "results": {section: results.get(section, [])},
+                    }
             record_usage("you_search_calls", 1)
 
         elif tool_id == "contents":
@@ -359,7 +374,7 @@ class YouSearchProvider:
                     source_control[key] = str(value)
             if source_control:
                 payload["source_control"] = source_control
-            data = await self._post(endpoint, payload, timeout_seconds=max(timeout_seconds, 120))
+            data = await self._post(endpoint, payload, timeout_seconds=timeout_seconds)
             record_usage("you_research_calls", 1)
 
         else:
