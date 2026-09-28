@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import re
 
 import pytest
@@ -114,6 +115,12 @@ def _consented_form(client: TestClient, client_id: str) -> dict[str, str]:
     return form
 
 
+def _handoff_target(response) -> str:
+    match = re.search(r'<meta http-equiv="refresh" content="0;url=([^"]+)"', response.text)
+    assert match is not None
+    return html.unescape(match.group(1))
+
+
 def test_authorize_requires_open_crawl_login_and_preserves_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -174,13 +181,18 @@ def test_session_consent_issues_authorization_code_without_api_key(
         headers={"origin": "null"},
     )
 
-    assert response.status_code == 302
-    assert response.headers["location"].startswith(
+    assert response.status_code == 200
+    target = _handoff_target(response)
+    assert target.startswith(
         "https://backend.composio.dev/api/v1/oauth/apps/add?"
     )
-    assert "code=" in response.headers["location"]
-    assert "state=state-123" in response.headers["location"]
-    assert "iss=http%3A%2F%2Ftestserver" in response.headers["location"]
+    assert "code=" in target
+    assert "state=state-123" in target
+    assert "iss=http%3A%2F%2Ftestserver" in target
+    assert f'<a href="{html.escape(target, quote=True)}">Continue</a>' in response.text
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["referrer-policy"] == "no-referrer"
+    assert "form-action 'none'" in response.headers["content-security-policy"]
     identity = captured["identity"]
     assert identity.user_id == "usr_1"
     assert identity.api_key_id is None
@@ -206,16 +218,31 @@ def test_authorize_html_sets_security_headers(monkeypatch: pytest.MonkeyPatch) -
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["x-content-type-options"] == "nosniff"
     csp = response.headers["content-security-policy"]
-    assert "form-action 'self' https://backend.composio.dev;" in csp
+    assert "form-action 'self';" in csp
     assert "frame-ancestors 'none'" in csp
     assert "https://example.com" not in csp
 
 
-def test_consent_form_action_rejects_unsafe_callback_host() -> None:
-    with pytest.raises(HTTPException, match="redirect_uri"):
-        control_api._consent_form_action_origin("https://example.com';evil/callback")
-    with pytest.raises(HTTPException, match="redirect_uri"):
-        control_api._consent_form_action_origin("https://user@example.com/callback")
+def test_denied_consent_uses_handoff_without_issuing_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client_id = _registered_client(monkeypatch)
+    user = {"id": "usr_1", "email": "user@example.com", "email_verified": True}
+    monkeypatch.setattr(control_api, "_session_user", lambda _request: user)
+    monkeypatch.setattr(
+        control_api.store, "create_oauth_code",
+        lambda **_kwargs: pytest.fail("denied consent must not issue a code"),
+    )
+    client = TestClient(_oauth_test_app(), follow_redirects=False)
+    client.cookies.set("ih_session", "session-one")
+    form = _consented_form(client, client_id)
+    form["action"] = "deny"
+    response = client.post("/oauth/authorize", data=form)
+    target = _handoff_target(response)
+    assert response.status_code == 200
+    assert "error=access_denied" in target
+    assert "state=state-123" in target
+    assert "code=" not in target
 
 
 def test_authorize_post_requires_explicit_approval_or_denial(

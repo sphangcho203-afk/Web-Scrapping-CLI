@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import html
 import json
 import os
 import time
@@ -175,7 +176,23 @@ async def oauth_authorize_submit_checked(request: Request):
         location = response.headers.get("location")
         if location and location.startswith(("https://", "http://")):
             separator = "&" if "?" in location else "?"
-            response.headers["location"] = (
-                f"{location}{separator}{urlencode({'iss': _origin(request)})}"
+            target = f"{location}{separator}{urlencode({'iss': _origin(request)})}"
+            escaped_target = html.escape(target, quote=True)
+            return HTMLResponse(
+                "<!doctype html><html><head><meta charset='utf-8'>"
+                f'<meta http-equiv="refresh" content="0;url={escaped_target}">'
+                "<title>Returning to MCP client</title></head><body>"
+                f'<p>Returning to your MCP client. <a href="{escaped_target}">Continue</a></p>'
+                "</body></html>",
+                headers={
+                    "Cache-Control": "no-store",
+                    "Pragma": "no-cache",
+                    "Referrer-Policy": "no-referrer",
+                    "X-Content-Type-Options": "nosniff",
+                    "Content-Security-Policy": (
+                        "default-src 'none'; form-action 'none'; "
+                        "base-uri 'none'; frame-ancestors 'none'"
+                    ),
+                },
             )
     return response
