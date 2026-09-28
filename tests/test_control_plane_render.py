@@ -620,3 +620,86 @@ def test_rewards_redemption_delivers_wallet_prize(frontend_url):
         assert state["points"] == 20
         assert not errors, errors
         browser.close()
+
+
+
+def test_community_reward_code_redemption(frontend_url):
+    state = {
+        "points": 120,
+        "purchased": 500,
+        "code_redemptions": [],
+    }
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+
+        def rewards_payload():
+            return {
+                "account": {
+                    "points": state["points"],
+                    "lifetime_earned": state["points"],
+                    "lifetime_redeemed": 0,
+                },
+                "wallet": {
+                    "monthly_credits": 250,
+                    "purchased_credits": state["purchased"],
+                    "reserved_credits": 0,
+                },
+                "catalog": [],
+                "redemptions": [],
+                "code_redemptions": list(state["code_redemptions"]),
+                "ledger": [],
+                "earned_now": 0,
+                "wallet_units_per_usd": 5000,
+                "earning_rule": {"usd_spend_per_point": 0.05},
+            }
+
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if path == "/api/auth/me":
+                data = {
+                    "user": {"email": "fixture@example.test", "email_verified": True},
+                    "account": {},
+                }
+            elif path == "/api/rewards" and route.request.method == "GET":
+                data = rewards_payload()
+            elif path == "/api/rewards/codes/redeem" and route.request.method == "POST":
+                body = route.request.post_data_json
+                assert body["code"] == "DISCORD100"
+                state["points"] += 100
+                state["code_redemptions"].insert(0, {
+                    "id": "rcd_fixture",
+                    "code_hint": "DISC…",
+                    "label": "Discord launch drop",
+                    "reward_type": "points",
+                    "reward_value": 100,
+                    "created_at": "2026-09-28T18:30:00Z",
+                })
+                data = {
+                    "ok": True,
+                    "campaign": {
+                        "label": "Discord launch drop",
+                        "code_hint": "DISC…",
+                        "reward_type": "points",
+                        "reward_value": 100,
+                    },
+                    "account": {"points": state["points"]},
+                    "wallet": {"purchased_credits": state["purchased"]},
+                    "wallet_units_per_usd": 5000,
+                }
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/rewards")
+        page.locator("#reward-code-form").wait_for()
+        page.locator('#reward-code-form input[name="code"]').fill("discord100")
+        page.get_by_role("button", name="Redeem code").click()
+        page.get_by_text("220", exact=True).first.wait_for()
+        assert page.get_by_text("Discord launch drop", exact=True).count() >= 1
+        assert page.get_by_text("+100 pts", exact=True).count() >= 1
+        assert not errors, errors
+        browser.close()
