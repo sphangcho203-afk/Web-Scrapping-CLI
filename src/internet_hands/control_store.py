@@ -379,12 +379,65 @@ _RETRY_RESERVATION_TOOLS = {
     "gaming_profile",
 }
 
+_NON_RETRYABLE_RAW_PROVIDERS = {"apify", "nativesandbox"}
+_NON_RETRYABLE_RAW_REFS = {"firecrawl:interact"}
+
+
+def _raw_mesh_ref_can_retry(ref: str) -> bool:
+    normalized = str(ref or "").strip().lower()
+    if not normalized:
+        return False
+    provider = normalized.split(":", 1)[0]
+    if provider in _NON_RETRYABLE_RAW_PROVIDERS:
+        return False
+    if normalized in _NON_RETRYABLE_RAW_REFS:
+        return False
+    return True
+
+
+def _retryable_quoted_credits(
+    tool_name: str,
+    arguments: dict[str, Any] | None,
+    *,
+    plan_slug: str,
+    base_quote: dict[str, Any],
+) -> int:
+    """Return only the quoted credits belonging to calls ToolMesh may retry."""
+    args = arguments or {}
+    if tool_name == "mesh_execute":
+        ref = str(args.get("ref") or args.get("tool") or "")
+        return max(0, int(base_quote.get("credits") or 0)) if _raw_mesh_ref_can_retry(ref) else 0
+
+    if tool_name == "mesh_batch_execute":
+        calls = args.get("calls")
+        if not isinstance(calls, list):
+            return 0
+        retryable = 0
+        for call in calls:
+            if not isinstance(call, dict):
+                continue
+            ref = str(call.get("ref") or call.get("tool") or "")
+            if not _raw_mesh_ref_can_retry(ref):
+                continue
+            nested = estimate_call("mesh_execute", call, plan_slug)
+            if nested.allowed:
+                retryable += max(0, int(nested.credits))
+        return retryable
+
+    # Semantic capability routes are explicitly read-only/fail-closed in the
+    # capability registry. Their bounded fallback attempts can consume the
+    # retry headroom reserved here.
+    return max(0, int(base_quote.get("credits") or 0))
+
 
 def _with_retry_reservation(
     tool_name: str,
     quote: dict[str, Any],
+    *,
+    arguments: dict[str, Any] | None,
+    plan_slug: str,
 ) -> dict[str, Any]:
-    """Reserve worst-case read retry headroom; measured settlement refunds unused attempts."""
+    """Reserve retry headroom only for work that execution is allowed to replay."""
     base_credits = max(0, int(quote.get("credits") or 0))
     retries = read_retry_budget()
     if (
@@ -394,8 +447,18 @@ def _with_retry_reservation(
     ):
         return quote
 
+    retryable_once = _retryable_quoted_credits(
+        tool_name,
+        arguments,
+        plan_slug=plan_slug,
+        base_quote=quote,
+    )
+    if retryable_once <= 0:
+        return quote
+
     attempts = 1 + retries
-    reserved = base_credits * attempts
+    extra = retryable_once * retries
+    reserved = base_credits + extra
     result = dict(quote)
     result["credits"] = reserved
     breakdown = list(result.get("breakdown") or [])
@@ -405,7 +468,8 @@ def _with_retry_reservation(
             "attempts": attempts,
             "retries": retries,
             "quoted_once": base_credits,
-            "credits": reserved - base_credits,
+            "retryable_once": retryable_once,
+            "credits": extra,
         }
     )
     result["breakdown"] = breakdown
@@ -413,6 +477,7 @@ def _with_retry_reservation(
         "attempts": attempts,
         "retries": retries,
         "quoted_once": base_credits,
+        "retryable_once": retryable_once,
         "reserved": reserved,
     }
     return result
@@ -1197,7 +1262,12 @@ class ControlStore:
                 estimate.reason or "tool is unavailable on the current plan",
                 403,
             )
-        return _with_retry_reservation(tool_name, quote)
+        return _with_retry_reservation(
+            tool_name,
+            quote,
+            arguments=arguments,
+            plan_slug=identity.plan_slug,
+        )
 
     def tool_cost(
         self,
