@@ -40,6 +40,7 @@ const paths = {
   check:'<path d="m5 12 4 4L19 6"/>', arrow:'<path d="m9 18 6-6-6-6"/>',
   copy:'<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
   menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',
+  close:'<path d="M5 5l14 14M19 5 5 19"/>',
   shield:'<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/>',
 };
 const icon = (name, label = '') => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" ${label ? `aria-label="${esc(label)}" role="img"` : 'aria-hidden="true"'}>${paths[name] || paths.activity}</svg>`;
@@ -145,6 +146,7 @@ async function hydrateOptionalSession() {
 function clearTransientUi() {
   document.querySelectorAll('.modal-backdrop').forEach(el=>el.remove());
   document.documentElement.classList.remove('oc-public-menu-open');
+  document.querySelectorAll('[data-mobile-menu].open').forEach(el=>el.classList.remove('open'));
   document.documentElement.classList.remove('ih-overlay-open');
   document.body?.classList.remove('ih-overlay-open');
   document.querySelectorAll('.cos-sidebar.open,.cos-more-sheet.open,[data-sheet-backdrop].open').forEach(el=>el.classList.remove('open'));
@@ -172,6 +174,11 @@ function bindCommon() {
   const navToggle = $('[data-nav-toggle]');
   const mobileMenu = $('[data-mobile-menu]');
   if (navToggle && mobileMenu) {
+    const closeNav = () => {
+      mobileMenu.classList.remove('open');
+      syncNavState();
+      navToggle.focus();
+    };
     const syncNavState = () => {
       const open = mobileMenu.classList.contains('open');
       navToggle.setAttribute('aria-expanded', String(open));
@@ -194,18 +201,28 @@ function bindCommon() {
       if (mobileMenu.classList.contains('open')) mobileMenu.querySelector('a')?.focus();
       else navToggle.focus();
     });
+    mobileMenu.querySelector('[data-nav-close]')?.addEventListener('click', closeNav);
     navToggle.addEventListener('keydown', e => {
       if (e.key === 'Escape' && mobileMenu.classList.contains('open')) {
-        mobileMenu.classList.remove('open'); syncNavState(); navToggle.focus();
+        closeNav();
       }
     });
     mobileMenu.addEventListener('keydown', e => {
-      if (e.key === 'Escape') { mobileMenu.classList.remove('open'); syncNavState(); navToggle.focus(); }
+      if (e.key === 'Escape') { closeNav(); return; }
       if (e.key !== 'Tab') return;
-      const links = $$('a[href]', mobileMenu);
-      if (e.shiftKey && document.activeElement === links[0]) { e.preventDefault(); links.at(-1)?.focus(); }
-      if (!e.shiftKey && document.activeElement === links.at(-1)) { e.preventDefault(); links[0]?.focus(); }
+      const controls = $$('a[href],button', mobileMenu);
+      if (e.shiftKey && document.activeElement === controls[0]) { e.preventDefault(); controls.at(-1)?.focus(); }
+      if (!e.shiftKey && document.activeElement === controls.at(-1)) { e.preventDefault(); controls[0]?.focus(); }
     });
+    if (window.__ocPublicNavResize) window.removeEventListener('resize', window.__ocPublicNavResize);
+    window.__ocPublicNavResize = () => {
+      if (window.innerWidth > 900 && mobileMenu.classList.contains('open')) {
+        mobileMenu.classList.remove('open');
+        syncNavState();
+        $('.ih-nav-links a')?.focus();
+      }
+    };
+    window.addEventListener('resize', window.__ocPublicNavResize);
   }
 }
 function codeBlock(code, title = 'Configuration') { return `<div class="code-block"><div><span>${esc(title)}</span><button data-copy="${esc(code)}">${icon('copy')} Copy</button></div><pre><code>${esc(code)}</code></pre></div>`; }
@@ -244,21 +261,21 @@ function capabilityCard(item) {
     <h3>${esc(item.name || item.id)}</h3><code title="${esc(item.id)}">${esc(item.id)}</code>
     <p>${esc(item.description || 'A registered OpenCrawl capability.')}</p>
     <div class="oc-tool-io"><span>IN&nbsp; ${esc(fields.join(' · ') || 'See docs')}</span><span>OUT&nbsp; ${esc(output.join(' · ') || 'Structured result')}</span></div>
-    <div class="oc-tool-bottom"><span>${item.read_only ? 'READ' : 'SCOPED WRITE'} / ROUTE-DEPENDENT USAGE</span><a data-link href="/docs/capabilities">Docs ${icon('arrow')}</a></div>
+    <div class="oc-tool-bottom"><span>${item.read_only ? 'Read only' : 'Scoped write'} · Usage depends on route</span><a data-link href="/docs/capabilities">View docs ${icon('arrow')}</a></div>
   </article>`;
 }
 async function renderCapabilities() {
   let items = [], error = '';
   try { items = await getCapabilities(); } catch (e) { error = e.message; }
   const packs = [...new Set(items.map(item => String(item.category || 'Other')))].sort();
-  publicShell(`<main class="oc-catalog-page"><section class="container oc-catalog-hero"><span class="oc-kicker">OPENCRAWL / CAPABILITY REGISTRY</span><h1>Find the operation.<br><em>Inspect the route.</em></h1><p>Registered capabilities from the current OpenCrawl registry. Availability depends on your plan and connected infrastructure; usage is measured by work.</p><div class="oc-catalog-controls"><label>Search capabilities<input id="oc-tool-search" type="search" placeholder="Search, research, games, repositories…" autocomplete="off"></label><label>Category<select id="oc-tool-pack"><option value="">All categories</option>${packs.map(pack=>`<option value="${esc(pack)}">${esc(pack)}</option>`).join('')}</select></label></div><p id="oc-tool-count" class="oc-catalog-count" role="status"></p></section><section class="container oc-catalog-grid" id="oc-tool-grid"></section><div class="container oc-catalog-pagination"><button class="btn" id="oc-tool-more" type="button" hidden>Load more capabilities</button></div><div class="container oc-catalog-foot"><p>Registered means the operation is known to the routing fabric. It does not guarantee that a provider is currently available or that your plan enables execution.</p><a class="btn primary" data-link href="${state.me?.user?.email_verified ? '/dashboard/playground' : '/signup'}">Open playground ${icon('arrow')}</a></div></main>`);
+  publicShell(`<main class="oc-catalog-page"><section class="container oc-catalog-hero"><span class="oc-kicker">OPENCRAWL / CAPABILITY REGISTRY</span><h1>Find the operation.<br><em>Inspect the route.</em></h1><p>Search the current registry by task or category. Each entry shows what it accepts and returns. Availability and usage are resolved when you run it.</p><div class="oc-catalog-controls"><label>Search capabilities<input id="oc-tool-search" type="search" placeholder="Search tools or tasks…" autocomplete="off"></label><label>Category<select id="oc-tool-pack"><option value="">All categories</option>${packs.map(pack=>`<option value="${esc(pack)}">${esc(pack)}</option>`).join('')}</select></label></div><div class="oc-catalog-toolbar"><p id="oc-tool-count" class="oc-catalog-count" role="status" aria-live="polite"></p><span>Registered ≠ currently available</span></div></section><section class="container oc-catalog-grid" id="oc-tool-grid" aria-label="Registered capabilities"></section><div class="container oc-catalog-pagination"><button class="btn" id="oc-tool-more" type="button" hidden>Load more capabilities</button></div><div class="container oc-catalog-foot"><p>Registered means the operation is known to the routing fabric. It does not guarantee that a provider is currently available or that your plan enables execution.</p><a class="btn primary" data-link href="${state.me?.user?.email_verified ? '/dashboard/playground' : '/signup'}">Open playground ${icon('arrow')}</a></div></main>`);
   const grid = $('#oc-tool-grid'), count = $('#oc-tool-count');
   const search = $('#oc-tool-search'), pack = $('#oc-tool-pack'), more = $('#oc-tool-more');
   let visible = 24;
   function show() {
     const query = search.value.trim().toLocaleLowerCase();
     const filtered = items.filter(item => (!pack.value || item.category === pack.value) && (!query || [item.id,item.name,item.description,item.pack,item.category,...(item.tags||[])].join(' ').toLocaleLowerCase().includes(query)));
-    count.textContent = error ? 'Registry temporarily unavailable' : `${filtered.length} of ${items.length} registered capabilities`;
+    count.textContent = error ? 'Registry temporarily unavailable' : `Showing ${Math.min(visible, filtered.length)} of ${filtered.length} operations${filtered.length !== items.length ? ` · ${items.length} total` : ''}`;
     grid.innerHTML = error ? `<div class="oc-catalog-empty" role="alert"><h2>Catalog unavailable</h2><p>${esc(error)}</p><button class="btn" id="oc-tool-retry">Retry</button></div>` : filtered.length ? filtered.slice(0,visible).map(capabilityCard).join('') : '<div class="oc-catalog-empty"><h2>No matching capabilities</h2><p>Try a different term or select all categories.</p></div>';
     more.hidden = !!error || filtered.length <= visible;
     if (!more.hidden) more.textContent = `Load more · ${Math.min(filtered.length-visible,24)} of ${filtered.length-visible} remaining`;
@@ -871,6 +888,7 @@ function openRunInspector(event) {
 
   publicShell = function publicShellV2(content) {
     const authenticated = !!state.me?.user?.email_verified;
+    const menuLink = (path, label, number) => `<a data-link href="${path}" ${location.pathname === path ? 'aria-current="page"' : ''}><span>${number}</span><b>${label}</b>${icon('arrow')}</a>`;
     const primary = authenticated
       ? `<a class="btn primary ih-nav-cta" data-link href="/dashboard">Open console ${icon('arrow')}</a>`
       : `<a class="btn primary ih-nav-cta" data-link href="/signup">Start free ${icon('arrow')}</a>`;
@@ -891,14 +909,14 @@ function openRunInspector(event) {
           <div class="nav-actions ih-nav-actions">${secondary}${primary}</div>
           <button class="icon-btn nav-toggle" data-nav-toggle aria-label="Open navigation">${icon('menu')}</button>
         </nav>
-        <div class="mobile-menu" data-mobile-menu role="navigation" aria-label="Mobile navigation">
-          <a data-link href="/capabilities">Capabilities</a>
-          <a data-link href="/docs">Documentation</a>
-          <a data-link href="/pricing">Pricing</a>
-          <a data-link href="/status">Status</a>
-          ${authenticated ? '<a data-link href="/dashboard">Open console</a>' : '<a data-link href="/login">Sign in</a><a data-link href="/signup">Start free</a>'}
-        </div>
       </header>
+      <nav class="mobile-menu oc-mobile-nav" data-mobile-menu aria-label="Mobile navigation">
+        <div class="oc-mobile-nav-head"><div><span>OPENCRAWL / DIRECTORY</span><strong>Navigate</strong></div><button type="button" data-nav-close aria-label="Close navigation">${icon('close')}</button></div>
+        <div class="oc-mobile-nav-links"><section aria-label="Explore"><h2>Explore</h2>${menuLink('/', 'Home', '01')}${menuLink('/capabilities', 'Capabilities', '02')}${menuLink('/pricing', 'Pricing', '03')}${menuLink('/status', 'System status', '04')}</section>
+        <section aria-label="Build"><h2>Build</h2>${menuLink('/docs', 'Documentation', '05')}${menuLink('/docs/quickstart', 'Quickstart', '06')}${menuLink('/docs/capabilities', 'Capability docs', '07')}${menuLink('/docs/mcp', 'MCP setup', '08')}</section></div>
+        <div class="oc-mobile-nav-actions">${authenticated ? '<a class="btn primary" data-link href="/dashboard">Open console</a>' : '<a class="btn primary" data-link href="/signup">Start free</a><a class="btn" data-link href="/login">Sign in</a>'}</div>
+        <p>Scoped execution. Inspectable results.</p>
+      </nav>
       ${content}
       <footer class="footer ih-footer">
         <div class="container ih-footer-grid">
@@ -936,13 +954,13 @@ function openRunInspector(event) {
           ].map((x,i)=>`<div class="ih-demo-step ${i<5?'done':''}"><span>${statusDot()}</span><div><b>${x[0]}</b><small>${x[1]}</small></div><em>${x[2]}</em></div>`).join('')}
         </div>
         <div class="ih-demo-inspector">
-          <div class="ih-demo-tabs"><b>Overview</b><span>Data</span><span>Evidence</span><span>Raw</span></div>
+          <div class="ih-demo-tabs"><b>RESULT PREVIEW</b><span>Example only</span></div>
           <div class="ih-demo-result">
             <span>RESULT</span>
             <h3>Pricing model extracted</h3>
             <p>Public plans · product links · cited evidence</p>
           </div>
-          <div class="ih-demo-metrics"><span><small>Pages</small><b>after run</b></span><span><small>Latency</small><b>measured</b></span><span><small>Credits</small><b>metered</b></span></div>
+          <div class="ih-demo-note"><b>After a real run</b><span>Inspect pages, timing, wallet charge and source links in the console.</span></div>
           <div class="ih-evidence-row"><i>01</i><span><b>Source page</b><small>Linked when captured</small></span></div>
         </div>
       </div>
@@ -1040,7 +1058,7 @@ function openRunInspector(event) {
     getCapabilities().then(catalog => {
       const target = $('#oc-home-featured');
       if (!target?.isConnected) return;
-      const featured = ['Web intelligence','Public data','Repositories','Game intelligence','Connected apps','Social','Public intelligence']
+      const featured = ['Web intelligence','Public data','Game intelligence']
         .map(category => catalog.find(item => item.category === category)).filter(Boolean);
       target.className = featured.length ? 'oc-catalog-grid' : 'oc-catalog-empty';
       target.removeAttribute('role');

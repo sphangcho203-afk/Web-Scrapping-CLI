@@ -104,6 +104,32 @@ def test_public_catalog_filters_registry_and_fits_mobile(frontend_url):
         browser.close()
 
 
+def test_public_mobile_navigation_fills_viewport_and_reaches_routes(frontend_url):
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 740})
+        page.route("**/api/**", lambda route: route.fulfill(
+            status=401, content_type="application/json", body='{"detail":"sign in required"}'
+        ))
+        page.goto(frontend_url + "/capabilities")
+        toggle = page.get_by_role("button", name="Open navigation")
+        toggle.click()
+        menu = page.get_by_role("navigation", name="Mobile navigation")
+        assert toggle.get_attribute("aria-expanded") == "true"
+        assert menu.bounding_box()["height"] > 600
+        for label in ("Home", "Capabilities", "Pricing", "System status",
+                      "Documentation", "Quickstart", "Capability docs", "MCP setup"):
+            assert menu.get_by_role("link", name=label).count() == 1
+        assert page.locator(".ih-public-shell main").get_attribute("inert") is not None
+        menu.get_by_role("link", name="Pricing").click()
+        assert page.url.endswith("/pricing")
+        assert page.locator(".oc-mobile-nav.open").count() == 0
+        page.get_by_role("button", name="Open navigation").click()
+        page.keyboard.press("Escape")
+        assert page.get_by_role("button", name="Open navigation").get_attribute("aria-expanded") == "false"
+        browser.close()
+
+
 @pytest.mark.parametrize("mode", ["null", "missing", "empty", "populated"])
 def test_initial_control_plane_render(frontend_url, mode):
     fields = ["plans", "credit_packs", "series", "events", "recent_runs",
