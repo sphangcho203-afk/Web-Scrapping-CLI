@@ -6,7 +6,7 @@ import threading
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 
 from .control_api import _json_error, _require_user, _require_verified, store
 from .control_store import WALLET_UNITS_PER_USD, ControlError
