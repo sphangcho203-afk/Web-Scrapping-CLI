@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import pytest
@@ -157,3 +158,82 @@ async def test_gateway_settles_measured_caller_cost(
     assert measured["counters"]["public_search_call"] == 1
     assert measured["counters"]["public_search_result"] == 3
     assert measured["provider_calls"]["brave"] == 1
+
+
+
+async def _raising_inner_app(scope: dict[str, Any], receive: Any, send: Any) -> None:
+    del scope, receive, send
+    raise RuntimeError("inner app exploded")
+
+
+async def _cancelled_inner_app(scope: dict[str, Any], receive: Any, send: Any) -> None:
+    del scope, receive, send
+    raise asyncio.CancelledError()
+
+
+def _gateway_identity() -> AuthIdentity:
+    return AuthIdentity(
+        user_id="usr_1",
+        api_key_id="key_1",
+        scopes=["mcp:read", "mcp:execute"],
+        plan_slug="pro",
+        rpm_limit=240,
+        source="api_key",
+        concurrent_limit=10,
+    )
+
+
+@pytest.mark.asyncio
+async def test_gateway_marks_uncaught_app_failure_as_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = _FakeStore()
+    monkeypatch.setattr(
+        "internet_hands.mcp_gateway.authenticate_secret",
+        lambda _store, _secret: _gateway_identity(),
+    )
+    app = MCPGatewayASGI(_raising_inner_app, store=store)  # type: ignore[arg-type]
+    body = (
+        b'{"jsonrpc":"2.0","id":1,"method":"tools/call",'
+        b'"params":{"name":"mesh_execute","arguments":{"ref":"nativeweb:search"}}}'
+    )
+
+    with pytest.raises(RuntimeError, match="inner app exploded"):
+        await _request(
+            app,
+            headers=[
+                (b"host", b"mcp.example.test"),
+                (b"authorization", b"Bearer ih_live_fake"),
+            ],
+            body=body,
+        )
+
+    assert store.finished[0]["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_gateway_marks_cancelled_app_as_cancelled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = _FakeStore()
+    monkeypatch.setattr(
+        "internet_hands.mcp_gateway.authenticate_secret",
+        lambda _store, _secret: _gateway_identity(),
+    )
+    app = MCPGatewayASGI(_cancelled_inner_app, store=store)  # type: ignore[arg-type]
+    body = (
+        b'{"jsonrpc":"2.0","id":1,"method":"tools/call",'
+        b'"params":{"name":"mesh_execute","arguments":{"ref":"nativeweb:search"}}}'
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await _request(
+            app,
+            headers=[
+                (b"host", b"mcp.example.test"),
+                (b"authorization", b"Bearer ih_live_fake"),
+            ],
+            body=body,
+        )
+
+    assert store.finished[0]["status"] == "cancelled"

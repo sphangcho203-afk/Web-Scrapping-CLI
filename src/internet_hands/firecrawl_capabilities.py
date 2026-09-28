@@ -163,4 +163,91 @@ def build_firecrawl_capabilities() -> list[Capability]:
                 ),
             ),
         ),
+        Capability(
+            id="web.search.developer",
+            name="Developer index search",
+            description=(
+                "Search Firecrawl's documented developer index for public repositories, "
+                "issues, merged pull requests, READMEs, and curated documentation."
+            ),
+            pack="web",
+            tags=("web", "search", "developer", "code", "firecrawl"),
+            candidates=(
+                CapabilityCandidate(
+                    provider="firecrawl",
+                    ref="firecrawl:search",
+                    priority=5,
+                    defaults={"categories": ["developer"], "safe": True},
+                    passthrough_arguments=True,
+                ),
+            ),
+            input_schema={
+                "type": "object",
+                "required": ["query"],
+                "properties": {
+                    "query": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 20},
+                },
+            },
+        ),
+        Capability(
+            id="web.search.research",
+            name="Research-oriented web search",
+            description=(
+                "Search research-affiliated public sources through Firecrawl's documented "
+                "research category with semantic-provider fallback."
+            ),
+            pack="web",
+            tags=("web", "search", "research", "papers", "firecrawl", "exa"),
+            candidates=(
+                CapabilityCandidate(
+                    provider="firecrawl",
+                    ref="firecrawl:search",
+                    priority=5,
+                    defaults={"categories": ["research"], "safe": True},
+                    passthrough_arguments=True,
+                ),
+                CapabilityCandidate(
+                    provider="exa",
+                    ref="exa:search",
+                    priority=15,
+                    argument_map={"limit": "numResults"},
+                    passthrough_arguments=True,
+                ),
+            ),
+            input_schema={
+                "type": "object",
+                "required": ["query"],
+                "properties": {
+                    "query": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 20},
+                    "includeDomains": {"type": "array", "items": {"type": "string"}},
+                    "excludeDomains": {"type": "array", "items": {"type": "string"}},
+                },
+            },
+        ),
+        Capability(
+            id="web.search.images",
+            name="Image search",
+            description="Search Firecrawl's documented image result source with bounded output.",
+            pack="web",
+            tags=("web", "search", "images", "firecrawl"),
+            candidates=(
+                CapabilityCandidate(
+                    provider="firecrawl",
+                    ref="firecrawl:search",
+                    priority=5,
+                    defaults={"sources": ["images"], "safe": True},
+                    passthrough_arguments=True,
+                ),
+            ),
+            input_schema={
+                "type": "object",
+                "required": ["query"],
+                "properties": {
+                    "query": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 20},
+                },
+            },
+        ),
     ]

@@ -38,7 +38,7 @@ _SUCCESS_STATUSES = {
     "pending",
     "accepted",
 }
-_NEUTRAL_STATUSES = {"blocked", "dry_run", "cancelled", "canceled"}
+_NEUTRAL_STATUSES = {"blocked", "capacity_limited", "dry_run", "cancelled", "canceled"}
 
 
 def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
@@ -99,10 +99,8 @@ def record_provider_reliability_event(
     error = str(event.get("error") or "").strip()[:500] or None
     error_class = str(event.get("error_class") or "").strip().lower()[:80] or None
 
-    # SELECT ... FOR UPDATE cannot lock a row that does not exist yet. A
-    # transaction-scoped advisory lock serializes first-event creation for the
-    # same provider, preventing concurrent INSERT/UPSERT writers from losing
-    # one another's counters.
+    # Lock the provider key even before its first row exists so concurrent
+    # startup events cannot overwrite one another in the UPSERT.
     cur.execute(
         "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
         (f"provider-reliability:{provider}",),
@@ -226,7 +224,15 @@ class SharedProviderReliabilityStore:
     def _connect(self):
         if not self.dsn:
             raise RuntimeError("provider reliability database is not configured")
-        options: dict[str, Any] = {"row_factory": dict_row}
+        options: dict[str, Any] = {
+            "row_factory": dict_row,
+            "connect_timeout": _env_int(
+                "OPENCRAWL_DB_CONNECT_TIMEOUT_SECONDS",
+                5,
+                minimum=1,
+                maximum=30,
+            ),
+        }
         if "pooler.supabase.com" in self.dsn:
             options["prepare_threshold"] = None
         return psycopg.connect(self.dsn, **options)

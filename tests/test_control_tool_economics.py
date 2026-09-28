@@ -165,25 +165,24 @@ def test_side_effecting_raw_mesh_routes_do_not_reserve_retry_headroom(
 ) -> None:
     monkeypatch.setenv("OPENCRAWL_PROVIDER_READ_RETRIES", "3")
     store = ControlStore(dsn=None)
-
-    apify = store.quote_tool_call(
-        identity=_identity("pro"),
-        tool_name="mesh_execute",
-        arguments={"ref": "apify:owner/actor", "arguments": {"url": "https://example.com"}},
-    )
-    sandbox = store.quote_tool_call(
-        identity=_identity("pro"),
-        tool_name="mesh_execute",
-        arguments={"ref": "nativesandbox:exec", "arguments": {"command": "echo hi"}},
-    )
-    interact = store.quote_tool_call(
-        identity=_identity("pro"),
-        tool_name="mesh_execute",
-        arguments={"ref": "firecrawl:interact", "arguments": {"prompt": "click next"}},
-    )
-
-    for quote in (apify, sandbox, interact):
-        assert "retry_reservation" not in quote
+    quotes = [
+        store.quote_tool_call(
+            identity=_identity("pro"),
+            tool_name="mesh_execute",
+            arguments={"ref": "apify:owner/actor", "arguments": {"url": "https://example.com"}},
+        ),
+        store.quote_tool_call(
+            identity=_identity("pro"),
+            tool_name="mesh_execute",
+            arguments={"ref": "nativesandbox:exec", "arguments": {"command": "echo hi"}},
+        ),
+        store.quote_tool_call(
+            identity=_identity("pro"),
+            tool_name="mesh_execute",
+            arguments={"ref": "firecrawl:interact", "arguments": {"prompt": "click next"}},
+        ),
+    ]
+    assert all("retry_reservation" not in quote for quote in quotes)
 
 
 def test_batch_retry_headroom_excludes_side_effecting_calls(
@@ -195,7 +194,6 @@ def test_batch_retry_headroom_excludes_side_effecting_calls(
         {"ref": "publicapi:lookup", "arguments": {"query": "example"}},
         {"ref": "nativesandbox:exec", "arguments": {"command": "echo hi"}},
     ]
-
     base = estimate_call("mesh_batch_execute", {"calls": calls}, "pro")
     quote = store.quote_tool_call(
         identity=_identity("pro"),
@@ -203,6 +201,5 @@ def test_batch_retry_headroom_excludes_side_effecting_calls(
         arguments={"calls": calls},
     )
     retryable = estimate_call("mesh_execute", calls[0], "pro").credits
-
     assert quote["credits"] == base.credits + retryable
     assert quote["retry_reservation"]["retryable_once"] == retryable

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import pytest
@@ -641,3 +642,60 @@ async def test_write_capability_ignores_runtime_reliability_reordering() -> None
         assert fallback.execute_calls == 0
     finally:
         provider_reliability.reset()
+
+
+
+@pytest.mark.asyncio
+async def test_semantic_fallbacks_share_one_execution_deadline() -> None:
+    class SlowProvider(CapabilityProvider):
+        def __init__(self, name: str, *, delay: float = 0.0) -> None:
+            super().__init__(name)
+            self.delay = delay
+            self.execute_calls = 0
+
+        async def execute(self, tool_id: str, arguments: dict[str, Any], **kwargs):
+            self.execute_calls += 1
+            if self.delay:
+                await asyncio.sleep(self.delay)
+            return await super().execute(tool_id, arguments, **kwargs)
+
+    slow = SlowProvider("slow", delay=0.2)
+    fallback = SlowProvider("fallback")
+    mesh = ToolMesh([slow, fallback])
+    registry = CapabilityRegistry(
+        mesh,
+        [
+            Capability(
+                id="web.deadline",
+                name="Deadline",
+                description="One end-to-end timeout",
+                pack="web",
+                tags=("web",),
+                candidates=(
+                    CapabilityCandidate(
+                        provider="slow",
+                        ref="slow:lookup",
+                        priority=10,
+                    ),
+                    CapabilityCandidate(
+                        provider="fallback",
+                        ref="fallback:lookup",
+                        priority=20,
+                    ),
+                ),
+            )
+        ],
+    )
+
+    result = await registry.execute(
+        "web.deadline",
+        {"query": "x"},
+        timeout_seconds=0.05,
+    )
+
+    assert result["selected"] is None
+    assert slow.execute_calls == 1
+    assert fallback.execute_calls == 0
+    assert result["attempts"][0]["status"] == "failed"
+    assert "deadline exceeded" in result["attempts"][0]["error"]
+    assert result["attempts"][1]["status"] == "deadline_exceeded"

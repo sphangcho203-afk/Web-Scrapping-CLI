@@ -369,6 +369,15 @@ class AuthIdentity:
     plan_slug: str
     rpm_limit: int
     source: str
+    concurrent_limit: int = 1
+
+
+def _db_connect_timeout_seconds() -> int:
+    try:
+        value = int(os.getenv("OPENCRAWL_DB_CONNECT_TIMEOUT_SECONDS", "5"))
+    except (TypeError, ValueError):
+        value = 5
+    return max(1, min(value, 30))
 
 
 _RETRY_RESERVATION_TOOLS = {
@@ -400,7 +409,6 @@ def _retryable_quoted_credits(
     plan_slug: str,
     base_quote: dict[str, Any],
 ) -> int:
-    """Return only the quoted credits belonging to calls ToolMesh may retry."""
     args = arguments or {}
     if tool_name == "mesh_execute":
         ref = str(args.get("ref") or args.get("tool") or "")
@@ -422,9 +430,6 @@ def _retryable_quoted_credits(
                 retryable += max(0, int(nested.credits))
         return retryable
 
-    # Semantic capability routes are explicitly read-only/fail-closed in the
-    # capability registry. Their bounded fallback attempts can consume the
-    # retry headroom reserved here.
     return max(0, int(base_quote.get("credits") or 0))
 
 
@@ -435,7 +440,7 @@ def _with_retry_reservation(
     arguments: dict[str, Any] | None,
     plan_slug: str,
 ) -> dict[str, Any]:
-    """Reserve retry headroom only for work that execution is allowed to replay."""
+    """Reserve retry headroom only for work execution is permitted to replay."""
     base_credits = max(0, int(quote.get("credits") or 0))
     retries = read_retry_budget()
     if (
@@ -501,7 +506,10 @@ class ControlStore:
     def _connect(self):
         if not self.dsn:
             raise ControlError("control_plane_unavailable", "control database is not configured", 503)
-        options: dict[str, Any] = {"row_factory": dict_row}
+        options: dict[str, Any] = {
+            "row_factory": dict_row,
+            "connect_timeout": _db_connect_timeout_seconds(),
+        }
         # Supabase's transaction pooler must not receive named prepared
         # statements because a later transaction can land on another backend.
         if "pooler.supabase.com" in self.dsn:
@@ -1171,6 +1179,7 @@ class ControlStore:
             plan_slug=row["plan_slug"],
             rpm_limit=int(row["rpm_limit"]),
             source=source,
+            concurrent_limit=max(1, int(row.get("concurrent_limit") or 1)),
         )
 
     def api_key_identity_for_user(self, user_id: str, key_id: str) -> AuthIdentity | None:
@@ -1179,7 +1188,7 @@ class ControlStore:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT k.user_id,k.id AS api_key_id,k.scopes,p.slug AS plan_slug,p.rpm_limit
+                SELECT k.user_id,k.id AS api_key_id,k.scopes,p.slug AS plan_slug,p.rpm_limit,p.concurrent_limit
                 FROM ih_api_keys k
                 LEFT JOIN LATERAL (
                     SELECT plan_slug FROM ih_subscriptions s
@@ -1205,7 +1214,7 @@ class ControlStore:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT k.user_id,k.id AS api_key_id,k.scopes,p.slug AS plan_slug,p.rpm_limit
+                SELECT k.user_id,k.id AS api_key_id,k.scopes,p.slug AS plan_slug,p.rpm_limit,p.concurrent_limit
                 FROM ih_api_keys k
                 LEFT JOIN LATERAL (
                     SELECT plan_slug FROM ih_subscriptions s
@@ -1230,7 +1239,7 @@ class ControlStore:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT t.user_id,t.api_key_id,t.scopes,p.slug AS plan_slug,p.rpm_limit
+                SELECT t.user_id,t.api_key_id,t.scopes,p.slug AS plan_slug,p.rpm_limit,p.concurrent_limit
                 FROM ih_oauth_tokens t
                 LEFT JOIN LATERAL (
                     SELECT plan_slug FROM ih_subscriptions s
@@ -1389,6 +1398,25 @@ class ControlStore:
                 if not wallet:
                     raise ControlError("wallet_missing", "wallet not found", 500)
 
+                cur.execute(
+                    """
+                    SELECT count(*) AS n
+                    FROM ih_usage_events
+                    WHERE user_id=%s AND status='reserved'
+                    """,
+                    (identity.user_id,),
+                )
+                active_reservations = int(cur.fetchone()["n"])
+                if active_reservations >= max(1, int(identity.concurrent_limit)):
+                    raise ControlError(
+                        "concurrency_limited",
+                        (
+                            "concurrent request limit reached "
+                            f"({identity.concurrent_limit})"
+                        ),
+                        429,
+                    )
+
                 total = int(wallet["monthly_credits"]) + int(wallet["purchased_credits"])
                 already_reserved = int(wallet["reserved_credits"])
                 available = total - already_reserved
@@ -1481,21 +1509,9 @@ class ControlStore:
                     metadata["measured_usage"] = execution_usage
 
                 if event["status"] != "reserved":
-                    cur.execute(
-                        """
-                        UPDATE ih_usage_events
-                        SET status=%s,latency_ms=%s,output_bytes=%s,metadata=%s::jsonb
-                        WHERE request_id=%s
-                        """,
-                        (
-                            status,
-                            latency_ms,
-                            output_bytes,
-                            json.dumps(metadata),
-                            request_id,
-                        ),
-                    )
-                    conn.commit()
+                    # Settlement is terminal and idempotent. A duplicated completion,
+                    # timeout handler, or late worker must never rewrite a settled or
+                    # abandoned request after wallet/ledger state has been finalized.
                     return int(event["credits_charged"] or 0)
 
                 provider_events = (execution_usage or {}).get("provider_events") or []

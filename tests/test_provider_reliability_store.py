@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from internet_hands.provider_reliability_store import (
+    SharedProviderReliabilityStore,
     record_provider_reliability_event,
 )
 
@@ -162,3 +163,28 @@ def test_shared_latency_uses_ewma() -> None:
     )
 
     assert cursor.row["ewma_latency_ms"] == pytest.approx(180.0)
+
+
+
+def test_shared_reliability_database_connection_timeout_is_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen = {}
+
+    def fake_connect(dsn, **kwargs):
+        seen["dsn"] = dsn
+        seen["kwargs"] = kwargs
+        return object()
+
+    monkeypatch.setenv("OPENCRAWL_DB_CONNECT_TIMEOUT_SECONDS", "0")
+    monkeypatch.setattr(
+        "internet_hands.provider_reliability_store.psycopg.connect",
+        fake_connect,
+    )
+
+    result = SharedProviderReliabilityStore(
+        "postgresql://db.example/open_crawl"
+    )._connect()
+
+    assert result is not None
+    assert seen["kwargs"]["connect_timeout"] == 1

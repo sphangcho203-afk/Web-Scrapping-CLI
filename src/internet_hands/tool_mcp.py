@@ -4,6 +4,8 @@ import asyncio
 from functools import lru_cache
 from typing import Any
 
+from .auth import current_auth
+from .brand_search_providers import build_brand_search_providers
 from .caller_intelligence import CallerIntelligenceProvider
 from .caller_investigation import CallerInvestigationProvider
 from .capability_packs import CapabilityRegistry, build_default_capabilities
@@ -11,6 +13,8 @@ from .catalog_providers import build_catalog_providers
 from .composio_bridge import ComposioBridgeProvider
 from .firecrawl_capabilities import build_firecrawl_capabilities
 from .firecrawl_provider import FirecrawlToolProvider
+from .game_catalog_capabilities import build_game_catalog_capabilities
+from .game_catalog_providers import build_game_catalog_providers
 from .game_core_provider import GameCoreProvider
 from .gaming_capabilities import build_gaming_capabilities
 from .gaming_extra_capabilities import build_extra_gaming_capabilities
@@ -34,6 +38,14 @@ from .tool_mesh import ToolMesh
 from .tool_providers import build_default_providers
 
 
+def _bounded_request_concurrency(requested: int, *, maximum: int) -> int:
+    limit = max(1, min(int(requested), maximum))
+    identity = current_auth.get()
+    if identity is not None:
+        limit = min(limit, max(1, int(identity.concurrent_limit)))
+    return limit
+
+
 @lru_cache(maxsize=1)
 def get_tool_mesh() -> ToolMesh:
     return ToolMesh(
@@ -53,9 +65,11 @@ def get_tool_mesh() -> ToolMesh:
             PhoneIntelligenceProvider(),
             PlayerDbProvider(),
             *build_research_brand_providers(),
+            *build_brand_search_providers(),
             *build_catalog_providers(),
             *build_gaming_providers(),
             *build_extra_gaming_providers(),
+            *build_game_catalog_providers(),
             build_remote_mcp_provider(),
         ]
     )
@@ -72,6 +86,7 @@ def get_capability_registry() -> CapabilityRegistry:
             *build_research_brand_capabilities(),
             *build_gaming_capabilities(),
             *build_extra_gaming_capabilities(),
+            *build_game_catalog_capabilities(),
             *build_public_game_capabilities(),
             *build_public_data_capabilities(),
         ],
@@ -172,11 +187,16 @@ async def mesh_describe_many(refs: list[str]) -> dict[str, Any]:
     if len(refs) > 20:
         raise ValueError("mesh_describe_many accepts at most 20 refs")
 
+    semaphore = asyncio.Semaphore(
+        _bounded_request_concurrency(8, maximum=20)
+    )
+
     async def one(ref: str) -> tuple[str, dict[str, Any] | None, str | None]:
-        try:
-            return ref, await get_tool_mesh().describe(ref), None
-        except Exception as exc:  # noqa: BLE001 - isolate external descriptor failures
-            return ref, None, str(exc)
+        async with semaphore:
+            try:
+                return ref, await get_tool_mesh().describe(ref), None
+            except Exception as exc:  # noqa: BLE001 - isolate external descriptor failures
+                return ref, None, str(exc)
 
     rows = await asyncio.gather(*(one(ref) for ref in refs))
     return {
@@ -213,7 +233,14 @@ async def mesh_batch_execute(
     max_concurrency: int = 5,
 ) -> dict[str, Any]:
     """Execute independent external tool calls concurrently with bounded fan-out."""
-    return await get_tool_mesh().batch_execute(calls, max_concurrency=max_concurrency)
+    effective_concurrency = _bounded_request_concurrency(
+        max_concurrency,
+        maximum=20,
+    )
+    return await get_tool_mesh().batch_execute(
+        calls,
+        max_concurrency=effective_concurrency,
+    )
 
 
 @sandbox_mcp.tool()
@@ -311,7 +338,9 @@ async def gaming_intel(
         raise ValueError("gaming_intel accepts at most 20 requests")
 
     registry = get_capability_registry()
-    semaphore = asyncio.Semaphore(max(1, min(max_concurrency, 10)))
+    semaphore = asyncio.Semaphore(
+        _bounded_request_concurrency(max_concurrency, maximum=10)
+    )
 
     async def one(index: int, request: dict[str, Any]) -> dict[str, Any]:
         capability_id = str(request.get("capability") or "").strip()

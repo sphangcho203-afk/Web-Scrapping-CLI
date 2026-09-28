@@ -7,6 +7,7 @@ from internet_hands.provider_errors import (
     classify_provider_failure,
     read_retry_budget,
     retry_delay_seconds,
+    safe_provider_error,
 )
 
 
@@ -97,3 +98,47 @@ def test_retry_budget_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
     assert read_retry_budget() == 3
     monkeypatch.setenv("OPENCRAWL_PROVIDER_READ_RETRIES", "-99")
     assert read_retry_budget() == 0
+
+
+
+def test_provider_error_redacts_query_credentials_and_bearer_tokens() -> None:
+    message = (
+        "Client error for url "
+        "'https://api.example.test/v1?q=x&key=rawg-secret&access_token=token-secret' "
+        "Authorization: Bearer eyJ.secret.value client_secret=very-secret"
+    )
+
+    safe = safe_provider_error(message)
+
+    assert safe is not None
+    assert "rawg-secret" not in safe
+    assert "token-secret" not in safe
+    assert "eyJ.secret.value" not in safe
+    assert "very-secret" not in safe
+    assert "key=[REDACTED]" in safe
+    assert "access_token=[REDACTED]" in safe
+    assert "Authorization=[REDACTED]" in safe
+    assert "client_secret=[REDACTED]" in safe
+
+
+def test_classified_http_error_never_exposes_secret_url_parameters() -> None:
+    request = httpx.Request(
+        "GET",
+        "https://api.rawg.io/api/games?key=operator-secret&search=halo",
+    )
+    response = httpx.Response(503, request=request)
+    exc = httpx.HTTPStatusError(
+        "provider failed",
+        request=request,
+        response=response,
+    )
+
+    failure = classify_provider_failure(
+        exc=exc,
+        error=f"{exc} url={request.url}",
+    )
+
+    assert failure.category == "upstream_unavailable"
+    assert failure.detail is not None
+    assert "operator-secret" not in failure.detail
+    assert "key=[REDACTED]" in failure.detail

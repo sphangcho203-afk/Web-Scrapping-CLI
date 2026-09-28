@@ -19,7 +19,7 @@ _SUCCESS_STATUSES = {
     "pending",
     "accepted",
 }
-_NEUTRAL_STATUSES = {"blocked", "dry_run", "cancelled", "canceled"}
+_NEUTRAL_STATUSES = {"blocked", "capacity_limited", "dry_run", "cancelled", "canceled"}
 
 
 def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
