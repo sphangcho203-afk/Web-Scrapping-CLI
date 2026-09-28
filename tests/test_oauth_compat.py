@@ -205,7 +205,17 @@ def test_authorize_html_sets_security_headers(monkeypatch: pytest.MonkeyPatch) -
 
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["x-content-type-options"] == "nosniff"
-    assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
+    csp = response.headers["content-security-policy"]
+    assert "form-action 'self' https://backend.composio.dev;" in csp
+    assert "frame-ancestors 'none'" in csp
+    assert "https://example.com" not in csp
+
+
+def test_consent_form_action_rejects_unsafe_callback_host() -> None:
+    with pytest.raises(HTTPException, match="redirect_uri"):
+        control_api._consent_form_action_origin("https://example.com';evil/callback")
+    with pytest.raises(HTTPException, match="redirect_uri"):
+        control_api._consent_form_action_origin("https://user@example.com/callback")
 
 
 def test_authorize_post_requires_explicit_approval_or_denial(

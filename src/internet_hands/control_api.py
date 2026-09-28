@@ -5,6 +5,7 @@ import hmac
 import html
 import json
 import os
+import re
 import secrets
 import time
 from datetime import UTC, datetime
@@ -135,6 +136,19 @@ def _safe_redirect_uri(uri: str) -> bool:
     if parsed.scheme == "https" and parsed.netloc:
         return True
     return parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost"}
+
+
+def _consent_form_action_origin(redirect_uri: str) -> str:
+    """Allow Chromium to follow the consent POST's redirect to the registered client."""
+    parsed = urlparse(redirect_uri)
+    host = parsed.hostname or ""
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="unsupported redirect_uri") from exc
+    if parsed.username or parsed.password or not re.fullmatch(r"[A-Za-z0-9.-]+", host):
+        raise HTTPException(status_code=400, detail="unsupported redirect_uri")
+    return f"{parsed.scheme}://{host}{f':{port}' if port is not None else ''}"
 
 
 def _parse_form(raw: bytes) -> dict[str, str]:
@@ -331,7 +345,8 @@ def oauth_authorize_page(
             "Referrer-Policy": "no-referrer",
             "Content-Security-Policy": (
                 "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; "
-                "form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+                f"form-action 'self' {_consent_form_action_origin(redirect_uri)}; "
+                "base-uri 'none'; frame-ancestors 'none'"
             ),
         },
     )
