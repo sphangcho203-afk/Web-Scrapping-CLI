@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import uuid
 from typing import Any
@@ -57,8 +58,11 @@ CREATE TABLE IF NOT EXISTS ih_reward_accounts (
     lifetime_earned bigint NOT NULL DEFAULT 0 CHECK (lifetime_earned >= 0),
     lifetime_redeemed bigint NOT NULL DEFAULT 0 CHECK (lifetime_redeemed >= 0),
     usage_points_credited bigint NOT NULL DEFAULT 0 CHECK (usage_points_credited >= 0),
+    usage_wallet_units_processed bigint NOT NULL DEFAULT 0 CHECK (usage_wallet_units_processed >= 0),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE ih_reward_accounts
+    ADD COLUMN IF NOT EXISTS usage_wallet_units_processed bigint NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS ih_reward_catalog (
     slug text PRIMARY KEY,
@@ -83,12 +87,18 @@ CREATE TABLE IF NOT EXISTS ih_reward_redemptions (
     fulfillment_type text NOT NULL,
     fulfillment_value bigint NOT NULL DEFAULT 0,
     fulfillment_reference text,
+    idempotency_key text,
     metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
     created_at timestamptz NOT NULL DEFAULT now(),
     fulfilled_at timestamptz
 );
+ALTER TABLE ih_reward_redemptions
+    ADD COLUMN IF NOT EXISTS idempotency_key text;
 CREATE INDEX IF NOT EXISTS ih_reward_redemptions_user_idx
     ON ih_reward_redemptions(user_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS ih_reward_redemptions_user_idempotency_idx
+    ON ih_reward_redemptions(user_id, idempotency_key)
+    WHERE idempotency_key IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS ih_reward_ledger (
     id text PRIMARY KEY,
@@ -120,6 +130,18 @@ def _reward_units_per_point() -> int:
 
 def _points_from_usage(wallet_units: int) -> int:
     return max(0, int(wallet_units)) // _reward_units_per_point()
+
+
+def _accrual_delta(
+    total_wallet_units: int,
+    processed_wallet_units: int,
+    units_per_point: int,
+) -> tuple[int, int]:
+    """Return newly earned points and the wallet units consumed by that accrual."""
+    available = max(0, int(total_wallet_units) - max(0, int(processed_wallet_units)))
+    rate = max(1, int(units_per_point))
+    points = available // rate
+    return points, points * rate
 
 
 def ensure_rewards_schema() -> None:
@@ -176,7 +198,7 @@ def _ensure_reward_account(cur: Any, user_id: str) -> None:
 
 
 def _sync_usage_points(cur: Any, user_id: str) -> int:
-    """Convert cumulative metered wallet spend into reward points exactly once."""
+    """Convert only previously unprocessed metered wallet spend into reward points."""
     _ensure_reward_account(cur, user_id)
     cur.execute(
         """
@@ -187,11 +209,12 @@ def _sync_usage_points(cur: Any, user_id: str) -> int:
         (user_id,),
     )
     usage_row = cur.fetchone() or {}
-    target = _points_from_usage(int(usage_row.get("wallet_units") or 0))
+    total_wallet_units = int(usage_row.get("wallet_units") or 0)
 
     cur.execute(
         """
-        SELECT points,lifetime_earned,lifetime_redeemed,usage_points_credited
+        SELECT points,lifetime_earned,lifetime_redeemed,usage_points_credited,
+               usage_wallet_units_processed
         FROM ih_reward_accounts
         WHERE user_id=%s
         FOR UPDATE
@@ -202,21 +225,38 @@ def _sync_usage_points(cur: Any, user_id: str) -> int:
     if not account:
         raise ControlError("reward_account_missing", "reward account is unavailable", 503)
 
-    credited = int(account.get("usage_points_credited") or 0)
-    delta = max(0, target - credited)
+    rate = _reward_units_per_point()
+    processed = int(account.get("usage_wallet_units_processed") or 0)
+
+    # Compatibility for accounts that earned points before wallet-unit tracking existed.
+    legacy_points = int(account.get("usage_points_credited") or 0)
+    if processed == 0 and legacy_points > 0:
+        processed = min(total_wallet_units, legacy_points * rate)
+        cur.execute(
+            """
+            UPDATE ih_reward_accounts
+            SET usage_wallet_units_processed=%s,updated_at=now()
+            WHERE user_id=%s
+            """,
+            (processed, user_id),
+        )
+
+    delta, consumed_units = _accrual_delta(total_wallet_units, processed, rate)
     if delta <= 0:
         return 0
 
+    processed_after = processed + consumed_units
     cur.execute(
         """
         UPDATE ih_reward_accounts
         SET points=points+%s,
             lifetime_earned=lifetime_earned+%s,
-            usage_points_credited=%s,
+            usage_points_credited=usage_points_credited+%s,
+            usage_wallet_units_processed=%s,
             updated_at=now()
         WHERE user_id=%s
         """,
-        (delta, delta, target, user_id),
+        (delta, delta, delta, processed_after, user_id),
     )
     cur.execute(
         """
@@ -230,12 +270,14 @@ def _sync_usage_points(cur: Any, user_id: str) -> int:
             _new_id("rled"),
             user_id,
             delta,
-            str(target),
-            f"usage:{user_id}:{target}",
+            str(processed_after),
+            f"usage-units:{user_id}:{processed_after}",
             json.dumps(
                 {
-                    "wallet_units_per_point": _reward_units_per_point(),
-                    "wallet_units_observed": int(usage_row.get("wallet_units") or 0),
+                    "wallet_units_per_point": rate,
+                    "wallet_units_observed": total_wallet_units,
+                    "wallet_units_processed": processed_after,
+                    "wallet_units_consumed": consumed_units,
                 }
             ),
         ),
@@ -263,7 +305,8 @@ def rewards_snapshot(user_id: str, limit: int = 80) -> dict[str, Any]:
         cur.execute(
             """
             SELECT id,reward_slug,reward_name,points_spent,status,fulfillment_type,
-                   fulfillment_value,fulfillment_reference,metadata,created_at,fulfilled_at
+                   fulfillment_value,fulfillment_reference,idempotency_key,metadata,
+                   created_at,fulfilled_at
             FROM ih_reward_redemptions
             WHERE user_id=%s
             ORDER BY created_at DESC
@@ -302,6 +345,7 @@ def rewards_snapshot(user_id: str, limit: int = 80) -> dict[str, Any]:
             "lifetime_earned": 0,
             "lifetime_redeemed": 0,
             "usage_points_credited": 0,
+            "usage_wallet_units_processed": 0,
         },
         "catalog": catalog,
         "redemptions": redemptions,
@@ -318,14 +362,61 @@ def rewards_snapshot(user_id: str, limit: int = 80) -> dict[str, Any]:
     }
 
 
-def redeem_reward(user_id: str, slug: str) -> dict[str, Any]:
+def redeem_reward(
+    user_id: str,
+    slug: str,
+    *,
+    idempotency_key: str | None,
+) -> dict[str, Any]:
     ensure_rewards_schema()
     normalized_slug = str(slug or "").strip().lower()
     if not normalized_slug:
         raise ControlError("reward_required", "reward is required", 400)
 
+    key = str(idempotency_key or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9._:-]{8,128}", key):
+        raise ControlError(
+            "invalid_idempotency_key",
+            "Idempotency-Key must be 8-128 URL-safe characters",
+            400,
+        )
+
     with store._connect() as conn, conn.cursor() as cur:
+        # Serialize retries of the same redemption intent before checking for replay.
+        cur.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            (f"{user_id}:{key}",),
+        )
         _sync_usage_points(cur, user_id)
+        cur.execute(
+            """
+            SELECT id,reward_slug,reward_name,points_spent,status,fulfillment_type,
+                   fulfillment_value,fulfillment_reference,idempotency_key,metadata,
+                   created_at,fulfilled_at
+            FROM ih_reward_redemptions
+            WHERE user_id=%s AND idempotency_key=%s
+            """,
+            (user_id, key),
+        )
+        replay = cur.fetchone()
+        if replay:
+            cur.execute("SELECT * FROM ih_reward_accounts WHERE user_id=%s", (user_id,))
+            updated_account = cur.fetchone()
+            cur.execute(
+                "SELECT monthly_credits,purchased_credits,reserved_credits FROM ih_wallets WHERE user_id=%s",
+                (user_id,),
+            )
+            wallet = cur.fetchone()
+            conn.commit()
+            return {
+                "ok": True,
+                "replayed": True,
+                "redemption": dict(replay),
+                "account": dict(updated_account) if updated_account else None,
+                "wallet": dict(wallet) if wallet else None,
+                "display_currency": "USD",
+                "wallet_units_per_usd": WALLET_UNITS_PER_USD,
+            }
         cur.execute(
             """
             SELECT slug,name,description,points_cost,fulfillment_type,
@@ -393,9 +484,9 @@ def redeem_reward(user_id: str, slug: str) -> dict[str, Any]:
             """
             INSERT INTO ih_reward_redemptions(
                 id,user_id,reward_slug,reward_name,points_spent,status,
-                fulfillment_type,fulfillment_value,metadata
+                fulfillment_type,fulfillment_value,idempotency_key,metadata
             )
-            VALUES (%s,%s,%s,%s,%s,'pending',%s,%s,%s::jsonb)
+            VALUES (%s,%s,%s,%s,%s,'pending',%s,%s,%s,%s::jsonb)
             """,
             (
                 redemption_id,
@@ -405,6 +496,7 @@ def redeem_reward(user_id: str, slug: str) -> dict[str, Any]:
                 cost,
                 reward["fulfillment_type"],
                 int(reward["fulfillment_value"] or 0),
+                key,
                 json.dumps(dict(reward.get("metadata") or {})),
             ),
         )
@@ -497,6 +589,10 @@ def rewards(request: Request, limit: int = 80):
 def redeem(reward_slug: str, request: Request):
     user = _require_verified(_require_user(request))
     try:
-        return redeem_reward(str(user["id"]), reward_slug)
+        return redeem_reward(
+            str(user["id"]),
+            reward_slug,
+            idempotency_key=request.headers.get("idempotency-key"),
+        )
     except ControlError as exc:
         raise _json_error(exc) from exc
