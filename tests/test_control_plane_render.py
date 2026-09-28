@@ -580,6 +580,8 @@ def test_rewards_redemption_delivers_wallet_prize(frontend_url):
             elif path == "/api/rewards" and route.request.method == "GET":
                 data = rewards_payload()
             elif path == "/api/rewards/wallet-025/redeem" and route.request.method == "POST":
+                idempotency_key = route.request.headers.get("idempotency-key")
+                assert idempotency_key and idempotency_key.startswith("rwd-")
                 assert state["points"] >= 100
                 state["points"] -= 100
                 state["purchased"] += 1250
