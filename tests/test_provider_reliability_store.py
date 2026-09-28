@@ -14,9 +14,15 @@ class _Cursor:
     def __init__(self) -> None:
         self.row = None
         self._selected = None
+        self.executed: list[str] = []
 
     def execute(self, sql: str, params=()) -> None:
         normalized = " ".join(sql.split()).lower()
+        self.executed.append(normalized)
+        if normalized.startswith("select pg_advisory_xact_lock"):
+            assert str(params[0]).startswith("provider-reliability:")
+            self._selected = None
+            return
         if normalized.startswith("select provider,successes"):
             provider = params[0]
             self._selected = (
@@ -105,6 +111,7 @@ def test_shared_reliability_opens_and_heals_circuit(
     assert cursor.row["consecutive_failures"] == 3
     assert cursor.row["last_error_class"] == "upstream_unavailable"
     assert cursor.row["circuit_open_until"] == start + timedelta(seconds=47)
+    assert cursor.executed[0].startswith("select pg_advisory_xact_lock")
 
     record_provider_reliability_event(
         cursor,
