@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
@@ -102,6 +104,16 @@ def _authorize_params(client_id: str) -> dict[str, str]:
     }
 
 
+def _consented_form(client: TestClient, client_id: str) -> dict[str, str]:
+    form = _authorize_params(client_id)
+    page = client.get("/oauth/authorize", params=form)
+    assert page.status_code == 200
+    match = re.search(r'name="consent_token" value="([^"]+)"', page.text)
+    assert match is not None
+    form["consent_token"] = match.group(1)
+    return form
+
+
 def test_authorize_requires_open_crawl_login_and_preserves_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -122,6 +134,7 @@ def test_signed_in_authorize_renders_real_html_without_api_key_prompt(
     monkeypatch.setattr(oauth_compat, "_session_user", lambda _request: user, raising=False)
 
     client = TestClient(_oauth_test_app(), follow_redirects=False)
+    client.cookies.set("ih_session", "session-one")
     response = client.get("/oauth/authorize", params=_authorize_params(client_id))
 
     assert response.status_code == 200
@@ -152,12 +165,13 @@ def test_session_consent_issues_authorization_code_without_api_key(
     )
 
     client = TestClient(_oauth_test_app(), follow_redirects=False)
-    form = _authorize_params(client_id)
+    client.cookies.set("ih_session", "session-one")
+    form = _consented_form(client, client_id)
     form["action"] = "approve"
     response = client.post(
         "/oauth/authorize",
         data=form,
-        headers={"origin": "http://testserver"},
+        headers={"origin": "null"},
     )
 
     assert response.status_code == 302
@@ -186,6 +200,7 @@ def test_authorize_html_sets_security_headers(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(control_api, "_session_user", lambda _request: user)
 
     client = TestClient(_oauth_test_app(), follow_redirects=False)
+    client.cookies.set("ih_session", "session-one")
     response = client.get("/oauth/authorize", params=_authorize_params(client_id))
 
     assert response.headers["cache-control"] == "no-store"
@@ -201,10 +216,42 @@ def test_authorize_post_requires_explicit_approval_or_denial(
     monkeypatch.setattr(control_api, "_session_user", lambda _request: user)
 
     client = TestClient(_oauth_test_app(), follow_redirects=False)
+    client.cookies.set("ih_session", "session-one")
     response = client.post(
         "/oauth/authorize",
-        data=_authorize_params(client_id),
+        data=_consented_form(client, client_id),
         headers={"origin": "http://testserver"},
     )
     assert response.status_code == 400
     assert "explicit OAuth consent action" in response.text
+
+
+@pytest.mark.parametrize("change", ["missing", "session", "scope", "redirect_uri", "expired"])
+def test_consent_token_rejects_missing_changed_or_expired_requests(
+    monkeypatch: pytest.MonkeyPatch, change: str,
+) -> None:
+    client_id = _registered_client(monkeypatch)
+    monkeypatch.setattr(
+        control_api, "_session_user",
+        lambda _request: {"id": "usr_1", "email": "user@example.com", "email_verified": True},
+    )
+    client = TestClient(_oauth_test_app(), follow_redirects=False)
+    client.cookies.set("ih_session", "session-one")
+    form = _consented_form(client, client_id)
+    form["action"] = "approve"
+    if change == "missing":
+        form.pop("consent_token")
+    elif change == "session":
+        client.cookies.set("ih_session", "session-two")
+    elif change == "scope":
+        form["scope"] = "mcp:read"
+    elif change == "redirect_uri":
+        form["redirect_uri"] = "https://example.com/callback"
+    else:
+        monkeypatch.setattr(control_api.time, "time", lambda: 1_000_000_000)
+        form = _consented_form(client, client_id)
+        form["action"] = "approve"
+        monkeypatch.setattr(control_api.time, "time", lambda: 1_000_000_601)
+    response = client.post("/oauth/authorize", data=form, headers={"origin": "http://testserver"})
+    assert response.status_code in {400, 403}
+    assert "code=" not in response.headers.get("location", "")

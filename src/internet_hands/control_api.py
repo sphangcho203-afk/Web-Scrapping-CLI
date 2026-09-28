@@ -6,6 +6,7 @@ import html
 import json
 import os
 import secrets
+import time
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -146,6 +147,35 @@ def _scope_list(value: str | None) -> list[str]:
     return scopes or list(DEFAULT_SCOPES)
 
 
+def _consent_signature(request: Request, user_id: str, fields: dict[str, str], issued_at: str) -> str:
+    secret = os.getenv("INTERNET_HANDS_OAUTH_SIGNING_SECRET") or os.getenv("INTERNET_HANDS_API_KEY")
+    session = request.cookies.get(SESSION_COOKIE)
+    if not secret or not session:
+        raise HTTPException(status_code=503, detail="OAuth consent is not configured")
+    payload = json.dumps(
+        [issued_at, user_id, sha256_text(session), fields],
+        sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")
+    return hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+
+
+def _consent_token(request: Request, user_id: str, fields: dict[str, str]) -> str:
+    issued_at = str(int(time.time()))
+    return f"{issued_at}.{_consent_signature(request, user_id, fields, issued_at)}"
+
+
+def _verify_consent_token(request: Request, user_id: str, fields: dict[str, str], token: str) -> bool:
+    try:
+        issued_at, signature = token.split(".", 1)
+        age = int(time.time()) - int(issued_at)
+        if not issued_at.isascii() or not issued_at.isdecimal() or not 0 <= age <= 600:
+            return False
+        expected = _consent_signature(request, user_id, fields, issued_at)
+    except (ValueError, HTTPException):
+        return False
+    return hmac.compare_digest(signature, expected)
+
+
 def _mcp_resource(request: Request, value: str | None) -> str:
     """Bind OAuth grants to this origin's one MCP endpoint."""
     expected = f"{_origin(request)}/mcp"
@@ -273,6 +303,7 @@ def oauth_authorize_page(
         "scope": scope,
         "resource": resource,
     }
+    fields["consent_token"] = _consent_token(request, str(signed_in["id"]), fields)
     hidden = "".join(
         f'<input type="hidden" name="{html.escape(k)}" value="{html.escape(v)}">'
         for k, v in fields.items()
@@ -308,10 +339,6 @@ def oauth_authorize_page(
 
 @router.post("/oauth/authorize")
 async def oauth_authorize_submit(request: Request):
-    origin = request.headers.get("origin")
-    if origin and origin.rstrip("/") != _origin(request):
-        raise HTTPException(status_code=403, detail="cross-origin OAuth consent is not allowed")
-
     form = _parse_form(await request.body())
     redirect_uri = form.get("redirect_uri", "")
     client_id = form.get("client_id", "")
@@ -345,6 +372,17 @@ async def oauth_authorize_submit(request: Request):
         )
         return _oauth_login_redirect(request, return_path)
     _require_verified(user)
+
+    consent_fields = {
+        key: form.get(key, "") for key in (
+            "client_id", "redirect_uri", "response_type", "code_challenge",
+            "code_challenge_method", "state", "scope", "resource",
+        )
+    }
+    if not _verify_consent_token(
+        request, str(user["id"]), consent_fields, form.get("consent_token", "")
+    ):
+        raise HTTPException(status_code=403, detail="invalid or expired OAuth consent")
 
     action = form.get("action")
     if action not in {"approve", "deny"}:
