@@ -71,6 +71,9 @@ class _Store(ControlStore):
 
 def test_api_key_creation_has_no_per_plan_count_limit() -> None:
     assert all(row[6] is None for row in PLAN_ROWS)
+    concurrency = [row[5] for row in PLAN_ROWS]
+    assert concurrency[0] >= 2
+    assert concurrency == sorted(concurrency)
     assert "ALTER TABLE ih_plans ALTER COLUMN api_key_limit DROP NOT NULL" in SCHEMA_SQL
     cursor = _Cursor([
         {"id": f"key_{index}", "name": f"key {index}"}

@@ -137,12 +137,12 @@ Operator calls using `INTERNET_HANDS_API_KEY` bypass customer charging.
 
 ## Plans
 
-| Plan | INR/month | Credits | RPM | API keys | Monitors |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Free | 0 | 250 | 60 | Unlimited | 1 |
-| Builder | 499 | 25,000 | 240 | Unlimited | 10 |
-| Pro | 1,499 | 150,000 | 600 | Unlimited | 50 |
-| Scale | 4,999 | 750,000 | 1,200 | Unlimited | 250 |
+| Plan | INR/month | Credits | RPM | Concurrent calls | API keys | Monitors |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Free | 0 | 250 | 60 | 4 | Unlimited | 1 |
+| Builder | 499 | 25,000 | 240 | 8 | Unlimited | 10 |
+| Pro | 1,499 | 150,000 | 600 | 20 | Unlimited | 50 |
+| Scale | 4,999 | 750,000 | 1,200 | 50 | Unlimited | 250 |
 
 All paid plans can invoke every configured capability, including browser and sandbox tools. OpenCrawl-hosted routes are included in the subscription with no per-call wallet charge. Operator-funded external providers still reserve and settle wallet credits; BYO connected routes have no OpenCrawl usage charge. Plans retain request-rate and concurrency controls. Purchased credit packs use a separate rollover bucket.
 

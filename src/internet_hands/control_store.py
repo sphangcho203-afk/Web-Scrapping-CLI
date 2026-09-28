@@ -322,10 +322,10 @@ CUSTOM_TOPUP_MAX_USD_CENTS = 50_000
 
 FREE_MONTHLY_CREDITS = 250
 PLAN_ROWS = [
-    ("free", "Free", 0, FREE_MONTHLY_CREDITS, 60, 1, None, 1, False, False, 0),
-    ("builder", "Builder", 499, 25000, 240, 4, None, 10, True, True, 10),
-    ("pro", "Pro", 1499, 150000, 600, 10, None, 50, True, True, 20),
-    ("scale", "Scale", 4999, 750000, 1200, 20, None, 250, True, True, 30),
+    ("free", "Free", 0, FREE_MONTHLY_CREDITS, 60, 4, None, 1, False, False, 0),
+    ("builder", "Builder", 499, 25000, 240, 8, None, 10, True, True, 10),
+    ("pro", "Pro", 1499, 150000, 600, 20, None, 50, True, True, 20),
+    ("scale", "Scale", 4999, 750000, 1200, 50, None, 250, True, True, 30),
 ]
 
 CREDIT_PACK_ROWS = [
