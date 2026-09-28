@@ -6,6 +6,7 @@ from internet_hands.auth import current_auth
 from internet_hands.capability_packs import Capability, CapabilityCandidate
 from internet_hands.control_store import AuthIdentity
 from internet_hands.mcp_access import available_actions, tool_allowed
+from internet_hands.tool_mcp import mesh_capabilities, mesh_describe, mesh_providers, mesh_search
 from internet_hands.tool_mesh import ToolMesh
 
 
@@ -100,3 +101,71 @@ async def test_available_actions_follow_subscription_provider_access(monkeypatch
     paid.plan_slug = "builder"
     result = await available_actions(paid)
     assert [action["id"] for action in result["actions"]] == ["scrape"]
+
+
+@pytest.mark.asyncio
+async def test_raw_discovery_and_describe_hide_routes_outside_the_plan(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Mesh:
+        def __init__(self):
+            self.providers = {"nativeweb": object(), "apify": object()}
+
+        async def provider_status(self):
+            return {name: {"configured": True, "executable": True} for name in self.providers}
+
+        async def search(self, query, *, providers=None, limit=10):
+            return {"query": query, "tools": [
+                {"provider": name, "ref": f"{name}:fetch"}
+                for name in (providers or self.providers)
+            ][:limit], "errors": {}}
+
+        async def describe(self, ref):
+            return {"ref": ref}
+
+    monkeypatch.setattr("internet_hands.tool_mcp.get_tool_mesh", lambda: Mesh())
+    free_token = current_auth.set(_identity("alice"))
+    try:
+        assert [tool["ref"] for tool in (await mesh_search("fetch"))["tools"]] == ["nativeweb:fetch"]
+        assert set(await mesh_providers()) == {"nativeweb"}
+        with pytest.raises(PermissionError):
+            await mesh_describe("apify:fetch")
+    finally:
+        current_auth.reset(free_token)
+    paid = _identity("alice")
+    paid.plan_slug = "builder"
+    paid_token = current_auth.set(paid)
+    try:
+        assert [tool["ref"] for tool in (await mesh_search("fetch"))["tools"]] == [
+            "nativeweb:fetch", "apify:fetch",
+        ]
+        assert (await mesh_describe("apify:fetch"))["ref"] == "apify:fetch"
+    finally:
+        current_auth.reset(paid_token)
+
+
+@pytest.mark.asyncio
+async def test_semantic_catalog_filters_paid_only_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Mesh:
+        async def provider_status(self):
+            return {
+                "nativeweb": {"configured": True, "executable": True},
+                "apify": {"configured": True, "executable": True},
+            }
+
+    class Registry:
+        def list(self, *, query=None, pack=None, limit=50):
+            return {"capabilities": [{
+                "id": "web.fetch", "name": "Fetch", "description": "Fetch a page", "pack": "web",
+                "candidates": [
+                    {"provider": "nativeweb", "ref": "nativeweb:fetch"},
+                    {"provider": "apify", "ref": "apify:actor"},
+                ],
+            }]}
+
+    monkeypatch.setattr("internet_hands.tool_mcp.get_tool_mesh", lambda: Mesh())
+    monkeypatch.setattr("internet_hands.tool_mcp.get_capability_registry", lambda: Registry())
+    token = current_auth.set(_identity("alice"))
+    try:
+        capabilities = (await mesh_capabilities())["capabilities"]
+        assert [item["ref"] for item in capabilities[0]["candidates"]] == ["nativeweb:fetch"]
+    finally:
+        current_auth.reset(token)

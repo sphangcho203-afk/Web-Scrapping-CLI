@@ -24,6 +24,7 @@ from .gaming_providers import build_gaming_providers
 from .github_public_provider import GitHubPublicProvider
 from .intelligence_capabilities import build_intelligence_capabilities
 from .intelligence_fabric import IntelligenceFabricProvider
+from .mcp_access import catalog_provider_allowed, catalog_ref_allowed
 from .mcp_server import sandbox_mcp
 from .native_sandbox_provider import NativeSandboxToolProvider
 from .native_web_provider import NativeWebToolProvider
@@ -139,7 +140,74 @@ async def phone_number_lookup(
 @sandbox_mcp.tool()
 async def mesh_providers() -> dict[str, Any]:
     """Report external tool providers, configuration state, and execution availability."""
-    return await get_tool_mesh().provider_status()
+    statuses = await get_tool_mesh().provider_status()
+    identity = current_auth.get()
+    if identity is None:
+        return statuses
+    return {
+        name: status for name, status in statuses.items()
+        if catalog_provider_allowed(identity, name)
+    }
+
+
+async def _account_catalog_search(
+    query: str, providers: list[str] | None, limit: int,
+) -> dict[str, Any]:
+    mesh = get_tool_mesh()
+    identity = current_auth.get()
+    if identity is None:
+        return await mesh.search(query, providers=providers, limit=limit)
+    requested = providers if providers is not None else list(mesh.providers)
+    unknown = [name for name in requested if name not in mesh.providers]
+    if unknown:
+        raise ValueError(f"unknown providers: {', '.join(unknown)}")
+    statuses = await mesh.provider_status()
+    allowed = [
+        name for name in requested
+        if catalog_provider_allowed(identity, name)
+        and (statuses.get(name) or {}).get("executable")
+        and (statuses.get(name) or {}).get("configured") is not False
+    ]
+    if not allowed:
+        return {"query": query, "tools": [], "errors": {}}
+    bounded_limit = max(1, min(int(limit), 50))
+    result = await mesh.search(
+        query, providers=allowed, limit=min(50, bounded_limit * 3),
+    )
+    result["tools"] = [
+        tool for tool in result["tools"]
+        if catalog_ref_allowed(identity, str(tool.get("ref") or ""))
+    ][:bounded_limit]
+    return result
+
+
+async def _account_capabilities(
+    *, query: str | None = None, pack: str | None = None, limit: int = 50,
+) -> dict[str, Any]:
+    registry = get_capability_registry()
+    identity = current_auth.get()
+    if identity is None:
+        return registry.list(query=query, pack=pack, limit=limit)
+    statuses = await get_tool_mesh().provider_status()
+    listed = registry.list(query=query, pack=pack, limit=100)
+    visible = []
+    for capability in listed["capabilities"]:
+        candidates = []
+        for candidate in capability["candidates"]:
+            provider = str(candidate.get("provider") or "")
+            ref = candidate.get("ref")
+            status = statuses.get(provider) or {}
+            if not ref or provider in {"composio", "mcp"}:
+                continue
+            if not status.get("executable") or status.get("configured") is False:
+                continue
+            if provider == "nativeweb" and str(ref).endswith(":search") and not status.get("search_configured"):
+                continue
+            if catalog_ref_allowed(identity, str(ref)):
+                candidates.append(candidate)
+        if candidates:
+            visible.append({**capability, "candidates": candidates})
+    return {"capabilities": visible[:max(1, min(int(limit), 100))]}
 
 
 @sandbox_mcp.tool()
@@ -152,8 +220,8 @@ async def mesh_route(
     intent = intent.strip()
     if not intent:
         raise ValueError("intent is required")
-    raw = await get_tool_mesh().search(intent, providers=providers, limit=limit)
-    semantic = get_capability_registry().list(query=intent, limit=min(limit, 20))
+    raw = await _account_catalog_search(intent, providers, limit)
+    semantic = await _account_capabilities(query=intent, limit=min(limit, 20))
     return {
         "intent": intent,
         "capabilities": semantic["capabilities"],
@@ -170,12 +238,15 @@ async def mesh_search(
     limit: int = 10,
 ) -> dict[str, Any]:
     """Search external tool catalogs and return normalized provider:tool references."""
-    return await get_tool_mesh().search(query, providers=providers, limit=limit)
+    return await _account_catalog_search(query, providers, limit)
 
 
 @sandbox_mcp.tool()
 async def mesh_describe(ref: str) -> dict[str, Any]:
     """Fetch the normalized input/output schema and metadata for one external tool."""
+    identity = current_auth.get()
+    if identity is not None and not catalog_ref_allowed(identity, ref):
+        raise PermissionError("tool is unavailable on this plan")
     return await get_tool_mesh().describe(ref)
 
 
@@ -186,6 +257,7 @@ async def mesh_describe_many(refs: list[str]) -> dict[str, Any]:
         return {"tools": [], "errors": {}}
     if len(refs) > 20:
         raise ValueError("mesh_describe_many accepts at most 20 refs")
+    identity = current_auth.get()
 
     semaphore = asyncio.Semaphore(
         _bounded_request_concurrency(8, maximum=20)
@@ -194,6 +266,8 @@ async def mesh_describe_many(refs: list[str]) -> dict[str, Any]:
     async def one(ref: str) -> tuple[str, dict[str, Any] | None, str | None]:
         async with semaphore:
             try:
+                if identity is not None and not catalog_ref_allowed(identity, ref):
+                    raise PermissionError("tool is unavailable on this plan")
                 return ref, await get_tool_mesh().describe(ref), None
             except Exception as exc:  # noqa: BLE001 - isolate external descriptor failures
                 return ref, None, str(exc)
@@ -250,6 +324,9 @@ async def mesh_job_status(
     wait_seconds: int = 0,
 ) -> dict[str, Any]:
     """Inspect or briefly wait for a provider job such as a long-running Apify or Firecrawl run."""
+    identity = current_auth.get()
+    if identity is not None and not catalog_provider_allowed(identity, provider):
+        raise PermissionError("provider is unavailable on this plan")
     return await get_tool_mesh().job_status(provider, job_id, wait_seconds=wait_seconds)
 
 
@@ -261,6 +338,9 @@ async def mesh_results(
     limit: int = 100,
 ) -> dict[str, Any]:
     """Read one bounded page from a provider result store or async crawl/batch result."""
+    identity = current_auth.get()
+    if identity is not None and not catalog_provider_allowed(identity, provider):
+        raise PermissionError("provider is unavailable on this plan")
     return await get_tool_mesh().result_page(
         provider,
         result_id,
@@ -270,19 +350,35 @@ async def mesh_results(
 
 
 @sandbox_mcp.tool()
-def mesh_capabilities(
+async def mesh_capabilities(
     query: str | None = None,
     pack: str | None = None,
     limit: int = 50,
 ) -> dict[str, Any]:
     """List semantic capability packs without exposing provider-specific details."""
-    return get_capability_registry().list(query=query, pack=pack, limit=limit)
+    return await _account_capabilities(query=query, pack=pack, limit=limit)
 
 
 @sandbox_mcp.tool()
 async def mesh_capability_resolve(capability: str) -> dict[str, Any]:
     """Show ranked provider candidates and schemas for one semantic capability."""
-    return await get_capability_registry().resolve(capability)
+    identity = current_auth.get()
+    if identity is None:
+        return await get_capability_registry().resolve(capability)
+    listed = await _account_capabilities(query=capability, limit=100)
+    visible = next(
+        (item for item in listed["capabilities"] if item["id"] == capability), None
+    )
+    if visible is None:
+        raise PermissionError("capability is unavailable on this plan")
+    result = await get_capability_registry().resolve(capability)
+    allowed_refs = {str(item["ref"]) for item in visible["candidates"]}
+    result["capability"] = visible
+    result["resolved"] = [
+        item for item in result["resolved"]
+        if str((item.get("candidate") or {}).get("ref")) in allowed_refs
+    ]
+    return result
 
 
 @sandbox_mcp.tool()
