@@ -33,3 +33,14 @@ def test_accrual_uses_only_unprocessed_wallet_units() -> None:
     points, consumed = rewards._accrual_delta(25_500, 25_000, 500)
     assert points == 1
     assert consumed == 500
+
+
+
+def test_reward_code_normalization_and_hashing(monkeypatch) -> None:
+    monkeypatch.setenv("OPENCRAWL_REWARD_CODE_SECRET", "fixture-secret-key-123456789")
+    assert rewards._normalize_reward_code(" discord-100 ") == "DISCORD-100"
+    first = rewards._reward_code_hash("discord-100")
+    second = rewards._reward_code_hash("DISCORD-100")
+    assert first == second
+    assert len(first) == 64
+    assert "DISCORD-100" not in first
