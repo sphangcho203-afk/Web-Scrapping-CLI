@@ -99,6 +99,14 @@ def record_provider_reliability_event(
     error = str(event.get("error") or "").strip()[:500] or None
     error_class = str(event.get("error_class") or "").strip().lower()[:80] or None
 
+    # SELECT ... FOR UPDATE cannot lock a row that does not exist yet. A
+    # transaction-scoped advisory lock serializes first-event creation for the
+    # same provider, preventing concurrent INSERT/UPSERT writers from losing
+    # one another's counters.
+    cur.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+        (f"provider-reliability:{provider}",),
+    )
     cur.execute(
         """
         SELECT provider,successes,failures,neutral,consecutive_failures,
