@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import os
 import re
+import secrets
 import threading
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -113,11 +117,101 @@ CREATE TABLE IF NOT EXISTS ih_reward_ledger (
 );
 CREATE INDEX IF NOT EXISTS ih_reward_ledger_user_idx
     ON ih_reward_ledger(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS ih_reward_codes (
+    id text PRIMARY KEY,
+    code_hash text NOT NULL UNIQUE,
+    code_hint text NOT NULL,
+    label text NOT NULL,
+    reward_type text NOT NULL CHECK (reward_type IN ('points', 'wallet_credit')),
+    reward_value bigint NOT NULL CHECK (reward_value > 0),
+    max_redemptions integer,
+    redemption_count integer NOT NULL DEFAULT 0 CHECK (redemption_count >= 0),
+    starts_at timestamptz,
+    expires_at timestamptz,
+    active boolean NOT NULL DEFAULT true,
+    metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ih_reward_codes_active_idx
+    ON ih_reward_codes(active, expires_at);
+
+CREATE TABLE IF NOT EXISTS ih_reward_code_redemptions (
+    id text PRIMARY KEY,
+    code_id text NOT NULL REFERENCES ih_reward_codes(id) ON DELETE CASCADE,
+    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,
+    reward_type text NOT NULL,
+    reward_value bigint NOT NULL,
+    fulfillment_reference text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE(code_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS ih_reward_code_redemptions_user_idx
+    ON ih_reward_code_redemptions(user_id, created_at DESC);
 """
 
 
 def _new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex}"
+
+
+def _normalize_reward_code(value: str) -> str:
+    normalized = re.sub(r"[^A-Z0-9-]", "", str(value or "").strip().upper())
+    if not re.fullmatch(r"[A-Z0-9][A-Z0-9-]{3,63}", normalized):
+        raise ControlError(
+            "invalid_reward_code",
+            "enter a valid reward code",
+            400,
+        )
+    return normalized
+
+
+def _reward_code_secret() -> str:
+    secret = (
+        os.getenv("OPENCRAWL_REWARD_CODE_SECRET")
+        or os.getenv("INTERNET_HANDS_OAUTH_SIGNING_SECRET")
+        or os.getenv("OPENCRAWL_REWARD_ADMIN_TOKEN")
+    )
+    if not secret or len(secret) < 16:
+        raise ControlError(
+            "reward_codes_unavailable",
+            "reward code verification is not configured",
+            503,
+        )
+    return secret
+
+
+def _reward_code_hash(code: str) -> str:
+    return hmac.new(
+        _reward_code_secret().encode("utf-8"),
+        _normalize_reward_code(code).encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _reward_code_hint(code: str) -> str:
+    normalized = _normalize_reward_code(code)
+    return normalized[:4] + ("…" if len(normalized) > 4 else "")
+
+
+def _require_reward_admin(request: Request) -> None:
+    expected = os.getenv("OPENCRAWL_REWARD_ADMIN_TOKEN") or ""
+    supplied = request.headers.get("x-opencrawl-admin-token") or ""
+    if not expected or len(expected) < 16 or not hmac.compare_digest(expected, supplied):
+        raise ControlError("forbidden", "reward admin authorization required", 403)
+
+
+def _parse_optional_datetime(value: Any, field: str) -> datetime | None:
+    if value in (None, ""):
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ControlError("invalid_reward_code_window", f"{field} must be ISO-8601", 400) from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _reward_units_per_point() -> int:
@@ -328,6 +422,18 @@ def rewards_snapshot(user_id: str, limit: int = 80) -> dict[str, Any]:
         ledger = [dict(row) for row in cur.fetchall()]
         cur.execute(
             """
+            SELECT r.id,c.code_hint,c.label,r.reward_type,r.reward_value,r.created_at
+            FROM ih_reward_code_redemptions r
+            JOIN ih_reward_codes c ON c.id=r.code_id
+            WHERE r.user_id=%s
+            ORDER BY r.created_at DESC
+            LIMIT 20
+            """,
+            (user_id,),
+        )
+        code_redemptions = [dict(row) for row in cur.fetchall()]
+        cur.execute(
+            """
             SELECT monthly_credits,purchased_credits,reserved_credits
             FROM ih_wallets
             WHERE user_id=%s
@@ -349,6 +455,7 @@ def rewards_snapshot(user_id: str, limit: int = 80) -> dict[str, Any]:
         },
         "catalog": catalog,
         "redemptions": redemptions,
+        "code_redemptions": code_redemptions,
         "ledger": ledger,
         "wallet": dict(wallet) if wallet else None,
         "earned_now": earned_now,
@@ -359,6 +466,252 @@ def rewards_snapshot(user_id: str, limit: int = 80) -> dict[str, Any]:
             "wallet_units_per_point": units_per_point,
             "usd_spend_per_point": units_per_point / WALLET_UNITS_PER_USD,
         },
+    }
+
+
+def create_reward_code(payload: dict[str, Any]) -> dict[str, Any]:
+    ensure_rewards_schema()
+    raw_code = str(payload.get("code") or "").strip() or (
+        "OPENCRAWL-" + secrets.token_hex(4).upper()
+    )
+    code = _normalize_reward_code(raw_code)
+    label = str(payload.get("label") or "Community reward").strip()[:120]
+    reward_type = str(payload.get("reward_type") or "points").strip().lower()
+    if reward_type not in {"points", "wallet_credit"}:
+        raise ControlError("invalid_reward_type", "reward_type must be points or wallet_credit", 400)
+    try:
+        reward_value = int(payload.get("reward_value") or 0)
+    except (TypeError, ValueError) as exc:
+        raise ControlError("invalid_reward_value", "reward_value must be an integer", 400) from exc
+    if reward_value <= 0:
+        raise ControlError("invalid_reward_value", "reward_value must be greater than zero", 400)
+    max_redemptions_raw = payload.get("max_redemptions")
+    if max_redemptions_raw in (None, ""):
+        max_redemptions = None
+    else:
+        try:
+            max_redemptions = int(max_redemptions_raw)
+        except (TypeError, ValueError) as exc:
+            raise ControlError("invalid_reward_limit", "max_redemptions must be an integer", 400) from exc
+        if max_redemptions <= 0:
+            raise ControlError("invalid_reward_limit", "max_redemptions must be greater than zero", 400)
+    starts_at = _parse_optional_datetime(payload.get("starts_at"), "starts_at")
+    expires_at = _parse_optional_datetime(payload.get("expires_at"), "expires_at")
+    if starts_at and expires_at and expires_at <= starts_at:
+        raise ControlError("invalid_reward_code_window", "expires_at must be after starts_at", 400)
+
+    code_id = _new_id("rcode")
+    try:
+        with store._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO ih_reward_codes(
+                    id,code_hash,code_hint,label,reward_type,reward_value,
+                    max_redemptions,starts_at,expires_at,metadata
+                )
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                RETURNING id,code_hint,label,reward_type,reward_value,max_redemptions,
+                          redemption_count,starts_at,expires_at,active,created_at
+                """,
+                (
+                    code_id,
+                    _reward_code_hash(code),
+                    _reward_code_hint(code),
+                    label,
+                    reward_type,
+                    reward_value,
+                    max_redemptions,
+                    starts_at,
+                    expires_at,
+                    json.dumps(dict(payload.get("metadata") or {})),
+                ),
+            )
+            row = cur.fetchone()
+            conn.commit()
+    except Exception as exc:
+        if getattr(exc, "sqlstate", None) == "23505":
+            raise ControlError("reward_code_exists", "that reward code already exists", 409) from exc
+        raise
+    result = dict(row or {})
+    result["code"] = code
+    return result
+
+
+def list_reward_codes() -> list[dict[str, Any]]:
+    ensure_rewards_schema()
+    with store._connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id,code_hint,label,reward_type,reward_value,max_redemptions,
+                   redemption_count,starts_at,expires_at,active,created_at,updated_at
+            FROM ih_reward_codes
+            ORDER BY created_at DESC
+            LIMIT 200
+            """
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def redeem_community_code(user_id: str, raw_code: str) -> dict[str, Any]:
+    ensure_rewards_schema()
+    normalized = _normalize_reward_code(raw_code)
+    code_hash = _reward_code_hash(normalized)
+
+    with store._connect() as conn, conn.cursor() as cur:
+        _ensure_reward_account(cur, user_id)
+        cur.execute(
+            """
+            SELECT id,code_hint,label,reward_type,reward_value,max_redemptions,
+                   redemption_count,starts_at,expires_at,active
+            FROM ih_reward_codes
+            WHERE code_hash=%s
+            FOR UPDATE
+            """,
+            (code_hash,),
+        )
+        campaign = cur.fetchone()
+        if not campaign or not bool(campaign["active"]):
+            raise ControlError("reward_code_invalid", "that reward code is invalid", 404)
+
+        now = datetime.now(UTC)
+        starts_at = campaign.get("starts_at")
+        expires_at = campaign.get("expires_at")
+        if starts_at and now < starts_at:
+            raise ControlError("reward_code_not_started", "that reward code is not active yet", 409)
+        if expires_at and now >= expires_at:
+            raise ControlError("reward_code_expired", "that reward code has expired", 410)
+        max_redemptions = campaign.get("max_redemptions")
+        if max_redemptions is not None and int(campaign["redemption_count"]) >= int(max_redemptions):
+            raise ControlError("reward_code_exhausted", "that reward code has reached its claim limit", 409)
+
+        cur.execute(
+            """
+            SELECT id,reward_type,reward_value,fulfillment_reference,created_at
+            FROM ih_reward_code_redemptions
+            WHERE code_id=%s AND user_id=%s
+            """,
+            (campaign["id"], user_id),
+        )
+        existing = cur.fetchone()
+        if existing:
+            raise ControlError("reward_code_already_redeemed", "you already redeemed this reward code", 409)
+
+        reward_type = str(campaign["reward_type"])
+        reward_value = int(campaign["reward_value"])
+        redemption_id = _new_id("rcd")
+        fulfillment_reference = None
+
+        if reward_type == "points":
+            cur.execute(
+                """
+                UPDATE ih_reward_accounts
+                SET points=points+%s,lifetime_earned=lifetime_earned+%s,updated_at=now()
+                WHERE user_id=%s
+                """,
+                (reward_value, reward_value, user_id),
+            )
+            ledger_id = _new_id("rled")
+            cur.execute(
+                """
+                INSERT INTO ih_reward_ledger(
+                    id,user_id,amount,kind,source,reference_id,dedupe_key,metadata
+                )
+                VALUES (%s,%s,%s,'earn','community_code',%s,%s,%s::jsonb)
+                """,
+                (
+                    ledger_id,
+                    user_id,
+                    reward_value,
+                    redemption_id,
+                    f"community-code:{campaign['id']}:{user_id}",
+                    json.dumps({"label": campaign["label"], "code_hint": campaign["code_hint"]}),
+                ),
+            )
+            fulfillment_reference = ledger_id
+        elif reward_type == "wallet_credit":
+            cur.execute(
+                """
+                INSERT INTO ih_wallets(user_id,purchased_credits)
+                VALUES (%s,%s)
+                ON CONFLICT (user_id) DO UPDATE SET
+                    purchased_credits=ih_wallets.purchased_credits+EXCLUDED.purchased_credits,
+                    updated_at=now()
+                """,
+                (user_id, reward_value),
+            )
+            ledger_id = store._new_id("led")
+            cur.execute(
+                """
+                INSERT INTO ih_credit_ledger(
+                    id,user_id,amount,bucket,kind,source,reference_id,metadata
+                )
+                VALUES (%s,%s,%s,'purchased','reward_code','community',%s,%s::jsonb)
+                """,
+                (
+                    ledger_id,
+                    user_id,
+                    reward_value,
+                    redemption_id,
+                    json.dumps({
+                        "label": campaign["label"],
+                        "code_hint": campaign["code_hint"],
+                        "display_currency": "USD",
+                        "wallet_units_per_usd": WALLET_UNITS_PER_USD,
+                    }),
+                ),
+            )
+            fulfillment_reference = ledger_id
+        else:
+            raise ControlError("invalid_reward_type", "reward code fulfillment is invalid", 409)
+
+        cur.execute(
+            """
+            INSERT INTO ih_reward_code_redemptions(
+                id,code_id,user_id,reward_type,reward_value,fulfillment_reference
+            )
+            VALUES (%s,%s,%s,%s,%s,%s)
+            RETURNING id,reward_type,reward_value,fulfillment_reference,created_at
+            """,
+            (
+                redemption_id,
+                campaign["id"],
+                user_id,
+                reward_type,
+                reward_value,
+                fulfillment_reference,
+            ),
+        )
+        redemption = cur.fetchone()
+        cur.execute(
+            """
+            UPDATE ih_reward_codes
+            SET redemption_count=redemption_count+1,updated_at=now()
+            WHERE id=%s
+            """,
+            (campaign["id"],),
+        )
+        cur.execute("SELECT * FROM ih_reward_accounts WHERE user_id=%s", (user_id,))
+        account = cur.fetchone()
+        cur.execute(
+            "SELECT monthly_credits,purchased_credits,reserved_credits FROM ih_wallets WHERE user_id=%s",
+            (user_id,),
+        )
+        wallet = cur.fetchone()
+        conn.commit()
+
+    return {
+        "ok": True,
+        "campaign": {
+            "label": campaign["label"],
+            "code_hint": campaign["code_hint"],
+            "reward_type": reward_type,
+            "reward_value": reward_value,
+        },
+        "redemption": dict(redemption) if redemption else None,
+        "account": dict(account) if account else None,
+        "wallet": dict(wallet) if wallet else None,
+        "display_currency": "USD",
+        "wallet_units_per_usd": WALLET_UNITS_PER_USD,
     }
 
 
@@ -583,6 +936,33 @@ def redeem_reward(
 def rewards(request: Request, limit: int = 80):
     user = _require_user(request)
     return rewards_snapshot(str(user["id"]), limit=limit)
+
+
+@router.post("/api/rewards/codes/redeem")
+def redeem_reward_code(payload: dict[str, Any], request: Request):
+    user = _require_verified(_require_user(request))
+    try:
+        return redeem_community_code(str(user["id"]), str(payload.get("code") or ""))
+    except ControlError as exc:
+        raise _json_error(exc) from exc
+
+
+@router.get("/api/admin/reward-codes")
+def admin_list_reward_codes(request: Request):
+    try:
+        _require_reward_admin(request)
+        return {"codes": list_reward_codes()}
+    except ControlError as exc:
+        raise _json_error(exc) from exc
+
+
+@router.post("/api/admin/reward-codes")
+def admin_create_reward_code(payload: dict[str, Any], request: Request):
+    try:
+        _require_reward_admin(request)
+        return {"code": create_reward_code(payload)}
+    except ControlError as exc:
+        raise _json_error(exc) from exc
 
 
 @router.post("/api/rewards/{reward_slug}/redeem")
