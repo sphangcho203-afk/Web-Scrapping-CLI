@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from internet_hands.capability_economics import estimate_call
 from internet_hands.control_store import AuthIdentity, ControlError, ControlStore
 
 
@@ -77,6 +78,7 @@ def test_free_plan_still_has_real_public_tool_execution(
         "attempts": 2,
         "retries": 1,
         "quoted_once": 3,
+        "retryable_once": 3,
         "reserved": 6,
     }
 
@@ -155,3 +157,52 @@ def test_disabling_read_retries_removes_retry_headroom(
 
     assert quote["credits"] == 3
     assert "retry_reservation" not in quote
+
+
+
+def test_side_effecting_raw_mesh_routes_do_not_reserve_retry_headroom(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENCRAWL_PROVIDER_READ_RETRIES", "3")
+    store = ControlStore(dsn=None)
+
+    apify = store.quote_tool_call(
+        identity=_identity("pro"),
+        tool_name="mesh_execute",
+        arguments={"ref": "apify:owner/actor", "arguments": {"url": "https://example.com"}},
+    )
+    sandbox = store.quote_tool_call(
+        identity=_identity("pro"),
+        tool_name="mesh_execute",
+        arguments={"ref": "nativesandbox:exec", "arguments": {"command": "echo hi"}},
+    )
+    interact = store.quote_tool_call(
+        identity=_identity("pro"),
+        tool_name="mesh_execute",
+        arguments={"ref": "firecrawl:interact", "arguments": {"prompt": "click next"}},
+    )
+
+    for quote in (apify, sandbox, interact):
+        assert "retry_reservation" not in quote
+
+
+def test_batch_retry_headroom_excludes_side_effecting_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENCRAWL_PROVIDER_READ_RETRIES", "1")
+    store = ControlStore(dsn=None)
+    calls = [
+        {"ref": "publicapi:lookup", "arguments": {"query": "example"}},
+        {"ref": "nativesandbox:exec", "arguments": {"command": "echo hi"}},
+    ]
+
+    base = estimate_call("mesh_batch_execute", {"calls": calls}, "pro")
+    quote = store.quote_tool_call(
+        identity=_identity("pro"),
+        tool_name="mesh_batch_execute",
+        arguments={"calls": calls},
+    )
+    retryable = estimate_call("mesh_execute", calls[0], "pro").credits
+
+    assert quote["credits"] == base.credits + retryable
+    assert quote["retry_reservation"]["retryable_once"] == retryable
