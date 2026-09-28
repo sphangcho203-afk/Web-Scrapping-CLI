@@ -505,7 +505,7 @@ async function dashRewards(){
       '</article>'+
     '</section>'
   );
-  $('[data-redeem]').forEach(button=>button.onclick=async()=>{
+  document.querySelectorAll('[data-redeem]').forEach(button=>button.onclick=async()=>{
     const slug=button.dataset.redeem,name=button.dataset.rewardName||'this prize';
     if(!confirm('Redeem '+name+'? Reward points are deducted immediately once fulfilled.'))return;
     if(!busy(button,true,'Redeeming…'))return;
