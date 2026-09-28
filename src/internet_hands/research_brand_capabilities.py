@@ -219,6 +219,7 @@ def build_research_brand_capabilities() -> list[Capability]:
                         "includeDomains": "include_domains",
                         "excludeDomains": "exclude_domains",
                     },
+                    defaults={"result_section": "news"},
                     passthrough_arguments=True,
                 ),
                 CapabilityCandidate(
