@@ -51,3 +51,82 @@ If wallet fulfillment fails, the database transaction rolls back, including the 
 The schema also supports `manual` fulfillment. This is intended for prizes that cannot be delivered by a deterministic server-side mutation. Such redemptions remain `pending` until an operator or future fulfillment worker completes them.
 
 Do not implement external prize delivery by trusting browser-provided amounts, URLs, gift-code values, or provider identifiers. Fulfillment data must come from the server-side reward catalog.
+
+
+## Community reward codes
+
+OpenCrawl supports operator-created codes for community drops. A code can grant either reward points or rollover wallet credit without requiring the user to spend points first.
+
+Users redeem a code from **Dashboard → Rewards → Community Drop**. The browser sends only the entered code to:
+
+```text
+POST /api/rewards/codes/redeem
+{"code":"DISCORD100"}
+```
+
+The server normalizes the code, verifies its keyed hash, checks its active window and global claim limit, and enforces one claim per account. Fulfillment and the claim record are committed in one database transaction.
+
+Raw codes are not stored in the database. Configure a dedicated hashing secret and an operator token:
+
+```env
+OPENCRAWL_REWARD_CODE_SECRET=<long-random-secret>
+OPENCRAWL_REWARD_ADMIN_TOKEN=<different-long-random-secret>
+```
+
+### Create a community drop
+
+The operator endpoint requires the admin token in the `X-OpenCrawl-Admin-Token` header. The `code` field is optional; when omitted, OpenCrawl generates a code and returns it once.
+
+Points example:
+
+```bash
+curl -X POST https://YOUR_OPENCRAWL_ORIGIN/api/admin/reward-codes \
+  -H "Content-Type: application/json" \
+  -H "X-OpenCrawl-Admin-Token: $OPENCRAWL_REWARD_ADMIN_TOKEN" \
+  -d '{
+    "code": "DISCORD100",
+    "label": "Discord launch drop",
+    "reward_type": "points",
+    "reward_value": 100,
+    "max_redemptions": 500,
+    "expires_at": "2026-10-31T23:59:59Z"
+  }'
+```
+
+Wallet-credit example:
+
+```bash
+curl -X POST https://YOUR_OPENCRAWL_ORIGIN/api/admin/reward-codes \
+  -H "Content-Type: application/json" \
+  -H "X-OpenCrawl-Admin-Token: $OPENCRAWL_REWARD_ADMIN_TOKEN" \
+  -d '{
+    "label": "Community wallet drop",
+    "reward_type": "wallet_credit",
+    "reward_value": 2500,
+    "max_redemptions": 100
+  }'
+```
+
+At the default denomination of 5,000 wallet units per USD, `reward_value: 2500` grants **$0.50** of rollover service balance.
+
+The create response contains the raw code only so it can be copied into Discord, Telegram, announcements, or another community channel. Later admin listings return only a short code hint, not the original secret code.
+
+### Campaign controls
+
+Each code supports:
+
+- `max_redemptions`: optional global claim cap;
+- `starts_at`: optional ISO-8601 activation time;
+- `expires_at`: optional ISO-8601 expiry;
+- one redemption per OpenCrawl account;
+- `points` or `wallet_credit` fulfillment;
+- server-side redemption counters and user claim history.
+
+List configured campaigns with:
+
+```text
+GET /api/admin/reward-codes
+X-OpenCrawl-Admin-Token: <operator token>
+```
+
+Do not put the admin token or reward-code hashing secret in browser JavaScript, public repositories, community posts, or client-side environment variables.
