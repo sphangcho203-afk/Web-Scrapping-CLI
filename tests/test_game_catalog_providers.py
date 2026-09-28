@@ -38,11 +38,12 @@ async def test_rawg_search_injects_server_key_and_bounds_results() -> None:
 @pytest.mark.asyncio
 async def test_rawg_game_detail_rejects_path_injection() -> None:
     provider = RawgGamingCatalogProvider(api_key="rawg-secret")
-    with pytest.raises(ValueError):
-        await provider.execute(
-            "game-detail",
-            {"id_or_slug": "../../admin"},
-        )
+    for value in ("../../admin", ".", ".."):
+        with pytest.raises(ValueError):
+            await provider.execute(
+                "game-detail",
+                {"id_or_slug": value},
+            )
 
 
 @pytest.mark.asyncio
