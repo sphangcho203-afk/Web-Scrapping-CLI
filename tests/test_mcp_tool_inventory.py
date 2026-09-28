@@ -34,7 +34,7 @@ EXPECTED = {
         "phone_caller_lookup",
     },
     "src/internet_hands/account_mcp.py": {
-        "account_me", "account_usage", "account_wallet", "account_limits",
+        "account_me", "account_usage", "account_wallet", "account_limits", "account_available_actions",
         "monitors_list", "monitor_get",
     },
 }
@@ -58,13 +58,13 @@ def _decorated_tools(path: Path) -> set[str]:
     return tools
 
 
-def test_first_party_mcp_inventory_is_exactly_56_tools() -> None:
+def test_first_party_mcp_inventory_is_exactly_57_tools() -> None:
     actual: set[str] = set()
     for relative_path, expected in EXPECTED.items():
         found = _decorated_tools(ROOT / relative_path)
         assert found == expected, relative_path
         actual.update(found)
-    assert len(actual) == 56
+    assert len(actual) == 57
 
 
 def test_production_app_imports_all_registration_modules() -> None:
@@ -77,12 +77,12 @@ def test_production_app_imports_all_registration_modules() -> None:
 
 
 @pytest.mark.asyncio
-async def test_runtime_mcp_server_lists_all_56_callable_tools_with_schemas() -> None:
+async def test_runtime_mcp_server_lists_all_57_callable_tools_with_schemas() -> None:
     tools = await sandbox_mcp.list_tools()
     names = {tool.name for tool in tools}
     expected = set().union(*EXPECTED.values())
 
     assert names == expected
-    assert len(tools) == 56
+    assert len(tools) == 57
     assert all(isinstance(tool.input_schema, dict) for tool in tools)
     assert all(tool.name and tool.description for tool in tools)

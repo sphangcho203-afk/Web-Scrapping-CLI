@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 import pytest
@@ -58,6 +59,45 @@ async def test_unauthenticated_mcp_returns_oauth_resource_metadata() -> None:
         "www-authenticate"
     ]
     assert b"authentication required" in body
+
+
+async def _listing_app(scope: dict[str, Any], receive: Any, send: Any) -> None:
+    response = JSONResponse({
+        "jsonrpc": "2.0", "id": 1,
+        "result": {"tools": [
+            {"name": "mesh_search"}, {"name": "sandbox_exec"},
+            {"name": "account_me"}, {"name": "account_available_actions"},
+        ]},
+    })
+    await response(scope, receive, send)
+
+
+@pytest.mark.asyncio
+async def test_tool_listing_is_scoped_to_plan_and_credential(monkeypatch: pytest.MonkeyPatch) -> None:
+    identity = AuthIdentity("usr_1", "key_1", ["mcp:read", "mcp:execute"], "free", 10, "api_key")
+    monkeypatch.setattr("internet_hands.mcp_gateway.authenticate_secret", lambda _store, _secret: identity)
+    status, headers, body = await _request(
+        MCPGatewayASGI(_listing_app, store=_FakeStore()),  # type: ignore[arg-type]
+        headers=[(b"host", b"mcp.example.test"), (b"authorization", b"Bearer ih_live_fake")],
+        body=b'{"jsonrpc":"2.0","id":1,"method":"tools/list"}',
+    )
+    assert status == 200
+    assert int(headers["content-length"]) == len(body)
+    assert {tool["name"] for tool in json.loads(body)["result"]["tools"]} == {
+        "mesh_search", "account_available_actions"
+    }
+
+
+@pytest.mark.asyncio
+async def test_oauth_token_for_other_resource_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    identity = AuthIdentity("usr_1", "key_1", ["mcp:read"], "free", 10, "oauth", resource="https://other.example/mcp")
+    monkeypatch.setattr("internet_hands.mcp_gateway.authenticate_secret", lambda _store, _secret: identity)
+    status, headers, _ = await _request(
+        MCPGatewayASGI(_listing_app, store=_FakeStore()),  # type: ignore[arg-type]
+        headers=[(b"host", b"mcp.example.test"), (b"authorization", b"Bearer ih_at_fake")],
+    )
+    assert status == 401
+    assert "resource_metadata" in headers["www-authenticate"]
 
 
 class _FakeStore:

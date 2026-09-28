@@ -18,6 +18,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from .auth import (
     api_key_prefix,
     authenticate_secret,
+    current_auth,
     generate_api_key,
     hash_password,
     sha256_text,
@@ -28,10 +29,12 @@ from .control_store import (
     CUSTOM_TOPUP_MAX_USD_CENTS,
     CUSTOM_TOPUP_MIN_USD_CENTS,
     WALLET_UNITS_PER_USD,
+    AuthIdentity,
     ControlError,
     ControlStore,
     random_token,
 )
+from .mcp_access import available_actions
 from .mailer import mail_provider, resend_configured, smtp_configured
 from .policy import validate_public_http_url
 from .remote_mcp_provider import (
@@ -53,6 +56,7 @@ legacy_store = (
 SESSION_COOKIE = "ih_session"
 GITHUB_STATE_COOKIE = "ih_github_state"
 DEFAULT_SCOPES = ["mcp:read", "mcp:execute"]
+SUPPORTED_MCP_SCOPES = {"mcp:read", "mcp:execute", "account:read", "monitors:read", "offline_access"}
 
 
 def _json_error(exc: ControlError) -> HTTPException:
@@ -135,6 +139,23 @@ def _scope_list(value: str | None) -> list[str]:
     return scopes or list(DEFAULT_SCOPES)
 
 
+def _mcp_resource(request: Request, value: str | None) -> str:
+    """Bind OAuth grants to this origin's one MCP endpoint."""
+    expected = f"{_origin(request)}/mcp"
+    if not value:
+        return expected
+    supplied = urlparse(value)
+    canonical = urlparse(expected)
+    if (
+        supplied.scheme.lower() != canonical.scheme.lower()
+        or supplied.netloc.lower() != canonical.netloc.lower()
+        or supplied.path.rstrip("/") not in {"", "/mcp"}
+        or supplied.query or supplied.fragment or supplied.username or supplied.password
+    ):
+        raise HTTPException(status_code=400, detail="resource must identify this OpenCrawl MCP endpoint")
+    return expected
+
+
 @router.get("/.well-known/oauth-protected-resource")
 def oauth_protected_resource(request: Request) -> dict[str, Any]:
     origin = _origin(request)
@@ -171,11 +192,13 @@ def oauth_authorize_page(
     code_challenge_method: str = "S256",
     state: str = "",
     scope: str = "mcp:read mcp:execute",
+    resource: str = "",
 ) -> str:
     if response_type != "code" or code_challenge_method != "S256" or not code_challenge:
         raise HTTPException(status_code=400, detail="OAuth authorization code with PKCE S256 is required")
     if not _safe_redirect_uri(redirect_uri):
         raise HTTPException(status_code=400, detail="unsupported redirect_uri")
+    resource = _mcp_resource(request, resource)
     signed_in = _session_user(request)
     account_hint = ""
     if signed_in:
@@ -188,6 +211,7 @@ def oauth_authorize_page(
         "code_challenge_method": code_challenge_method,
         "state": state,
         "scope": scope,
+        "resource": resource,
     }
     hidden = "".join(
         f'<input type="hidden" name="{html.escape(k)}" value="{html.escape(v)}">'
@@ -209,6 +233,7 @@ async def oauth_authorize_submit(request: Request):
     client_id = form.get("client_id", "")
     code_challenge = form.get("code_challenge", "")
     state = form.get("state", "")
+    resource = _mcp_resource(request, form.get("resource"))
     if not client_id or not code_challenge or not _safe_redirect_uri(redirect_uri):
         raise HTTPException(status_code=400, detail="invalid OAuth request")
     try:
@@ -222,8 +247,10 @@ async def oauth_authorize_submit(request: Request):
         raise HTTPException(status_code=401, detail="API key owner is unavailable")
     _require_verified(owner)
     requested = _scope_list(form.get("scope"))
+    if not set(requested).issubset(SUPPORTED_MCP_SCOPES):
+        raise HTTPException(status_code=400, detail="unsupported OAuth scope")
     granted = set(identity.scopes or ["*"])
-    if "*" not in granted and not set(requested).issubset(granted):
+    if "*" not in granted and not (set(requested) - {"offline_access"}).issubset(granted):
         raise HTTPException(status_code=403, detail="requested scope is not allowed by this API key")
     code = random_token("ih_code_")
     try:
@@ -234,6 +261,7 @@ async def oauth_authorize_submit(request: Request):
             code_hash=sha256_text(code),
             code_challenge=code_challenge,
             scopes=requested,
+            resource=resource,
         )
     except ControlError as exc:
         raise _json_error(exc) from exc
@@ -249,6 +277,7 @@ async def oauth_token(request: Request):
     form = _parse_form(await request.body())
     grant_type = form.get("grant_type")
     client_id = form.get("client_id", "")
+    resource = _mcp_resource(request, form.get("resource"))
     if grant_type == "authorization_code":
         code = form.get("code", "")
         verifier = form.get("code_verifier", "")
@@ -259,6 +288,7 @@ async def oauth_token(request: Request):
             or row["client_id"] != client_id
             or row["redirect_uri"] != redirect_uri
             or not verify_pkce(verifier, row["code_challenge"])
+            or (row.get("resource") and row["resource"] != resource)
         ):
             return JSONResponse({"error": "invalid_grant"}, status_code=400)
         access = random_token("ih_at_")
@@ -271,6 +301,7 @@ async def oauth_token(request: Request):
             access_hash=sha256_text(access),
             refresh_hash=sha256_text(refresh),
             scopes=scopes,
+            resource=resource,
         )
         return {
             "access_token": access,
@@ -284,6 +315,8 @@ async def oauth_token(request: Request):
         row = store.consume_refresh_token(sha256_text(refresh), client_id)
         if not row:
             return JSONResponse({"error": "invalid_grant"}, status_code=400)
+        if row.get("resource") and row["resource"] != resource:
+            return JSONResponse({"error": "invalid_grant"}, status_code=400)
         access = random_token("ih_at_")
         new_refresh = random_token("ih_rt_")
         scopes = list(row.get("scopes") or [])
@@ -294,6 +327,7 @@ async def oauth_token(request: Request):
             access_hash=sha256_text(access),
             refresh_hash=sha256_text(new_refresh),
             scopes=scopes,
+            resource=resource,
         )
         return {
             "access_token": access,
@@ -366,6 +400,25 @@ def public_capabilities():
             for item in sorted(capabilities, key=lambda item: item.id)
         ]
     }
+
+
+@router.get("/api/available-actions")
+async def account_actions(request: Request, query: str = "", limit: int = 60):
+    """Account-specific executable routes, separate from the public registry."""
+    user = _require_user(request)
+    account = store.account_snapshot(user["id"])
+    identity = AuthIdentity(
+        user_id=user["id"], api_key_id=None,
+        scopes=["mcp:read", "mcp:execute", "account:read", "monitors:read"],
+        plan_slug=str(account.get("plan_slug") or "free"),
+        rpm_limit=int(account.get("rpm_limit") or 10),
+        source="session", concurrent_limit=int(account.get("concurrent_limit") or 1),
+    )
+    token = current_auth.set(identity)
+    try:
+        return await available_actions(identity, query=query[:120], limit=limit)
+    finally:
+        current_auth.reset(token)
 
 
 @router.post("/api/auth/signup")

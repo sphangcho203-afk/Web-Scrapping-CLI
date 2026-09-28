@@ -145,6 +145,7 @@ def oauth_authorize_checked(
     code_challenge_method: str = "S256",
     state: str = "",
     scope: str = "mcp:read mcp:execute offline_access",
+    resource: str = "",
 ):
     _validate_registered_client(client_id, redirect_uri)
     return oauth_authorize_page(
@@ -156,6 +157,7 @@ def oauth_authorize_checked(
         code_challenge_method=code_challenge_method,
         state=state,
         scope=scope,
+        resource=resource,
     )
 
 

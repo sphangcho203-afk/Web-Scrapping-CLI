@@ -4,6 +4,7 @@ from typing import Any
 
 from .auth import current_auth
 from .control_store import ControlError, ControlStore
+from .mcp_access import available_actions
 from .mcp_server import sandbox_mcp
 
 store = ControlStore()
@@ -52,6 +53,12 @@ def account_limits() -> dict[str, Any]:
         "sandbox_enabled": account.get("sandbox_enabled"),
         "capability_privileges": account.get("capability_privileges") or {},
     }
+
+
+@sandbox_mcp.tool()
+async def account_available_actions(query: str = "", limit: int = 30) -> dict[str, Any]:
+    """Show concrete capability routes eligible for this account, plan and connected infrastructure."""
+    return await available_actions(_identity(), query=query, limit=limit)
 
 
 @sandbox_mcp.tool()

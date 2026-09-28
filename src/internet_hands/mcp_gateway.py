@@ -18,6 +18,7 @@ from .execution_meter import (
     reset_execution_meter,
     start_execution_meter,
 )
+from .mcp_access import scope_allowed, tool_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -72,22 +73,35 @@ class MCPGatewayASGI:
                 identity = authenticate_secret(self.store, supplied)
             except ControlError as exc:
                 response = JSONResponse(
-                    {"error": exc.code, "detail": exc.detail}, status_code=exc.status_code
+                    {"error": exc.code, "detail": exc.detail}, status_code=exc.status_code,
+                    headers={"WWW-Authenticate": f'Bearer error="invalid_token", resource_metadata="{metadata_url}"'}
+                    if exc.status_code == 401 else None,
                 )
                 await response(scope, receive, send)
                 return
 
         if not master and not identity:
             response = JSONResponse(
-                {"error": "invalid_api_key", "detail": "authentication required"},
+                {"error": "invalid_token", "detail": "authentication required"},
                 status_code=401,
                 headers={
-                    "WWW-Authenticate": f'Bearer resource_metadata="{metadata_url}"',
+                    "WWW-Authenticate": f'Bearer error="invalid_token", resource_metadata="{metadata_url}"',
                     "Cache-Control": "no-store",
                 },
             )
             await response(scope, receive, send)
             return
+
+        if identity and identity.source == "oauth":
+            requested_resource = f"{scheme}://{host}/mcp"
+            if identity.resource != requested_resource:
+                response = JSONResponse(
+                    {"error": "invalid_token", "detail": "token was issued for a different MCP resource"},
+                    status_code=401,
+                    headers={"WWW-Authenticate": f'Bearer error="invalid_token", resource_metadata="{metadata_url}"'},
+                )
+                await response(scope, receive, send)
+                return
 
         body = b""
         try:
@@ -109,9 +123,12 @@ class MCPGatewayASGI:
         request_id = f"req_{uuid.uuid4().hex}"
         tool_name: str | None = None
         arguments: dict[str, Any] | None = None
+        tool_listing = False
         if body:
             try:
                 payload = json.loads(body)
+                if isinstance(payload, dict) and payload.get("method") == "tools/list":
+                    tool_listing = True
                 if isinstance(payload, dict) and payload.get("method") == "tools/call":
                     params = payload.get("params") or {}
                     if isinstance(params, dict):
@@ -121,6 +138,18 @@ class MCPGatewayASGI:
                             arguments = args
             except (json.JSONDecodeError, UnicodeDecodeError):
                 pass
+
+        if identity and tool_name and not tool_allowed(identity, tool_name):
+            response = JSONResponse(
+                {"error": "scope_or_plan_denied", "detail": f"{tool_name} is unavailable for this credential or plan"},
+                status_code=403,
+            )
+            await response(scope, replay_receive, send)
+            return
+        if identity and tool_listing and not scope_allowed(identity, "mcp:read"):
+            response = JSONResponse({"error": "scope_denied", "detail": "mcp:read is required"}, status_code=403)
+            await response(scope, replay_receive, send)
+            return
 
         started = time.monotonic()
         token = None
@@ -150,6 +179,7 @@ class MCPGatewayASGI:
 
         status_code = 200
         output_bytes = 0
+        buffered_messages: list[dict[str, Any]] = []
 
         async def metered_send(message: dict[str, Any]) -> None:
             nonlocal status_code, output_bytes
@@ -165,11 +195,45 @@ class MCPGatewayASGI:
                 message["headers"] = headers_out
             elif message.get("type") == "http.response.body":
                 output_bytes += len(message.get("body", b""))
-            await send(message)
+            if tool_listing and identity:
+                buffered_messages.append(message)
+            else:
+                await send(message)
 
         terminal_status = "ok"
         try:
             await self.app(scope, replay_receive if body else receive, metered_send)
+            if buffered_messages:
+                raw = b"".join(
+                    message.get("body", b"") for message in buffered_messages
+                    if message.get("type") == "http.response.body"
+                )
+                if status_code == 200:
+                    try:
+                        listing = json.loads(raw)
+                        tools = listing.get("result", {}).get("tools")
+                        if isinstance(tools, list):
+                            listing["result"]["tools"] = [
+                                item for item in tools
+                                if isinstance(item, dict) and tool_allowed(identity, str(item.get("name", "")))
+                            ]
+                            raw = json.dumps(listing, separators=(",", ":")).encode()
+                    except (ValueError, AttributeError, TypeError):
+                        pass
+                for message in buffered_messages:
+                    if message["type"] == "http.response.start":
+                        message = dict(message)
+                        message["headers"] = [
+                            (key, value) for key, value in message.get("headers", [])
+                            if key.lower() != b"content-length"
+                        ] + [(b"content-length", str(len(raw)).encode())]
+                        await send(message)
+                    elif message["type"] == "http.response.body":
+                        if not message.get("more_body", False):
+                            await send({**message, "body": raw})
+                            raw = b""
+                    else:
+                        await send(message)
         except asyncio.CancelledError:
             terminal_status = "cancelled"
             raise

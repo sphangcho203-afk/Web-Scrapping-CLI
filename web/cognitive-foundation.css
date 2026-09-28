@@ -769,6 +769,22 @@ body::before{opacity:.018;background-size:64px 64px;}
 
 /* Contextual explanation surfaces */
 .ihx-connection-direction{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 18px}
+.mcp-available{margin:20px 0 26px;padding:24px;border:1px solid #284039;border-radius:18px;background:linear-gradient(130deg,#0d1918,#0a1015 65%)}
+.mcp-available header{display:flex;justify-content:space-between;gap:20px;align-items:end}
+.mcp-available header span,.mcp-action-grid article>span{font:700 11px var(--mono);letter-spacing:.12em;color:#65d7c2;text-transform:uppercase}
+.mcp-available h2{font-size:clamp(22px,3vw,32px);margin:7px 0}
+.mcp-available header p,.mcp-action-count{font-size:13px;line-height:1.6;color:#9aaab0;margin:0}
+.mcp-available header a{white-space:nowrap;color:#65d7c2;font-size:12px}
+.mcp-action-search{display:grid;gap:8px;margin:22px 0 14px;color:#c4d5d8;font:600 11px var(--mono);letter-spacing:.08em;text-transform:uppercase}
+.mcp-action-search input{width:100%;padding:14px 16px;border:1px solid #35504a;border-radius:10px;background:#070d10;color:#f3f4f2;font:inherit;letter-spacing:0;text-transform:none}
+.mcp-action-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px;max-height:580px;overflow:auto}
+.mcp-action-grid article{min-width:0;padding:17px;border:1px solid #24353a;border-radius:12px;background:#0c151a}
+.mcp-action-grid h3{font-size:17px;line-height:1.25;margin:10px 0 8px}
+.mcp-action-grid p{font-size:12px;line-height:1.55;color:#a4b3b8;margin:0 0 14px}
+.mcp-action-grid code{display:block;overflow-wrap:anywhere;color:#eaa76e;font-size:11px}
+.mcp-action-grid small{display:block;margin-top:12px;color:#91a4ab}
+@media(max-width:850px){.mcp-action-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){.mcp-available{padding:18px}.mcp-available header{display:block}.mcp-available header a{display:inline-block;margin-top:12px}.mcp-action-grid{grid-template-columns:1fr;max-height:540px}}
 .ihx-connection-direction article{padding:20px;border:1px solid var(--ihx-line-2,var(--line));background:#091014}
 .ihx-connection-direction article>span{color:var(--ihx-cyan,var(--accent));font:700 9px var(--mono);letter-spacing:.12em}
 .ihx-connection-direction h3{margin:7px 0 8px;font-size:17px}

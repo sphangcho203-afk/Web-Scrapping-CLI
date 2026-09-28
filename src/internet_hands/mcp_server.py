@@ -30,6 +30,12 @@ def get_sandbox_manager() -> SandboxManager:
 
 
 def _transport_security() -> TransportSecuritySettings:
+    # Vercel routes a deployment through several HTTPS aliases. Its edge
+    # validates the public Host before this app runs; the SDK's static host
+    # list contains only VERCEL_URL and rejects valid preview/custom aliases
+    # with 421, breaking authenticated MCP tool sync.
+    if os.getenv("VERCEL"):
+        return TransportSecuritySettings(enable_dns_rebinding_protection=False)
     hosts = {"127.0.0.1", "localhost"}
     for env_name in (
         "VERCEL_URL",

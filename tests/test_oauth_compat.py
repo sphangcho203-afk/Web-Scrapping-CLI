@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import pytest
 from fastapi import HTTPException
+from starlette.requests import Request
 
+from internet_hands.control_api import _mcp_resource
 from internet_hands.oauth_compat import (
     SCOPES,
     _client_id,
@@ -13,6 +15,16 @@ from internet_hands.oauth_compat import (
 
 def test_oauth_metadata_advertises_offline_access() -> None:
     assert "offline_access" in SCOPES
+
+
+def test_oauth_resource_is_bound_to_the_mcp_origin() -> None:
+    request = Request({
+        "type": "http", "scheme": "https", "server": ("preview.example", 443),
+        "path": "/oauth/authorize", "headers": [(b"host", b"preview.example")],
+    })
+    assert _mcp_resource(request, "https://preview.example/mcp/") == "https://preview.example/mcp"
+    with pytest.raises(HTTPException):
+        _mcp_resource(request, "https://another.example/mcp")
 
 
 def test_signed_dynamic_client_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -34,6 +34,18 @@ from .usage_api import router as usage_router
 logger = logging.getLogger(__name__)
 
 
+class MCPPathAlias:
+    """Serve the advertised /mcp URL without a 307 before client auth."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") == "http" and scope.get("path") == "/mcp":
+            scope = {**scope, "path": "/mcp/", "raw_path": b"/mcp/"}
+        await self.app(scope, receive, send)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     migration = await asyncio.to_thread(run_requested_control_plane_migration)
@@ -54,6 +66,7 @@ app = FastAPI(
     docs_url=None,
     redoc_url=None,
 )
+app.add_middleware(MCPPathAlias)
 
 # Security and hardened compatibility overrides are registered first so they take precedence.
 app.include_router(oauth_compat_router)

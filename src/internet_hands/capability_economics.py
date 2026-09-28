@@ -98,6 +98,7 @@ TOOL_ECONOMICS: tuple[ToolEconomics, ...] = (
     ToolEconomics("monitors_list", "account", 0, provider_class="local"),
     ToolEconomics("monitor_get", "account", 0, provider_class="local"),
     ToolEconomics("mesh_providers", "discovery", 1, provider_class="local"),
+    ToolEconomics("account_available_actions", "discovery", 0, provider_class="local"),
     ToolEconomics("mesh_search", "discovery", 1, provider_class="local"),
     ToolEconomics("mesh_describe*", "discovery", 1, provider_class="local"),
     ToolEconomics("mesh_capabilities", "discovery", 1, provider_class="local"),

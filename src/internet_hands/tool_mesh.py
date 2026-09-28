@@ -9,6 +9,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 
+from .auth import current_auth
 from .execution_meter import record_provider_call, record_provider_outcome
 from .provider_errors import (
     ProviderCapacityError,
@@ -172,8 +173,7 @@ class ToolMesh:
             minimum=0,
             maximum=30,
         )
-        self._provider_status_cache: dict[str, dict[str, Any]] | None = None
-        self._provider_status_cache_at = 0.0
+        self._provider_status_cache: dict[str, tuple[float, dict[str, dict[str, Any]]]] = {}
         self._provider_status_lock = asyncio.Lock()
         self._provider_semaphores = {
             name: asyncio.Semaphore(self._provider_concurrency_limit(name))
@@ -279,30 +279,30 @@ class ToolMesh:
         }
 
     async def provider_status(self, *, force: bool = False) -> dict[str, Any]:
+        # Remote MCP sources and connected accounts depend on the caller. A
+        # process-wide cache can otherwise disclose another user's sources.
+        identity = current_auth.get()
+        cache_key = identity.user_id if identity else "__operator__"
         now = time.monotonic()
+        cached = self._provider_status_cache.get(cache_key)
         if (
             not force
             and self.provider_status_cache_seconds > 0
-            and self._provider_status_cache is not None
-            and now - self._provider_status_cache_at < self.provider_status_cache_seconds
+            and cached is not None
+            and now - cached[0] < self.provider_status_cache_seconds
         ):
-            return {
-                name: dict(value)
-                for name, value in self._provider_status_cache.items()
-            }
+            return {name: dict(value) for name, value in cached[1].items()}
 
         async with self._provider_status_lock:
             now = time.monotonic()
+            cached = self._provider_status_cache.get(cache_key)
             if (
                 not force
                 and self.provider_status_cache_seconds > 0
-                and self._provider_status_cache is not None
-                and now - self._provider_status_cache_at < self.provider_status_cache_seconds
+                and cached is not None
+                and now - cached[0] < self.provider_status_cache_seconds
             ):
-                return {
-                    name: dict(value)
-                    for name, value in self._provider_status_cache.items()
-                }
+                return {name: dict(value) for name, value in cached[1].items()}
 
             async def one(
                 name: str,
@@ -335,11 +335,15 @@ class ToolMesh:
                 *(one(name, provider) for name, provider in self.providers.items())
             )
             result = {name: value for name, value in rows}
-            self._provider_status_cache = {
-                name: dict(value)
-                for name, value in result.items()
-            }
-            self._provider_status_cache_at = time.monotonic()
+            self._provider_status_cache[cache_key] = (
+                time.monotonic(), {name: dict(value) for name, value in result.items()}
+            )
+            if len(self._provider_status_cache) > 128:
+                oldest = min(
+                    self._provider_status_cache,
+                    key=lambda key: self._provider_status_cache[key][0],
+                )
+                self._provider_status_cache.pop(oldest, None)
             return result
 
     async def search(

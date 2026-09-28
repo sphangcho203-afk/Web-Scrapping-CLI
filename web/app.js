@@ -1278,6 +1278,22 @@ function openRunInspector(event) {
       '<section class="mcp-saved"><header><span>REMOTE MCP</span><h2>Saved MCP servers</h2><p>These are outbound MCP servers. Credential values are never rendered back. MCP servers you add yourself do not consume OpenCrawl wallet balance for their external execution.</p></header>'+rows+'</section>'+
       '<section class="ihx-connection-modes"><article><span>'+icon('shield')+'</span><div><small>INTERACTIVE CLIENTS</small><h3>OAuth MCP</h3><p>Browser consent, PKCE and token-based access for compatible clients.</p></div><a class="mcp-link" data-link href="/docs/oauth">Understand the OAuth flow →</a></article><article><span>'+icon('key')+'</span><div><small>AUTOMATION</small><h3>Scoped API keys</h3><p>Independent long-lived machine credentials for scripts, CI and services.</p></div><a class="mcp-link" data-link href="/docs/keys">Understand keys & scopes →</a><a data-link href="/dashboard/api-keys">Manage keys →</a></article></section>');
     bindCommon();
+    const actionAnchor=document.querySelector('.ihx-connection-direction');
+    actionAnchor?.insertAdjacentHTML('afterend',`<section class="mcp-available" aria-labelledby="mcp-available-title"><header><div><span>YOUR AVAILABLE ACTIONS</span><h2 id="mcp-available-title">What you can do right now</h2><p>Eligible routes for your plan and connected infrastructure. Search by the outcome you want; required inputs and upstream health are checked when you run it.</p></div><a data-link href="/docs/mcp#available-actions">How availability works →</a></header><label class="mcp-action-search">Find an action<input id="mcp-action-query" type="search" placeholder="Search, extract, research…" autocomplete="off"></label><div id="mcp-action-results" aria-live="polite">Loading your actions…</div></section>`);
+    let actionRevision=0;
+    const showActions=async()=>{
+      const revision=++actionRevision, query=document.querySelector('#mcp-action-query')?.value.trim()||'';
+      const target=document.querySelector('#mcp-action-results');
+      if(!target)return;
+      try{
+        const data=await api('/api/available-actions?limit=60&query='+encodeURIComponent(query));
+        if(revision!==actionRevision||!target.isConnected)return;
+        const actions=data.actions||[];
+        target.innerHTML='<p class="mcp-action-count">'+fmt(data.total||0)+' eligible actions on '+esc(data.plan||'your plan')+(data.total>actions.length?' · showing first '+fmt(actions.length):'')+'</p>'+(actions.length?'<div class="mcp-action-grid">'+actions.map(a=>'<article><span>'+esc(a.category||'Capability')+'</span><h3>'+esc(a.name)+'</h3><p>'+esc(a.description||'')+'</p><code>'+esc(a.id)+'</code><small>'+(a.read_only?'Read action':'May make changes')+' · via '+esc(a.invoke)+'</small></article>').join('')+'</div>':'<div class="mcp-empty">No eligible actions match this search. Check your plan, connected accounts, or try another goal.</div>');
+      }catch(error){if(revision===actionRevision&&target.isConnected)target.textContent='Action availability could not be loaded: '+error.message;}
+    };
+    document.querySelector('#mcp-action-query')?.addEventListener('input',()=>{clearTimeout(showActions.timer);showActions.timer=setTimeout(showActions,250)});
+    showActions();
     const agentSetup=(kind)=>{
       const configs={
         codex:{title:'Codex CLI',desc:'OpenAI documents remote MCP setup with codex mcp add --url.',cmd:'codex mcp add opencrawl --url '+endpoint,verify:'codex mcp list',extra:'This registers the remote server for Codex CLI/IDE configuration. Read the client guide before adding long-lived credentials or broad scopes.',docs:'/docs/clients#codex'},

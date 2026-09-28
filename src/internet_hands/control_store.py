@@ -257,6 +257,7 @@ CREATE TABLE IF NOT EXISTS ih_oauth_authorization_codes (
     redirect_uri text NOT NULL,
     code_hash text NOT NULL UNIQUE,
     code_challenge text NOT NULL,
+    resource text,
     scopes jsonb NOT NULL DEFAULT '[]'::jsonb,
     expires_at timestamptz NOT NULL,
     used_at timestamptz,
@@ -270,6 +271,7 @@ CREATE TABLE IF NOT EXISTS ih_oauth_tokens (
     client_id text NOT NULL,
     access_token_hash text NOT NULL UNIQUE,
     refresh_token_hash text NOT NULL UNIQUE,
+    resource text,
     scopes jsonb NOT NULL DEFAULT '[]'::jsonb,
     access_expires_at timestamptz NOT NULL,
     refresh_expires_at timestamptz NOT NULL,
@@ -277,6 +279,8 @@ CREATE TABLE IF NOT EXISTS ih_oauth_tokens (
     created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS ih_oauth_tokens_user_idx ON ih_oauth_tokens(user_id, created_at DESC);
+ALTER TABLE ih_oauth_authorization_codes ADD COLUMN IF NOT EXISTS resource text;
+ALTER TABLE ih_oauth_tokens ADD COLUMN IF NOT EXISTS resource text;
 
 CREATE TABLE IF NOT EXISTS ih_webhook_events (
     id text PRIMARY KEY,
@@ -370,6 +374,7 @@ class AuthIdentity:
     rpm_limit: int
     source: str
     concurrent_limit: int = 1
+    resource: str | None = None
 
 
 def _db_connect_timeout_seconds() -> int:
@@ -1121,6 +1126,7 @@ class ControlStore:
             rpm_limit=int(row["rpm_limit"]),
             source=source,
             concurrent_limit=max(1, int(row.get("concurrent_limit") or 1)),
+            resource=row.get("resource"),
         )
 
     def api_key_identity_for_user(self, user_id: str, key_id: str) -> AuthIdentity | None:
@@ -1180,8 +1186,9 @@ class ControlStore:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT t.user_id,t.api_key_id,t.scopes,p.slug AS plan_slug,p.rpm_limit,p.concurrent_limit
+                SELECT t.user_id,t.api_key_id,t.scopes,t.resource,p.slug AS plan_slug,p.rpm_limit,p.concurrent_limit
                 FROM ih_oauth_tokens t
+                JOIN ih_api_keys k ON k.id=t.api_key_id
                 LEFT JOIN LATERAL (
                     SELECT plan_slug FROM ih_subscriptions s
                     WHERE s.user_id=t.user_id AND s.status='active'
@@ -1189,6 +1196,7 @@ class ControlStore:
                 ) s ON true
                 JOIN ih_plans p ON p.slug=COALESCE(s.plan_slug,'free')
                 WHERE t.access_token_hash=%s AND t.revoked_at IS NULL AND t.access_expires_at>now()
+                  AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now())
                 """,
                 (token_hash,),
             )
@@ -1958,6 +1966,7 @@ class ControlStore:
         code_hash: str,
         code_challenge: str,
         scopes: list[str],
+        resource: str | None = None,
     ) -> None:
         self.ensure_schema()
         if not identity.api_key_id:
@@ -1966,12 +1975,12 @@ class ControlStore:
             cur.execute(
                 """
                 INSERT INTO ih_oauth_authorization_codes(
-                    id,user_id,api_key_id,client_id,redirect_uri,code_hash,code_challenge,scopes,expires_at
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s)
+                    id,user_id,api_key_id,client_id,redirect_uri,code_hash,code_challenge,scopes,resource,expires_at
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s)
                 """,
                 (
                     self._new_id("cod"), identity.user_id, identity.api_key_id, client_id,
-                    redirect_uri, code_hash, code_challenge, json.dumps(scopes),
+                    redirect_uri, code_hash, code_challenge, json.dumps(scopes), resource,
                     datetime.now(UTC) + timedelta(minutes=5),
                 ),
             )
@@ -2004,19 +2013,20 @@ class ControlStore:
         access_hash: str,
         refresh_hash: str,
         scopes: list[str],
+        resource: str | None = None,
     ) -> None:
         self.ensure_schema()
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO ih_oauth_tokens(
-                    id,user_id,api_key_id,client_id,access_token_hash,refresh_token_hash,scopes,
+                    id,user_id,api_key_id,client_id,access_token_hash,refresh_token_hash,scopes,resource,
                     access_expires_at,refresh_expires_at
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s)
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s)
                 """,
                 (
                     self._new_id("tok"), user_id, api_key_id, client_id, access_hash, refresh_hash,
-                    json.dumps(scopes), datetime.now(UTC) + timedelta(hours=1),
+                    json.dumps(scopes), resource, datetime.now(UTC) + timedelta(hours=1),
                     datetime.now(UTC) + timedelta(days=30),
                 ),
             )
@@ -2030,7 +2040,12 @@ class ControlStore:
                     """
                     SELECT * FROM ih_oauth_tokens
                     WHERE refresh_token_hash=%s AND client_id=%s AND revoked_at IS NULL
-                      AND refresh_expires_at>now() FOR UPDATE
+                      AND refresh_expires_at>now()
+                      AND EXISTS (
+                          SELECT 1 FROM ih_api_keys k
+                          WHERE k.id=ih_oauth_tokens.api_key_id AND k.revoked_at IS NULL
+                            AND (k.expires_at IS NULL OR k.expires_at>now())
+                      ) FOR UPDATE
                     """,
                     (refresh_hash, client_id),
                 )
