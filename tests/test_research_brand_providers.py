@@ -198,4 +198,43 @@ def test_research_capabilities_include_news_and_synthesized_routes() -> None:
     capabilities = {item.id: item for item in build_research_brand_capabilities()}
     assert "web.search.news" in capabilities
     assert "web.research.synthesized" in capabilities
-    assert capabilities["web.search.news"].candidates[0].provider == "you"
+    news = capabilities["web.search.news"]
+    assert news.candidates[0].provider == "you"
+    assert news.candidates[0].defaults["result_section"] == "news"
+
+
+
+@pytest.mark.asyncio
+async def test_you_news_filter_and_research_timeout_contract() -> None:
+    seen_timeouts: list[float] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen_timeouts.append(float(request.extensions["timeout"]["read"]))
+        if request.url.host == "ydc-index.io":
+            return httpx.Response(
+                200,
+                json={
+                    "results": {
+                        "web": [{"title": "ordinary web"}],
+                        "news": [{"title": "breaking news"}],
+                    }
+                },
+            )
+        return httpx.Response(200, json={"answer": "bounded research"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = YouSearchProvider(api_key="you-secret", client=client)
+        news = await provider.execute(
+            "search",
+            {"query": "latest AI news", "result_section": "news"},
+            timeout_seconds=17,
+        )
+        research = await provider.execute(
+            "research",
+            {"input": "latest AI research"},
+            timeout_seconds=23,
+        )
+
+    assert news["data"]["results"] == {"news": [{"title": "breaking news"}]}
+    assert research["status"] == "completed"
+    assert seen_timeouts == [17.0, 23.0]
