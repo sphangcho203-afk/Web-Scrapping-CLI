@@ -323,6 +323,51 @@ def public_plans():
         raise _json_error(exc) from exc
 
 
+@router.get("/api/public/capabilities")
+def public_capabilities():
+    """Provider-neutral, read-only projection of the registered capability catalog.
+
+    This advertises registered operations, not live provider availability or a
+    guaranteed price. Candidate routes, schemas and credentials stay private.
+    """
+    from .tool_mcp import get_capability_registry
+
+    def category(item):
+        if item.pack in {"web", "web-intelligence"}:
+            return "Web intelligence"
+        if item.pack == "public-data":
+            return "Public data"
+        if item.pack == "repositories":
+            return "Repositories"
+        if "gaming" in item.tags or item.pack.startswith("game-"):
+            return "Game intelligence"
+        if item.pack == "connected":
+            return "Connected apps"
+        if item.pack == "social":
+            return "Social"
+        return "Public intelligence"
+
+    capabilities = get_capability_registry().capabilities.values()
+    return {
+        "capabilities": [
+            {
+                "id": item.id,
+                "name": item.name,
+                "description": item.description,
+                "pack": item.pack,
+                "category": category(item),
+                "tags": list(item.tags),
+                "read_only": item.read_only,
+                "inputs": list(item.input_schema.get("properties", {}))[:8],
+                "outputs": list(item.output_schema.get("properties", {}))[:8],
+                "availability": "registered",
+                "billing": "route_dependent",
+            }
+            for item in sorted(capabilities, key=lambda item: item.id)
+        ]
+    }
+
+
 @router.post("/api/auth/signup")
 async def signup(request: Request):
     body = await request.json()

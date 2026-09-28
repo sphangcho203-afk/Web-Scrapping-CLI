@@ -73,6 +73,37 @@ def test_opencrawl_mark_and_wordmark_at_phone_and_desktop_widths(frontend_url):
         browser.close()
 
 
+def test_public_catalog_filters_registry_and_fits_mobile(frontend_url):
+    capabilities = {"capabilities": [
+        {"id": "web.search", "name": "Web search", "description": "Find public sources.",
+         "category": "Web intelligence", "pack": "web", "tags": ["search"],
+         "read_only": True, "inputs": ["query"], "outputs": ["results"]},
+        {"id": "games.lookup", "name": "Game profile", "description": "Read a public profile.",
+         "category": "Game intelligence", "pack": "games", "tags": ["gaming"],
+         "read_only": True, "inputs": ["player"], "outputs": ["profile"]},
+    ]}
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 320, "height": 740})
+
+        def api_response(route):
+            if route.request.url.endswith("/api/public/capabilities"):
+                route.fulfill(status=200, content_type="application/json", body=json.dumps(capabilities))
+            else:
+                route.fulfill(status=401, content_type="application/json", body='{"detail":"sign in required"}')
+
+        page.route("**/api/**", api_response)
+        page.goto(frontend_url + "/capabilities")
+        assert page.locator(".oc-tool-card").count() == 2
+        for width in (320, 390, 768, 1366):
+            page.set_viewport_size({"width": width, "height": 740})
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
+        page.get_by_role("searchbox", name="Search capabilities").fill("profile")
+        assert page.locator(".oc-tool-card").count() == 1
+        assert page.get_by_text("Game profile").count() == 1
+        browser.close()
+
+
 @pytest.mark.parametrize("mode", ["null", "missing", "empty", "populated"])
 def test_initial_control_plane_render(frontend_url, mode):
     fields = ["plans", "credit_packs", "series", "events", "recent_runs",

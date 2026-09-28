@@ -120,7 +120,7 @@ def test_opencrawl_crab_identity_preserves_client_contracts_and_old_asset() -> N
     assert '/assets/opencrawl-robot.png' not in runtime
     assert 'aria-label="OpenCrawl home"' in runtime
     assert 'internet-hands-logo.webp' not in runtime
-    assert '--ih-accent:#ef39df' in css
+    assert '--ih-accent:#FF5A4E' in css
     assert '/api/auth/signup' in runtime
     assert '/mcp' in runtime
 

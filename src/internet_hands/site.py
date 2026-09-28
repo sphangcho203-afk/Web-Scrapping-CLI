@@ -84,6 +84,11 @@ def pricing():
     return _index()
 
 
+@router.get("/capabilities")
+def capabilities_page():
+    return _index()
+
+
 @router.get("/status")
 def status_page():
     return _index()

@@ -144,6 +144,7 @@ async function hydrateOptionalSession() {
 }
 function clearTransientUi() {
   document.querySelectorAll('.modal-backdrop').forEach(el=>el.remove());
+  document.documentElement.classList.remove('oc-public-menu-open');
   document.documentElement.classList.remove('ih-overlay-open');
   document.body?.classList.remove('ih-overlay-open');
   document.querySelectorAll('.cos-sidebar.open,.cos-more-sheet.open,[data-sheet-backdrop].open').forEach(el=>el.classList.remove('open'));
@@ -171,13 +172,39 @@ function bindCommon() {
   const navToggle = $('[data-nav-toggle]');
   const mobileMenu = $('[data-mobile-menu]');
   if (navToggle && mobileMenu) {
-    const syncNavState = () => navToggle.setAttribute('aria-expanded', String(mobileMenu.classList.contains('open')));
+    const syncNavState = () => {
+      const open = mobileMenu.classList.contains('open');
+      navToggle.setAttribute('aria-expanded', String(open));
+      navToggle.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
+      mobileMenu.inert = !open;
+      document.documentElement.classList.toggle('oc-public-menu-open', open);
+      const publicShell = mobileMenu.closest('.ih-public-shell');
+      if (publicShell) {
+        const main = publicShell.querySelector('main'), footer = publicShell.querySelector('footer');
+        if (main) main.inert = open;
+        if (footer) footer.inert = open;
+      }
+    };
     navToggle.setAttribute('aria-controls', 'ih-mobile-menu');
     mobileMenu.id = 'ih-mobile-menu';
     syncNavState();
     navToggle.addEventListener('click', () => {
       mobileMenu.classList.toggle('open');
       syncNavState();
+      if (mobileMenu.classList.contains('open')) mobileMenu.querySelector('a')?.focus();
+      else navToggle.focus();
+    });
+    navToggle.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && mobileMenu.classList.contains('open')) {
+        mobileMenu.classList.remove('open'); syncNavState(); navToggle.focus();
+      }
+    });
+    mobileMenu.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { mobileMenu.classList.remove('open'); syncNavState(); navToggle.focus(); }
+      if (e.key !== 'Tab') return;
+      const links = $$('a[href]', mobileMenu);
+      if (e.shiftKey && document.activeElement === links[0]) { e.preventDefault(); links.at(-1)?.focus(); }
+      if (!e.shiftKey && document.activeElement === links.at(-1)) { e.preventDefault(); links[0]?.focus(); }
     });
   }
 }
@@ -194,6 +221,13 @@ function publicShell(content) {
   bindCommon();
 }
 async function getPlans() { if (state.plans) return state.plans; try { state.plans = await api('/api/public/plans'); } catch { state.plans = {plans:[],credit_packs:[],wallet_units_per_usd:DEFAULT_WALLET_UNITS_PER_USD}; } return state.plans; }
+async function getCapabilities() {
+  if (state.capabilities) return state.capabilities;
+  const data = await api('/api/public/capabilities');
+  if (!Array.isArray(data.capabilities)) throw new Error('Capability catalog response is invalid');
+  state.capabilities = data.capabilities;
+  return state.capabilities;
+}
 
 function gatewayVisual() { return `<div class="gateway-visual"><span class="visual-label">ROUTING FABRIC</span><div class="agent-node"><i></i>AGENT</div><div class="route a"></div><div class="core-node"><img src="/assets/opencrawl-crab.png" width="52" height="52" alt=""><b>OPENCRAWL</b><small>Policy · route · meter</small></div><div class="route b"></div><div class="mesh-nodes"><span>Browser</span><span>Web data</span><span>APIs</span><span>Remote MCP</span><span>Monitors</span><span>Sandbox</span></div></div>`; }
 function feature(kicker, title, body) { return `<article class="feature-card"><span>${kicker}</span><h3>${title}</h3><p>${body}</p><a data-link href="/docs/capabilities">Explore ${icon('arrow')}</a></article>`; }
@@ -201,6 +235,39 @@ function integrationTiles() { return `<div class="integration-grid">${[['OpenAI'
 function planCards(plans) {
   if (!plans.length) return '<div class="notice">Plan data is temporarily unavailable.</div>';
   return `<div class="pricing-grid">${plans.map(p => `<article class="plan-card ${p.slug === 'pro' ? 'featured' : ''}">${p.slug === 'pro' ? '<span class="plan-flag">MOST CAPABLE</span>' : ''}<span class="plan-name">${esc(p.name)}</span><div class="plan-price">${money(p.monthly_price_inr)}<small>/month</small></div><p>${walletMoney(p.included_credits)} monthly wallet</p><ul><li>${icon('check')} ${fmt(p.rpm_limit)} requests / minute</li><li>${icon('check')} ${fmt(p.api_key_limit)} API keys</li><li>${icon('check')} ${fmt(p.monitor_limit)} monitors</li><li>${icon('check')} ${p.browser_enabled ? 'Browser access' : 'Public data tools'}</li><li>${icon('check')} ${p.sandbox_enabled ? 'Sandbox execution' : 'Core execution'}</li></ul><a class="btn ${p.slug === 'pro' ? 'primary' : ''}" data-link href="/signup${p.slug === 'free' ? '' : `?plan=${p.slug}`}">${p.slug === 'free' ? 'Start free' : `Choose ${esc(p.name)}`}</a></article>`).join('')}</div>`;
+}
+function capabilityCard(item) {
+  const fields = Array.isArray(item.inputs) ? item.inputs.slice(0, 3) : [];
+  const output = Array.isArray(item.outputs) ? item.outputs.slice(0, 2) : [];
+  return `<article class="oc-tool-card">
+    <div class="oc-tool-top"><span>${esc(item.category || item.pack || 'operation')}</span><small>[REGISTERED]</small></div>
+    <h3>${esc(item.name || item.id)}</h3><code title="${esc(item.id)}">${esc(item.id)}</code>
+    <p>${esc(item.description || 'A registered OpenCrawl capability.')}</p>
+    <div class="oc-tool-io"><span>IN&nbsp; ${esc(fields.join(' · ') || 'See docs')}</span><span>OUT&nbsp; ${esc(output.join(' · ') || 'Structured result')}</span></div>
+    <div class="oc-tool-bottom"><span>${item.read_only ? 'READ' : 'SCOPED WRITE'} / ROUTE-DEPENDENT USAGE</span><a data-link href="/docs/capabilities">Docs ${icon('arrow')}</a></div>
+  </article>`;
+}
+async function renderCapabilities() {
+  let items = [], error = '';
+  try { items = await getCapabilities(); } catch (e) { error = e.message; }
+  const packs = [...new Set(items.map(item => String(item.category || 'Other')))].sort();
+  publicShell(`<main class="oc-catalog-page"><section class="container oc-catalog-hero"><span class="oc-kicker">OPENCRAWL / CAPABILITY REGISTRY</span><h1>Find the operation.<br><em>Inspect the route.</em></h1><p>Registered capabilities from the current OpenCrawl registry. Availability depends on your plan and connected infrastructure; usage is measured by work.</p><div class="oc-catalog-controls"><label>Search capabilities<input id="oc-tool-search" type="search" placeholder="Search, research, games, repositories…" autocomplete="off"></label><label>Category<select id="oc-tool-pack"><option value="">All categories</option>${packs.map(pack=>`<option value="${esc(pack)}">${esc(pack)}</option>`).join('')}</select></label></div><p id="oc-tool-count" class="oc-catalog-count" role="status"></p></section><section class="container oc-catalog-grid" id="oc-tool-grid"></section><div class="container oc-catalog-pagination"><button class="btn" id="oc-tool-more" type="button" hidden>Load more capabilities</button></div><div class="container oc-catalog-foot"><p>Registered means the operation is known to the routing fabric. It does not guarantee that a provider is currently available or that your plan enables execution.</p><a class="btn primary" data-link href="${state.me?.user?.email_verified ? '/dashboard/playground' : '/signup'}">Open playground ${icon('arrow')}</a></div></main>`);
+  const grid = $('#oc-tool-grid'), count = $('#oc-tool-count');
+  const search = $('#oc-tool-search'), pack = $('#oc-tool-pack'), more = $('#oc-tool-more');
+  let visible = 24;
+  function show() {
+    const query = search.value.trim().toLocaleLowerCase();
+    const filtered = items.filter(item => (!pack.value || item.category === pack.value) && (!query || [item.id,item.name,item.description,item.pack,item.category,...(item.tags||[])].join(' ').toLocaleLowerCase().includes(query)));
+    count.textContent = error ? 'Registry temporarily unavailable' : `${filtered.length} of ${items.length} registered capabilities`;
+    grid.innerHTML = error ? `<div class="oc-catalog-empty" role="alert"><h2>Catalog unavailable</h2><p>${esc(error)}</p><button class="btn" id="oc-tool-retry">Retry</button></div>` : filtered.length ? filtered.slice(0,visible).map(capabilityCard).join('') : '<div class="oc-catalog-empty"><h2>No matching capabilities</h2><p>Try a different term or select all categories.</p></div>';
+    more.hidden = !!error || filtered.length <= visible;
+    if (!more.hidden) more.textContent = `Load more · ${Math.min(filtered.length-visible,24)} of ${filtered.length-visible} remaining`;
+    $('#oc-tool-retry')?.addEventListener('click', renderCapabilities);
+  }
+  search.addEventListener('input', () => { visible = 24; show(); });
+  pack.addEventListener('change', () => { visible = 24; show(); });
+  more.addEventListener('click', () => { visible += 24; show(); more.focus(); });
+  show();
 }
 async function renderHome() {
   const plans = await getPlans();
@@ -730,7 +797,7 @@ async function dashPublicData(){
   };
 }
 async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,games:dashGames,repositories:dashRepositories,data:dashPublicData,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
-async function renderRoute(){clearTransientUi();window.scrollTo(0,0);const p=location.pathname;try{if(p==='/'||p==='/pricing'||p==='/status'||p.startsWith('/docs')||p.startsWith('/legal')||LEGAL_ALIASES[p])await hydrateOptionalSession();if(p.startsWith('/dashboard'))return await renderDashboard();if(p==='/verify-email')return await renderVerify();if(p==='/login')return renderAuth('login');if(p==='/signup')return renderAuth('signup');if(p==='/forgot-password')return renderRecovery();if(p==='/reset-password')return renderRecovery(true);if(p.startsWith('/legal')||LEGAL_ALIASES[p])return renderLegal();if(p.startsWith('/docs'))return renderDocs();if(p==='/pricing')return await renderPricing();if(p==='/status')return await renderStatus();return await renderHome();}catch(error){console.error(error);if(error.status===401)return go('/login',true);app.innerHTML=`<main class="fatal"><div>${brand()}<span class="eyebrow">REQUEST FAILED</span><h1>The control plane did not answer cleanly.</h1><p>${esc(error.message)}</p><button class="btn primary" onclick="location.reload()">Try again</button></div></main>`;}}
+async function renderRoute(){clearTransientUi();window.scrollTo(0,0);const p=location.pathname;try{if(p==='/'||p==='/capabilities'||p==='/pricing'||p==='/status'||p.startsWith('/docs')||p.startsWith('/legal')||LEGAL_ALIASES[p])await hydrateOptionalSession();if(p.startsWith('/dashboard'))return await renderDashboard();if(p==='/verify-email')return await renderVerify();if(p==='/login')return renderAuth('login');if(p==='/signup')return renderAuth('signup');if(p==='/forgot-password')return renderRecovery();if(p==='/reset-password')return renderRecovery(true);if(p.startsWith('/legal')||LEGAL_ALIASES[p])return renderLegal();if(p.startsWith('/docs'))return renderDocs();if(p==='/capabilities')return await renderCapabilities();if(p==='/pricing')return await renderPricing();if(p==='/status')return await renderStatus();return await renderHome();}catch(error){console.error(error);if(error.status===401)return go('/login',true);app.innerHTML=`<main class="fatal"><div>${brand()}<span class="eyebrow">REQUEST FAILED</span><h1>The control plane did not answer cleanly.</h1><p>${esc(error.message)}</p><button class="btn primary" onclick="location.reload()">Try again</button></div></main>`;}}
 document.addEventListener('click',e=>{
   if(e.defaultPrevented)return;
   const a=e.target.closest('[data-link]');
@@ -816,16 +883,16 @@ function openRunInspector(event) {
         <nav class="site-nav container ih-site-nav">
           ${brand()}
           <div class="nav-links ih-nav-links">
-            <a data-link href="/docs/capabilities">Platform</a>
+            <a data-link href="/capabilities">Capabilities</a>
             <a data-link href="/docs">Docs</a>
             <a data-link href="/pricing">Pricing</a>
-            <a data-link href="/status"><span class="ih-nav-live">${statusDot()}Status</span></a>
+            <a data-link href="/status">Status</a>
           </div>
           <div class="nav-actions ih-nav-actions">${secondary}${primary}</div>
           <button class="icon-btn nav-toggle" data-nav-toggle aria-label="Open navigation">${icon('menu')}</button>
         </nav>
-        <div class="mobile-menu" data-mobile-menu>
-          <a data-link href="/docs/capabilities">Platform</a>
+        <div class="mobile-menu" data-mobile-menu role="navigation" aria-label="Mobile navigation">
+          <a data-link href="/capabilities">Capabilities</a>
           <a data-link href="/docs">Documentation</a>
           <a data-link href="/pricing">Pricing</a>
           <a data-link href="/status">Status</a>
@@ -836,7 +903,7 @@ function openRunInspector(event) {
       <footer class="footer ih-footer">
         <div class="container ih-footer-grid">
           <div class="ih-footer-brand">${brand()}<p>One operational surface for agents that need the live internet.</p></div>
-          <div><b>Operate</b><a data-link href="/docs/capabilities">Capabilities</a><a data-link href="/docs/monitoring">Monitoring</a><a data-link href="/status">System status</a></div>
+          <div><b>Operate</b><a data-link href="/capabilities">Capability catalog</a><a data-link href="/docs/monitoring">Monitoring</a><a data-link href="/status">System status</a></div>
           <div><b>Build</b><a data-link href="/docs/quickstart">Quickstart</a><a data-link href="/docs/mcp">MCP gateway</a><a href="https://github.com/sphangcho203-afk/Web-Scrapping-CLI" target="_blank" rel="noreferrer">GitHub</a></div>
           <div><b>Legal</b><a data-link href="/legal/terms">Terms</a><a data-link href="/legal/privacy">Privacy</a><a data-link href="/legal/acceptable-use">Acceptable use</a><a data-link href="/legal">Legal center</a></div>
           <div class="ih-footer-meta">OpenCrawl<br><span>Explicit · scoped · auditable</span></div>
@@ -887,11 +954,11 @@ function openRunInspector(event) {
         <div class="container ih-hero-grid">
           <div class="ih-hero-copy">
             <div class="oc-hero-kicker"><img src="/assets/opencrawl-crab.png" width="24" height="24" alt="" aria-hidden="true"> OPENCRAWL / PUBLIC WEB OPERATIONS</div>
-            <h1>The internet,<br><span>as an executable workspace.</span></h1>
-            <p>Search it. Browse it. Extract from it. Monitor it. Route into APIs and remote tools. OpenCrawl gives agents one controlled surface for real internet work.</p>
+            <h1>Internet operations<br><span>for agents.</span></h1>
+            <p>Search, crawl, extract, browse, monitor and execute through one inspectable gateway. Every metered run has a route, result and cost you can examine.</p>
             <div class="ih-hero-actions">
               <a class="btn primary large" data-link href="${state.me?.user?.email_verified ? '/dashboard' : '/signup'}">Open command center ${icon('arrow')}</a>
-              <a class="ih-text-link" data-link href="/docs/quickstart">See how it works ${icon('arrow')}</a>
+              <a class="ih-text-link" data-link href="/capabilities">Explore capabilities ${icon('arrow')}</a>
             </div>
             <div class="ih-hero-proof">
               <span>Gateway status in console</span><span>Evidence retained</span><span>Scoped execution</span>
@@ -899,6 +966,11 @@ function openRunInspector(event) {
           </div>
           ${demoRun()}
         </div>
+      </section>
+
+      <section class="container oc-home-catalog" aria-labelledby="oc-home-catalog-title">
+        <div class="oc-section-heading"><div><span class="oc-kicker">01 / CAPABILITY REGISTRY</span><h2 id="oc-home-catalog-title">Actual operations, within reach.</h2></div><a data-link href="/capabilities"><span id="oc-home-catalog-count">Browse catalog</span> ${icon('arrow')}</a></div>
+        <div id="oc-home-featured" class="oc-catalog-empty" role="status">Loading registered capabilities…</div>
       </section>
 
       <section class="ih-client-band">
@@ -949,6 +1021,15 @@ function openRunInspector(event) {
         </div>
       </section>
 
+      <section class="container oc-economics" aria-labelledby="oc-economics-title">
+        <div><span class="oc-kicker">02 / MEASURED ECONOMICS</span><h2 id="oc-economics-title">Know what a run costs.</h2><p>Plans set capacity: request rate, keys, monitors, browser and sandbox access. Managed execution draws from a USD service wallet according to measured work. Monthly balance refreshes; purchased balance rolls over; active reservations settle when work completes.</p><a data-link href="/pricing">Compare plans and limits ${icon('arrow')}</a></div>
+        <div class="oc-economics-rail"><div><span>MONTHLY</span><b>Included with plan</b><small>Refreshes each period</small></div><div><span>PURCHASED</span><b>Wallet top-up</b><small>Rollover balance</small></div><div><span>RESERVED</span><b>Active work</b><small>Settled after execution</small></div><div><span>ELIGIBLE BYO ROUTES</span><b>$0 OpenCrawl usage fee</b><small>Third-party charges may apply</small></div></div>
+      </section>
+
+      <section class="container oc-home-plans" aria-labelledby="oc-home-plans-title"><div class="oc-section-heading"><div><span class="oc-kicker">03 / CAPACITY</span><h2 id="oc-home-plans-title">Start with the limits you need.</h2></div><a data-link href="/pricing">All plan details ${icon('arrow')}</a></div><div id="oc-home-plan-cards" role="status" class="oc-catalog-empty">Loading current plan limits…</div></section>
+
+      <section class="container oc-home-quickstart"><div><span class="oc-kicker">04 / FIRST RUN</span><h2>From key to evidence.</h2><p>Create a scoped API key, make a request from the playground or an MCP client, then inspect the run ledger for its status, latency, evidence and settled charge.</p></div><div class="oc-quickstart-actions"><a class="btn primary" data-link href="/docs/quickstart">Read quickstart ${icon('arrow')}</a><a class="btn" data-link href="/docs/mcp">MCP setup</a></div></section>
+
       <section class="ih-final">
         <div class="container ih-final-inner">
           <div><h2>Give the agent reach.<br>Keep the operation under control.</h2><p>One endpoint. Real internet capability. Runs you can actually inspect.</p></div>
@@ -956,6 +1037,26 @@ function openRunInspector(event) {
         </div>
       </section>
     </main>`);
+    getCapabilities().then(catalog => {
+      const target = $('#oc-home-featured');
+      if (!target?.isConnected) return;
+      const featured = ['Web intelligence','Public data','Repositories','Game intelligence','Connected apps','Social','Public intelligence']
+        .map(category => catalog.find(item => item.category === category)).filter(Boolean);
+      target.className = featured.length ? 'oc-catalog-grid' : 'oc-catalog-empty';
+      target.removeAttribute('role');
+      target.innerHTML = featured.length ? featured.map(capabilityCard).join('') : '<h3>No capabilities registered</h3><p>Check the full catalog for current inventory.</p>';
+      $('#oc-home-catalog-count').textContent = `Browse all ${fmt(catalog.length)}`;
+    }).catch(() => {
+      const target = $('#oc-home-featured');
+      if (target?.isConnected) target.innerHTML = '<h3>Catalog temporarily unavailable</h3><p>Open the capability registry to retry.</p>';
+    });
+    getPlans().then(plans => {
+      const target = $('#oc-home-plan-cards');
+      if (!target?.isConnected) return;
+      target.className = '';
+      target.removeAttribute('role');
+      target.innerHTML = planCards((plans.plans||[]).slice(0,3));
+    });
   };
 
   function bindRunComposer() {
@@ -1550,7 +1651,7 @@ function openRunInspector(event) {
       submit.setAttribute('aria-label','Request running');
       submit.innerHTML=icon('activity');
       results.hidden=false;
-      results.innerHTML='<div class="ih-execution-progress" role="status"><div class="ih-execution-head"><span class="ih-execution-symbol" aria-hidden="true">⚙️</span><div><b>Request prepared</b><p>'+esc(operation.toUpperCase())+' · '+esc(inputValue)+'</p></div><button class="btn small" type="button" id="ihp-cancel">Stop waiting</button></div><ol class="ih-execution-stages"><li class="done">Queued in this browser</li><li class="done">Request sent to gateway</li><li class="current">Awaiting routing and execution</li><li>Reading response</li><li>Complete</li></ol><p class="ih-execution-note">OpenCrawl returns the work and measured credits when this request completes.</p></div>';
+      results.innerHTML='<div class="ih-execution-progress" role="status"><div class="ih-execution-head"><span class="ih-execution-symbol" aria-hidden="true">::</span><div><b>Request prepared</b><p>'+esc(operation.toUpperCase())+' · '+esc(inputValue)+'</p></div><button class="btn small" type="button" id="ihp-cancel">Stop waiting</button></div><ol class="ih-execution-stages"><li class="done">Prepared in this browser</li><li class="done">Request sent to gateway</li><li class="current">Awaiting routing and execution</li><li>Reading result and evidence</li><li>Settlement returned</li></ol><p class="ih-execution-note">Final charge and evidence appear when the gateway returns the result. Stop waiting does not cancel server work.</p></div>';
       $('#ihp-cancel').onclick=()=>controller.abort();
       try{
         const data=await api('/api/playground/run',{method:'POST',body,signal:controller.signal});
@@ -1630,7 +1731,7 @@ function openRunInspector(event) {
     const [p,s,pay]=await Promise.all([getPlans(),api('/api/billing/status'),api('/api/billing/payments')]), a=state.me.account||{}, payments=pay.payments||[];
     dashboardShell('billing',`
       ${headline('COMMERCIAL','Billing & plans','Plan capacity, renewal state and payment history without hiding the operational limits behind marketing.',`<span class="ihx-provider-status">${dot(s.configured?'ok':'warn')} Razorpay ${s.configured?'ready':'pending'}</span>`)}
-      <section class="ihx-plan-current"><div><span>CURRENT PLAN</span><h2>${esc(a.plan_name||'Free')}</h2><p>${walletMoney(a.monthly_credits,a)} monthly wallet · resets ${esc(when(a.current_period_end))}</p></div><div><span><small>API KEYS</small><b>${fmt(a.api_key_limit)}</b></span><span><small>MONITORS</small><b>${fmt(a.monitor_limit)}</b></span><span><small>RATE LIMIT</small><b>${fmt(a.rpm_limit)}<em> rpm</em></b></span></div></section>
+      <section class="ihx-plan-current"><div><span>CURRENT PLAN</span><h2>${esc(a.plan_name||'Free')}</h2><p>${walletMoney(a.monthly_credits,a)} monthly wallet${a.current_period_end?` · period ends ${esc(when(a.current_period_end))}`:''}</p></div><div><span><small>API KEYS</small><b>${fmt(a.api_key_limit)}</b></span><span><small>MONITORS</small><b>${fmt(a.monitor_limit)}</b></span><span><small>RATE LIMIT</small><b>${fmt(a.rpm_limit)}<em> rpm</em></b></span></div></section>
       <section class="ihx-plan-grid">${(p.plans||[]).map(plan=>`<article class="${plan.slug==='pro'?'featured':''}"><header><span>${esc(plan.name)}</span>${plan.slug==='pro'?'<em>RECOMMENDED</em>':''}</header><div class="ihx-plan-price">${money(plan.monthly_price_inr)}<small>/month</small></div><p>${walletMoney(plan.included_credits,p)} monthly wallet</p><ul><li>${icon('check')} ${fmt(plan.rpm_limit)} requests / minute</li><li>${icon('check')} ${fmt(plan.api_key_limit)} API keys</li><li>${icon('check')} ${fmt(plan.monitor_limit)} monitors</li><li>${icon('check')} ${plan.browser_enabled?'Browser access':'Public data tools'}</li><li>${icon('check')} ${plan.sandbox_enabled?'Sandbox execution':'Core execution'}</li></ul>${plan.slug==='free'?'<span class="ihx-current-label">Base tier</span>':`<button class="btn ${plan.slug==='pro'?'primary':''}" data-plan="${plan.slug}">Choose ${esc(plan.name)}</button>`}</article>`).join('')}</section>
       <section class="ihx-payment-panel"><header><div><span>PAYMENTS</span><h2>Captured purchase history</h2></div><small>${icon('shield')} server verified</small></header>${payments.length?`<div class="ihx-payment-table"><div class="ihx-payment-head"><span>CREATED</span><span>PURPOSE</span><span>AMOUNT</span><span>STATUS</span><span>REFERENCE</span></div>${payments.map(x=>`<div><span>${esc(when(x.created_at))}</span><span>${esc(x.purpose)}</span><b>${paymentMoney(x.amount_paise,x.currency)}</b><span class="ihx-state ${['paid','captured'].includes(x.status)?'on':'idle'}">${dot(['paid','captured'].includes(x.status)?'ok':'warn')} ${esc(x.status)}</span><code>${esc(x.order_id||'—')}</code></div>`).join('')}</div>`:empty('wallet','No purchases yet','Captured payments will appear here after server verification.')}</section>`);
     $$('[data-plan]').forEach(b=>b.addEventListener('click',()=>startCheckout('subscription',b.dataset.plan,b)));
@@ -1655,7 +1756,7 @@ function openRunInspector(event) {
 
   renderPricing = async function renderPricingV3() {
     const data=await getPlans();
-    publicShell(`<main class="ihx-pricing-page"><section class="container ihx-pricing-hero"><span>PRICING / EXECUTION CAPACITY</span><h1>Pay for useful work.<br><em>See the limits before you hit them.</em></h1><p>Monthly USD wallet balance refreshes. Purchased balance rolls over. Resource-intensive work spends according to the operation performed.</p></section><section class="container ihx-public-plan-grid">${(data.plans||[]).map(plan=>`<article class="${plan.slug==='pro'?'featured':''}"><header><b>${esc(plan.name)}</b>${plan.slug==='pro'?'<em>RECOMMENDED</em>':''}</header><div>${money(plan.monthly_price_inr)}<small>/month</small></div><p>${walletMoney(plan.included_credits,data)} monthly wallet</p><ul><li>${fmt(plan.rpm_limit)} requests / minute</li><li>${fmt(plan.api_key_limit)} API keys</li><li>${fmt(plan.monitor_limit)} monitors</li><li>${plan.browser_enabled?'Browser execution':'Public data tools'}</li><li>${plan.sandbox_enabled?'Sandbox execution':'Core execution'}</li></ul><a class="btn ${plan.slug==='pro'?'primary':''}" data-link href="/signup${plan.slug==='free'?'':`?plan=${plan.slug}`}">${plan.slug==='free'?'Start free':`Choose ${esc(plan.name)}`}</a></article>`).join('')}</section><section class="container ihx-pricing-note"><div><span>WALLET MODEL</span><h2>Meter the operation, not the mystery.</h2></div><p>Request IDs, provider routing, USD wallet spend and latency are visible in Runs so usage is inspectable after execution.</p></section></main>`);
+    publicShell(`<main class="ihx-pricing-page"><section class="container ihx-pricing-hero"><span>OPENCRAWL / CAPACITY + USAGE</span><h1>Capacity for the work.<br><em>Charges you can trace.</em></h1><p>Plans set requests per minute, API keys, monitors and access to browser or sandbox execution. Managed work draws from a USD wallet when it runs.</p></section><section class="container ihx-public-plan-grid">${(data.plans||[]).map(plan=>`<article class="${plan.slug==='pro'?'featured':''}"><header><b>${esc(plan.name)}</b>${plan.slug==='pro'?'<em>RECOMMENDED</em>':''}</header><div>${money(plan.monthly_price_inr)}<small>/month</small></div><p>${walletMoney(plan.included_credits,data)} monthly wallet</p><ul><li>${fmt(plan.rpm_limit)} requests / minute</li><li>${fmt(plan.api_key_limit)} API keys</li><li>${fmt(plan.monitor_limit)} monitors</li><li>${plan.browser_enabled?'Browser execution':'Public data tools'}</li><li>${plan.sandbox_enabled?'Sandbox execution':'Core execution'}</li></ul><a class="btn ${plan.slug==='pro'?'primary':''}" data-link href="/signup${plan.slug==='free'?'':`?plan=${plan.slug}`}">${plan.slug==='free'?'Start free':`Choose ${esc(plan.name)}`}</a></article>`).join('')||'<div class="oc-catalog-empty">Current plan data is unavailable. Please try again shortly.</div>'}</section><section class="container ihx-pricing-note"><div><span>WALLET / USD</span><h2>Measured at execution.</h2></div><p>Monthly included balance refreshes with the plan. Purchased balance rolls over. Active work reserves balance and settles its measured charge afterward. Eligible BYO connected routes have a $0 OpenCrawl usage fee; the third-party service may charge separately. Inspect request IDs, spend and latency in Runs.</p></section><section class="container oc-pricing-faq"><span class="oc-kicker">PRICING / FAQ</span><h2>Before the first run</h2><div><details><summary>Is every registered capability available on Free?</summary><p>No. Availability depends on plan limits and the route or connected account. The catalog says “registered” until execution resolves a usable path.</p></details><details><summary>What happens if a provider fails?</summary><p>The router may attempt a bounded fallback. The run ledger shows its final status, latency and measured charge.</p></details><details><summary>Are connected tools free?</summary><p>Eligible BYO connected app and remote MCP routes have no OpenCrawl wallet fee. Any third-party fees remain with that service.</p></details></div></section></main>`);
   };
 
 })();
