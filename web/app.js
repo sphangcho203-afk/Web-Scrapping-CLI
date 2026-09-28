@@ -464,7 +464,7 @@ async function dashWallet(){const [d,p]=await Promise.all([api('/api/wallet?limi
 
 async function dashRewards(){
   const d=await api('/api/rewards?limit=100');
-  const a=d.account||{},wallet=d.wallet||{},catalog=d.catalog||[],redemptions=d.redemptions||[],ledger=d.ledger||[],rule=d.earning_rule||{};
+  const a=d.account||{},wallet=d.wallet||{},catalog=d.catalog||[],redemptions=d.redemptions||[],codeRedemptions=d.code_redemptions||[],ledger=d.ledger||[],rule=d.earning_rule||{};
   const points=Number(a.points||0);
   const walletAvailable=Math.max(0,Number(wallet.monthly_credits||0)+Number(wallet.purchased_credits||0)-Number(wallet.reserved_credits||0));
   const spendPerPoint=Number(rule.usd_spend_per_point||0);
@@ -481,6 +481,11 @@ async function dashRewards(){
       '<article><span>EARNING RATE</span><b>1 point</b><small>per '+(spendPerPoint?paymentMoney(Math.round(spendPerPoint*100),'USD'):'metered spend')+' of OpenCrawl usage</small></article>'+
     '</section>'+
     (d.earned_now?'<div class="reward-earned-banner">'+icon('gift')+' <b>+'+fmt(d.earned_now)+' points earned</b><span>Your latest metered usage has been converted into rewards.</span></div>':'')+
+    '<section class="reward-code-panel">'+
+      '<div class="reward-code-copy"><span class="overline">COMMUNITY DROP</span><h2>Have a reward code?</h2><p>Codes shared in the OpenCrawl community can unlock points or wallet credit. Each account can claim a campaign once.</p></div>'+
+      '<form id="reward-code-form" autocomplete="off"><label><span>REWARD CODE</span><input name="code" type="text" minlength="4" maxlength="64" placeholder="OPENCRAWL-XXXX" autocapitalize="characters" spellcheck="false" required></label><button class="btn primary" type="submit">'+icon('gift')+' Redeem code</button></form>'+
+      (codeRedemptions.length?'<div class="reward-code-history"><span>RECENT CLAIMS</span>'+codeRedemptions.slice(0,4).map(x=>'<div><b>'+esc(x.label)+'</b><small>'+esc(x.code_hint)+' · '+when(x.created_at)+'</small><em>'+(x.reward_type==='points'?'+'+fmt(x.reward_value)+' pts':'+'+walletMoney(x.reward_value,d))+'</em></div>').join('')+'</div>':'')+
+    '</section>'+
     '<header class="subhead reward-subhead"><span><span class="overline">PRIZE CATALOG</span><h2>Redeem your points</h2></span><small>Redemptions are final once a prize is fulfilled.</small></header>'+
     '<section class="reward-grid">'+
       (catalog.length?catalog.map(r=>{
@@ -505,6 +510,28 @@ async function dashRewards(){
       '</article>'+
     '</section>'
   );
+  $('#reward-code-form')?.addEventListener('submit',async e=>{
+    e.preventDefault();
+    const form=e.currentTarget,button=e.submitter||form.querySelector('button'),input=form.elements.code;
+    const code=String(input.value||'').trim().toUpperCase();
+    if(!code)return;
+    if(!busy(button,true,'Checking code…'))return;
+    try{
+      const result=await api('/api/rewards/codes/redeem',{method:'POST',body:{code}});
+      const campaign=result.campaign||{};
+      const delivered=campaign.reward_type==='points'
+        ? '+'+fmt(campaign.reward_value||0)+' reward points'
+        : '+'+walletMoney(campaign.reward_value||0,result)+' wallet credit';
+      toast((campaign.label?campaign.label+': ':'')+delivered,'success');
+      input.value='';
+      state.me=null;
+      await ensureMe();
+      await dashRewards();
+    }catch(error){
+      busy(button,false);
+      toast(error.message,'error');
+    }
+  });
   document.querySelectorAll('[data-redeem]').forEach(button=>button.onclick=async()=>{
     const slug=button.dataset.redeem,name=button.dataset.rewardName||'this prize';
     if(!confirm('Redeem '+name+'? Reward points are deducted immediately once fulfilled.'))return;
