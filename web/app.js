@@ -1769,6 +1769,7 @@ function openRunInspector(event) {
     ]],
     ['Manage', [
       ['wallet','wallet','Wallet'],
+      ['rewards','gift','Rewards'],
       ['billing','billing','Billing & Plans'],
       ['settings','settings','Settings & Security']
     ]]
@@ -1824,6 +1825,7 @@ function openRunInspector(event) {
           <a data-link href="/dashboard/settings">${icon('settings')} Settings & Security</a>
           <a data-link href="/dashboard/billing">${icon('billing')} Billing & Plans</a>
           <a data-link href="/dashboard/wallet">${icon('wallet')} Wallet</a>
+          <a data-link href="/dashboard/rewards">${icon('gift')} Rewards</a>
           <a data-link href="/docs">${icon('docs')} Documentation</a>
           <button id="account-logout">Sign out</button>
         </div>
@@ -1847,7 +1849,7 @@ function openRunInspector(event) {
         <span class="cos-sheet-label">Build & observe</span>
         ${[['api-keys','key','API Keys'],['data','search','Public data'],['games','activity','Game Intelligence'],['repositories','api','Repositories'],['monitors','monitor','Monitors']].map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${icon(ico)} ${label}</a>`).join('')}
         <span class="cos-sheet-label">Account & product</span>
-        ${[['wallet','wallet','Wallet'],['billing','billing','Billing & Plans'],['settings','settings','Settings & Security']].map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${icon(ico)} ${label}</a>`).join('')}
+        ${[['wallet','wallet','Wallet'],['rewards','gift','Rewards'],['billing','billing','Billing & Plans'],['settings','settings','Settings & Security']].map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${icon(ico)} ${label}</a>`).join('')}
         <a data-link href="/docs">${icon('docs')} Documentation</a>
         <a data-link href="/status">${icon('activity')} System Status</a>
         <button id="mobile-logout">Sign out</button>
