@@ -9,7 +9,7 @@ import secrets
 from datetime import UTC, datetime
 from io import BytesIO
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import httpx
 import qrcode
@@ -58,7 +58,18 @@ from .totp import (
 router = APIRouter()
 security = SecurityStore(store)
 TWO_FACTOR_COOKIE = "ih_2fa_challenge"
+GITHUB_RETURN_COOKIE = "ih_github_return"
 logger = logging.getLogger(__name__)
+
+
+def _safe_oauth_return_path(value: str | None) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    parsed = urlparse(raw)
+    if parsed.scheme or parsed.netloc or parsed.fragment or parsed.path != "/oauth/authorize":
+        return ""
+    return parsed.path + (f"?{parsed.query}" if parsed.query else "")
 
 
 def _verification_code() -> str:
@@ -864,7 +875,7 @@ async def change_account_password(request: Request):
 
 
 @router.get("/api/auth/github/start")
-def github_start_secure(request: Request):
+def github_start_secure(request: Request, next: str = ""):
     client_id = os.getenv("GITHUB_CLIENT_ID")
     if not client_id:
         return RedirectResponse("/login?github=config_required", status_code=302)
@@ -887,11 +898,23 @@ def github_start_secure(request: Request):
         samesite="lax",
         max_age=600,
     )
+    oauth_return = _safe_oauth_return_path(next)
+    if oauth_return:
+        response.set_cookie(
+            GITHUB_RETURN_COOKIE,
+            oauth_return,
+            httponly=True,
+            secure=_cookie_secure(request),
+            samesite="lax",
+            max_age=600,
+            path="/",
+        )
     return response
 
 
 @router.get("/api/auth/github/callback")
 async def github_callback_secure(request: Request, code: str = "", state: str = ""):
+    oauth_return = _safe_oauth_return_path(request.cookies.get(GITHUB_RETURN_COOKIE))
     if not code or not state or not hmac.compare_digest(
         state, request.cookies.get(GITHUB_STATE_COOKIE, "")
     ):
@@ -949,7 +972,10 @@ async def github_callback_secure(request: Request, code: str = "", state: str = 
     if sec["totp_enabled"]:
         raw = random_token("ih_2fa_")
         security.create_login_challenge(user_id=user["id"], token_hash=sha256_text(raw))
-        response = RedirectResponse("/login?two_factor=required&github=1", status_code=302)
+        login_query = {"two_factor": "required", "github": "1"}
+        if oauth_return:
+            login_query["next"] = oauth_return
+        response = RedirectResponse("/login?" + urlencode(login_query), status_code=302)
         response.set_cookie(
             TWO_FACTOR_COOKIE,
             raw,
@@ -960,16 +986,20 @@ async def github_callback_secure(request: Request, code: str = "", state: str = 
             path="/",
         )
         response.delete_cookie(GITHUB_STATE_COOKIE)
+        response.delete_cookie(GITHUB_RETURN_COOKIE, path="/")
         return response
 
     raw = random_token("ih_sess_")
     store.create_session(user_id=user["id"], token_hash=sha256_text(raw))
     if current["email_verified"]:
-        destination = "/dashboard"
+        destination = oauth_return or "/dashboard"
     else:
-        destination = "/verify-email?context=signin"
+        verify_query = {"context": "signin"}
+        if oauth_return:
+            verify_query["next"] = oauth_return
         if verification_sent is False:
-            destination += "&delivery=failed"
+            verify_query["delivery"] = "failed"
+        destination = "/verify-email?" + urlencode(verify_query)
     response = RedirectResponse(destination, status_code=302)
     response.set_cookie(
         SESSION_COOKIE,
@@ -981,6 +1011,7 @@ async def github_callback_secure(request: Request, code: str = "", state: str = 
         path="/",
     )
     response.delete_cookie(GITHUB_STATE_COOKIE)
+    response.delete_cookie(GITHUB_RETURN_COOKIE, path="/")
     if current["email_verified"]:
         await _send_login_notice(request, current, "GitHub")
     return response

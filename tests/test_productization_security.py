@@ -8,7 +8,7 @@ import pytest
 from fastapi import HTTPException
 
 from internet_hands import control_api, security_api, security_hardening
-from internet_hands.control_store import AuthIdentity, ControlStore
+from internet_hands.control_store import ControlStore
 
 
 class _Request:
@@ -363,26 +363,20 @@ def test_totp_setup_includes_offline_scannable_qr(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_oauth_approval_rejects_unverified_api_key_owner(monkeypatch) -> None:
-    identity = AuthIdentity(
-        user_id="usr_pending",
-        api_key_id="key_1",
-        scopes=["*"],
-        plan_slug="free",
-        rpm_limit=10,
-        source="api_key",
-    )
+async def test_oauth_approval_rejects_unverified_signed_in_user(monkeypatch) -> None:
     monkeypatch.setattr(control_api, "_parse_form", lambda _raw: {
         "client_id": "client",
         "redirect_uri": "https://client.example/callback",
+        "response_type": "code",
         "code_challenge": "challenge",
-        "api_key": "ih_live_secret",
+        "code_challenge_method": "S256",
+        "scope": "mcp:read mcp:execute",
+        "action": "approve",
     })
-    monkeypatch.setattr(control_api, "authenticate_secret", lambda *_args: identity)
     monkeypatch.setattr(
-        control_api.store,
-        "get_user",
-        lambda _user_id: {"id": "usr_pending", "email_verified": False},
+        control_api,
+        "_session_user",
+        lambda _request: {"id": "usr_pending", "email": "pending@example.test", "email_verified": False},
     )
 
     with pytest.raises(HTTPException) as exc:
@@ -435,3 +429,16 @@ def test_password_reset_revokes_existing_web_sessions_atomically(monkeypatch) ->
     assert store.consume_password_reset("reset-hash", "password-hash") is True
     assert any("DELETE FROM ih_sessions WHERE user_id=%s" in query for query in cursor.queries)
     assert connection.committed is True
+
+
+def test_oauth_return_path_only_accepts_local_authorize_route() -> None:
+    from internet_hands.security_api import _safe_oauth_return_path
+
+    assert (
+        _safe_oauth_return_path("/oauth/authorize?client_id=x&state=y")
+        == "/oauth/authorize?client_id=x&state=y"
+    )
+    assert _safe_oauth_return_path("https://evil.example/oauth/authorize") == ""
+    assert _safe_oauth_return_path("//evil.example/oauth/authorize") == ""
+    assert _safe_oauth_return_path("/dashboard") == ""
+    assert _safe_oauth_return_path("/oauth/authorize#fragment") == ""

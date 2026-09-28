@@ -252,7 +252,7 @@ CREATE INDEX IF NOT EXISTS ih_payments_user_idx ON ih_payments(user_id, created_
 CREATE TABLE IF NOT EXISTS ih_oauth_authorization_codes (
     id text PRIMARY KEY,
     user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,
-    api_key_id text NOT NULL REFERENCES ih_api_keys(id) ON DELETE CASCADE,
+    api_key_id text REFERENCES ih_api_keys(id) ON DELETE CASCADE,
     client_id text NOT NULL,
     redirect_uri text NOT NULL,
     code_hash text NOT NULL UNIQUE,
@@ -267,7 +267,7 @@ CREATE TABLE IF NOT EXISTS ih_oauth_authorization_codes (
 CREATE TABLE IF NOT EXISTS ih_oauth_tokens (
     id text PRIMARY KEY,
     user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,
-    api_key_id text NOT NULL REFERENCES ih_api_keys(id) ON DELETE CASCADE,
+    api_key_id text REFERENCES ih_api_keys(id) ON DELETE CASCADE,
     client_id text NOT NULL,
     access_token_hash text NOT NULL UNIQUE,
     refresh_token_hash text NOT NULL UNIQUE,
@@ -281,6 +281,8 @@ CREATE TABLE IF NOT EXISTS ih_oauth_tokens (
 CREATE INDEX IF NOT EXISTS ih_oauth_tokens_user_idx ON ih_oauth_tokens(user_id, created_at DESC);
 ALTER TABLE ih_oauth_authorization_codes ADD COLUMN IF NOT EXISTS resource text;
 ALTER TABLE ih_oauth_tokens ADD COLUMN IF NOT EXISTS resource text;
+ALTER TABLE ih_oauth_authorization_codes ALTER COLUMN api_key_id DROP NOT NULL;
+ALTER TABLE ih_oauth_tokens ALTER COLUMN api_key_id DROP NOT NULL;
 
 CREATE TABLE IF NOT EXISTS ih_webhook_events (
     id text PRIMARY KEY,
@@ -1188,7 +1190,7 @@ class ControlStore:
                 """
                 SELECT t.user_id,t.api_key_id,t.scopes,t.resource,p.slug AS plan_slug,p.rpm_limit,p.concurrent_limit
                 FROM ih_oauth_tokens t
-                JOIN ih_api_keys k ON k.id=t.api_key_id
+                LEFT JOIN ih_api_keys k ON k.id=t.api_key_id
                 LEFT JOIN LATERAL (
                     SELECT plan_slug FROM ih_subscriptions s
                     WHERE s.user_id=t.user_id AND s.status='active'
@@ -1196,7 +1198,10 @@ class ControlStore:
                 ) s ON true
                 JOIN ih_plans p ON p.slug=COALESCE(s.plan_slug,'free')
                 WHERE t.access_token_hash=%s AND t.revoked_at IS NULL AND t.access_expires_at>now()
-                  AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now())
+                  AND (
+                    t.api_key_id IS NULL
+                    OR (k.id IS NOT NULL AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now()))
+                  )
                 """,
                 (token_hash,),
             )
@@ -1969,8 +1974,6 @@ class ControlStore:
         resource: str | None = None,
     ) -> None:
         self.ensure_schema()
-        if not identity.api_key_id:
-            raise ControlError("invalid_api_key", "OAuth authorization requires an API key", 400)
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
@@ -2008,7 +2011,7 @@ class ControlStore:
         self,
         *,
         user_id: str,
-        api_key_id: str,
+        api_key_id: str | None,
         client_id: str,
         access_hash: str,
         refresh_hash: str,
@@ -2041,10 +2044,13 @@ class ControlStore:
                     SELECT * FROM ih_oauth_tokens
                     WHERE refresh_token_hash=%s AND client_id=%s AND revoked_at IS NULL
                       AND refresh_expires_at>now()
-                      AND EXISTS (
-                          SELECT 1 FROM ih_api_keys k
-                          WHERE k.id=ih_oauth_tokens.api_key_id AND k.revoked_at IS NULL
-                            AND (k.expires_at IS NULL OR k.expires_at>now())
+                      AND (
+                          ih_oauth_tokens.api_key_id IS NULL
+                          OR EXISTS (
+                              SELECT 1 FROM ih_api_keys k
+                              WHERE k.id=ih_oauth_tokens.api_key_id AND k.revoked_at IS NULL
+                                AND (k.expires_at IS NULL OR k.expires_at>now())
+                          )
                       ) FOR UPDATE
                     """,
                     (refresh_hash, client_id),

@@ -22,9 +22,9 @@ The response should be HTTP 200 with `result.serverInfo`. A full MCP client then
 
 ## OAuth (PKCE)
 
-Point an OAuth-capable MCP client at the same URL. The client discovers `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server`, dynamically registers at `/oauth/register`, and performs authorization code with PKCE S256. In the OpenCrawl consent form, supply an active scoped API key that belongs to your verified account. The browser sends that key only to OpenCrawl; the client receives an access token and refresh token. The authorization and token requests may include `resource=https://YOUR-OPENCRAWL-HOST/mcp`; tokens are bound to that endpoint. Use the same host for authorization, token exchange, and MCP calls.
+Point an OAuth-capable MCP client at the same URL. The client discovers `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server`, dynamically registers at `/oauth/register`, and performs authorization code with PKCE S256. The browser signs the user in to OpenCrawl, preserves the original authorization request through email verification or 2FA when needed, shows the requested scopes, and asks for explicit approval. The client receives a short-lived access token and rotating refresh token; it never receives the user's password, web session cookie, or API keys. The authorization and token requests may include `resource=https://YOUR-OPENCRAWL-HOST/mcp`; tokens are bound to that endpoint. Use the same host for authorization, token exchange, and MCP calls.
 
-`offline_access` permits refresh and does not require an extra API key scope. Other requested scopes must be granted by the key. A revoked or expired key cannot authorize a new connection. Keep `INTERNET_HANDS_OAUTH_SIGNING_SECRET` configured consistently across deployments so dynamic client IDs remain valid.
+`offline_access` permits refresh. OAuth grants are account-scoped and independent from machine API keys; API-key authentication remains a separate connection mode. Keep `INTERNET_HANDS_OAUTH_SIGNING_SECRET` configured consistently across deployments so dynamically registered client IDs remain valid.
 
 ## Public endpoint requirement
 
@@ -42,7 +42,7 @@ A useful diagnostic split is:
 Composio's experimental Custom MCP integration is separate from OpenCrawl's outbound connected apps. Register OpenCrawl's public HTTPS URL as a `CUSTOM_*` toolkit. Select one authentication scheme at registration:
 
 - API key: `API_KEY` with a header template such as `Authorization: Bearer {{generic_api_key}}`. Create the Composio auth config and connect an account using a dedicated OpenCrawl key.
-- OAuth: `DCR_OAUTH` with the OpenCrawl authorization server discovery URL. Create its auth config and complete the browser consent flow. The OpenCrawl key used at consent must grant the requested scopes.
+- OAuth: `DCR_OAUTH` with the OpenCrawl authorization server discovery URL. Create its auth config, sign in to the OpenCrawl account in the browser, review the requested scopes, and approve the grant. No OpenCrawl API key is pasted into the consent screen.
 
 Composio requires an auth config for an authenticated custom toolkit. Set `is_enabled_for_tool_router: true` when automatic account matching is wanted, or pin the connected account ID in the session. The first sync begins after an account becomes active; retry `POST /api/v3.1/custom/toolkits/sync` with its `connected_account_id` if needed. Composio cannot change a toolkit's URL or auth scheme in place; replacing those fields requires deleting and registering again, which also removes its connections. See the [Composio Custom MCP documentation](https://docs.composio.dev/docs/extending-sessions/custom-mcp) for current request schemas.
 

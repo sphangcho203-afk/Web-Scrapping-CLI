@@ -118,7 +118,7 @@ resets revoke all existing web sessions.
 
 Unauthenticated MCP requests receive a `401` with a `WWW-Authenticate` challenge pointing at the protected-resource metadata document. OAuth-capable clients then use authorization-code + PKCE S256.
 
-The authorization page validates an OpenCrawl API key, then issues a short-lived access token and rotating refresh token. The raw API key is not stored in OAuth token records.
+The authorization page requires an authenticated, verified OpenCrawl web session, shows the requested scopes, and requires explicit approval before issuing a short-lived access token and rotating refresh token. OAuth grants are account-scoped and do not require pasting an OpenCrawl API key into the consent page.
 
 ## Metering
 

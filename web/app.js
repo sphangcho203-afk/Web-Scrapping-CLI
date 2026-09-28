@@ -366,10 +366,25 @@ function busy(button, on, label) {
   delete button.dataset.ihBusy;
   return true;
 }
+function safeAuthNext() {
+  const raw=new URLSearchParams(location.search).get('next')||'';
+  if(!raw)return '';
+  try{
+    const target=new URL(raw,location.origin);
+    if(target.origin!==location.origin||target.pathname!=='/oauth/authorize')return '';
+    return target.pathname+target.search+target.hash;
+  }catch{return '';}
+}
+function authLink(path) {
+  const next=safeAuthNext();
+  return next ? path+(path.includes('?')?'&':'?')+'next='+encodeURIComponent(next) : path;
+}
 function authDestination(result) {
+  const requested=safeAuthNext();
   const next=result.next||(result.verification_required?'/verify-email':'/dashboard');
-  if(!result.verification_required)return next;
+  if(!result.verification_required)return requested||next;
   const target=new URL(next,location.origin);
+  if(requested)target.searchParams.set('next',requested);
   if(result.verification_context)target.searchParams.set('context',result.verification_context);
   if(result.verification_sent===false)target.searchParams.set('delivery','failed');
   return target.pathname+target.search;
@@ -377,11 +392,14 @@ function authDestination(result) {
 function renderAuth(mode) {
   const signup = mode === 'signup'; const params = new URLSearchParams(location.search); if (params.get('two_factor') === 'required') return renderTwoFactor(); const github = params.get('github');
   authShell(signup ? 'Create your account' : 'Welcome back', signup ? 'Start with a verified identity and a monthly USD wallet balance.' : 'Sign in to the developer control plane.', `${github ? `<div class="notice warning">GitHub: ${esc(github.replaceAll('_',' '))}</div>` : ''}<a class="btn github-btn" href="/api/auth/github/start"><span class="brand-icon github">${platformMark('github','GitHub')}</span><span>Continue with GitHub</span>${icon('arrow')}</a><div class="divider"><span>or use email</span></div><form id="auth-form" class="form-stack">${signup ? '<label>Display name<input name="display_name" maxlength="80" autocomplete="name" placeholder="How should we address you?"></label>' : ''}<label>Email<input required type="email" name="email" autocomplete="email" placeholder="you@example.com"></label><label>Password<div class="password-field"><input id="password" required minlength="8" type="password" name="password" autocomplete="${signup ? 'new-password' : 'current-password'}"><button type="button" data-show>Show</button></div></label>${signup ? '<small>Use at least 8 characters. Verification comes next.</small><p class="ih-auth-policy-note">By creating an account or continuing with GitHub, you agree to the <a data-link href="/legal/terms">Terms</a> and <a data-link href="/legal/acceptable-use">Acceptable Use Policy</a> and acknowledge the <a data-link href="/legal/privacy">Privacy Policy</a>.</p>' : ''}<button class="btn primary large" type="submit">${signup ? 'Create account' : 'Sign in'} ${icon('arrow')}</button></form><div class="auth-links">${signup ? '<span>Already registered? <a data-link href="/login">Sign in</a></span>' : '<a class="btn quiet" data-link href="/forgot-password">Forgot password?</a><span>New here? <a data-link href="/signup">Create account</a></span>'}</div>`);
+  const githubButton=$('.github-btn'); if(githubButton)githubButton.href=authLink('/api/auth/github/start');
+  $$('.auth-links a[data-link]').forEach(a=>{const href=a.getAttribute('href');if(href==='/login')a.setAttribute('href',authLink('/login'));if(href==='/signup')a.setAttribute('href',authLink('/signup'));});
   $('[data-show]').onclick = e => { const input = $('#password'); input.type = input.type === 'password' ? 'text' : 'password'; e.currentTarget.textContent = input.type === 'password' ? 'Show' : 'Hide'; };
   $('#auth-form').onsubmit = async e => { e.preventDefault(); const button = $('button[type=submit]', e.currentTarget); busy(button,true,signup?'Creating account…':'Signing in…'); try { const result = await api(signup?'/api/auth/signup':'/api/auth/login',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))}); if (result.two_factor_required) return renderTwoFactor(); if(result.verification_required){state.me={user:result.user,account:null,verification_required:true};history.pushState({},'',authDestination(result));return renderVerify(state.me);}state.me=null;go(authDestination(result)); } catch(error) { toast(error.message,'error'); busy(button,false); } };
 }
 function renderTwoFactor() {
   authShell('Two-factor check','Complete the second step before a session is issued.',`<div class="auth-step"><b>1</b><i></i><b class="active">2</b></div><form id="two-factor-form" class="form-stack"><label>Authenticator or recovery code<input required name="code" autocomplete="one-time-code" placeholder="000000 or recovery code"></label><button class="btn primary large">Verify and sign in ${icon('arrow')}</button></form><p class="auth-foot">Challenge expires in 10 minutes. <a data-link href="/login">Start again</a></p>`);
+  const restart=$('.auth-foot a[data-link]'); if(restart&&restart.getAttribute('href')==='/login')restart.setAttribute('href',authLink('/login'));
   $('#two-factor-form').onsubmit = async e => { e.preventDefault(); const button=$('button',e.currentTarget); busy(button,true,'Verifying…'); try { const result=await api('/api/auth/2fa/challenge',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))}); state.me=null; go(authDestination(result)); } catch(error){toast(error.message,'error');busy(button,false);} };
 }
 async function renderVerify(seed=null) {
@@ -390,7 +408,11 @@ async function renderVerify(seed=null) {
     try { state.me = await api('/api/auth/me'); }
     catch { return go('/login?verify=session_required',true); }
   }
-  if (state.me.user.email_verified) return renderOnboarding();
+  if (state.me.user.email_verified) {
+    const next=safeAuthNext();
+    if(next)return go(next,true);
+    return renderOnboarding();
+  }
   const email=state.me.user.email.replace(/^(.{2}).*(@.*)$/,'$1••••$2');
   const params=new URLSearchParams(location.search);
   const deliveryFailed=params.get('delivery')==='failed';
@@ -401,13 +423,13 @@ async function renderVerify(seed=null) {
       ? `This account still needs email confirmation. Enter the latest code sent to ${esc(email)} or open its link.`
       : `Enter the six-digit code sent to ${esc(email)}, or open the confirmation link. Both expire in 15 minutes.`;
   authShell('Verify your email',verificationMessage,`<div class="verify-mark">${icon('mail')}</div><form id="verify-code-form" class="form-stack"><label>Verification code<input required name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="000000"></label><button class="btn primary large" type="submit">Verify email ${icon('arrow')}</button></form><div class="verify-actions"><button id="resend">Resend verification email <span></span></button><button id="other-account">Use another account</button></div>`,'One small gate before the internet opens up.');
-  $('#verify-code-form').onsubmit=async e=>{e.preventDefault();const button=$('button[type=submit]',e.currentTarget);busy(button,true,'Verifying…');try{await api('/api/auth/email-verification/confirm',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))});state.me=null;go('/verify-email?verified=1',true);}catch(error){toast(error.message,'error');busy(button,false);}};
+  $('#verify-code-form').onsubmit=async e=>{e.preventDefault();const button=$('button[type=submit]',e.currentTarget);busy(button,true,'Verifying…');try{await api('/api/auth/email-verification/confirm',{method:'POST',body:Object.fromEntries(new FormData(e.currentTarget))});state.me=null;const next=safeAuthNext();go(next||'/verify-email?verified=1',true);}catch(error){toast(error.message,'error');busy(button,false);}};
   let seconds=0;
   const resend=$('#resend');
   const tick=()=>{if(!resend.isConnected)return;$('span',resend).textContent=seconds?`(${seconds}s)`:'';resend.disabled=seconds>0;if(seconds-->0)setTimeout(tick,1000);};
   resend.onclick=async()=>{if(!busy(resend,true,'Sending…'))return;try{const result=await api('/api/auth/email-verification/send',{method:'POST'});if(!result.sent&&!result.already_verified)throw new Error('Verification email could not be sent. Try again shortly.');if(result.already_verified){state.me=null;return go('/verify-email?verified=1',true);}busy(resend,false);seconds=60;tick();toast('New verification email sent','success');}catch(error){busy(resend,false);toast(error.message,'error');}};
-  $('#other-account').onclick=async e=>{const button=e.currentTarget;busy(button,true,'Signing out…');try{await api('/api/auth/logout',{method:'POST'});state.me=null;go('/login');}catch(error){busy(button,false);toast(error.message,'error');}};
-  const pollVerification=async()=>{if(location.pathname!=='/verify-email')return;try{const latest=await api('/api/auth/me');if(latest.user.email_verified){state.me=latest;go('/verify-email?verified=1',true);return;}}catch{}setTimeout(pollVerification,3000);};
+  $('#other-account').onclick=async e=>{const button=e.currentTarget;busy(button,true,'Signing out…');try{await api('/api/auth/logout',{method:'POST'});state.me=null;go(authLink('/login'));}catch(error){busy(button,false);toast(error.message,'error');}};
+  const pollVerification=async()=>{if(location.pathname!=='/verify-email')return;try{const latest=await api('/api/auth/me');if(latest.user.email_verified){state.me=latest;const next=safeAuthNext();go(next||'/verify-email?verified=1',true);return;}}catch{}setTimeout(pollVerification,3000);};
   setTimeout(pollVerification,1500);
 }
 function renderOnboarding(){authShell('Email verified','Choose the shortest route to your first successful request.',`<div class="success-orbit">${icon('check')}</div><div class="onboarding-grid"><a data-link href="/dashboard/connections"><b>Connect an agent</b><small>ChatGPT, Claude, Grok or MCP</small>${icon('arrow')}</a><a data-link href="/dashboard/api-keys"><b>Create an API key</b><small>Scripts, servers and CI</small>${icon('arrow')}</a><a data-link href="/dashboard/monitors"><b>Create a monitor</b><small>Watch an endpoint</small>${icon('arrow')}</a><a data-link href="/docs/quickstart"><b>Open quickstart</b><small>Make the first request</small>${icon('arrow')}</a></div><a class="btn quiet onboarding-skip" data-link href="/dashboard">Go to mission control</a>`,'Identity confirmed. Now give your agent reach.');}

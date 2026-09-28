@@ -7,9 +7,10 @@ import json
 import os
 import time
 from typing import Any
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from .control_api import (
     _origin,
@@ -102,7 +103,9 @@ async def oauth_register(request: Request) -> dict[str, Any]:
         body = await request.json()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="invalid client metadata") from exc
-    redirect_uris = body.get("redirect_uris") if isinstance(body, dict) else None
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="invalid client metadata")
+    redirect_uris = body.get("redirect_uris")
     if not isinstance(redirect_uris, list) or not redirect_uris or len(redirect_uris) > 10:
         raise HTTPException(status_code=400, detail="redirect_uris must contain 1 to 10 entries")
     redirects = [str(uri) for uri in redirect_uris]
@@ -135,7 +138,7 @@ async def oauth_register(request: Request) -> dict[str, Any]:
     }
 
 
-@router.get("/oauth/authorize")
+@router.get("/oauth/authorize", response_class=HTMLResponse)
 def oauth_authorize_checked(
     request: Request,
     client_id: str,
@@ -148,6 +151,7 @@ def oauth_authorize_checked(
     resource: str = "",
 ):
     _validate_registered_client(client_id, redirect_uri)
+    payload = _client_payload(client_id) or {}
     return oauth_authorize_page(
         request,
         client_id=client_id,
@@ -158,6 +162,7 @@ def oauth_authorize_checked(
         state=state,
         scope=scope,
         resource=resource,
+        client_name=str(payload.get("client_name") or "MCP client"),
     )
 
 
@@ -168,7 +173,9 @@ async def oauth_authorize_submit_checked(request: Request):
     response = await oauth_authorize_submit(request)
     if isinstance(response, RedirectResponse):
         location = response.headers.get("location")
-        if location:
+        if location and location.startswith(("https://", "http://")):
             separator = "&" if "?" in location else "?"
-            response.headers["location"] = f"{location}{separator}iss={_origin(request)}"
+            response.headers["location"] = (
+                f"{location}{separator}{urlencode({'iss': _origin(request)})}"
+            )
     return response

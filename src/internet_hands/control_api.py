@@ -17,7 +17,6 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from .auth import (
     api_key_prefix,
-    authenticate_secret,
     current_auth,
     generate_api_key,
     hash_password,
@@ -57,6 +56,14 @@ SESSION_COOKIE = "ih_session"
 GITHUB_STATE_COOKIE = "ih_github_state"
 DEFAULT_SCOPES = ["mcp:read", "mcp:execute"]
 SUPPORTED_MCP_SCOPES = {"mcp:read", "mcp:execute", "account:read", "monitors:read", "offline_access"}
+
+
+def _oauth_json(payload: dict[str, Any], status_code: int = 200) -> JSONResponse:
+    return JSONResponse(
+        payload,
+        status_code=status_code,
+        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+    )
 
 
 def _json_error(exc: ControlError) -> HTTPException:
@@ -182,6 +189,38 @@ def oauth_authorization_server(request: Request) -> dict[str, Any]:
     }
 
 
+def _oauth_authorize_return_path(
+    request: Request,
+    *,
+    client_id: str,
+    redirect_uri: str,
+    response_type: str,
+    code_challenge: str,
+    code_challenge_method: str,
+    state: str,
+    scope: str,
+    resource: str,
+) -> str:
+    query = urlencode(
+        {
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "response_type": response_type,
+            "code_challenge": code_challenge,
+            "code_challenge_method": code_challenge_method,
+            "state": state,
+            "scope": scope,
+            "resource": resource,
+        }
+    )
+    return f"/oauth/authorize?{query}"
+
+
+def _oauth_login_redirect(request: Request, return_path: str) -> RedirectResponse:
+    target = "/login?" + urlencode({"next": return_path})
+    return RedirectResponse(target, status_code=302)
+
+
 @router.get("/oauth/authorize", response_class=HTMLResponse)
 def oauth_authorize_page(
     request: Request,
@@ -193,16 +232,37 @@ def oauth_authorize_page(
     state: str = "",
     scope: str = "mcp:read mcp:execute",
     resource: str = "",
-) -> str:
+    client_name: str = "",
+):
     if response_type != "code" or code_challenge_method != "S256" or not code_challenge:
         raise HTTPException(status_code=400, detail="OAuth authorization code with PKCE S256 is required")
     if not _safe_redirect_uri(redirect_uri):
         raise HTTPException(status_code=400, detail="unsupported redirect_uri")
     resource = _mcp_resource(request, resource)
+    return_path = _oauth_authorize_return_path(
+        request,
+        client_id=client_id,
+        redirect_uri=redirect_uri,
+        response_type=response_type,
+        code_challenge=code_challenge,
+        code_challenge_method=code_challenge_method,
+        state=state,
+        scope=scope,
+        resource=resource,
+    )
     signed_in = _session_user(request)
-    account_hint = ""
-    if signed_in:
-        account_hint = f"<div class='account'>Signed in as <strong>{html.escape(str(signed_in['email']))}</strong>. Paste or select an active OpenCrawl API key to authorize this client.</div>"
+    if not signed_in:
+        return _oauth_login_redirect(request, return_path)
+    if not bool(signed_in.get("email_verified")):
+        return RedirectResponse(
+            "/verify-email?" + urlencode({"next": return_path}),
+            status_code=302,
+        )
+
+    requested_scopes = _scope_list(scope)
+    if not set(requested_scopes).issubset(SUPPORTED_MCP_SCOPES):
+        raise HTTPException(status_code=400, detail="unsupported OAuth scope")
+
     fields = {
         "client_id": client_id,
         "redirect_uri": redirect_uri,
@@ -217,41 +277,102 @@ def oauth_authorize_page(
         f'<input type="hidden" name="{html.escape(k)}" value="{html.escape(v)}">'
         for k, v in fields.items()
     )
-    scopes = "".join(f"<li>{html.escape(item)}</li>" for item in _scope_list(scope))
-    return f"""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    scopes = "".join(f"<li>{html.escape(item)}</li>" for item in requested_scopes)
+    client_label = html.escape(client_name or "MCP client")
+    account_hint = (
+        "<div class='account'>Signed in as "
+        f"<strong>{html.escape(str(signed_in['email']))}</strong>. "
+        "Approving grants this client the scopes shown below; your password and API keys are never shared."
+        "</div>"
+    )
+    content = f"""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
 <title>Authorize OpenCrawl</title><style>
-:root{{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui;background:#08070d;color:#eef5f9}}*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#08070d}}.card{{width:min(560px,92vw);padding:32px;border:1px solid #302536;border-radius:12px;background:#110e18;box-shadow:0 24px 80px #0008}}.brand{{display:flex;align-items:center;gap:10px;font-size:20px;font-weight:800;letter-spacing:-.05em}}.brand span{{color:#ef39df}}.mark{{width:42px;height:42px;object-fit:contain;image-rendering:pixelated;mix-blend-mode:screen}}h1{{font-size:26px;margin:26px 0 8px}}p,li{{color:#9db0bb;line-height:1.55}}.client{{padding:14px 16px;background:#17121e;border:1px solid #34273a;border-radius:8px;margin:20px 0}}input{{width:100%;padding:14px 15px;background:#08070d;border:1px solid #44334b;border-radius:8px;color:#eef5f9;font:inherit;margin-top:8px}}input:focus-visible,button:focus-visible{{outline:2px solid #ff6cf3;outline-offset:2px}}button{{width:100%;margin-top:18px;padding:14px 16px;border:0;border-radius:8px;background:#ef39df;color:#100915;font-weight:800;cursor:pointer}}.account{{padding:12px 14px;border-radius:8px;background:#17121e;color:#b9a9c1;margin:14px 0}}small{{color:#8d8096}}ul{{padding-left:20px}}</style></head><body><main class='card'>
-<div class='brand'><img class='mark' src='/assets/opencrawl-crab.png' alt=''>Open<span>Crawl</span></div><h1>Authorize MCP connection</h1><p>A client is requesting access to your OpenCrawl capability fabric.</p>
-<div class='client'><small>CLIENT ID</small><div>{html.escape(client_id)}</div><small>REDIRECT</small><div style='word-break:break-all'>{html.escape(redirect_uri)}</div></div>{account_hint}
-<p>Requested scopes:</p><ul>{scopes}</ul><form method='post'>{hidden}<label>OpenCrawl API key<input required autocomplete='off' spellcheck='false' name='api_key' type='password' placeholder='ih_live_…'></label><button type='submit'>Allow connection</button></form><p><small>The raw API key is validated over HTTPS and is never stored by the OAuth session. The client receives a short-lived bearer token instead.</small></p></main></body></html>"""
+:root{{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui;background:#08070d;color:#eef5f9}}*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#08070d}}.card{{width:min(560px,92vw);padding:32px;border:1px solid #302536;border-radius:12px;background:#110e18;box-shadow:0 24px 80px #0008}}.brand{{display:flex;align-items:center;gap:10px;font-size:20px;font-weight:800;letter-spacing:-.05em}}.brand span{{color:#ef39df}}.mark{{width:42px;height:42px;object-fit:contain;image-rendering:pixelated;mix-blend-mode:screen}}h1{{font-size:26px;margin:26px 0 8px}}p,li{{color:#9db0bb;line-height:1.55}}.client{{padding:14px 16px;background:#17121e;border:1px solid #34273a;border-radius:8px;margin:20px 0}}button:focus-visible{{outline:2px solid #ff6cf3;outline-offset:2px}}.actions{{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px}}button{{width:100%;padding:14px 16px;border:0;border-radius:8px;font:inherit;font-weight:800;cursor:pointer}}button.primary{{background:#ef39df;color:#100915}}button.secondary{{background:#201925;color:#d8cadf;border:1px solid #44334b}}.account{{padding:12px 14px;border-radius:8px;background:#17121e;color:#b9a9c1;margin:14px 0}}small{{color:#8d8096}}ul{{padding-left:20px}}@media(max-width:520px){{.card{{padding:22px}}.actions{{grid-template-columns:1fr}}}}</style></head><body><main class='card'>
+<div class='brand'><img class='mark' src='/assets/opencrawl-crab.png' alt=''>Open<span>Crawl</span></div><h1>Authorize MCP connection</h1><p><strong>{client_label}</strong> is requesting access to your OpenCrawl capability fabric.</p>
+<div class='client'><small>REDIRECT URI</small><div style='word-break:break-all'>{html.escape(redirect_uri)}</div></div>{account_hint}
+<p>Requested scopes:</p><ul>{scopes}</ul><form method='post'>{hidden}<div class='actions'><button class='secondary' type='submit' name='action' value='deny'>Cancel</button><button class='primary' type='submit' name='action' value='approve'>Allow connection</button></div></form><p><small>OpenCrawl issues a short-lived access token after approval. The client never receives your OpenCrawl password, session cookie, or API keys.</small></p></main></body></html>"""
+    return HTMLResponse(
+        content,
+        headers={
+            "Cache-Control": "no-store",
+            "Pragma": "no-cache",
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+            "Content-Security-Policy": (
+                "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; "
+                "form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+            ),
+        },
+    )
 
 
 @router.post("/oauth/authorize")
 async def oauth_authorize_submit(request: Request):
+    origin = request.headers.get("origin")
+    if origin and origin.rstrip("/") != _origin(request):
+        raise HTTPException(status_code=403, detail="cross-origin OAuth consent is not allowed")
+
     form = _parse_form(await request.body())
     redirect_uri = form.get("redirect_uri", "")
     client_id = form.get("client_id", "")
+    response_type = form.get("response_type", "code")
     code_challenge = form.get("code_challenge", "")
+    code_challenge_method = form.get("code_challenge_method", "S256")
     state = form.get("state", "")
+    scope = form.get("scope", "")
     resource = _mcp_resource(request, form.get("resource"))
-    if not client_id or not code_challenge or not _safe_redirect_uri(redirect_uri):
+    if (
+        not client_id
+        or response_type != "code"
+        or code_challenge_method != "S256"
+        or not code_challenge
+        or not _safe_redirect_uri(redirect_uri)
+    ):
         raise HTTPException(status_code=400, detail="invalid OAuth request")
-    try:
-        identity = authenticate_secret(store, form.get("api_key", ""))
-    except ControlError as exc:
-        raise _json_error(exc) from exc
-    if not identity or not identity.api_key_id:
-        raise HTTPException(status_code=401, detail="invalid API key")
-    owner = store.get_user(identity.user_id)
-    if not owner:
-        raise HTTPException(status_code=401, detail="API key owner is unavailable")
-    _require_verified(owner)
-    requested = _scope_list(form.get("scope"))
+
+    user = _session_user(request)
+    if not user:
+        return_path = _oauth_authorize_return_path(
+            request,
+            client_id=client_id,
+            redirect_uri=redirect_uri,
+            response_type=response_type,
+            code_challenge=code_challenge,
+            code_challenge_method=code_challenge_method,
+            state=state,
+            scope=scope,
+            resource=resource,
+        )
+        return _oauth_login_redirect(request, return_path)
+    _require_verified(user)
+
+    action = form.get("action")
+    if action not in {"approve", "deny"}:
+        raise HTTPException(status_code=400, detail="explicit OAuth consent action is required")
+
+    query: dict[str, str]
+    if action == "deny":
+        query = {"error": "access_denied"}
+        if state:
+            query["state"] = state
+        separator = "&" if "?" in redirect_uri else "?"
+        return RedirectResponse(f"{redirect_uri}{separator}{urlencode(query)}", status_code=302)
+
+    requested = _scope_list(scope)
     if not set(requested).issubset(SUPPORTED_MCP_SCOPES):
         raise HTTPException(status_code=400, detail="unsupported OAuth scope")
-    granted = set(identity.scopes or ["*"])
-    if "*" not in granted and not (set(requested) - {"offline_access"}).issubset(granted):
-        raise HTTPException(status_code=403, detail="requested scope is not allowed by this API key")
+
+    account = store.account_snapshot(user["id"])
+    identity = AuthIdentity(
+        user_id=user["id"],
+        api_key_id=None,
+        scopes=list(requested),
+        plan_slug=str(account.get("plan_slug") or "free"),
+        rpm_limit=int(account.get("rpm_limit") or 10),
+        source="oauth_consent",
+        concurrent_limit=max(1, int(account.get("concurrent_limit") or 1)),
+        resource=resource,
+    )
     code = random_token("ih_code_")
     try:
         store.create_oauth_code(
@@ -290,7 +411,7 @@ async def oauth_token(request: Request):
             or not verify_pkce(verifier, row["code_challenge"])
             or (row.get("resource") and row["resource"] != resource)
         ):
-            return JSONResponse({"error": "invalid_grant"}, status_code=400)
+            return _oauth_json({"error": "invalid_grant"}, status_code=400)
         access = random_token("ih_at_")
         refresh = random_token("ih_rt_")
         scopes = list(row.get("scopes") or [])
@@ -303,20 +424,22 @@ async def oauth_token(request: Request):
             scopes=scopes,
             resource=resource,
         )
-        return {
-            "access_token": access,
-            "token_type": "Bearer",
-            "expires_in": 3600,
-            "refresh_token": refresh,
-            "scope": " ".join(scopes),
-        }
+        return _oauth_json(
+            {
+                "access_token": access,
+                "token_type": "Bearer",
+                "expires_in": 3600,
+                "refresh_token": refresh,
+                "scope": " ".join(scopes),
+            }
+        )
     if grant_type == "refresh_token":
         refresh = form.get("refresh_token", "")
         row = store.consume_refresh_token(sha256_text(refresh), client_id)
         if not row:
-            return JSONResponse({"error": "invalid_grant"}, status_code=400)
+            return _oauth_json({"error": "invalid_grant"}, status_code=400)
         if row.get("resource") and row["resource"] != resource:
-            return JSONResponse({"error": "invalid_grant"}, status_code=400)
+            return _oauth_json({"error": "invalid_grant"}, status_code=400)
         access = random_token("ih_at_")
         new_refresh = random_token("ih_rt_")
         scopes = list(row.get("scopes") or [])
@@ -329,14 +452,16 @@ async def oauth_token(request: Request):
             scopes=scopes,
             resource=resource,
         )
-        return {
-            "access_token": access,
-            "token_type": "Bearer",
-            "expires_in": 3600,
-            "refresh_token": new_refresh,
-            "scope": " ".join(scopes),
-        }
-    return JSONResponse({"error": "unsupported_grant_type"}, status_code=400)
+        return _oauth_json(
+            {
+                "access_token": access,
+                "token_type": "Bearer",
+                "expires_in": 3600,
+                "refresh_token": new_refresh,
+                "scope": " ".join(scopes),
+            }
+        )
+    return _oauth_json({"error": "unsupported_grant_type"}, status_code=400)
 
 
 @router.get("/api/public/plans")
