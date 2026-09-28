@@ -390,9 +390,7 @@ def _raw_mesh_ref_can_retry(ref: str) -> bool:
     provider = normalized.split(":", 1)[0]
     if provider in _NON_RETRYABLE_RAW_PROVIDERS:
         return False
-    if normalized in _NON_RETRYABLE_RAW_REFS:
-        return False
-    return True
+    return normalized not in _NON_RETRYABLE_RAW_REFS
 
 
 def _retryable_quoted_credits(
