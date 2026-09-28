@@ -107,7 +107,7 @@ async def test_available_actions_follow_subscription_provider_access(monkeypatch
 async def test_raw_discovery_and_describe_hide_routes_outside_the_plan(monkeypatch: pytest.MonkeyPatch) -> None:
     class Mesh:
         def __init__(self):
-            self.providers = {"nativeweb": object(), "apify": object()}
+            self.providers = {"nativeweb": object(), "apify": object(), "composio": object()}
 
         async def provider_status(self):
             return {name: {"configured": True, "executable": True} for name in self.providers}
@@ -125,6 +125,7 @@ async def test_raw_discovery_and_describe_hide_routes_outside_the_plan(monkeypat
     free_token = current_auth.set(_identity("alice"))
     try:
         assert [tool["ref"] for tool in (await mesh_search("fetch"))["tools"]] == ["nativeweb:fetch"]
+        assert (await mesh_search("fetch", providers=["composio"]))["tools"] == []
         assert set(await mesh_providers()) == {"nativeweb"}
         with pytest.raises(PermissionError):
             await mesh_describe("apify:fetch")

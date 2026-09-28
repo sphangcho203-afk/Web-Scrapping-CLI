@@ -146,7 +146,8 @@ async def mesh_providers() -> dict[str, Any]:
         return statuses
     return {
         name: status for name, status in statuses.items()
-        if catalog_provider_allowed(identity, name)
+        if name not in {"composio", "mcp"}
+        and catalog_provider_allowed(identity, name)
     }
 
 
@@ -164,7 +165,8 @@ async def _account_catalog_search(
     statuses = await mesh.provider_status()
     allowed = [
         name for name in requested
-        if catalog_provider_allowed(identity, name)
+        if name not in {"composio", "mcp"}
+        and catalog_provider_allowed(identity, name)
         and (statuses.get(name) or {}).get("executable")
         and (statuses.get(name) or {}).get("configured") is not False
     ]
