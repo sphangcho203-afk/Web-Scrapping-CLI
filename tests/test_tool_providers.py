@@ -53,6 +53,7 @@ async def test_apify_search_and_async_execute() -> None:
         )
         tools = await provider.search("web", limit=3)
         assert tools[0].ref == "apify:apify/web-scraper"
+        assert tools[0].side_effecting is True
         result = await provider.execute(
             "apify/web-scraper",
             {"startUrls": [{"url": "https://example.com"}]},
