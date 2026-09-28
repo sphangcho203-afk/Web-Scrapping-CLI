@@ -247,7 +247,11 @@ class RawgGamingCatalogProvider:
 
         elif tool_id == "game-detail":
             raw = str(arguments.get("id_or_slug") or "").strip()
-            if not raw or not re.fullmatch(r"[A-Za-z0-9._-]{1,160}", raw):
+            if (
+                not raw
+                or raw in {".", ".."}
+                or not re.fullmatch(r"[A-Za-z0-9._-]{1,160}", raw)
+            ):
                 raise ValueError("id_or_slug contains unsupported characters")
             path = f"/games/{quote(raw, safe='')}"
         elif tool_id in {"platforms-search", "developers-search", "publishers-search"}:
