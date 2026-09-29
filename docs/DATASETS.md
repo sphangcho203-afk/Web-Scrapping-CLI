@@ -4,7 +4,7 @@ Search, research and crawl runs now save their collected output in the control d
 
 ## What is saved
 
-Each row preserves a source record and a `record_type`: `search_results`, `pages`, or `evidence`. Search rows contain the discovered title, URL and description when supplied by the source. Research evidence includes captured text and failure details. The current bounded Playground crawler produces page metadata, status, depth and hashes; it does **not** provide full page bodies. Dataset exports do not invent missing fields or turn crawl metadata into scraped content. The complete result envelope, including synthesis and provenance, is retained internally in `output`.
+Each row preserves a source record and a `record_type`: `search_results`, `pages`, or `evidence`. Search rows contain the discovered title, URL and description when supplied by the source. Research evidence includes captured text and failure details. Playground URL crawls include bounded readable text, title, description, headings, capture timestamp, status, depth and source hashes. Check `content_truncated` and `content_error` before using a page. See [crawl content](CRAWL_CONTENT.md) for extraction limits and a RAG export example. The complete result envelope, including synthesis and provenance, is retained internally in `output`.
 
 One dataset is associated with each saved Playground request. Saving again for the same request returns the original dataset. This prevents duplicate storage; it does not provide idempotent execution for repeated POST requests. A new collection request still has a new request ID and charge. API keys and request credentials are never copied into datasets.
 
@@ -88,4 +88,4 @@ Names and values are escaped in the browser; downloads have a server-generated f
 
 ## Next work
 
-Dataset delivery via webhooks, monitor appends, recipes, full crawl content extraction and durable asynchronous jobs remain separate implementation waves. Existing outputs from before this change cannot be reconstructed from usage metadata alone.
+Dataset delivery via webhooks, monitor appends, recipes and durable asynchronous jobs remain separate implementation waves. Existing outputs from before this change cannot be reconstructed from usage metadata alone.

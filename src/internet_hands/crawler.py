@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 from urllib.robotparser import RobotFileParser
 
 from .execution_meter import record_usage
+from .extractor import extract_document
 from .fetcher import DEFAULT_UA, extract_links, fetch_url
 from .models import CrawlPage, CrawlResult
 from .policy import validate_public_http_url
@@ -33,6 +34,11 @@ def _same_scope(seed_host: str, candidate_host: str | None, include_subdomains: 
     return host == root or (include_subdomains and host.endswith("." + root))
 
 
+def _bounded_text(value: str, max_bytes: int) -> tuple[str, bool]:
+    encoded = value.encode("utf-8")
+    return encoded[:max_bytes].decode("utf-8", errors="ignore"), len(encoded) > max_bytes
+
+
 def _path_allowed(url: str, include_paths: tuple[str, ...], exclude_paths: tuple[str, ...]) -> bool:
     path = urlsplit(url).path or "/"
     if include_paths and not any(fnmatch.fnmatch(path, pattern) for pattern in include_paths):
@@ -56,6 +62,9 @@ async def crawl(
     include_subdomains: bool = False,
     preserve_query: bool = True,
     max_bytes_per_page: int = 2_000_000,
+    include_content: bool = False,
+    max_content_bytes_per_page: int = 50_000,
+    max_content_bytes: int = 750_000,
 ) -> CrawlResult:
     """Crawl a bounded public site with SSRF, robots, depth, time and fan-out controls."""
     validate_public_http_url(seed_url)
@@ -69,6 +78,14 @@ async def crawl(
         raise ValueError("max_seconds must be between 1 and 600")
     if max_bytes_per_page < 32_000 or max_bytes_per_page > 8_000_000:
         raise ValueError("max_bytes_per_page must be between 32000 and 8000000")
+    if not isinstance(include_content, bool):
+        raise TypeError("include_content must be a boolean")
+    if type(max_content_bytes_per_page) is not int or type(max_content_bytes) is not int:
+        raise TypeError("content budgets must be integers")
+    if not 1 <= max_content_bytes_per_page <= 200_000:
+        raise ValueError("max_content_bytes_per_page must be between 1 and 200000")
+    if not 1 <= max_content_bytes <= 1_000_000:
+        raise ValueError("max_content_bytes must be between 1 and 1000000")
 
     include = tuple(str(x).strip() for x in (include_paths or ()) if str(x).strip())
     exclude = tuple(str(x).strip() for x in (exclude_paths or ()) if str(x).strip())
@@ -83,6 +100,7 @@ async def crawl(
     pages: list[CrawlPage] = []
     skipped = 0
     timed_out = False
+    content_bytes = 0
     robots_cache: dict[str, RobotFileParser] = {}
 
     async def robots_for(url: str) -> RobotFileParser | None:
@@ -98,6 +116,7 @@ async def crawl(
         return parser
 
     async def fetch_one(url: str, depth: int) -> tuple[CrawlPage, list[str]]:
+        nonlocal content_bytes
         parser = await robots_for(url)
         if parser is not None and not parser.can_fetch(DEFAULT_UA, url):
             return CrawlPage(url=url, depth=depth, error="blocked by robots.txt"), []
@@ -114,18 +133,48 @@ async def crawl(
                 ),
             )
             links = extract_links(result).links if result.body_text else []
-            return (
-                CrawlPage(
-                    url=result.final_url,
-                    status_code=result.status_code,
-                    sha256=result.sha256,
-                    links_found=len(links),
-                    depth=depth,
-                    content_type=result.content_type,
-                    elapsed_ms=result.elapsed_ms,
-                ),
-                links,
+            page = CrawlPage(
+                url=result.final_url,
+                status_code=result.status_code,
+                sha256=result.sha256,
+                links_found=len(links),
+                depth=depth,
+                content_type=result.content_type,
+                elapsed_ms=result.elapsed_ms,
             )
+            if include_content:
+                page.captured_at = result.captured_at
+                content_type = (result.content_type or "").lower()
+                readable = content_type.startswith("text/") or any(
+                    kind in content_type for kind in ("html", "json", "xml")
+                )
+                if not 200 <= result.status_code < 300:
+                    page.content_error = f"HTTP {result.status_code}: content was not extracted."
+                elif not readable:
+                    page.content_error = "This content type does not support text extraction."
+                else:
+                    try:
+                        document = extract_document(result)
+                        title, title_clipped = _bounded_text(document.title or "", 1000)
+                        description, description_clipped = _bounded_text(document.description or "", 2000)
+                        headings = [_bounded_text(value, 500) for value in document.headings[:40]]
+                        page.title = title or None
+                        page.description = description or None
+                        page.headings = [value for value, _ in headings]
+                        metadata_clipped = (title_clipped or description_clipped
+                                            or len(document.headings) > 40
+                                            or any(clipped for _, clipped in headings))
+                        # No await between reading and claiming the shared budget: concurrent
+                        # fetches cannot each claim the same remaining capacity.
+                        allowance = min(max_content_bytes_per_page, max_content_bytes - content_bytes)
+                        page.text, page.content_truncated = _bounded_text(document.text, allowance)
+                        page.content_truncated = page.content_truncated or metadata_clipped
+                        content_bytes += len(page.text.encode("utf-8"))
+                        if not document.text:
+                            page.content_error = "No readable text was found in this capture."
+                    except Exception:  # noqa: BLE001 -- preserve a successful fetch on extraction failure
+                        page.content_error = "Readable content could not be extracted from this capture."
+            return page, links
         except Exception as exc:  # noqa: BLE001 -- per-page failures are returned as crawl data
             return CrawlPage(url=url, depth=depth, error=f"{type(exc).__name__}: {exc}"), []
 
@@ -177,6 +226,8 @@ async def crawl(
         skipped_urls=skipped,
         duration_ms=max(0, int((time.monotonic() - started) * 1000)),
         truncated=bool(queue) or timed_out or len(pages) >= max_pages,
+        content_bytes=content_bytes,
+        content_truncated=any(page.content_truncated for page in pages),
     )
 
 

@@ -1595,12 +1595,16 @@ function openRunInspector(event) {
         '<section class="search-results-list"><div class="search-section-head"><div><div class="search-section-kicker">CRAWLED PAGES</div><h3>'+pages.length+' pages</h3></div></div>'+
         pages.slice(0,50).map((page,i)=>{
           const url=String(page.url||'');
-          const ok=Boolean(page.status_code)&&!page.error;
+          const ok=Number(page.status_code)>=200&&Number(page.status_code)<300&&!page.error;
           return '<article class="search-result-card">'+
             '<div class="search-result-rank">'+(i+1)+'</div>'+
             '<div class="search-result-body"><div class="search-result-domain">'+esc(domainOf(url)||'page')+' · '+(ok?'OK':'FAILED')+'</div>'+
-            '<a class="search-result-title" href="'+esc(url)+'" target="_blank" rel="noopener">'+esc(url)+'</a>'+
-            '<p>'+(ok?esc(String(page.status_code))+' · '+esc(String(page.links_found||0))+' links found':esc(String(page.error||'Could not fetch page')))+'</p></div>'+
+            '<a class="search-result-title" href="'+esc(url)+'" target="_blank" rel="noopener">'+esc(String(page.title||url))+'</a>'+
+            '<p>'+(ok?esc(String(page.status_code))+' · '+esc(String(page.links_found||0))+' links found':esc(String(page.error||page.content_error||'Could not fetch page')))+'</p>'+
+            (page.description?'<p>'+esc(String(page.description))+'</p>':'')+
+            (page.text?'<details class="crawl-content"><summary>Read page text</summary><pre>'+esc(String(page.text))+'</pre></details>':'')+
+            (page.content_truncated?'<p class="crawl-content-notice">Content was shortened to fit the collection limits.</p>':'')+
+            (ok&&page.content_error?'<p class="crawl-content-notice">'+esc(String(page.content_error))+'</p>':'')+'</div>'+
           '</article>';
         }).join('')+
         '</section>'

@@ -367,6 +367,11 @@ async def playground_run(request: Request):
     exclude_paths = [*_SAFE_EXCLUDES, *_patterns(body.get("exclude_paths"), "exclude_paths")]
     include_subdomains = bool(body.get("include_subdomains", False))
     preserve_query = bool(body.get("preserve_query", False))
+    include_content = body.get("include_content", True)
+    if not isinstance(include_content, bool):
+        raise HTTPException(status_code=400, detail={"code": "invalid_input", "message": "include_content must be a boolean."})
+    content_per_page = _bounded_int(body.get("max_content_bytes_per_page"), "max_content_bytes_per_page", 50_000, 1, 200_000)
+    content_budget = _bounded_int(body.get("max_content_bytes"), "max_content_bytes", 750_000, 1, 1_000_000)
 
     request_id = f"req_{uuid.uuid4().hex}"
     arguments = {
@@ -379,6 +384,9 @@ async def playground_run(request: Request):
         "max_seconds": max_seconds,
         "include_subdomains": include_subdomains,
         "preserve_query": preserve_query,
+        "include_content": include_content,
+        "max_content_bytes_per_page": content_per_page,
+        "max_content_bytes": content_budget,
     }
     try:
         reserved = store.reserve_tool_call(
@@ -458,6 +466,9 @@ async def playground_run(request: Request):
                 include_subdomains=include_subdomains,
                 preserve_query=preserve_query,
                 max_bytes_per_page=2_000_000,
+                include_content=include_content,
+                max_content_bytes_per_page=content_per_page,
+                max_content_bytes=content_budget,
             )
             payload = result.model_dump(mode="json")
             payload["search_results"] = search_sources
@@ -483,6 +494,8 @@ async def playground_run(request: Request):
             "fallback_attempted": int((payload.get("fallback") or {}).get("attempted") or 0),
             "fallback_recovered": int((payload.get("fallback") or {}).get("recovered") or 0),
             "seed_url": payload.get("seed_url") or url or None,
+            "content_bytes": int(payload.get("content_bytes") or 0),
+            "content_truncated": bool(payload.get("content_truncated")),
         }
         response = {
             "ok": True,

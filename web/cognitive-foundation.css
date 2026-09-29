@@ -2476,3 +2476,8 @@ html.ih-overlay-open,html.ih-overlay-open body{overflow:hidden}
 /* Saved outputs */
 .dataset-controls form,.dataset-filter,.dataset-exports,.dataset-pager{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .dataset-controls{display:grid;gap:16px;margin-bottom:20px}.dataset-filter{margin:16px 0}.dataset-controls label,.dataset-filter label{display:grid;gap:6px;min-width:0}.dataset-controls input,.dataset-filter input{max-width:100%;padding:10px;border:1px solid var(--line,#333);border-radius:8px;background:transparent;color:inherit}.dataset-table td>div{max-width:360px;max-height:180px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}.dataset-pager{margin-top:16px}.dataset-controls form{min-width:0}.dataset-controls input{width:min(380px,100%)}
+
+.crawl-content { margin-top: 12px; }
+.crawl-content summary { cursor: pointer; }
+.crawl-content pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; max-height: 360px; overflow-y: auto; }
+.crawl-content-notice { font-size: 12px; }

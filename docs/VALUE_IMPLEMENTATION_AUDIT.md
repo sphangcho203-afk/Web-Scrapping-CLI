@@ -52,3 +52,7 @@ These establish competitor capability patterns; they do not prove OpenCrawl cust
 ## Limits and remaining mandate
 
 No production DB credentials were needed for development. Tests use an isolated database and provider fixtures. Production authentication/provider execution, previews and promotion require their own verification. This tranche does not fulfill the full attached multi-wave directive: complete market research, whole-product audit, asynchronous runs/cancellation, extraction unification, monitor delivery and automation composition remain future work. No placeholder routes for those capabilities were introduced.
+
+## Readable crawl content follow-up
+
+Playground URL crawls now include bounded readable text and provenance in saved page rows. Text is extracted from the existing HTTP capture, with explicit per-page and aggregate UTF-8 limits and failure/truncation fields. The console exposes expandable text, and JSONL exports can feed a RAG chunker. See [CRAWL_CONTENT.md](CRAWL_CONTENT.md) for the current contract. JavaScript rendering, automated embeddings, webhook delivery and asynchronous jobs remain future work. The tables above describe the original audit baseline.

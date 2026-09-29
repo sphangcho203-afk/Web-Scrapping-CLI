@@ -755,3 +755,43 @@ def test_community_reward_code_redemption(frontend_url):
         assert page.get_by_text("+100 pts", exact=True).count() >= 1
         assert not errors, errors
         browser.close()
+
+
+def test_playground_crawl_text_is_escaped_and_truncation_visible(frontend_url):
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 800})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if path == "/api/auth/me":
+                data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            elif path == "/api/api-keys":
+                data = {"keys": [{"id": "key_fixture", "name": "Test key", "prefix": "ih_test"}]}
+            elif path == "/api/playground/run":
+                data = {"ok": True, "operation": "crawl", "request_id": "req_fixture",
+                        "usage": {}, "summary": {"pages": 1, "successful": 1, "content_truncated": True},
+                        "dataset": {"id": "ds_fixture"},
+                        "result": {"pages": [{"url": "https://example.com", "title": "API guide",
+                            "status_code": 200, "text": '<img src=x onerror="window.injected=true">' + 'X' * 400,
+                            "content_truncated": True}], "search_results": [], "evidence": []}}
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/playground")
+        page.locator("#research-query").fill("https://example.com")
+        page.get_by_role("button", name="Run search", exact=True).click()
+        page.get_by_text("Content was shortened to fit the collection limits.", exact=True).wait_for()
+        page.get_by_text("Read page text", exact=True).click()
+        assert '<img src=x onerror="window.injected=true">' in page.locator(".crawl-content pre").inner_text()
+        assert page.locator(".crawl-content img").count() == 0
+        assert page.evaluate("window.injected === undefined")
+        for width in (320, 390, 1366):
+            page.set_viewport_size({"width": width, "height": 800})
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
+        assert not errors
+        browser.close()
