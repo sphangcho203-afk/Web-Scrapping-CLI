@@ -30,6 +30,7 @@ from .control_store import (
     WALLET_UNITS_PER_USD,
     ControlError,
     ControlStore,
+    credit_burn_multiplier,
     random_token,
 )
 from .mailer import mail_provider, resend_configured, smtp_configured
@@ -313,6 +314,8 @@ def public_plans():
             "credit_packs": store.list_credit_packs(),
             "display_currency": "USD",
             "wallet_units_per_usd": WALLET_UNITS_PER_USD,
+            "credit_burn_multiplier": credit_burn_multiplier(),
+            "tool_access_model": "universal_credit_metered",
             "custom_topup": {
                 "currency": "USD",
                 "min_usd_cents": CUSTOM_TOPUP_MIN_USD_CENTS,
