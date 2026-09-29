@@ -1801,7 +1801,7 @@ class ControlStore:
         input_bytes: int,
     ) -> int:
         """Compatibility path: reserve and immediately settle the quoted cost."""
-        reserved = self.reserve_tool_call(
+        self.reserve_tool_call(
             identity=identity,
             request_id=request_id,
             tool_name=tool_name,
