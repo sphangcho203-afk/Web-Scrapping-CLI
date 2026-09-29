@@ -1317,9 +1317,9 @@ class ControlStore:
         quote = estimate.to_dict()
         if not estimate.allowed:
             raise ControlError(
-                "plan_restricted",
-                estimate.reason or "tool is unavailable on the current plan",
-                403,
+                "tool_unavailable",
+                estimate.reason or "tool cannot be quoted for this request",
+                400,
             )
         raw_quote = _with_retry_reservation(
             tool_name,
@@ -1339,9 +1339,9 @@ class ControlStore:
         estimate = estimate_call(tool_name, arguments, plan_slug)
         if not estimate.allowed:
             raise ControlError(
-                "plan_restricted",
-                estimate.reason or "tool is unavailable on the current plan",
-                403,
+                "tool_unavailable",
+                estimate.reason or "tool cannot be quoted for this request",
+                400,
             )
         return _apply_credit_burn(int(estimate.credits))
 
