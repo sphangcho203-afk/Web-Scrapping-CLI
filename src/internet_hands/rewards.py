@@ -14,7 +14,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 
 from .control_api import _json_error, _require_user, _require_verified, store
-from .control_store import WALLET_UNITS_PER_USD, ControlError
+from .control_store import WALLET_UNITS_PER_USD, ControlError, credit_burn_multiplier
 
 router = APIRouter()
 
@@ -216,9 +216,12 @@ def _parse_optional_datetime(value: Any, field: str) -> datetime | None:
 
 def _reward_units_per_point() -> int:
     try:
-        value = int(os.getenv("OPENCRAWL_REWARD_UNITS_PER_POINT", str(DEFAULT_REWARD_UNITS_PER_POINT)))
+        base_value = int(os.getenv("OPENCRAWL_REWARD_UNITS_PER_POINT", str(DEFAULT_REWARD_UNITS_PER_POINT)))
     except (TypeError, ValueError):
-        value = DEFAULT_REWARD_UNITS_PER_POINT
+        base_value = DEFAULT_REWARD_UNITS_PER_POINT
+    # Reward accrual tracks the underlying metered work, not pricing policy.
+    # Raising the wallet burn multiplier must not mint reward points faster.
+    value = max(1, base_value) * credit_burn_multiplier()
     return max(1, min(value, WALLET_UNITS_PER_USD * 100))
 
 
