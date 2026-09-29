@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import math
 import re
 import time
@@ -10,6 +11,7 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import APIRouter, HTTPException, Request
+from psycopg import Error as DatabaseError
 
 from .auth import authenticate_secret
 from .capability_economics import settle_measured_cost
@@ -22,6 +24,7 @@ from .control_store import (
     wallet_credits_for_raw,
 )
 from .crawler import crawl
+from .datasets import DatasetStore
 from .extractor import extract_document
 from .fetcher import fetch_url
 from .firecrawl_provider import FirecrawlToolProvider
@@ -30,6 +33,18 @@ from .web_search import SearchKind, brave_search
 
 router = APIRouter()
 store = ControlStore()
+logger = logging.getLogger(__name__)
+
+
+def _save_output(user_id: str, request_id: str, operation: str,
+                 payload: dict[str, Any], name: str) -> dict[str, Any]:
+    try:
+        return {"dataset": DatasetStore(store).save(user_id, request_id, operation, payload, name)}
+    except (ControlError, DatabaseError):
+        logger.exception("Dataset persistence failed for run %s", request_id)
+        # Collection still completed and is metered. Never claim persistence succeeded.
+        return {"dataset": None, "warnings": [{"code": "dataset_not_saved",
+                "message": "Collection completed, but the output could not be saved. Copy the result before leaving this page. The collection charge still applies."}]}
 
 _SAFE_EXCLUDES = (
     "*/logout*",
@@ -493,6 +508,7 @@ async def playground_run(request: Request):
             "summary": summary,
             "result": payload,
         }
+        response.update(_save_output(identity.user_id, request_id, operation, payload, query or url))
         output_bytes = len(json.dumps(response, default=str, separators=(",", ":")).encode())
         status = "ok"
         return response

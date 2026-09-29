@@ -25,7 +25,7 @@ def test_usage_feature_is_composed_into_single_shipped_runtime() -> None:
     assert 'runtime = WEB_ROOT / "app.js"' in site
     assert 'usage = WEB_ROOT / "usage-intelligence.js"' in site
     assert 'docs = WEB_ROOT / "docs-content.js"' in site
-    assert "sources = [legal, docs, runtime, usage, monitors]" in site
+    assert "sources = [legal, docs, runtime, usage, monitors, datasets]" in site
     assert '"\\n\\n".join(source.read_text(encoding="utf-8") for source in sources)' in site
     assert '"usage-intelligence.js":' not in site
 

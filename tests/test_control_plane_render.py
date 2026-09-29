@@ -11,6 +11,58 @@ from internet_hands.site import WEB_ROOT, _browser_runtime
 playwright = pytest.importorskip("playwright.sync_api")
 
 
+def test_saved_dataset_browser_controls_and_exports(frontend_url):
+    dataset = {"id": "ds_fixture", "name": "Collected sources", "operation": "search",
+               "row_count": 1, "columns": ["url", "title"], "request_id": "req_fixture"}
+    deleted = False
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 800})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+
+        def respond(route):
+            nonlocal deleted
+            url, method = route.request.url, route.request.method
+            if "/api/auth/me" in url:
+                data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            elif "/export?format=csv" in url:
+                route.fulfill(status=200, content_type="text/csv", body="title,url\nSource,https://example.com\n")
+                return
+            elif method == "PATCH":
+                dataset["name"] = route.request.post_data_json["name"]
+                data = {"dataset": dataset}
+            elif method == "DELETE":
+                deleted = True
+                data = {"deleted": True}
+            elif "/api/datasets/ds_fixture" in url:
+                data = {"dataset": dataset, "rows": [{"url": "https://example.com", "title": "Source"}], "total": 1}
+            elif "/api/datasets" in url:
+                data = {"datasets": [] if deleted else [dataset], "total": 0 if deleted else 1}
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/datasets")
+        page.get_by_role("link", name="Collected sources", exact=True).click()
+        page.locator("#dataset-rename").wait_for()
+        for width in (320, 390, 1366):
+            page.set_viewport_size({"width": width, "height": 800})
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
+        page.locator('#dataset-rename input').fill("Renamed output")
+        page.locator('#dataset-rename button').click()
+        page.get_by_role("heading", name="Renamed output", exact=True).wait_for()
+        with page.expect_download() as download:
+            page.get_by_role("button", name="Download CSV", exact=True).click()
+        assert download.value.suggested_filename == "ds_fixture.csv"
+        page.on("dialog", lambda dialog: dialog.accept())
+        page.get_by_role("button", name="Delete dataset", exact=True).click()
+        page.get_by_text("No saved outputs yet", exact=True).wait_for()
+        assert deleted and not errors
+        browser.close()
+
+
 @pytest.fixture(scope="module")
 def frontend_url():
     class Handler(BaseHTTPRequestHandler):

@@ -835,7 +835,7 @@ async function dashPublicData(){
     finally{running=false;busy(button,false);form.removeAttribute('aria-busy');}
   };
 }
-async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,games:dashGames,repositories:dashRepositories,data:dashPublicData,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,rewards:dashRewards,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
+async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,datasets:dashDatasets,games:dashGames,repositories:dashRepositories,data:dashPublicData,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,rewards:dashRewards,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
 async function renderRoute(){clearTransientUi();window.scrollTo(0,0);const p=location.pathname;try{if(p==='/'||p==='/pricing'||p==='/status'||p.startsWith('/docs')||p.startsWith('/legal')||LEGAL_ALIASES[p])await hydrateOptionalSession();if(p.startsWith('/dashboard'))return await renderDashboard();if(p==='/verify-email')return await renderVerify();if(p==='/login')return renderAuth('login');if(p==='/signup')return renderAuth('signup');if(p==='/forgot-password')return renderRecovery();if(p==='/reset-password')return renderRecovery(true);if(p.startsWith('/legal')||LEGAL_ALIASES[p])return renderLegal();if(p.startsWith('/docs'))return renderDocs();if(p==='/pricing')return await renderPricing();if(p==='/status')return await renderStatus();return await renderHome();}catch(error){console.error(error);if(error.status===401)return go('/login',true);app.innerHTML=`<main class="fatal"><div>${brand()}<span class="eyebrow">REQUEST FAILED</span><h1>The control plane did not answer cleanly.</h1><p>${esc(error.message)}</p><button class="btn primary" onclick="location.reload()">Try again</button></div></main>`;}}
 document.addEventListener('click',e=>{
   if(e.defaultPrevented)return;
@@ -1625,6 +1625,14 @@ function openRunInspector(event) {
         ((!answer&&!searchCards&&!crawlCards)?'<div class="search-empty">'+icon('activity')+'<div><h3>No results found</h3><p>Try a broader query or a different public URL.</p></div></div>':'')+
         evidenceBlock+technical;
       results.hidden=false;
+      if(data.dataset?.id){
+        const saved=document.createElement('a');
+        saved.className='btn';saved.setAttribute('data-link','');
+        saved.href='/dashboard/datasets?dataset='+encodeURIComponent(data.dataset.id);
+        saved.textContent='Open saved dataset · Download JSON / JSONL / CSV';
+        results.prepend(saved);bindCommon();
+      }
+      (data.warnings||[]).forEach(warning=>toast(warning.message,'error'));
       results.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});
       $('#ihp-new-search')?.addEventListener('click',()=>{results.hidden=true;queryInput.focus();});
     };
@@ -1795,6 +1803,7 @@ function openRunInspector(event) {
     ['Build', [
       ['overview','terminal','Overview'],
       ['playground','activity','Playground'],
+      ['datasets','docs','Datasets'],
       ['data','search','Public data'],
       ['games','activity','Game Intelligence'],
       ['repositories','api','Repositories'],

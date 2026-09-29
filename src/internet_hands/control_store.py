@@ -151,6 +151,21 @@ CREATE TABLE IF NOT EXISTS ih_usage_events (
 CREATE INDEX IF NOT EXISTS ih_usage_user_time_idx ON ih_usage_events(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS ih_usage_key_time_idx ON ih_usage_events(api_key_id, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS ih_datasets (
+    id text PRIMARY KEY,
+    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,
+    request_id text NOT NULL UNIQUE REFERENCES ih_usage_events(request_id) ON DELETE CASCADE,
+    name text NOT NULL,
+    operation text NOT NULL,
+    row_count integer NOT NULL CHECK (row_count >= 0),
+    columns jsonb NOT NULL,
+    rows jsonb NOT NULL,
+    output jsonb NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ih_datasets_user_time_idx ON ih_datasets(user_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS ih_provider_usage (
     id text PRIMARY KEY,
     request_id text NOT NULL REFERENCES ih_usage_events(request_id) ON DELETE CASCADE,
