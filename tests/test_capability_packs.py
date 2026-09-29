@@ -72,7 +72,7 @@ class CapabilityProvider:
 
 
 @pytest.mark.asyncio
-async def test_free_semantic_fallback_skips_metered_route() -> None:
+async def test_free_semantic_route_can_select_metered_provider() -> None:
     mesh = ToolMesh([CapabilityProvider("apify"), CapabilityProvider("nativeweb")])
     registry = CapabilityRegistry(mesh, [Capability(
         id="web.fetch.test", name="Fetch", description="Fetch", pack="web", tags=("web",),
@@ -90,8 +90,8 @@ async def test_free_semantic_fallback_skips_metered_route() -> None:
         result = await registry.execute("web.fetch.test", {"url": "https://example.com"})
     finally:
         current_auth.reset(token)
-    assert result["selected"] == "nativeweb:fetch"
-    assert [item["status"] for item in result["attempts"]] == ["skipped", "completed"]
+    assert result["selected"] == "apify:fetch"
+    assert [item["status"] for item in result["attempts"]] == ["completed"]
 
 
 @pytest.mark.asyncio
