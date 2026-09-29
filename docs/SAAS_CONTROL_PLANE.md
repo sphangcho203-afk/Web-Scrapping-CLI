@@ -126,12 +126,12 @@ For customer-authenticated `tools/call` requests the gateway:
 
 1. authenticates the API key or OAuth access token;
 2. checks plan RPM;
-3. determines the tool cost;
-4. checks the wallet;
-5. deducts monthly credits first, then purchased credits;
-6. creates a request ID and usage event;
-7. executes the MCP tool;
-8. records status, latency, and output bytes.
+3. quotes the underlying OpenCrawl work and applies the configured wallet burn multiplier;
+4. checks whether the wallet can reserve that amount;
+5. creates a request ID and reservation-backed usage event;
+6. executes the MCP tool;
+7. settles measured work, deducting monthly credits first and then purchased credits;
+8. releases unused reservation headroom and records status, latency, output bytes, and final charge.
 
 Operator calls using `INTERNET_HANDS_API_KEY` bypass customer charging.
 
@@ -139,12 +139,16 @@ Operator calls using `INTERNET_HANDS_API_KEY` bypass customer charging.
 
 | Plan | INR/month | Credits | RPM | API keys | Monitors |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Free | 0 | 2,500 | 10 | 1 | 1 |
+| Free | 0 | 250 | 10 | 1 | 1 |
 | Builder | 499 | 25,000 | 60 | 5 | 10 |
 | Pro | 1,499 | 150,000 | 240 | 20 | 50 |
 | Scale | 4,999 | 750,000 | 600 | 100 | 250 |
 
 Purchased credit packs use a separate rollover bucket.
+
+All plans use the same tool catalog. Free, Builder, Pro, and Scale can call browser, sandbox, public, metered, and premium provider routes when the request is otherwise authorized/configured and the wallet can reserve the quoted charge. Plans differentiate included credits, RPM/concurrency, API-key limits, and monitor capacity rather than tool availability.
+
+Hosted OpenCrawl work uses `OPENCRAWL_CREDIT_BURN_MULTIPLIER` (default `3`) after raw provider/work estimation. BYO connected apps and user-saved MCP servers remain zero OpenCrawl wallet charge for the external capability itself.
 
 ## Production rollout rule
 
