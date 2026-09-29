@@ -15,6 +15,8 @@ OPENCRAWL_CREDIT_BURN_MULTIPLIER=3
 
 With the default 3× wallet burn, one reward point requires 750 charged wallet units. This normalization preserves the same underlying 250-unit earning threshold instead of making rewards three times easier to earn when wallet consumption is accelerated.
 
+Accrual normalizes **each settled usage event** using the multiplier recorded on that event. New events persist their final `raw_settled` work directly; legacy events without multiplier metadata are treated as 1× because their historical wallet charge already matched raw work. Changing the multiplier later therefore does not reprice old, unprocessed reward usage.
+
 User-owned connected apps and user-owned remote MCP servers that cost $0 in the OpenCrawl wallet therefore do not mint reward points merely for passing through the Tool Mesh.
 
 Reward earning is cumulative and idempotent. OpenCrawl records how many usage-derived points have already been credited so refreshing the page or retrying a request cannot duplicate points.
