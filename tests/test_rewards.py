@@ -3,12 +3,19 @@ from __future__ import annotations
 from internet_hands import rewards
 
 
-def test_default_reward_rate_is_five_cents_per_point(monkeypatch) -> None:
+def test_default_reward_rate_is_stable_under_wallet_burn(monkeypatch) -> None:
     monkeypatch.delenv("OPENCRAWL_REWARD_UNITS_PER_POINT", raising=False)
+    monkeypatch.delenv("OPENCRAWL_CREDIT_BURN_MULTIPLIER", raising=False)
+
+    # The hosted wallet burns 3x by default, so reward accrual normalizes to
+    # 750 charged units per point and preserves the underlying $0.05 work rate.
+    assert rewards._reward_units_per_point() == 750
+    assert rewards._points_from_usage(749) == 0
+    assert rewards._points_from_usage(750) == 1
+    assert rewards._points_from_usage(75_000) == 100
+
+    monkeypatch.setenv("OPENCRAWL_CREDIT_BURN_MULTIPLIER", "1")
     assert rewards._reward_units_per_point() == 250
-    assert rewards._points_from_usage(249) == 0
-    assert rewards._points_from_usage(250) == 1
-    assert rewards._points_from_usage(25_000) == 100
 
 
 def test_reward_catalog_wallet_values_match_display_currency() -> None:
