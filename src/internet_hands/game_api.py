@@ -8,7 +8,11 @@ from fastapi import APIRouter, HTTPException, Request
 
 from .capability_economics import settle_measured_cost
 from .control_api import _require_user, _require_verified
-from .control_store import ControlError
+from .control_store import (
+    ControlError,
+    raw_credits_from_wallet_reservation,
+    wallet_credits_for_raw,
+)
 from .execution_meter import execution_usage_snapshot, reset_execution_meter, start_execution_meter
 from .game_catalog import build_game_adapters
 from .game_execution import discover_game_tools, validate_game_arguments
@@ -91,6 +95,7 @@ async def run_local_game_tool(request: Request, game_id: str, capability_id: str
             identity=identity, request_id=request_id, tool_name=tool_name,
             arguments=arguments, input_bytes=len(json.dumps(body).encode()),
         )
+        raw_reserved = raw_credits_from_wallet_reservation(reserved)
     except ControlError as exc:
         raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": exc.detail}) from exc
     started = time.monotonic()
@@ -98,8 +103,22 @@ async def run_local_game_tool(request: Request, game_id: str, capability_id: str
     output_bytes = 0
     try:
         result = await get_tool_mesh().providers["gamecore"].execute(tool_id, arguments)
-        response = {"ok": True, "request_id": request_id, "result": result["data"],
-                    "usage": {"credits_charged": 1, "credits_reserved": reserved}}
+        raw_charge = settle_measured_cost(
+            tool_name,
+            arguments,
+            identity.plan_slug,
+            reserved_credits=raw_reserved,
+            execution_usage={"completed": True},
+        )
+        response = {
+            "ok": True,
+            "request_id": request_id,
+            "result": result["data"],
+            "usage": {
+                "credits_charged": wallet_credits_for_raw(raw_charge),
+                "credits_reserved": reserved,
+            },
+        }
         output_bytes = len(json.dumps(response).encode())
         status = "ok"
         return response
@@ -112,7 +131,7 @@ async def run_local_game_tool(request: Request, game_id: str, capability_id: str
             request_id, status=status, latency_ms=max(0, int((time.monotonic() - started) * 1000)),
             output_bytes=output_bytes,
             actual_credits=settle_measured_cost(tool_name, arguments, identity.plan_slug,
-                                                reserved_credits=reserved, execution_usage={"completed": status == "ok"}),
+                                                reserved_credits=raw_reserved, execution_usage={"completed": status == "ok"}),
             execution_usage={"completed": status == "ok", "counters": {"local_operations": 1}},
         )
 
@@ -137,6 +156,7 @@ async def _run_mesh_game_tool(request: Request, body: dict, capability):
             identity=identity, request_id=request_id, tool_name="mesh_execute",
             arguments=metered_arguments, input_bytes=len(json.dumps(body).encode()),
         )
+        raw_reserved = raw_credits_from_wallet_reservation(reserved)
     except ControlError as exc:
         raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": exc.detail}) from exc
     started = time.monotonic()
@@ -145,8 +165,14 @@ async def _run_mesh_game_tool(request: Request, body: dict, capability):
     meter = start_execution_meter()
     try:
         execution = await get_tool_mesh().execute(supplied_ref, arguments, timeout_seconds=18)
-        charged = settle_measured_cost("mesh_execute", metered_arguments, identity.plan_slug,
-                                       reserved_credits=reserved, execution_usage=execution_usage_snapshot())
+        raw_charge = settle_measured_cost(
+            "mesh_execute",
+            metered_arguments,
+            identity.plan_slug,
+            reserved_credits=raw_reserved,
+            execution_usage=execution_usage_snapshot(),
+        )
+        charged = wallet_credits_for_raw(raw_charge)
         if execution.get("status") not in {"completed", "ok"}:
             raise HTTPException(status_code=502, detail={"message": execution.get("error") or "The operation could not complete.",
                                 "request_id": request_id, "usage": {"credits_charged": charged, "credits_reserved": reserved}})
@@ -164,7 +190,7 @@ async def _run_mesh_game_tool(request: Request, body: dict, capability):
                 latency_ms=max(0, int((time.monotonic() - started) * 1000)),
                 output_bytes=response_bytes,
                 actual_credits=settle_measured_cost("mesh_execute", metered_arguments, identity.plan_slug,
-                                                   reserved_credits=reserved, execution_usage=usage),
+                                                   reserved_credits=raw_reserved, execution_usage=usage),
                 execution_usage=usage,
             )
         finally:
