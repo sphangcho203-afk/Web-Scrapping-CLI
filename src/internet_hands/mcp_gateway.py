@@ -12,7 +12,12 @@ from starlette.responses import JSONResponse
 
 from .auth import authenticate_secret, current_auth
 from .capability_economics import settle_measured_cost
-from .control_store import AuthIdentity, ControlError, ControlStore
+from .control_store import (
+    AuthIdentity,
+    ControlError,
+    ControlStore,
+    raw_credits_from_wallet_reservation,
+)
 from .execution_meter import (
     execution_usage_snapshot,
     reset_execution_meter,
@@ -192,7 +197,7 @@ class MCPGatewayASGI:
                             tool_name,
                             arguments,
                             identity.plan_slug,
-                            reserved_credits=credits_reserved,
+                            reserved_credits=raw_credits_from_wallet_reservation(credits_reserved),
                             execution_usage=usage,
                             latency_ms=elapsed,
                         )
