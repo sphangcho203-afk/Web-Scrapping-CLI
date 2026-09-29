@@ -9,6 +9,7 @@ from test_public_data_provider import fetched
 from internet_hands import public_data_api as module
 from internet_hands import public_data_provider
 from internet_hands.capability_economics import estimate_call
+from internet_hands.control_store import wallet_credits_for_raw
 from internet_hands.execution_meter import execution_usage_snapshot
 from internet_hands.tool_mesh import ToolMesh
 
@@ -19,7 +20,8 @@ def test_public_data_dashboard_uses_existing_credentials_and_measured_ledger(mon
         assert body["api_key_id"] == "key_test"
         return SimpleNamespace(plan_slug="free")
     def reserve(**kwargs):
-        return estimate_call(kwargs["tool_name"], kwargs["arguments"], "free").credits
+        raw = estimate_call(kwargs["tool_name"], kwargs["arguments"], "free").credits
+        return wallet_credits_for_raw(raw)
     def finish(request_id, **kwargs):
         ledger.append(kwargs)
     async def fetch(url, **kwargs):
@@ -35,7 +37,7 @@ def test_public_data_dashboard_uses_existing_credentials_and_measured_ledger(mon
         assert response.status_code == 200
         data = response.json()
         assert data["result"]["data"] == {"score": 5}
-        assert data["usage"] == {"credits_reserved": 5, "credits_charged": 5}
+        assert data["usage"] == {"credits_reserved": 15, "credits_charged": 15}
         assert ledger[0]["actual_credits"] == 5
         assert ledger[0]["execution_usage"]["counters"]["public_data_requests"] == 1
         assert client.post("/api/public-data/unknown", json={"arguments": {}}).status_code == 400
@@ -63,7 +65,9 @@ def test_public_search_api_reserves_selected_indexes_and_returns_partial_evidenc
     ledger = []
     monkeypatch.setattr(module, "_playground_identity", lambda request, body: SimpleNamespace(plan_slug="free"))
     monkeypatch.setattr(module, "store", SimpleNamespace(
-        reserve_tool_call=lambda **kwargs: estimate_call(kwargs["tool_name"], kwargs["arguments"], "free").credits,
+        reserve_tool_call=lambda **kwargs: wallet_credits_for_raw(
+            estimate_call(kwargs["tool_name"], kwargs["arguments"], "free").credits
+        ),
         finish_usage=lambda request_id, **kwargs: ledger.append(kwargs),
     ))
     monkeypatch.setattr(module, "get_tool_mesh", lambda: ToolMesh([public_data_provider.PublicDataProvider()]))
@@ -83,5 +87,5 @@ def test_public_search_api_reserves_selected_indexes_and_returns_partial_evidenc
     assert response.status_code == 200
     data = response.json()
     assert data["result"]["partial"] and data["result"]["results"][0]["title"] == "Research paper"
-    assert data["usage"] == {"credits_reserved": 8, "credits_charged": 8}
+    assert data["usage"] == {"credits_reserved": 24, "credits_charged": 24}
     assert ledger[0]["execution_usage"]["counters"]["public_data_requests"] == 2
