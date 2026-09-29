@@ -14,7 +14,13 @@ from fastapi import APIRouter, HTTPException, Request
 from .auth import authenticate_secret
 from .capability_economics import settle_measured_cost
 from .control_api import _require_user
-from .control_store import AuthIdentity, ControlError, ControlStore
+from .control_store import (
+    AuthIdentity,
+    ControlError,
+    ControlStore,
+    raw_credits_from_wallet_reservation,
+    wallet_credits_for_raw,
+)
 from .crawler import crawl
 from .extractor import extract_document
 from .fetcher import fetch_url
@@ -367,6 +373,7 @@ async def playground_run(request: Request):
             arguments=arguments,
             input_bytes=len(raw),
         )
+        raw_reserved = raw_credits_from_wallet_reservation(reserved)
     except ControlError as exc:
         raise _http_error(exc) from exc
 
@@ -466,11 +473,23 @@ async def playground_run(request: Request):
             "ok": True,
             "request_id": request_id,
             "operation": operation,
-            "usage": {"credits_charged": settle_measured_cost(
-                f"playground:{operation}", arguments, identity.plan_slug,
-                reserved_credits=reserved,
-                execution_usage={"completed": True, "provider_usage": provider_usage},
-            ), "credits_reserved": reserved, "metered": True, "provider_usage": provider_usage},
+            "usage": {
+                "credits_charged": wallet_credits_for_raw(
+                    settle_measured_cost(
+                        f"playground:{operation}",
+                        arguments,
+                        identity.plan_slug,
+                        reserved_credits=raw_reserved,
+                        execution_usage={
+                            "completed": True,
+                            "provider_usage": provider_usage,
+                        },
+                    )
+                ),
+                "credits_reserved": reserved,
+                "metered": True,
+                "provider_usage": provider_usage,
+            },
             "summary": summary,
             "result": payload,
         }
@@ -502,6 +521,6 @@ async def playground_run(request: Request):
             request_id, status=status, latency_ms=elapsed, output_bytes=output_bytes,
             actual_credits=settle_measured_cost(
                 f"playground:{operation}", arguments, identity.plan_slug,
-                reserved_credits=reserved, execution_usage=measured_usage, latency_ms=elapsed,
+                reserved_credits=raw_reserved, execution_usage=measured_usage, latency_ms=elapsed,
             ), execution_usage=measured_usage,
         )
