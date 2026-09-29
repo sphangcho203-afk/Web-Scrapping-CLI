@@ -14,6 +14,8 @@ from psycopg.errors import UniqueViolation
 from psycopg.rows import dict_row
 
 from .capability_economics import estimate_call, plan_privileges
+from .provider_errors import read_retry_budget
+from .provider_reliability_store import record_provider_reliability_event
 
 SCHEMA_SQL = r"""
 CREATE TABLE IF NOT EXISTS ih_users (
@@ -156,9 +158,40 @@ CREATE TABLE IF NOT EXISTS ih_provider_usage (
     operation text NOT NULL,
     credits_used integer,
     status text NOT NULL,
+    ref text,
+    latency_ms integer,
+    error_class text,
+    retryable boolean NOT NULL DEFAULT false,
+    error_text text,
+    attempt integer,
     created_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE ih_provider_usage ADD COLUMN IF NOT EXISTS ref text;
+ALTER TABLE ih_provider_usage ADD COLUMN IF NOT EXISTS latency_ms integer;
+ALTER TABLE ih_provider_usage ADD COLUMN IF NOT EXISTS error_class text;
+ALTER TABLE ih_provider_usage ADD COLUMN IF NOT EXISTS retryable boolean NOT NULL DEFAULT false;
+ALTER TABLE ih_provider_usage ADD COLUMN IF NOT EXISTS error_text text;
+ALTER TABLE ih_provider_usage ADD COLUMN IF NOT EXISTS attempt integer;
 CREATE INDEX IF NOT EXISTS ih_provider_usage_request_idx ON ih_provider_usage(request_id);
+CREATE INDEX IF NOT EXISTS ih_provider_usage_provider_time_idx
+    ON ih_provider_usage(provider, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS ih_provider_reliability (
+    provider text PRIMARY KEY,
+    successes bigint NOT NULL DEFAULT 0,
+    failures bigint NOT NULL DEFAULT 0,
+    neutral bigint NOT NULL DEFAULT 0,
+    consecutive_failures integer NOT NULL DEFAULT 0,
+    ewma_latency_ms double precision,
+    last_success_at timestamptz,
+    last_failure_at timestamptz,
+    last_error text,
+    last_error_class text,
+    circuit_open_until timestamptz,
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ih_provider_reliability_updated_idx
+    ON ih_provider_reliability(updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS ih_monitors (
     id text PRIMARY KEY,
@@ -336,6 +369,121 @@ class AuthIdentity:
     plan_slug: str
     rpm_limit: int
     source: str
+    concurrent_limit: int = 1
+
+
+def _db_connect_timeout_seconds() -> int:
+    try:
+        value = int(os.getenv("OPENCRAWL_DB_CONNECT_TIMEOUT_SECONDS", "5"))
+    except (TypeError, ValueError):
+        value = 5
+    return max(1, min(value, 30))
+
+
+_RETRY_RESERVATION_TOOLS = {
+    "mesh_execute",
+    "mesh_batch_execute",
+    "mesh_capability_execute",
+    "gaming_intel",
+    "gaming_profile",
+}
+
+_NON_RETRYABLE_RAW_PROVIDERS = {"apify", "nativesandbox"}
+_NON_RETRYABLE_RAW_REFS = {"firecrawl:interact"}
+
+
+def _raw_mesh_ref_can_retry(ref: str) -> bool:
+    normalized = str(ref or "").strip().lower()
+    if not normalized:
+        return False
+    provider = normalized.split(":", 1)[0]
+    if provider in _NON_RETRYABLE_RAW_PROVIDERS:
+        return False
+    return normalized not in _NON_RETRYABLE_RAW_REFS
+
+
+def _retryable_quoted_credits(
+    tool_name: str,
+    arguments: dict[str, Any] | None,
+    *,
+    plan_slug: str,
+    base_quote: dict[str, Any],
+) -> int:
+    args = arguments or {}
+    if tool_name == "mesh_execute":
+        ref = str(args.get("ref") or args.get("tool") or "")
+        return max(0, int(base_quote.get("credits") or 0)) if _raw_mesh_ref_can_retry(ref) else 0
+
+    if tool_name == "mesh_batch_execute":
+        calls = args.get("calls")
+        if not isinstance(calls, list):
+            return 0
+        retryable = 0
+        for call in calls:
+            if not isinstance(call, dict):
+                continue
+            ref = str(call.get("ref") or call.get("tool") or "")
+            if not _raw_mesh_ref_can_retry(ref):
+                continue
+            nested = estimate_call("mesh_execute", call, plan_slug)
+            if nested.allowed:
+                retryable += max(0, int(nested.credits))
+        return retryable
+
+    return max(0, int(base_quote.get("credits") or 0))
+
+
+def _with_retry_reservation(
+    tool_name: str,
+    quote: dict[str, Any],
+    *,
+    arguments: dict[str, Any] | None,
+    plan_slug: str,
+) -> dict[str, Any]:
+    """Reserve retry headroom only for work execution is permitted to replay."""
+    base_credits = max(0, int(quote.get("credits") or 0))
+    retries = read_retry_budget()
+    if (
+        tool_name not in _RETRY_RESERVATION_TOOLS
+        or base_credits <= 0
+        or retries <= 0
+    ):
+        return quote
+
+    retryable_once = _retryable_quoted_credits(
+        tool_name,
+        arguments,
+        plan_slug=plan_slug,
+        base_quote=quote,
+    )
+    if retryable_once <= 0:
+        return quote
+
+    attempts = 1 + retries
+    extra = retryable_once * retries
+    reserved = base_credits + extra
+    result = dict(quote)
+    result["credits"] = reserved
+    breakdown = list(result.get("breakdown") or [])
+    breakdown.append(
+        {
+            "kind": "provider_retry_headroom",
+            "attempts": attempts,
+            "retries": retries,
+            "quoted_once": base_credits,
+            "retryable_once": retryable_once,
+            "credits": extra,
+        }
+    )
+    result["breakdown"] = breakdown
+    result["retry_reservation"] = {
+        "attempts": attempts,
+        "retries": retries,
+        "quoted_once": base_credits,
+        "retryable_once": retryable_once,
+        "reserved": reserved,
+    }
+    return result
 
 
 class ControlStore:
@@ -358,7 +506,10 @@ class ControlStore:
     def _connect(self):
         if not self.dsn:
             raise ControlError("control_plane_unavailable", "control database is not configured", 503)
-        options: dict[str, Any] = {"row_factory": dict_row}
+        options: dict[str, Any] = {
+            "row_factory": dict_row,
+            "connect_timeout": _db_connect_timeout_seconds(),
+        }
         # Supabase's transaction pooler must not receive named prepared
         # statements because a later transaction can land on another backend.
         if "pooler.supabase.com" in self.dsn:
@@ -1028,6 +1179,7 @@ class ControlStore:
             plan_slug=row["plan_slug"],
             rpm_limit=int(row["rpm_limit"]),
             source=source,
+            concurrent_limit=max(1, int(row.get("concurrent_limit") or 1)),
         )
 
     def api_key_identity_for_user(self, user_id: str, key_id: str) -> AuthIdentity | None:
@@ -1036,7 +1188,7 @@ class ControlStore:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT k.user_id,k.id AS api_key_id,k.scopes,p.slug AS plan_slug,p.rpm_limit
+                SELECT k.user_id,k.id AS api_key_id,k.scopes,p.slug AS plan_slug,p.rpm_limit,p.concurrent_limit
                 FROM ih_api_keys k
                 LEFT JOIN LATERAL (
                     SELECT plan_slug FROM ih_subscriptions s
@@ -1062,7 +1214,7 @@ class ControlStore:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT k.user_id,k.id AS api_key_id,k.scopes,p.slug AS plan_slug,p.rpm_limit
+                SELECT k.user_id,k.id AS api_key_id,k.scopes,p.slug AS plan_slug,p.rpm_limit,p.concurrent_limit
                 FROM ih_api_keys k
                 LEFT JOIN LATERAL (
                     SELECT plan_slug FROM ih_subscriptions s
@@ -1087,7 +1239,7 @@ class ControlStore:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT t.user_id,t.api_key_id,t.scopes,p.slug AS plan_slug,p.rpm_limit
+                SELECT t.user_id,t.api_key_id,t.scopes,p.slug AS plan_slug,p.rpm_limit,p.concurrent_limit
                 FROM ih_oauth_tokens t
                 LEFT JOIN LATERAL (
                     SELECT plan_slug FROM ih_subscriptions s
@@ -1117,7 +1269,12 @@ class ControlStore:
                 estimate.reason or "tool is unavailable on the current plan",
                 403,
             )
-        return quote
+        return _with_retry_reservation(
+            tool_name,
+            quote,
+            arguments=arguments,
+            plan_slug=identity.plan_slug,
+        )
 
     def tool_cost(
         self,
@@ -1241,6 +1398,25 @@ class ControlStore:
                 if not wallet:
                     raise ControlError("wallet_missing", "wallet not found", 500)
 
+                cur.execute(
+                    """
+                    SELECT count(*) AS n
+                    FROM ih_usage_events
+                    WHERE user_id=%s AND status='reserved'
+                    """,
+                    (identity.user_id,),
+                )
+                active_reservations = int(cur.fetchone()["n"])
+                if active_reservations >= max(1, int(identity.concurrent_limit)):
+                    raise ControlError(
+                        "concurrency_limited",
+                        (
+                            "concurrent request limit reached "
+                            f"({identity.concurrent_limit})"
+                        ),
+                        429,
+                    )
+
                 total = int(wallet["monthly_credits"]) + int(wallet["purchased_credits"])
                 already_reserved = int(wallet["reserved_credits"])
                 available = total - already_reserved
@@ -1333,22 +1509,66 @@ class ControlStore:
                     metadata["measured_usage"] = execution_usage
 
                 if event["status"] != "reserved":
+                    # Settlement is terminal and idempotent. A duplicated completion,
+                    # timeout handler, or late worker must never rewrite a settled or
+                    # abandoned request after wallet/ledger state has been finalized.
+                    return int(event["credits_charged"] or 0)
+
+                provider_events = (execution_usage or {}).get("provider_events") or []
+                for item in provider_events:
+                    if not isinstance(item, dict):
+                        continue
+                    provider = str(item.get("provider") or "").strip().lower()[:80]
+                    ref = str(item.get("ref") or "").strip()[:200]
+                    if not provider:
+                        continue
+                    operation = (
+                        ref.split(":", 1)[1][:80]
+                        if ":" in ref
+                        else ref[:80] or "execute"
+                    )
+                    duration_raw = item.get("duration_ms")
+                    duration_ms = (
+                        max(0, int(duration_raw))
+                        if isinstance(duration_raw, (int, float))
+                        and not isinstance(duration_raw, bool)
+                        else None
+                    )
+                    attempt_raw = item.get("attempt")
+                    attempt = (
+                        max(1, int(attempt_raw))
+                        if isinstance(attempt_raw, (int, float))
+                        and not isinstance(attempt_raw, bool)
+                        else None
+                    )
+                    error_class = (
+                        str(item.get("error_class") or "").strip().lower()[:80]
+                        or None
+                    )
+                    error_text = str(item.get("error") or "").strip()[:500] or None
+                    event_status = str(item.get("status") or "unknown")[:40]
                     cur.execute(
                         """
-                        UPDATE ih_usage_events
-                        SET status=%s,latency_ms=%s,output_bytes=%s,metadata=%s::jsonb
-                        WHERE request_id=%s
+                        INSERT INTO ih_provider_usage(
+                            id,request_id,provider,operation,credits_used,status,
+                            ref,latency_ms,error_class,retryable,error_text,attempt
+                        ) VALUES (%s,%s,%s,%s,NULL,%s,%s,%s,%s,%s,%s,%s)
                         """,
                         (
-                            status,
-                            latency_ms,
-                            output_bytes,
-                            json.dumps(metadata),
+                            self._new_id("pru"),
                             request_id,
+                            provider,
+                            operation,
+                            event_status,
+                            ref or None,
+                            duration_ms,
+                            error_class,
+                            bool(item.get("retryable")),
+                            error_text,
+                            attempt,
                         ),
                     )
-                    conn.commit()
-                    return int(event["credits_charged"] or 0)
+                    record_provider_reliability_event(cur, item)
 
                 provider_usage = (execution_usage or {}).get("provider_usage") or []
                 for item in provider_usage:

@@ -88,13 +88,19 @@ class FirecrawlToolProvider:
                         "limit": {"type": "integer", "minimum": 1, "maximum": 100},
                         "sources": {
                             "type": "array",
-                            "items": {"type": "string"},
-                            "maxItems": 5,
+                            "items": {
+                                "type": "string",
+                                "enum": ["web", "news", "images"],
+                            },
+                            "maxItems": 3,
                         },
                         "categories": {
                             "type": "array",
-                            "items": {"type": "object"},
-                            "maxItems": 10,
+                            "items": {
+                                "type": "string",
+                                "enum": ["research", "pdf", "developer"],
+                            },
+                            "maxItems": 3,
                         },
                         "scrapeOptions": {"type": "object"},
                         "includeDomains": {"type": "array", "items": {"type": "string"}},
@@ -106,6 +112,11 @@ class FirecrawlToolProvider:
                         "timeout": {"type": "integer", "minimum": 1000, "maximum": 120000},
                         "ignoreInvalidURLs": {"type": "boolean"},
                         "highlights": {"type": "boolean"},
+                        "enterprise": {
+                            "type": "array",
+                            "items": {"type": "string", "enum": ["anon", "zdr"]},
+                            "maxItems": 1,
+                        },
                         "threatProtection": {"type": "object"},
                     },
                     ["query"],
@@ -397,8 +408,45 @@ class FirecrawlToolProvider:
     ) -> dict[str, Any]:
         del account, options
         descriptor = await self.describe(tool_id)
-        payload = dict(arguments)
-        self._validate_arguments(tool_id, payload)
+        raw_payload = dict(arguments)
+        self._validate_arguments(tool_id, raw_payload)
+        if tool_id == "search":
+            # Search has a deliberately narrow public contract because it accepts
+            # agent-generated input directly. Other Firecrawl routes retain
+            # provider-supported options after the security validator runs.
+            allowed = set((descriptor.input_schema.get("properties") or {}).keys())
+            payload = {
+                key: value
+                for key, value in raw_payload.items()
+                if key in allowed and value is not None
+            }
+            sources = payload.get("sources") or ["web"]
+            if (
+                not isinstance(sources, list)
+                or any(value not in {"web", "news", "images"} for value in sources)
+            ):
+                raise ValueError("Firecrawl search sources contain an unsupported value")
+            categories = payload.get("categories") or []
+            if (
+                not isinstance(categories, list)
+                or any(value not in {"research", "pdf", "developer"} for value in categories)
+            ):
+                raise ValueError("Firecrawl search categories contain an unsupported value")
+            if "developer" in categories and len(categories) > 1:
+                raise ValueError(
+                    "Firecrawl developer category cannot be combined with other categories"
+                )
+            if payload.get("includeDomains") and payload.get("excludeDomains"):
+                raise ValueError("includeDomains and excludeDomains cannot be combined")
+            payload["sources"] = sources[:3]
+            payload["categories"] = categories[:3]
+            payload.setdefault("safe", True)
+        else:
+            payload = {
+                key: value
+                for key, value in raw_payload.items()
+                if value is not None
+            }
         if tool_id in FIRECRAWL_WORK_BUDGETS:
             field, default, maximum = FIRECRAWL_WORK_BUDGETS[tool_id]
             try:

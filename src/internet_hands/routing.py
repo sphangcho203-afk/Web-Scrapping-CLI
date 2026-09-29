@@ -10,6 +10,7 @@ from .backends import DEFAULT_BACKEND_ROOT, backend_status, module_available
 
 class BackendIntent(StrEnum):
     STATIC = "static"
+    DISCOVERY = "discovery"
     DYNAMIC = "dynamic"
     INTERACTIVE = "interactive"
     THROUGHPUT = "throughput"
@@ -32,28 +33,43 @@ ROUTES: dict[BackendIntent, tuple[tuple[str, str], ...]] = {
     BackendIntent.STATIC: (
         ("native-http", "Fastest path with exact-byte provenance and policy enforcement."),
         ("crawlee-python", "Useful when queueing, retries, and crawl autoscaling are needed."),
+        ("crawlee-js", "Node crawler ecosystem for Cheerio/Playwright/Puppeteer workloads."),
         ("scrapy", "Good high-throughput HTTP fallback for large crawl jobs."),
+        ("colly", "Go worker option for very high-throughput static crawling."),
+    ),
+    BackendIntent.DISCOVERY: (
+        ("katana", "Purpose-built scoped crawling and endpoint/link discovery."),
+        ("crawlee-js", "Queue-oriented discovery with browser-capable Node workers."),
+        ("crawlee-python", "Python request queues and crawling for discovery workloads."),
+        ("native-http", "Built-in bounded frontier remains the policy-first fallback."),
     ),
     BackendIntent.DYNAMIC: (
         ("native-playwright", "Guarded Playwright renderer integrated with OpenCrawl."),
         ("crawl4ai", "Browser-oriented extraction for LLM-focused collection."),
         ("crawlee-python", "PlaywrightCrawler can scale browser crawling when installed."),
+        ("crawlee-js", "Node Playwright/Puppeteer crawlers can scale dynamic collection."),
+        ("katana", "Headless traversal is useful when discovery and rendering are coupled."),
     ),
     BackendIntent.INTERACTIVE: (
         ("playwright-mcp", "Persistent agent/browser loop with accessibility snapshots."),
         ("native-playwright", "Local rendered-page fallback without an MCP client."),
     ),
     BackendIntent.THROUGHPUT: (
+        ("colly", "Lean Go crawler for high-concurrency public-web collection."),
+        ("crawlee-js", "Node request queues, retries, sessions, and browser/HTTP workers."),
         ("crawlee-python", "Request queues, retries, sessions, concurrency, and crawl limits."),
         ("scrapy", "Mature asynchronous crawling for large HTTP workloads."),
+        ("katana", "Fast crawling and discovery when a standalone CLI worker is preferred."),
         ("native-http", "Built-in bounded concurrent hunt frontier."),
     ),
     BackendIntent.ARTICLE: (
         ("trafilatura", "Main-text and metadata extraction from already captured HTML."),
+        ("readability", "Mozilla Reader View extraction for deterministic article cleanup."),
         ("native-http", "Native parser remains the always-available fallback."),
         ("crawl4ai", "Useful when article extraction also needs browser rendering."),
     ),
     BackendIntent.LLM_EXTRACTION: (
+        ("scrapegraph-ai", "Schema- and model-driven extraction pipelines."),
         ("crawl4ai", "LLM-oriented extraction and browser collection."),
         ("trafilatura", "Deterministic content cleanup before downstream model analysis."),
         ("native-playwright", "Render dynamic HTML before deterministic/model extraction."),

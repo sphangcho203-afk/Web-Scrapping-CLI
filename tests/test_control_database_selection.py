@@ -39,3 +39,24 @@ def test_control_migration_requires_both_source_and_target(
 
     with pytest.raises(RuntimeError, match="requires both"):
         run_requested_control_plane_migration()
+
+
+
+def test_control_database_connection_timeout_is_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen = {}
+
+    def fake_connect(dsn, **kwargs):
+        seen["dsn"] = dsn
+        seen["kwargs"] = kwargs
+        return object()
+
+    monkeypatch.setenv("OPENCRAWL_DB_CONNECT_TIMEOUT_SECONDS", "999")
+    monkeypatch.setattr("internet_hands.control_store.psycopg.connect", fake_connect)
+
+    result = ControlStore("postgresql://db.example/open_crawl")._connect()
+
+    assert result is not None
+    assert seen["dsn"] == "postgresql://db.example/open_crawl"
+    assert seen["kwargs"]["connect_timeout"] == 30

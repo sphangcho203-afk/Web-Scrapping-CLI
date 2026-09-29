@@ -270,8 +270,15 @@ async def test_firecrawl_search_exposes_v2_source_category_and_safety_controls()
         "timeout",
         "ignoreInvalidURLs",
         "highlights",
+        "enterprise",
         "threatProtection",
     }.issubset(properties)
+    assert properties["sources"]["items"]["enum"] == ["web", "news", "images"]
+    assert properties["categories"]["items"]["enum"] == [
+        "research",
+        "pdf",
+        "developer",
+    ]
 
 
 @pytest.mark.asyncio
@@ -301,3 +308,73 @@ async def test_firecrawl_nested_scrape_options_cannot_smuggle_auth_or_actions(
                 },
             },
         )
+
+
+@pytest.mark.asyncio
+async def test_firecrawl_search_drops_unknown_top_level_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _disable_public_url_validation(monkeypatch)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert body["query"] == "developer docs"
+        assert body["categories"] == ["developer"]
+        assert body["safe"] is True
+        assert "headers" not in body
+        assert "authorization" not in body
+        assert "unexpected" not in body
+        return httpx.Response(200, json={"success": True, "data": {"web": []}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = FirecrawlToolProvider(api_key="fc-test", client=client)
+        result = await provider.execute(
+            "search",
+            {
+                "query": "developer docs",
+                "categories": ["developer"],
+                "authorization": "Bearer hidden",
+                "unexpected": {"raw": "drop"},
+            },
+        )
+
+    assert result["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_firecrawl_developer_category_cannot_be_combined() -> None:
+    provider = FirecrawlToolProvider(api_key="fc-test")
+    with pytest.raises(ValueError, match="developer category"):
+        await provider.execute(
+            "search",
+            {
+                "query": "python async",
+                "categories": ["developer", "research"],
+            },
+        )
+
+
+
+@pytest.mark.asyncio
+async def test_firecrawl_non_search_preserves_provider_supported_extras(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _disable_public_url_validation(monkeypatch)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert body["url"] == "https://example.com"
+        assert body["waitFor"] == 750
+        return httpx.Response(
+            200,
+            json={"success": True, "data": {"markdown": "ok"}},
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = FirecrawlToolProvider(api_key="fc-test", client=client)
+        result = await provider.execute(
+            "scrape",
+            {"url": "https://example.com", "waitFor": 750},
+        )
+
+    assert result["status"] == "completed"

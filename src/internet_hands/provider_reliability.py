@@ -6,6 +6,8 @@ import time
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from .provider_reliability_store import shared_provider_reliability
+
 _SUCCESS_STATUSES = {
     "completed",
     "complete",
@@ -17,7 +19,7 @@ _SUCCESS_STATUSES = {
     "pending",
     "accepted",
 }
-_NEUTRAL_STATUSES = {"blocked", "dry_run", "cancelled", "canceled"}
+_NEUTRAL_STATUSES = {"blocked", "capacity_limited", "dry_run", "cancelled", "canceled"}
 
 
 def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
@@ -48,6 +50,7 @@ class ProviderReliability:
     last_success_at: float | None = None
     last_failure_at: float | None = None
     last_error: str | None = None
+    last_error_class: str | None = None
     circuit_open_until: float = 0.0
 
     @property
@@ -93,13 +96,151 @@ class ProviderReliability:
 class ProviderReliabilityTracker:
     """Small runtime-local health model used only to improve safe fallback ordering."""
 
-    def __init__(self) -> None:
+    def __init__(self, shared_store: Any | None = None) -> None:
         self._rows: dict[str, ProviderReliability] = {}
         self._lock = threading.Lock()
+        self._shared = (
+            shared_provider_reliability
+            if shared_store is None
+            else shared_store
+        )
+        self._shared_cache: dict[str, dict[str, Any]] = {}
+        self._shared_cache_at = 0.0
+        self._shared_lock = threading.Lock()
+        self._shared_error: str | None = None
 
     @staticmethod
     def enabled() -> bool:
         return _enabled()
+
+    def shared_configured(self) -> bool:
+        return bool(getattr(self._shared, "configured", False))
+
+    @staticmethod
+    def _shared_refresh_seconds() -> int:
+        return _env_int(
+            "OPENCRAWL_PROVIDER_SHARED_REFRESH_SECONDS",
+            15,
+            minimum=1,
+            maximum=300,
+        )
+
+    def _refresh_shared(
+        self,
+        *,
+        now: float | None = None,
+        force: bool = False,
+    ) -> dict[str, dict[str, Any]]:
+        current = time.time() if now is None else now
+        if not self.shared_configured():
+            return {}
+        if (
+            not force
+            and self._shared_cache_at > 0
+            and current - self._shared_cache_at < self._shared_refresh_seconds()
+        ):
+            return self._shared_cache
+        with self._shared_lock:
+            if (
+                not force
+                and self._shared_cache_at > 0
+                and current - self._shared_cache_at < self._shared_refresh_seconds()
+            ):
+                return self._shared_cache
+            try:
+                rows = self._shared.snapshot()
+            except Exception as exc:  # noqa: BLE001 - shared health must not break execution
+                self._shared_error = f"{type(exc).__name__}: {exc}"[:500]
+                return self._shared_cache
+            self._shared_cache = dict(rows or {})
+            self._shared_cache_at = current
+            self._shared_error = None
+            return self._shared_cache
+
+    @staticmethod
+    def _shared_public(row: dict[str, Any], now: float) -> dict[str, Any]:
+        state = ProviderReliability(
+            provider=str(row.get("provider") or ""),
+            successes=int(row.get("successes") or 0),
+            failures=int(row.get("failures") or 0),
+            neutral=int(row.get("neutral") or 0),
+            consecutive_failures=int(row.get("consecutive_failures") or 0),
+            ewma_latency_ms=(
+                float(row["ewma_latency_ms"])
+                if row.get("ewma_latency_ms") is not None
+                else None
+            ),
+            last_success_at=row.get("last_success_at"),
+            last_failure_at=row.get("last_failure_at"),
+            last_error=row.get("last_error"),
+            last_error_class=row.get("last_error_class"),
+            circuit_open_until=float(row.get("circuit_open_until") or 0.0),
+        )
+        public = state.to_public_dict(now)
+        public["scope"] = "shared"
+        return public
+
+    @staticmethod
+    def _merge_public(
+        local: dict[str, Any],
+        shared: dict[str, Any] | None,
+        *,
+        now: float,
+    ) -> dict[str, Any]:
+        if shared is None:
+            return local
+        shared_public = ProviderReliabilityTracker._shared_public(shared, now)
+        local_has_signal = bool(
+            int(local.get("samples") or 0)
+            or int(local.get("neutral") or 0)
+        )
+        shared_has_signal = bool(
+            int(shared_public.get("samples") or 0)
+            or int(shared_public.get("neutral") or 0)
+        )
+        scores = [
+            int(row["score"])
+            for row in (local, shared_public)
+            if int(row.get("samples") or 0) > 0
+        ]
+        effective = dict(shared_public if shared_has_signal else local)
+        effective.update(
+            {
+                "provider": local.get("provider") or shared_public.get("provider"),
+                "score": min(scores) if scores else 75,
+                "routing_penalty": max(
+                    int(local.get("routing_penalty") or 0),
+                    int(shared_public.get("routing_penalty") or 0),
+                ),
+                "circuit_open": bool(local.get("circuit_open"))
+                or bool(shared_public.get("circuit_open")),
+                "circuit_remaining_seconds": max(
+                    int(local.get("circuit_remaining_seconds") or 0),
+                    int(shared_public.get("circuit_remaining_seconds") or 0),
+                ),
+                "consecutive_failures": max(
+                    int(local.get("consecutive_failures") or 0),
+                    int(shared_public.get("consecutive_failures") or 0),
+                ),
+                "samples": max(
+                    int(local.get("samples") or 0),
+                    int(shared_public.get("samples") or 0),
+                ),
+                "scope": "runtime+shared" if local_has_signal else "shared",
+                "local": local,
+                "shared": shared_public,
+            }
+        )
+        return effective
+
+    def diagnostics(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled(),
+            "shared_configured": self.shared_configured(),
+            "shared_refresh_seconds": self._shared_refresh_seconds(),
+            "shared_last_refresh_at": self._shared_cache_at or None,
+            "shared_error": self._shared_error,
+        }
 
     @staticmethod
     def _threshold() -> int:
@@ -145,10 +286,14 @@ class ProviderReliabilityTracker:
         status: str,
         duration_ms: int | None = None,
         error: str | None = None,
+        error_class: str | None = None,
         now: float | None = None,
     ) -> dict[str, Any]:
         if not _enabled():
-            return self.snapshot(provider, now=now)
+            current = time.time() if now is None else now
+            return ProviderReliability(
+                provider=provider.strip().lower()
+            ).to_public_dict(current)
         current = time.time() if now is None else now
         normalized_status = str(status or "failed").strip().lower()
         latency = None if duration_ms is None else max(0, int(duration_ms))
@@ -168,12 +313,18 @@ class ProviderReliabilityTracker:
                 row.consecutive_failures = 0
                 row.last_success_at = current
                 row.last_error = None
+                row.last_error_class = None
                 row.circuit_open_until = 0.0
             else:
                 row.failures += 1
                 row.consecutive_failures += 1
                 row.last_failure_at = current
                 row.last_error = (str(error or normalized_status).strip() or normalized_status)[:500]
+                row.last_error_class = (
+                    str(error_class).strip().lower()[:80]
+                    if error_class
+                    else None
+                )
                 threshold = self._threshold()
                 if row.consecutive_failures >= threshold:
                     exponent = min(4, row.consecutive_failures - threshold)
@@ -192,20 +343,46 @@ class ProviderReliabilityTracker:
         now: float | None = None,
     ) -> dict[str, Any]:
         current = time.time() if now is None else now
+        shared_rows = self._refresh_shared(now=current)
         with self._lock:
             if provider is not None:
                 normalized = provider.strip().lower()
                 row = self._rows.get(normalized)
-                if row is None:
-                    return ProviderReliability(provider=normalized).to_public_dict(current)
-                return row.to_public_dict(current)
-            return {
-                name: row.to_public_dict(current)
-                for name, row in sorted(self._rows.items())
-            }
+                local = (
+                    row.to_public_dict(current)
+                    if row is not None
+                    else ProviderReliability(provider=normalized).to_public_dict(current)
+                )
+                return self._merge_public(
+                    local,
+                    shared_rows.get(normalized),
+                    now=current,
+                )
+
+            names = set(self._rows) | set(shared_rows)
+            result: dict[str, Any] = {}
+            for name in sorted(names):
+                row = self._rows.get(name)
+                local = (
+                    row.to_public_dict(current)
+                    if row is not None
+                    else ProviderReliability(provider=name).to_public_dict(current)
+                )
+                result[name] = self._merge_public(
+                    local,
+                    shared_rows.get(name),
+                    now=current,
+                )
+            return result
 
     def routing_state(self, provider: str, *, now: float | None = None) -> dict[str, Any]:
-        snapshot = self.snapshot(provider, now=now)
+        if not self.enabled():
+            current = time.time() if now is None else now
+            snapshot = ProviderReliability(
+                provider=provider.strip().lower()
+            ).to_public_dict(current)
+        else:
+            snapshot = self.snapshot(provider, now=now)
         return {
             "provider": snapshot["provider"],
             "score": snapshot["score"],
@@ -222,6 +399,14 @@ class ProviderReliabilityTracker:
                 self._rows.clear()
             else:
                 self._rows.pop(provider.strip().lower(), None)
+        if self.shared_configured():
+            self._shared.reset(provider)
+        with self._shared_lock:
+            if provider is None:
+                self._shared_cache.clear()
+            else:
+                self._shared_cache.pop(provider.strip().lower(), None)
+            self._shared_cache_at = 0.0
 
 
 provider_reliability = ProviderReliabilityTracker()

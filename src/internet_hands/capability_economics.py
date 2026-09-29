@@ -181,6 +181,11 @@ RAW_PROVIDER_SURCHARGES: dict[str, tuple[str, int]] = {
     # Exa reports dollar cost in responses; 100 units is conservative reservation
     # headroom for the bounded search/contents shapes exposed by OpenCrawl.
     "exa": ("metered", 100),
+    # You.com Search is a metered operator-supplied research provider.
+    "you": ("metered", 75),
+    # RAWG and IGDB currently use bounded documented catalog APIs with operator keys.
+    "rawg": ("free_tier", 2),
+    "igdb": ("free_tier", 2),
     "rapidapi": ("metered", 5),
     # The run is capped at $0.10 in ApifyToolProvider. At the least expensive
     # credit-pack rate, 1,500 credits represent INR 15 before payment fees.

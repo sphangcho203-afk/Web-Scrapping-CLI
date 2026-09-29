@@ -9,8 +9,24 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 
-from .execution_meter import record_provider_call
+from .execution_meter import record_provider_call, record_provider_outcome
+from .provider_errors import (
+    ProviderCapacityError,
+    classify_provider_failure,
+    read_retry_budget,
+    retry_delay_seconds,
+    safe_provider_error,
+)
 from .provider_reliability import provider_reliability
+
+
+def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(value, maximum))
+
 
 _RESTRICTED_MARKETPLACE_TERMS = (
     "ammunition",
@@ -138,10 +154,76 @@ class ToolMesh:
         )
         self.allow_patterns = self._patterns("INTERNET_HANDS_TOOL_ALLOW")
         self.deny_patterns = self._patterns("INTERNET_HANDS_TOOL_DENY")
+        self.discovery_timeout_seconds = _env_int(
+            "OPENCRAWL_PROVIDER_DISCOVERY_TIMEOUT_SECONDS",
+            5,
+            minimum=1,
+            maximum=30,
+        )
+        self.provider_max_concurrency = _env_int(
+            "OPENCRAWL_PROVIDER_MAX_CONCURRENCY",
+            8,
+            minimum=1,
+            maximum=64,
+        )
+        self.provider_status_cache_seconds = _env_int(
+            "OPENCRAWL_PROVIDER_STATUS_CACHE_SECONDS",
+            3,
+            minimum=0,
+            maximum=30,
+        )
+        self._provider_status_cache: dict[str, dict[str, Any]] | None = None
+        self._provider_status_cache_at = 0.0
+        self._provider_status_lock = asyncio.Lock()
+        self._provider_semaphores = {
+            name: asyncio.Semaphore(self._provider_concurrency_limit(name))
+            for name in self.providers
+        }
 
     @staticmethod
     def _patterns(name: str) -> list[str]:
         return [item.strip() for item in os.getenv(name, "").split(",") if item.strip()]
+
+    def _provider_concurrency_limit(self, provider: str) -> int:
+        env_name = (
+            "OPENCRAWL_PROVIDER_MAX_CONCURRENCY_"
+            + "".join(char if char.isalnum() else "_" for char in provider.upper())
+        )
+        return _env_int(
+            env_name,
+            self.provider_max_concurrency,
+            minimum=1,
+            maximum=64,
+        )
+
+    async def _describe_with_timeout(
+        self,
+        provider_name: str,
+        tool_id: str,
+    ) -> ToolDescriptor:
+        provider = self._provider(provider_name)
+        return await asyncio.wait_for(
+            provider.describe(tool_id),
+            timeout=float(self.discovery_timeout_seconds),
+        )
+
+    async def _acquire_provider_slot(
+        self,
+        provider_name: str,
+        *,
+        timeout: float,
+    ) -> asyncio.Semaphore:
+        semaphore = self._provider_semaphores[provider_name]
+        try:
+            await asyncio.wait_for(
+                semaphore.acquire(),
+                timeout=max(0.001, timeout),
+            )
+        except TimeoutError as exc:
+            raise ProviderCapacityError(
+                "provider concurrency queue deadline exceeded"
+            ) from exc
+        return semaphore
 
     @staticmethod
     def _safe_text(value: str) -> bool:
@@ -196,18 +278,69 @@ class ToolMesh:
             "preview": raw[: self.max_response_bytes].decode("utf-8", errors="replace"),
         }
 
-    async def provider_status(self) -> dict[str, Any]:
-        async def one(name: str, provider: ToolProvider) -> tuple[str, dict[str, Any]]:
-            try:
-                value = await provider.status()
-            except Exception as exc:  # noqa: BLE001 - isolate external provider failures
-                value = {"configured": False, "error": str(exc)}
-            return name, value
+    async def provider_status(self, *, force: bool = False) -> dict[str, Any]:
+        now = time.monotonic()
+        if (
+            not force
+            and self.provider_status_cache_seconds > 0
+            and self._provider_status_cache is not None
+            and now - self._provider_status_cache_at < self.provider_status_cache_seconds
+        ):
+            return {
+                name: dict(value)
+                for name, value in self._provider_status_cache.items()
+            }
 
-        rows = await asyncio.gather(
-            *(one(name, provider) for name, provider in self.providers.items())
-        )
-        return {name: value for name, value in rows}
+        async with self._provider_status_lock:
+            now = time.monotonic()
+            if (
+                not force
+                and self.provider_status_cache_seconds > 0
+                and self._provider_status_cache is not None
+                and now - self._provider_status_cache_at < self.provider_status_cache_seconds
+            ):
+                return {
+                    name: dict(value)
+                    for name, value in self._provider_status_cache.items()
+                }
+
+            async def one(
+                name: str,
+                provider: ToolProvider,
+            ) -> tuple[str, dict[str, Any]]:
+                try:
+                    value = await asyncio.wait_for(
+                        provider.status(),
+                        timeout=float(self.discovery_timeout_seconds),
+                    )
+                except TimeoutError:
+                    value = {
+                        "configured": False,
+                        "searchable": False,
+                        "executable": False,
+                        "error": "provider status timed out",
+                        "error_class": "timeout",
+                    }
+                except Exception as exc:  # noqa: BLE001 - isolate external provider failures
+                    value = {
+                        "configured": False,
+                        "searchable": False,
+                        "executable": False,
+                        "error": str(exc)[:500],
+                        "error_class": type(exc).__name__,
+                    }
+                return name, value
+
+            rows = await asyncio.gather(
+                *(one(name, provider) for name, provider in self.providers.items())
+            )
+            result = {name: value for name, value in rows}
+            self._provider_status_cache = {
+                name: dict(value)
+                for name, value in result.items()
+            }
+            self._provider_status_cache_at = time.monotonic()
+            return result
 
     async def search(
         self,
@@ -227,10 +360,15 @@ class ToolMesh:
 
         async def one(name: str) -> tuple[str, list[ToolDescriptor], str | None]:
             try:
-                rows = await self.providers[name].search(query, limit=limit)
+                rows = await asyncio.wait_for(
+                    self.providers[name].search(query, limit=limit),
+                    timeout=float(self.discovery_timeout_seconds),
+                )
                 return name, [row for row in rows if self._descriptor_allowed(row)], None
+            except TimeoutError:
+                return name, [], "provider search timed out"
             except Exception as exc:  # noqa: BLE001 - isolate external catalog failures
-                return name, [], str(exc)
+                return name, [], str(exc)[:500]
 
         groups = await asyncio.gather(*(one(name) for name in names))
         buckets: dict[str, list[ToolDescriptor]] = {}
@@ -258,7 +396,7 @@ class ToolMesh:
         if not self._allowed(ref):
             raise PermissionError(f"tool blocked by mesh policy: {ref}")
         provider_name, tool_id = self._split_ref(ref)
-        descriptor = await self._provider(provider_name).describe(tool_id)
+        descriptor = await self._describe_with_timeout(provider_name, tool_id)
         descriptor.ref = ref
         if not self._descriptor_allowed(descriptor):
             raise PermissionError(f"tool blocked by marketplace safety policy: {ref}")
@@ -279,7 +417,7 @@ class ToolMesh:
             raise PermissionError(f"tool blocked by mesh policy: {ref}")
         provider_name, tool_id = self._split_ref(ref)
         provider = self._provider(provider_name)
-        descriptor = await provider.describe(tool_id)
+        descriptor = await self._describe_with_timeout(provider_name, tool_id)
         descriptor.ref = ref
         if not self._descriptor_allowed(descriptor):
             raise PermissionError(f"tool blocked by marketplace safety policy: {ref}")
@@ -302,41 +440,163 @@ class ToolMesh:
                 },
             ).to_dict()
 
-        try:
-            record_provider_call(provider_name)
-            result = await provider.execute(
-                tool_id,
-                arguments,
-                account=account,
-                wait_seconds=max(0, min(wait_seconds, 300)),
-                timeout_seconds=max(1, min(timeout_seconds, 600)),
-                options=options,
+        max_attempts = 1 + (0 if descriptor.side_effecting else read_retry_budget())
+        attempt_rows: list[dict[str, Any]] = []
+        total_timeout = float(max(1, min(timeout_seconds, 600)))
+        deadline = time.monotonic() + total_timeout
+
+        for attempt in range(1, max_attempts + 1):
+            attempt_started = time.monotonic()
+            try:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("provider execution deadline exceeded")
+                provider_timeout = max(1, min(int(remaining), int(total_timeout)))
+                semaphore = await self._acquire_provider_slot(
+                    provider_name,
+                    timeout=remaining,
+                )
+                record_provider_call(provider_name)
+                try:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError("provider execution deadline exceeded")
+                    result = await asyncio.wait_for(
+                        provider.execute(
+                            tool_id,
+                            arguments,
+                            account=account,
+                            wait_seconds=max(0, min(wait_seconds, 300)),
+                            timeout_seconds=provider_timeout,
+                            options=options,
+                        ),
+                        timeout=remaining,
+                    )
+                finally:
+                    semaphore.release()
+            except Exception as exc:  # noqa: BLE001 - normalize provider execution failures
+                duration_ms = max(0, int((time.monotonic() - attempt_started) * 1000))
+                error_text = safe_provider_error(exc) or (
+                    "provider execution deadline exceeded"
+                    if isinstance(exc, TimeoutError)
+                    else type(exc).__name__
+                )
+                failure = classify_provider_failure(exc=exc, error=error_text)
+                event_status = (
+                    "capacity_limited"
+                    if failure.category == "capacity_limited"
+                    else "failed"
+                )
+                delay = (
+                    retry_delay_seconds(failure, attempt=attempt)
+                    if not descriptor.side_effecting and attempt < max_attempts
+                    else None
+                )
+                attempt_rows.append(
+                    {
+                        "attempt": attempt,
+                        "status": event_status,
+                        "duration_ms": duration_ms,
+                        "error_class": failure.category,
+                        "retryable": failure.retryable,
+                        "retry_delay_seconds": delay,
+                    }
+                )
+                record_provider_outcome(
+                    provider_name,
+                    ref=ref,
+                    status=event_status,
+                    duration_ms=duration_ms,
+                    error=error_text,
+                    error_class=failure.category,
+                    retryable=failure.retryable,
+                    attempt=attempt,
+                )
+                provider_reliability.record(
+                    provider_name,
+                    status=event_status,
+                    duration_ms=duration_ms,
+                    error=error_text,
+                    error_class=failure.category,
+                )
+                remaining_after = deadline - time.monotonic()
+                if delay is not None and delay < remaining_after:
+                    await asyncio.sleep(delay)
+                    continue
+                finished = execution.finish(
+                    status="failed",
+                    error=error_text,
+                    metadata={
+                        "provider_attempts": attempt_rows,
+                        "failure": failure.to_dict(),
+                    },
+                )
+                return finished.to_dict()
+
+            duration_ms = max(0, int((time.monotonic() - attempt_started) * 1000))
+            raw_status = str(result.get("status") or "completed")
+            normalized_status = raw_status.strip().lower()
+            result_error = safe_provider_error(result.get("error"))
+            final_status = "failed" if normalized_status == "error" else raw_status
+            failure = (
+                classify_provider_failure(status=final_status, error=result_error)
+                if normalized_status in {"failed", "error", "blocked"}
+                else None
             )
-        except Exception as exc:  # noqa: BLE001 - normalize provider execution failures
-            finished = execution.finish(status="failed", error=str(exc))
+            delay = (
+                retry_delay_seconds(failure, attempt=attempt)
+                if failure is not None
+                and not descriptor.side_effecting
+                and attempt < max_attempts
+                else None
+            )
+            attempt_rows.append(
+                {
+                    "attempt": attempt,
+                    "status": final_status,
+                    "duration_ms": duration_ms,
+                    "error_class": failure.category if failure else None,
+                    "retryable": failure.retryable if failure else False,
+                    "retry_delay_seconds": delay,
+                }
+            )
+            record_provider_outcome(
+                provider_name,
+                ref=ref,
+                status=final_status,
+                duration_ms=duration_ms,
+                error=result_error,
+                error_class=failure.category if failure else None,
+                retryable=failure.retryable if failure else False,
+                attempt=attempt,
+            )
             provider_reliability.record(
                 provider_name,
-                status=finished.status,
-                duration_ms=finished.duration_ms,
-                error=finished.error,
+                status=final_status,
+                duration_ms=duration_ms,
+                error=result_error,
+                error_class=failure.category if failure else None,
+            )
+            remaining_after = deadline - time.monotonic()
+            if delay is not None and delay < remaining_after:
+                await asyncio.sleep(delay)
+                continue
+
+            metadata = dict(result.get("metadata") or {})
+            metadata["provider_attempts"] = attempt_rows
+            if failure is not None:
+                metadata["failure"] = failure.to_dict()
+            finished = execution.finish(
+                status=final_status,
+                data=self._bounded(result.get("data")),
+                error=result_error,
+                job_id=result.get("job_id"),
+                result_id=result.get("result_id"),
+                metadata=metadata,
             )
             return finished.to_dict()
 
-        finished = execution.finish(
-            status=str(result.get("status") or "completed"),
-            data=self._bounded(result.get("data")),
-            error=result.get("error"),
-            job_id=result.get("job_id"),
-            result_id=result.get("result_id"),
-            metadata=result.get("metadata") or {},
-        )
-        provider_reliability.record(
-            provider_name,
-            status=finished.status,
-            duration_ms=finished.duration_ms,
-            error=finished.error,
-        )
-        return finished.to_dict()
+        raise RuntimeError("provider retry loop ended without a result")
 
     async def batch_execute(
         self,
@@ -389,11 +649,21 @@ class ToolMesh:
         *,
         wait_seconds: int = 0,
     ) -> dict[str, Any]:
-        return self._bounded(
-            await self._provider(provider).job_status(
-                job_id, wait_seconds=max(0, min(wait_seconds, 300))
-            )
+        wait = max(0, min(wait_seconds, 300))
+        timeout = max(
+            float(self.discovery_timeout_seconds),
+            float(wait + self.discovery_timeout_seconds),
         )
+        target = self._provider(provider)
+        semaphore = await self._acquire_provider_slot(provider, timeout=timeout)
+        try:
+            value = await asyncio.wait_for(
+                target.job_status(job_id, wait_seconds=wait),
+                timeout=timeout,
+            )
+        finally:
+            semaphore.release()
+        return self._bounded(value)
 
     async def result_page(
         self,
@@ -403,10 +673,18 @@ class ToolMesh:
         offset: int = 0,
         limit: int = 100,
     ) -> dict[str, Any]:
-        return self._bounded(
-            await self._provider(provider).result_page(
-                result_id,
-                offset=max(0, offset),
-                limit=max(1, min(limit, 1000)),
+        target = self._provider(provider)
+        timeout = float(self.discovery_timeout_seconds)
+        semaphore = await self._acquire_provider_slot(provider, timeout=timeout)
+        try:
+            value = await asyncio.wait_for(
+                target.result_page(
+                    result_id,
+                    offset=max(0, offset),
+                    limit=max(1, min(limit, 1000)),
+                ),
+                timeout=timeout,
             )
-        )
+        finally:
+            semaphore.release()
+        return self._bounded(value)
