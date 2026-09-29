@@ -130,7 +130,8 @@ async def test_gateway_settles_measured_caller_cost(
         rpm_limit=60,
         source="api_key",
     )
-    store = _FakeStore(reserved=10)
+    # Raw caller quote is 10 units; the hosted wallet reserves 3x.
+    store = _FakeStore(reserved=30)
     monkeypatch.setattr(
         "internet_hands.mcp_gateway.authenticate_secret",
         lambda _store, _secret: identity,
@@ -152,7 +153,8 @@ async def test_gateway_settles_measured_caller_cost(
     )
 
     assert status == 200
-    assert headers["x-credits-reserved"] == "10"
+    assert headers["x-credits-reserved"] == "30"
+    # finish_usage receives raw measured work; ControlStore applies 3x once.
     assert store.finished[0]["actual_credits"] == 9
     measured = store.finished[0]["execution_usage"]
     assert measured["counters"]["public_search_call"] == 1

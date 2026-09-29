@@ -3,12 +3,18 @@ from __future__ import annotations
 from internet_hands import rewards
 
 
-def test_default_reward_rate_is_five_cents_per_point(monkeypatch) -> None:
+def test_default_reward_rate_is_raw_work_not_current_wallet_burn(monkeypatch) -> None:
     monkeypatch.delenv("OPENCRAWL_REWARD_UNITS_PER_POINT", raising=False)
+    monkeypatch.delenv("OPENCRAWL_CREDIT_BURN_MULTIPLIER", raising=False)
+
     assert rewards._reward_units_per_point() == 250
     assert rewards._points_from_usage(249) == 0
     assert rewards._points_from_usage(250) == 1
     assert rewards._points_from_usage(25_000) == 100
+
+    # Changing today's wallet pricing policy must not reprice reward work.
+    monkeypatch.setenv("OPENCRAWL_CREDIT_BURN_MULTIPLIER", "9")
+    assert rewards._reward_units_per_point() == 250
 
 
 def test_reward_catalog_wallet_values_match_display_currency() -> None:
@@ -20,7 +26,7 @@ def test_reward_catalog_wallet_values_match_display_currency() -> None:
 
 
 
-def test_accrual_uses_only_unprocessed_wallet_units() -> None:
+def test_accrual_uses_only_unprocessed_metered_units() -> None:
     # Existing processed spend is never re-priced when the earning rate changes.
     points, consumed = rewards._accrual_delta(50_000, 25_000, 500)
     assert points == 50

@@ -313,10 +313,74 @@ WALLET_UNITS_PER_USD = 5_000
 CUSTOM_TOPUP_MIN_USD_CENTS = 100
 CUSTOM_TOPUP_MAX_USD_CENTS = 50_000
 
+# OpenCrawl-supplied execution is deliberately more credit-sensitive than the raw
+# provider estimate. This keeps the wallet meaningful while every subscription
+# tier shares the same tool catalog. Operators can tune the multiplier without
+# changing provider-specific economics.
+DEFAULT_CREDIT_BURN_MULTIPLIER = 3
+
+
+def credit_burn_multiplier() -> int:
+    try:
+        value = int(os.getenv("OPENCRAWL_CREDIT_BURN_MULTIPLIER", str(DEFAULT_CREDIT_BURN_MULTIPLIER)))
+    except (TypeError, ValueError):
+        value = DEFAULT_CREDIT_BURN_MULTIPLIER
+    return max(1, min(value, 20))
+
+
+def wallet_credits_for_raw(raw_credits: int) -> int:
+    """Convert raw metered work into product-facing wallet units."""
+    raw = max(0, int(raw_credits))
+    return raw * credit_burn_multiplier()
+
+
+def raw_credits_from_wallet_reservation(reserved_credits: int) -> int:
+    """Recover the raw ceiling from a reservation created by this process."""
+    reserved = max(0, int(reserved_credits))
+    multiplier = credit_burn_multiplier()
+    return reserved // multiplier
+
+
+def _apply_credit_burn(credits: int) -> int:
+    return wallet_credits_for_raw(credits)
+
+
+def _apply_credit_burn_to_quote(quote: dict[str, Any]) -> dict[str, Any]:
+    result = dict(quote)
+    raw = max(0, int(result.get("credits") or 0))
+    multiplier = credit_burn_multiplier()
+    result["raw_credits"] = raw
+    result["credit_burn_multiplier"] = multiplier
+    result["credits"] = raw * multiplier
+
+    if raw and multiplier > 1:
+        breakdown = list(result.get("breakdown") or [])
+        breakdown.append(
+            {
+                "kind": "credit_burn_multiplier",
+                "multiplier": multiplier,
+                "raw_credits": raw,
+                "credits": raw * (multiplier - 1),
+            }
+        )
+        result["breakdown"] = breakdown
+
+    retry = result.get("retry_reservation")
+    if isinstance(retry, dict) and multiplier > 1:
+        scaled_retry = dict(retry)
+        for key in ("quoted_once", "retryable_once", "reserved"):
+            if key in scaled_retry:
+                scaled_retry[key] = max(0, int(scaled_retry[key])) * multiplier
+        scaled_retry["credit_burn_multiplier"] = multiplier
+        result["retry_reservation"] = scaled_retry
+    return result
+
+
 FREE_MONTHLY_CREDITS = 250
 PLAN_ROWS = [
-    ("free", "Free", 0, FREE_MONTHLY_CREDITS, 10, 1, 1, 1, False, False, 0),
-    ("builder", "Builder", 499, 25000, 60, 4, 5, 10, True, False, 10),
+    # Tool availability is universal; plans differ by wallet/throughput/account limits.
+    ("free", "Free", 0, FREE_MONTHLY_CREDITS, 10, 1, 1, 1, True, True, 0),
+    ("builder", "Builder", 499, 25000, 60, 4, 5, 10, True, True, 10),
     ("pro", "Pro", 1499, 150000, 240, 10, 20, 50, True, True, 20),
     ("scale", "Scale", 4999, 750000, 600, 20, 100, 250, True, True, 30),
 ]
@@ -1265,16 +1329,17 @@ class ControlStore:
         quote = estimate.to_dict()
         if not estimate.allowed:
             raise ControlError(
-                "plan_restricted",
-                estimate.reason or "tool is unavailable on the current plan",
-                403,
+                "tool_unavailable",
+                estimate.reason or "tool cannot be quoted for this request",
+                400,
             )
-        return _with_retry_reservation(
+        raw_quote = _with_retry_reservation(
             tool_name,
             quote,
             arguments=arguments,
             plan_slug=identity.plan_slug,
         )
+        return _apply_credit_burn_to_quote(raw_quote)
 
     def tool_cost(
         self,
@@ -1286,11 +1351,11 @@ class ControlStore:
         estimate = estimate_call(tool_name, arguments, plan_slug)
         if not estimate.allowed:
             raise ControlError(
-                "plan_restricted",
-                estimate.reason or "tool is unavailable on the current plan",
-                403,
+                "tool_unavailable",
+                estimate.reason or "tool cannot be quoted for this request",
+                400,
             )
-        return int(estimate.credits)
+        return _apply_credit_burn(int(estimate.credits))
 
     def release_stale_reservations(
         self,
@@ -1469,6 +1534,8 @@ class ControlStore:
                                     "category": quote["category"],
                                     "provider_class": quote["provider_class"],
                                     "minimum_plan": quote["minimum_plan"],
+                                    "raw_credits": quote.get("raw_credits", reserved),
+                                    "credit_burn_multiplier": quote.get("credit_burn_multiplier", 1),
                                     "breakdown": quote["breakdown"],
                                 },
                             }
@@ -1595,7 +1662,8 @@ class ControlStore:
 
                 reservation = dict(metadata.get("reservation") or {})
                 reserved = max(0, int(reservation.get("credits") or 0))
-                actual = reserved if actual_credits is None else max(0, int(actual_credits))
+                raw_actual = None if actual_credits is None else max(0, int(actual_credits))
+                actual = reserved if raw_actual is None else _apply_credit_burn(raw_actual)
                 if actual > reserved:
                     raise ControlError(
                         "reservation_exceeded",
@@ -1650,6 +1718,8 @@ class ControlStore:
                     "reservation": {
                         "reserved": reserved,
                         "settled": actual,
+                        "raw_settled": raw_actual,
+                        "credit_burn_multiplier": credit_burn_multiplier(),
                         "released": reserved - actual,
                     },
                 }
@@ -1692,6 +1762,8 @@ class ControlStore:
                         "state": "settled",
                         "reserved": reserved,
                         "settled": actual,
+                        "raw_settled": raw_actual,
+                        "credit_burn_multiplier": credit_burn_multiplier(),
                         "released": reserved - actual,
                     }
                 )
@@ -1741,7 +1813,7 @@ class ControlStore:
         input_bytes: int,
     ) -> int:
         """Compatibility path: reserve and immediately settle the quoted cost."""
-        reserved = self.reserve_tool_call(
+        self.reserve_tool_call(
             identity=identity,
             request_id=request_id,
             tool_name=tool_name,
@@ -1753,7 +1825,7 @@ class ControlStore:
             status="accepted",
             latency_ms=0,
             output_bytes=0,
-            actual_credits=reserved,
+            actual_credits=None,
         )
 
     def finish_usage(

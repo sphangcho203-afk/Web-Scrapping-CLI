@@ -8,7 +8,11 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 
 from .capability_economics import settle_measured_cost
-from .control_store import ControlError
+from .control_store import (
+    ControlError,
+    raw_credits_from_wallet_reservation,
+    wallet_credits_for_raw,
+)
 from .github_public_provider import PublicRepositoryError
 from .playground_api import _playground_identity, store
 from .tool_mcp import get_tool_mesh
@@ -37,6 +41,7 @@ async def _execute(request: Request, operation: str) -> dict[str, Any]:
             identity=identity, request_id=request_id, tool_name=tool_name,
             arguments=arguments, input_bytes=len(json.dumps(body).encode()),
         )
+        raw_reserved = raw_credits_from_wallet_reservation(reserved)
     except ControlError as exc:
         raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": exc.detail}) from exc
 
@@ -48,8 +53,14 @@ async def _execute(request: Request, operation: str) -> dict[str, Any]:
         provider = get_tool_mesh().providers["githubpublic"]
         result = await provider.execute(operation, {field: value, "_usage_calls": calls})
         measured = {"completed": True, "counters": {"github_api_calls": len(calls)}}
-        charged = settle_measured_cost(tool_name, arguments, identity.plan_slug,
-                                       reserved_credits=reserved, execution_usage=measured)
+        raw_charge = settle_measured_cost(
+            tool_name,
+            arguments,
+            identity.plan_slug,
+            reserved_credits=raw_reserved,
+            execution_usage=measured,
+        )
+        charged = wallet_credits_for_raw(raw_charge)
         response = {"ok": True, "request_id": request_id,
                     "usage": {"credits_charged": charged, "credits_reserved": reserved,
                               "github_api_calls": len(calls), "metered": True},
@@ -68,7 +79,7 @@ async def _execute(request: Request, operation: str) -> dict[str, Any]:
         store.finish_usage(request_id, status=status, latency_ms=elapsed, output_bytes=output_bytes,
                            actual_credits=settle_measured_cost(
                                tool_name, arguments, identity.plan_slug,
-                               reserved_credits=reserved, execution_usage=measured),
+                               reserved_credits=raw_reserved, execution_usage=measured),
                            execution_usage=measured)
 
 

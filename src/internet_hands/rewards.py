@@ -14,7 +14,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 
 from .control_api import _json_error, _require_user, _require_verified, store
-from .control_store import WALLET_UNITS_PER_USD, ControlError
+from .control_store import WALLET_UNITS_PER_USD, ControlError, credit_burn_multiplier
 
 router = APIRouter()
 
@@ -22,7 +22,7 @@ _REWARD_SCHEMA_READY = False
 _REWARD_SCHEMA_LOCK = threading.Lock()
 
 # Reward points are intentionally separate from the USD service wallet.
-# By default, every $0.05 of metered OpenCrawl spend earns one reward point.
+# The threshold is expressed in raw metered work, before product wallet burn.
 DEFAULT_REWARD_UNITS_PER_POINT = 250
 
 REWARD_ROWS = (
@@ -222,17 +222,20 @@ def _reward_units_per_point() -> int:
     return max(1, min(value, WALLET_UNITS_PER_USD * 100))
 
 
-def _points_from_usage(wallet_units: int) -> int:
-    return max(0, int(wallet_units)) // _reward_units_per_point()
+def _points_from_usage(metered_units: int) -> int:
+    return max(0, int(metered_units)) // _reward_units_per_point()
 
 
 def _accrual_delta(
-    total_wallet_units: int,
-    processed_wallet_units: int,
+    total_metered_units: int,
+    processed_metered_units: int,
     units_per_point: int,
 ) -> tuple[int, int]:
-    """Return newly earned points and the wallet units consumed by that accrual."""
-    available = max(0, int(total_wallet_units) - max(0, int(processed_wallet_units)))
+    """Return newly earned points and raw metered units consumed by that accrual."""
+    available = max(
+        0,
+        int(total_metered_units) - max(0, int(processed_metered_units)),
+    )
     rate = max(1, int(units_per_point))
     points = available // rate
     return points, points * rate
@@ -292,18 +295,39 @@ def _ensure_reward_account(cur: Any, user_id: str) -> None:
 
 
 def _sync_usage_points(cur: Any, user_id: str) -> int:
-    """Convert only previously unprocessed metered wallet spend into reward points."""
+    """Convert only previously unprocessed raw metered work into reward points."""
     _ensure_reward_account(cur, user_id)
     cur.execute(
         """
-        SELECT COALESCE(sum(credits_charged), 0)::bigint AS wallet_units
+        SELECT COALESCE(
+            sum(
+                CASE
+                    WHEN jsonb_typeof(
+                        metadata #> '{reservation,raw_settled}'
+                    ) = 'number'
+                    THEN (metadata #>> '{reservation,raw_settled}')::bigint
+                    WHEN jsonb_typeof(
+                        metadata #> '{pricing,credit_burn_multiplier}'
+                    ) = 'number'
+                    AND (metadata #>> '{pricing,credit_burn_multiplier}')::bigint > 0
+                    THEN credits_charged / (
+                        metadata #>> '{pricing,credit_burn_multiplier}'
+                    )::bigint
+                    ELSE credits_charged
+                END
+            ),
+            0
+        )::bigint AS metered_units
         FROM ih_usage_events
         WHERE user_id=%s AND credits_charged > 0
         """,
         (user_id,),
     )
     usage_row = cur.fetchone() or {}
-    total_wallet_units = int(usage_row.get("wallet_units") or 0)
+    # Legacy usage has no burn metadata because it was charged 1:1. New usage
+    # persists reservation.raw_settled, so changing wallet burn never reprices
+    # historical work that has not yet been converted into reward points.
+    total_metered_units = int(usage_row.get("metered_units") or 0)
 
     cur.execute(
         """
@@ -320,12 +344,13 @@ def _sync_usage_points(cur: Any, user_id: str) -> int:
         raise ControlError("reward_account_missing", "reward account is unavailable", 503)
 
     rate = _reward_units_per_point()
+    # The persisted column predates raw-work normalization. Before wallet burn
+    # existed, wallet units and raw work were 1:1, so old values remain valid.
     processed = int(account.get("usage_wallet_units_processed") or 0)
 
-    # Compatibility for accounts that earned points before wallet-unit tracking existed.
     legacy_points = int(account.get("usage_points_credited") or 0)
     if processed == 0 and legacy_points > 0:
-        processed = min(total_wallet_units, legacy_points * rate)
+        processed = min(total_metered_units, legacy_points * rate)
         cur.execute(
             """
             UPDATE ih_reward_accounts
@@ -335,7 +360,7 @@ def _sync_usage_points(cur: Any, user_id: str) -> int:
             (processed, user_id),
         )
 
-    delta, consumed_units = _accrual_delta(total_wallet_units, processed, rate)
+    delta, consumed_units = _accrual_delta(total_metered_units, processed, rate)
     if delta <= 0:
         return 0
 
@@ -368,16 +393,15 @@ def _sync_usage_points(cur: Any, user_id: str) -> int:
             f"usage-units:{user_id}:{processed_after}",
             json.dumps(
                 {
-                    "wallet_units_per_point": rate,
-                    "wallet_units_observed": total_wallet_units,
-                    "wallet_units_processed": processed_after,
-                    "wallet_units_consumed": consumed_units,
+                    "metered_units_per_point": rate,
+                    "metered_units_observed": total_metered_units,
+                    "metered_units_processed": processed_after,
+                    "metered_units_consumed": consumed_units,
                 }
             ),
         ),
     )
     return delta
-
 
 def rewards_snapshot(user_id: str, limit: int = 80) -> dict[str, Any]:
     ensure_rewards_schema()
@@ -462,9 +486,13 @@ def rewards_snapshot(user_id: str, limit: int = 80) -> dict[str, Any]:
         "display_currency": "USD",
         "wallet_units_per_usd": WALLET_UNITS_PER_USD,
         "earning_rule": {
-            "source": "metered_usage",
-            "wallet_units_per_point": units_per_point,
-            "usd_spend_per_point": units_per_point / WALLET_UNITS_PER_USD,
+            "source": "metered_raw_usage",
+            "raw_metered_units_per_point": units_per_point,
+            "wallet_units_per_point": units_per_point * credit_burn_multiplier(),
+            "usd_spend_per_point": (
+                units_per_point * credit_burn_multiplier() / WALLET_UNITS_PER_USD
+            ),
+            "current_credit_burn_multiplier": credit_burn_multiplier(),
         },
     }
 

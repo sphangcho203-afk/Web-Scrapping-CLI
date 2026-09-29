@@ -13,12 +13,14 @@ def test_every_plan_has_real_tool_calling_privileges() -> None:
     pro = plan_privileges("pro")
     scale = plan_privileges("scale")
 
-    assert free.max_batch_calls >= 3
-    assert free.max_depth >= 1
-    assert builder.browser_enabled is True
-    assert pro.sandbox_enabled is True
-    assert scale.max_external_sources > pro.max_external_sources
-    assert scale.max_batch_calls > builder.max_batch_calls
+    for plan in (free, builder, pro, scale):
+        assert plan.access_level == "credit_metered"
+        assert plan.max_provider_class == "premium"
+        assert plan.max_batch_calls == 50
+        assert plan.max_external_sources == 12
+        assert plan.max_depth == 12
+        assert plan.browser_enabled is True
+        assert plan.sandbox_enabled is True
 
 
 def test_phone_lookup_is_cheap_locally_for_free_plan() -> None:
@@ -57,14 +59,16 @@ def test_builder_can_use_free_tier_phone_enrichment() -> None:
     assert estimate.provider_class == "free_tier"
 
 
-def test_builder_cannot_use_metered_twilio_lookup() -> None:
-    estimate = estimate_call(
-        "phone_number_lookup",
-        {"number": "+14155552671", "providers": ["twilio"]},
-        "builder",
-    )
-    assert estimate.allowed is False
-    assert "metered" in (estimate.reason or "")
+def test_every_plan_can_use_metered_twilio_lookup() -> None:
+    for plan in ("free", "builder", "pro", "scale"):
+        estimate = estimate_call(
+            "phone_number_lookup",
+            {"number": "+14155552671", "providers": ["twilio"]},
+            plan,
+        )
+        assert estimate.allowed is True
+        assert estimate.credits == 10
+        assert estimate.provider_class == "metered"
 
 
 def test_pro_can_use_metered_twilio_lookup_at_higher_cost() -> None:
@@ -103,8 +107,10 @@ def test_semantic_fallback_reserves_all_eligible_attempts_and_settles_measured_w
     args = {"capability": "web.fetch.page", "arguments": {"url": "https://example.com"}}
     free = estimate_call("mesh_capability_execute", args, "free")
     pro = estimate_call("mesh_capability_execute", args, "pro")
-    assert free.allowed and free.credits >= 4
-    assert pro.allowed and pro.credits >= 254
+    assert free.allowed is True
+    assert pro.allowed is True
+    assert free.credits == pro.credits
+    assert free.credits >= 254
     assert settle_measured_cost(
         "mesh_capability_execute", args, "pro", reserved_credits=pro.credits,
         execution_usage={"provider_calls": {"firecrawl": 1, "nativeweb": 1},
@@ -139,7 +145,7 @@ def test_gaming_batches_reserve_each_operation_and_refund_unrun_work() -> None:
     ) == 4
 
 
-def test_free_plan_can_use_public_raw_tools_but_not_metered_backends() -> None:
+def test_free_plan_can_use_public_and_metered_backends() -> None:
     public = estimate_call(
         "mesh_execute",
         {"ref": "publicapi:lookup"},
@@ -151,10 +157,11 @@ def test_free_plan_can_use_public_raw_tools_but_not_metered_backends() -> None:
         "free",
     )
     assert public.allowed is True
-    assert paid.allowed is False
+    assert paid.allowed is True
+    assert paid.provider_class == "metered"
 
 
-def test_batch_limits_scale_with_subscription() -> None:
+def test_batch_limits_are_capability_limits_not_subscription_gates() -> None:
     free = estimate_call(
         "mesh_batch_execute",
         {"calls": [{}, {}, {}, {}]},
@@ -165,7 +172,8 @@ def test_batch_limits_scale_with_subscription() -> None:
         {"calls": [{} for _ in range(40)]},
         "scale",
     )
-    assert free.allowed is False
+    assert free.allowed is True
+    assert free.credits == 10
     assert scale.allowed is True
     assert scale.credits == 82
 
@@ -180,10 +188,11 @@ def test_runtime_pricing_accounts_for_requested_time() -> None:
     assert estimate.credits == 18
 
 
-def test_higher_plans_expand_privileges_not_privacy_boundaries() -> None:
-    # Economics/access is plan-aware. Privacy/output policy is intentionally not
-    # represented as a purchasable entitlement in this module.
+def test_plans_do_not_purchase_privacy_or_tool_capabilities() -> None:
+    # Privacy/output policy is not a purchasable entitlement, and capability
+    # access is deliberately identical across subscription tiers.
     assert "privacy" not in plan_privileges("scale").to_dict()
+    assert plan_privileges("free").to_dict() | {"slug": "scale"} == plan_privileges("scale").to_dict()
 
 
 def test_builder_browser_is_allowed_and_runtime_metered() -> None:
@@ -264,7 +273,7 @@ def test_batch_pricing_sums_nested_provider_costs() -> None:
     assert estimate.credits == 259
 
 
-def test_caller_lookup_requires_builder_or_higher() -> None:
+def test_caller_lookup_is_available_on_every_plan() -> None:
     free = estimate_call(
         "phone_caller_lookup",
         {"number": "+14155552671"},
@@ -275,8 +284,9 @@ def test_caller_lookup_requires_builder_or_higher() -> None:
         {"number": "+14155552671"},
         "builder",
     )
-    assert free.allowed is False
+    assert free.allowed is True
     assert builder.allowed is True
+    assert free.credits == builder.credits
 
 
 def test_caller_lookup_price_tracks_public_search_budget() -> None:
@@ -370,7 +380,7 @@ def test_caller_lookup_has_same_price_through_semantic_route() -> None:
     assert semantic.credits == direct.credits
 
 
-def test_caller_evidence_breadth_scales_with_plan() -> None:
+def test_caller_evidence_breadth_is_same_on_every_plan() -> None:
     builder = estimate_call(
         "phone_caller_lookup",
         {
@@ -380,18 +390,18 @@ def test_caller_evidence_breadth_scales_with_plan() -> None:
         },
         "builder",
     )
-    pro = estimate_call(
+    free = estimate_call(
         "phone_caller_lookup",
         {
             "number": "+14155552671",
             "public_search": True,
             "max_results": 20,
         },
-        "pro",
+        "free",
     )
-    assert builder.allowed is False
-    assert "at most 15" in (builder.reason or "")
-    assert pro.allowed is True
+    assert builder.allowed is True
+    assert free.allowed is True
+    assert builder.credits == free.credits
 
 
 
@@ -538,13 +548,20 @@ def test_measured_firecrawl_provider_settles_to_its_actual_route() -> None:
     assert settled == 252
 
 
-def test_deep_caller_investigation_pricing_is_plan_bounded() -> None:
-    builder = estimate_call("phone_caller_investigate", {"number": "+14155552671", "max_sources": 3}, "builder")
+def test_deep_caller_investigation_uses_universal_source_limit() -> None:
+    free = estimate_call(
+        "phone_caller_investigate",
+        {"number": "+14155552671", "max_sources": 12},
+        "free",
+    )
+    builder = estimate_call(
+        "phone_caller_investigate",
+        {"number": "+14155552671", "max_sources": 12},
+        "builder",
+    )
+    assert free.allowed is True
     assert builder.allowed is True
-    assert builder.credits == 13
-    too_deep = estimate_call("phone_caller_investigate", {"number": "+14155552671", "max_sources": 4}, "builder")
-    assert too_deep.allowed is False
-    assert "at most 3" in (too_deep.reason or "")
+    assert free.credits == builder.credits == 24
 
 
 def test_deep_caller_investigation_measured_settlement_refunds_unused_fetches() -> None:
@@ -696,7 +713,7 @@ def test_semantic_connected_capability_does_not_add_orchestration_fee() -> None:
 
 
 
-def test_byo_batch_is_free_but_still_obeys_plan_batch_limit() -> None:
+def test_byo_batch_is_free_and_uses_universal_batch_limit() -> None:
     args = {
         "calls": [
             {
@@ -708,8 +725,8 @@ def test_byo_batch_is_free_but_still_obeys_plan_batch_limit() -> None:
         ]
     }
     quote = estimate_call("mesh_batch_execute", args, "free")
-    assert quote.allowed is False
-    assert "at most 3" in (quote.reason or "")
+    assert quote.allowed is True
+    assert quote.credits == 0
 
 
 

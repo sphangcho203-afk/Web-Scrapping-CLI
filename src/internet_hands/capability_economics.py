@@ -36,47 +36,22 @@ class PlanPrivileges:
         return asdict(self)
 
 
+# Capability access is intentionally plan-neutral. Subscriptions change throughput,
+# account limits, and bundled wallet balance; they do not unlock tool families.
+# Credits are the universal execution gate for OpenCrawl-supplied work.
+_UNIVERSAL_TOOL_PRIVILEGES = {
+    "access_level": "credit_metered",
+    "max_provider_class": "premium",
+    "max_batch_calls": 50,
+    "max_external_sources": 12,
+    "max_depth": 12,
+    "browser_enabled": True,
+    "sandbox_enabled": True,
+}
+
 PLAN_PRIVILEGES: dict[str, PlanPrivileges] = {
-    "free": PlanPrivileges(
-        slug="free",
-        access_level="basic",
-        max_provider_class="public",
-        max_batch_calls=3,
-        max_external_sources=0,
-        max_depth=1,
-        browser_enabled=False,
-        sandbox_enabled=False,
-    ),
-    "builder": PlanPrivileges(
-        slug="builder",
-        access_level="standard",
-        max_provider_class="free_tier",
-        max_batch_calls=10,
-        max_external_sources=3,
-        max_depth=3,
-        browser_enabled=True,
-        sandbox_enabled=False,
-    ),
-    "pro": PlanPrivileges(
-        slug="pro",
-        access_level="advanced",
-        max_provider_class="metered",
-        max_batch_calls=20,
-        max_external_sources=6,
-        max_depth=6,
-        browser_enabled=True,
-        sandbox_enabled=True,
-    ),
-    "scale": PlanPrivileges(
-        slug="scale",
-        access_level="full",
-        max_provider_class="premium",
-        max_batch_calls=50,
-        max_external_sources=12,
-        max_depth=12,
-        browser_enabled=True,
-        sandbox_enabled=True,
-    ),
+    slug: PlanPrivileges(slug=slug, **_UNIVERSAL_TOOL_PRIVILEGES)
+    for slug in ("free", "builder", "pro", "scale")
 }
 
 
@@ -107,14 +82,14 @@ TOOL_ECONOMICS: tuple[ToolEconomics, ...] = (
         "phone_caller_lookup",
         "caller_intelligence",
         4,
-        minimum_plan="builder",
+        minimum_plan="free",
         provider_class="free_tier",
     ),
     ToolEconomics(
         "phone_caller_investigate",
         "caller_investigation",
         6,
-        minimum_plan="builder",
+        minimum_plan="free",
         provider_class="free_tier",
     ),
     ToolEconomics("gaming_capabilities", "gaming", 1, provider_class="local"),
@@ -129,7 +104,7 @@ TOOL_ECONOMICS: tuple[ToolEconomics, ...] = (
         "sandbox_browser_*",
         "browser",
         4,
-        minimum_plan="builder",
+        minimum_plan="free",
         provider_class="public",
         unit_field="timeout_ms",
         unit_size=60_000,
@@ -140,7 +115,7 @@ TOOL_ECONOMICS: tuple[ToolEconomics, ...] = (
         "sandbox_*",
         "sandbox",
         3,
-        minimum_plan="pro",
+        minimum_plan="free",
         provider_class="metered",
         unit_field="timeout_ms",
         unit_size=60_000,
@@ -270,10 +245,6 @@ def _rule_for(tool_name: str) -> ToolEconomics:
 
 def _provider_allowed(plan: PlanPrivileges, provider_class: str) -> bool:
     return PROVIDER_CLASS_ORDER[provider_class] <= PROVIDER_CLASS_ORDER[plan.max_provider_class]
-
-
-def _plan_allowed(plan_slug: str, minimum_plan: str) -> bool:
-    return PLAN_ORDER.get(plan_slug, 0) >= PLAN_ORDER.get(minimum_plan, 0)
 
 
 def _bounded_units(rule: ToolEconomics, arguments: dict[str, Any]) -> int:
@@ -443,20 +414,6 @@ def estimate_call(
     plan = plan_privileges(plan_slug)
     rule = _rule_for(tool_name)
     breakdown: list[dict[str, Any]] = [{"kind": "base", "credits": rule.base_credits}]
-
-    if not _plan_allowed(plan.slug, rule.minimum_plan):
-        return CostEstimate(
-            allowed=False,
-            plan=plan.slug,
-            tool_name=tool_name,
-            category=rule.category,
-            credits=rule.base_credits,
-            minimum_plan=rule.minimum_plan,
-            provider_class=rule.provider_class,
-            reason=f"{tool_name} requires {rule.minimum_plan} or higher",
-            breakdown=tuple(breakdown),
-            limits=plan.to_dict(),
-        )
 
     if rule.category == "browser" and not plan.browser_enabled:
         return CostEstimate(
