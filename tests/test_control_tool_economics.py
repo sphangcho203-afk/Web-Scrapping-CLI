@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from internet_hands.capability_economics import estimate_call
-from internet_hands.control_store import AuthIdentity, ControlError, ControlStore
+from internet_hands.control_store import AuthIdentity, ControlStore
 
 
 def _identity(plan: str) -> AuthIdentity:
@@ -165,6 +165,27 @@ def test_disabling_read_retries_removes_retry_headroom(
     assert quote["credits"] == 9
     assert quote["raw_credits"] == 3
     assert "retry_reservation" not in quote
+
+
+def test_credit_burn_multiplier_is_operator_tunable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENCRAWL_PROVIDER_READ_RETRIES", "0")
+    monkeypatch.setenv("OPENCRAWL_CREDIT_BURN_MULTIPLIER", "4")
+    store = ControlStore(dsn=None)
+
+    quote = store.quote_tool_call(
+        identity=_identity("free"),
+        tool_name="mesh_execute",
+        arguments={
+            "ref": "publicapi:lookup",
+            "arguments": {"query": "example"},
+        },
+    )
+
+    assert quote["raw_credits"] == 3
+    assert quote["credit_burn_multiplier"] == 4
+    assert quote["credits"] == 12
 
 
 
