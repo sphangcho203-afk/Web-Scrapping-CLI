@@ -8,7 +8,11 @@ import uuid
 from fastapi import APIRouter, HTTPException, Request
 
 from .capability_economics import settle_measured_cost
-from .control_store import ControlError
+from .control_store import (
+    ControlError,
+    raw_credits_from_wallet_reservation,
+    wallet_credits_for_raw,
+)
 from .execution_meter import execution_usage_snapshot, reset_execution_meter, start_execution_meter
 from .playground_api import _playground_identity, store
 from .public_data_provider import request_budget
@@ -32,6 +36,7 @@ async def execute_public_data(request: Request, operation: str):
     try:
         reserved = store.reserve_tool_call(identity=identity, request_id=request_id, tool_name="mesh_execute",
                                            arguments=arguments, input_bytes=len(json.dumps(body).encode()))
+        raw_reserved = raw_credits_from_wallet_reservation(reserved)
     except ControlError as exc:
         raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": exc.detail}) from exc
     token = start_execution_meter()
@@ -40,8 +45,14 @@ async def execute_public_data(request: Request, operation: str):
     try:
         result = await get_tool_mesh().execute(arguments["ref"], body["arguments"], timeout_seconds=25)
         completed = result["status"] == "completed"
-        charge = settle_measured_cost("mesh_execute", arguments, identity.plan_slug,
-                                      reserved_credits=reserved, execution_usage=execution_usage_snapshot())
+        raw_charge = settle_measured_cost(
+            "mesh_execute",
+            arguments,
+            identity.plan_slug,
+            reserved_credits=raw_reserved,
+            execution_usage=execution_usage_snapshot(),
+        )
+        charge = wallet_credits_for_raw(raw_charge)
         response = {"ok": completed, "request_id": request_id, "result": result.get("data"),
                     "usage": {"credits_reserved": reserved, "credits_charged": charge}}
         output_bytes = len(json.dumps(response, default=str).encode())
@@ -54,7 +65,7 @@ async def execute_public_data(request: Request, operation: str):
             store.finish_usage(request_id, status="ok" if completed else "error",
                                latency_ms=int((time.monotonic() - started) * 1000), output_bytes=output_bytes,
                                actual_credits=settle_measured_cost("mesh_execute", arguments, identity.plan_slug,
-                                                                  reserved_credits=reserved, execution_usage=usage),
+                                                                  reserved_credits=raw_reserved, execution_usage=usage),
                                execution_usage=usage)
         finally:
             reset_execution_meter(token)
