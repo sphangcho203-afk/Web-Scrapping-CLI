@@ -8,7 +8,11 @@ import uuid
 from fastapi import APIRouter, HTTPException, Request
 
 from .capability_economics import settle_measured_cost
-from .control_store import ControlError
+from .control_store import (
+    ControlError,
+    raw_credits_from_wallet_reservation,
+    wallet_credits_for_raw,
+)
 from .execution_meter import execution_usage_snapshot, reset_execution_meter, start_execution_meter
 from .playground_api import _playground_identity, store
 from .tool_mcp import get_tool_mesh
@@ -39,6 +43,7 @@ async def execute_intelligence(request: Request, operation: str):
             arguments=call,
             input_bytes=len(json.dumps(body).encode()),
         )
+        raw_reserved = raw_credits_from_wallet_reservation(reserved)
     except ControlError as exc:
         raise HTTPException(
             status_code=exc.status_code,
@@ -57,13 +62,14 @@ async def execute_intelligence(request: Request, operation: str):
         )
         completed = result.get("status") == "completed"
         usage = execution_usage_snapshot()
-        charge = settle_measured_cost(
+        raw_charge = settle_measured_cost(
             "mesh_execute",
             call,
             identity.plan_slug,
-            reserved_credits=reserved,
+            reserved_credits=raw_reserved,
             execution_usage=usage,
         )
+        charge = wallet_credits_for_raw(raw_charge)
         response = {
             "ok": completed,
             "request_id": request_id,
@@ -92,7 +98,7 @@ async def execute_intelligence(request: Request, operation: str):
                     "mesh_execute",
                     call,
                     identity.plan_slug,
-                    reserved_credits=reserved,
+                    reserved_credits=raw_reserved,
                     execution_usage=usage,
                 ),
                 execution_usage=usage,
