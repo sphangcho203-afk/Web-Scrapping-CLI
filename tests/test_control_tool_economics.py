@@ -35,28 +35,31 @@ def test_control_store_quotes_variable_phone_costs_without_database() -> None:
         },
     )
 
-    assert local["credits"] == 2
-    assert enriched["credits"] == 6
+    assert local["credits"] == 6
+    assert local["raw_credits"] == 2
+    assert enriched["credits"] == 18
+    assert enriched["raw_credits"] == 6
+    assert enriched["credit_burn_multiplier"] == 3
     assert enriched["category"] == "phone_intelligence"
-    assert len(enriched["breakdown"]) == 3
+    assert len(enriched["breakdown"]) == 4
 
 
-def test_control_store_rejects_provider_class_above_plan() -> None:
+def test_control_store_allows_metered_provider_on_lower_plan_when_wallet_can_pay() -> None:
     store = ControlStore(dsn=None)
 
-    with pytest.raises(ControlError) as exc:
-        store.quote_tool_call(
-            identity=_identity("builder"),
-            tool_name="phone_number_lookup",
-            arguments={
-                "number": "+14155552671",
-                "external": True,
-                "providers": ["twilio"],
-            },
-        )
+    quote = store.quote_tool_call(
+        identity=_identity("free"),
+        tool_name="phone_number_lookup",
+        arguments={
+            "number": "+14155552671",
+            "external": True,
+            "providers": ["twilio"],
+        },
+    )
 
-    assert exc.value.code == "plan_restricted"
-    assert exc.value.status_code == 403
+    assert quote["provider_class"] == "metered"
+    assert quote["raw_credits"] == 10
+    assert quote["credits"] == 30
 
 
 def test_free_plan_still_has_real_public_tool_execution(
@@ -72,29 +75,32 @@ def test_free_plan_still_has_real_public_tool_execution(
             "arguments": {"query": "example"},
         },
     )
-    assert quote["credits"] == 6
+    assert quote["credits"] == 18
+    assert quote["raw_credits"] == 6
     assert quote["provider_class"] == "public"
     assert quote["retry_reservation"] == {
         "attempts": 2,
         "retries": 1,
-        "quoted_once": 3,
-        "retryable_once": 3,
-        "reserved": 6,
+        "quoted_once": 9,
+        "retryable_once": 9,
+        "reserved": 18,
+        "credit_burn_multiplier": 3,
     }
 
 
-def test_free_plan_cannot_route_around_paid_provider_gate() -> None:
+def test_free_plan_can_use_paid_provider_when_it_has_credits() -> None:
     store = ControlStore(dsn=None)
-    with pytest.raises(ControlError) as exc:
-        store.quote_tool_call(
-            identity=_identity("free"),
-            tool_name="mesh_execute",
-            arguments={
-                "ref": "apify:actor",
-                "arguments": {"query": "example"},
-            },
-        )
-    assert exc.value.code == "plan_restricted"
+    quote = store.quote_tool_call(
+        identity=_identity("free"),
+        tool_name="mesh_execute",
+        arguments={
+            "ref": "apify:actor",
+            "arguments": {"query": "example"},
+        },
+    )
+    assert quote["provider_class"] == "metered"
+    assert quote["raw_credits"] == 1502
+    assert quote["credits"] == 4506
 
 
 def test_nested_phone_mesh_route_gets_phone_price(
@@ -114,9 +120,10 @@ def test_nested_phone_mesh_route_gets_phone_price(
             },
         },
     )
-    assert quote["credits"] == 20
+    assert quote["credits"] == 60
+    assert quote["raw_credits"] == 20
     assert quote["category"] == "phone_intelligence"
-    assert quote["retry_reservation"]["quoted_once"] == 10
+    assert quote["retry_reservation"]["quoted_once"] == 30
 
 
 
@@ -155,7 +162,8 @@ def test_disabling_read_retries_removes_retry_headroom(
         },
     )
 
-    assert quote["credits"] == 3
+    assert quote["credits"] == 9
+    assert quote["raw_credits"] == 3
     assert "retry_reservation" not in quote
 
 
@@ -201,5 +209,6 @@ def test_batch_retry_headroom_excludes_side_effecting_calls(
         arguments={"calls": calls},
     )
     retryable = estimate_call("mesh_execute", calls[0], "pro").credits
-    assert quote["credits"] == base.credits + retryable
-    assert quote["retry_reservation"]["retryable_once"] == retryable
+    assert quote["raw_credits"] == base.credits + retryable
+    assert quote["credits"] == (base.credits + retryable) * 3
+    assert quote["retry_reservation"]["retryable_once"] == retryable * 3
