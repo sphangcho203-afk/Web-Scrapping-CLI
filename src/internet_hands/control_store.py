@@ -328,9 +328,21 @@ def credit_burn_multiplier() -> int:
     return max(1, min(value, 20))
 
 
-def _apply_credit_burn(credits: int) -> int:
-    raw = max(0, int(credits))
+def wallet_credits_for_raw(raw_credits: int) -> int:
+    """Convert raw metered work into product-facing wallet units."""
+    raw = max(0, int(raw_credits))
     return raw * credit_burn_multiplier()
+
+
+def raw_credits_from_wallet_reservation(reserved_credits: int) -> int:
+    """Recover the raw ceiling from a reservation created by this process."""
+    reserved = max(0, int(reserved_credits))
+    multiplier = credit_burn_multiplier()
+    return reserved // multiplier
+
+
+def _apply_credit_burn(credits: int) -> int:
+    return wallet_credits_for_raw(credits)
 
 
 def _apply_credit_burn_to_quote(quote: dict[str, Any]) -> dict[str, Any]:
