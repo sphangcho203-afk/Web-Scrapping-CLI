@@ -24,6 +24,7 @@ from .oauth_compat import router as oauth_compat_router
 from .playground_api import router as playground_router
 from .public_data_api import router as public_data_router
 from .repository_api import router as repository_router
+from .rewards import router as rewards_router
 from .security_api import router as security_router
 from .security_hardening import router as security_hardening_router
 from .site import router as site_router
@@ -48,7 +49,7 @@ app = FastAPI(
     version="0.7.0",
     description=(
         "OpenCrawl SaaS control plane, permanent MCP gateway, transactional email, "
-        "email verification, TOTP 2FA, billing, usage metering, monitors, and capability fabric."
+        "email verification, TOTP 2FA, billing, rewards, usage metering, monitors, and capability fabric."
     ),
     lifespan=lifespan,
     docs_url=None,
@@ -66,6 +67,7 @@ app.include_router(system_health_router)
 app.include_router(control_router)
 app.include_router(connected_apps_router)
 app.include_router(usage_router)
+app.include_router(rewards_router)
 app.include_router(playground_router)
 app.include_router(repository_router)
 app.include_router(public_data_router)

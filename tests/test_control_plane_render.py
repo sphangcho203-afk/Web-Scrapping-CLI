@@ -109,6 +109,7 @@ def test_initial_control_plane_render(frontend_url, mode):
             "/dashboard/api-keys": ".ih-route-api-keys",
             "/dashboard/monitors": ".ih-route-monitors",
             "/dashboard/wallet": ".ih-route-wallet",
+            "/dashboard/rewards": ".ih-route-rewards",
             "/dashboard/billing": ".ih-route-billing",
             "/dashboard/settings": ".ih-route-settings",
             "/dashboard/integrations": ".ih-route-connections",
@@ -525,4 +526,180 @@ def test_public_data_workspace_validates_executes_and_reports_partial_results(fr
             page.set_viewport_size({"width": width, "height": 900})
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
         assert not errors
+        browser.close()
+
+
+
+def test_rewards_redemption_delivers_wallet_prize(frontend_url):
+    state = {
+        "points": 120,
+        "purchased": 500,
+        "redemptions": [],
+    }
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.on("dialog", lambda dialog: dialog.accept())
+
+        def rewards_payload():
+            return {
+                "account": {
+                    "points": state["points"],
+                    "lifetime_earned": 120,
+                    "lifetime_redeemed": 120 - state["points"],
+                },
+                "wallet": {
+                    "monthly_credits": 250,
+                    "purchased_credits": state["purchased"],
+                    "reserved_credits": 0,
+                },
+                "catalog": [{
+                    "slug": "wallet-025",
+                    "name": "$0.25 wallet credit",
+                    "description": "Add rollover OpenCrawl balance to your wallet.",
+                    "points_cost": 100,
+                    "fulfillment_type": "wallet_credit",
+                    "fulfillment_value": 1250,
+                }],
+                "redemptions": list(state["redemptions"]),
+                "ledger": [],
+                "earned_now": 0,
+                "wallet_units_per_usd": 5000,
+                "earning_rule": {"usd_spend_per_point": 0.05},
+            }
+
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if path == "/api/auth/me":
+                data = {
+                    "user": {"email": "fixture@example.test", "email_verified": True},
+                    "account": {},
+                }
+            elif path == "/api/rewards" and route.request.method == "GET":
+                data = rewards_payload()
+            elif path == "/api/rewards/wallet-025/redeem" and route.request.method == "POST":
+                idempotency_key = route.request.headers.get("idempotency-key")
+                assert idempotency_key and idempotency_key.startswith("rwd-")
+                assert state["points"] >= 100
+                state["points"] -= 100
+                state["purchased"] += 1250
+                redemption = {
+                    "id": "rwd_fixture",
+                    "reward_slug": "wallet-025",
+                    "reward_name": "$0.25 wallet credit",
+                    "points_spent": 100,
+                    "status": "fulfilled",
+                    "fulfillment_type": "wallet_credit",
+                    "fulfillment_value": 1250,
+                    "created_at": "2026-09-28T10:00:00Z",
+                    "fulfilled_at": "2026-09-28T10:00:00Z",
+                }
+                state["redemptions"].insert(0, redemption)
+                data = {
+                    "ok": True,
+                    "redemption": redemption,
+                    "account": {"points": state["points"]},
+                    "wallet": {"purchased_credits": state["purchased"]},
+                    "wallet_units_per_usd": 5000,
+                }
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/rewards")
+        page.locator(".ih-route-rewards").wait_for()
+        assert page.get_by_text("120", exact=True).count() >= 1
+        page.get_by_role("button", name="Redeem prize").click()
+        page.get_by_text("Prize redeemed and delivered to your wallet").wait_for()
+        page.get_by_text("20", exact=True).first.wait_for()
+        assert page.get_by_text("$0.25 wallet credit", exact=True).count() >= 1
+        assert state["purchased"] == 1750
+        assert state["points"] == 20
+        assert not errors, errors
+        browser.close()
+
+
+
+def test_community_reward_code_redemption(frontend_url):
+    state = {
+        "points": 120,
+        "purchased": 500,
+        "code_redemptions": [],
+    }
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+
+        def rewards_payload():
+            return {
+                "account": {
+                    "points": state["points"],
+                    "lifetime_earned": state["points"],
+                    "lifetime_redeemed": 0,
+                },
+                "wallet": {
+                    "monthly_credits": 250,
+                    "purchased_credits": state["purchased"],
+                    "reserved_credits": 0,
+                },
+                "catalog": [],
+                "redemptions": [],
+                "code_redemptions": list(state["code_redemptions"]),
+                "ledger": [],
+                "earned_now": 0,
+                "wallet_units_per_usd": 5000,
+                "earning_rule": {"usd_spend_per_point": 0.05},
+            }
+
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if path == "/api/auth/me":
+                data = {
+                    "user": {"email": "fixture@example.test", "email_verified": True},
+                    "account": {},
+                }
+            elif path == "/api/rewards" and route.request.method == "GET":
+                data = rewards_payload()
+            elif path == "/api/rewards/codes/redeem" and route.request.method == "POST":
+                body = route.request.post_data_json
+                assert body["code"] == "DISCORD100"
+                state["points"] += 100
+                state["code_redemptions"].insert(0, {
+                    "id": "rcd_fixture",
+                    "code_hint": "DISC…",
+                    "label": "Discord launch drop",
+                    "reward_type": "points",
+                    "reward_value": 100,
+                    "created_at": "2026-09-28T18:30:00Z",
+                })
+                data = {
+                    "ok": True,
+                    "campaign": {
+                        "label": "Discord launch drop",
+                        "code_hint": "DISC…",
+                        "reward_type": "points",
+                        "reward_value": 100,
+                    },
+                    "account": {"points": state["points"]},
+                    "wallet": {"purchased_credits": state["purchased"]},
+                    "wallet_units_per_usd": 5000,
+                }
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/rewards")
+        page.locator("#reward-code-form").wait_for()
+        page.locator('#reward-code-form input[name="code"]').fill("discord100")
+        page.get_by_role("button", name="Redeem code").click()
+        page.get_by_text("220", exact=True).first.wait_for()
+        assert page.get_by_text("Discord launch drop", exact=True).count() >= 1
+        assert page.get_by_text("+100 pts", exact=True).count() >= 1
+        assert not errors, errors
         browser.close()

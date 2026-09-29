@@ -34,6 +34,7 @@ const paths = {
   monitor:'<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/>',
   plug:'<path d="M8 12h8m-4-4v8M5 3l14 18M19 3 5 21"/>',
   wallet:'<path d="M4 7V5a2 2 0 0 1 2-2h12v4M4 7h16a2 2 0 0 1 2 2v10H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z"/><path d="M16 13h3"/>',
+  gift:'<path d="M20 12v10H4V12M2 7h20v5H2zM12 22V7M12 7H7.5a2.5 2.5 0 1 1 2.2-3.7L12 7Zm0 0h4.5a2.5 2.5 0 1 0-2.2-3.7L12 7Z"/>',
   settings:'<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1A8 8 0 0 0 15 6l-.3-2.6h-4L10.4 6A8 8 0 0 0 9 7.1l-2.4-1-2 3.4 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.4-1A8 8 0 0 0 10.4 18l.3 2.6h4L15 18a8 8 0 0 0 1.5-1.1l2.4 1 2-3.4-2-1.5a7 7 0 0 0 .1-1Z"/>',
   docs:'<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5zM4 5.5v14A2.5 2.5 0 0 0 6.5 22H20"/>',
   more:'<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
@@ -368,7 +369,7 @@ function renderRecovery(reset=false){
   };
 }
 
-const navGroups=[['Workspace',[['overview','overview','Overview'],['usage','activity','Usage'],['api-keys','key','API keys'],['monitors','monitor','Monitors'],['integrations','plug','Integrations']]],['Commercial',[['wallet','wallet','Wallet'],['billing','wallet','Billing & plans']]],['Account',[['settings','settings','Settings & security']]]];
+const navGroups=[['Workspace',[['overview','overview','Overview'],['usage','activity','Usage'],['api-keys','key','API keys'],['monitors','monitor','Monitors'],['integrations','plug','Integrations']]],['Commercial',[['wallet','wallet','Wallet'],['rewards','gift','Rewards'],['billing','wallet','Billing & plans']]],['Account',[['settings','settings','Settings & security']]]];
 function dashboardShell(active,content){const u=state.me?.user||{};const current=navGroups.flatMap(x=>x[1]).find(x=>x[0]===active);app.innerHTML=`<div class="app-shell"><aside class="sidebar">${brand()}<nav>${navGroups.map(([group,items])=>`<div class="nav-group"><span>${group}</span>${items.map(([slug,ico,title])=>`<a class="${slug===active?'active':''}" data-link href="/dashboard${slug==='overview'?'':`/${slug}`}">${icon(ico)}<b>${title}</b></a>`).join('')}</div>`).join('')}</nav><div class="sidebar-foot"><a data-link href="/docs">${icon('docs')} Docs</a><button id="logout">Sign out</button></div></aside><section class="workspace"><header class="topbar"><div><button class="icon-btn mobile-sidebar" data-sidebar-toggle>${icon('menu')}</button><b>${current?.[2]||'Console'}</b></div><div class="top-actions"><span class="verified-chip">${icon('shield')} Verified</span><button class="account-button"><i>${esc((u.display_name||u.email||'I')[0].toUpperCase())}</i><b>${esc(u.display_name||u.email||'Account')}</b></button></div></header><main class="content">${content}</main></section><nav class="mobile-bottom">${[['overview','overview','Overview'],['usage','activity','Usage'],['integrations','plug','Connect'],['billing','wallet','Billing'],['more','more','More']].map(([slug,ico,title])=>`<a ${slug==='more'?'data-more':'data-link'} href="${slug==='more'?'#':`/dashboard${slug==='overview'?'':`/${slug}`}`}" class="${slug===active?'active':''}">${icon(ico)}<span>${title}</span></a>`).join('')}</nav><div class="more-sheet" data-more-sheet><i></i><b>More</b>${navGroups.flatMap(x=>x[1]).filter(x=>!['overview','usage','integrations','billing'].includes(x[0])).map(([slug,ico,title])=>`<a data-link href="/dashboard/${slug}">${icon(ico)}${title}</a>`).join('')}<a data-link href="/docs">${icon('docs')}Documentation</a><button id="mobile-logout">Sign out</button></div><div class="sheet-backdrop" data-sheet-backdrop></div></div>`;bindCommon();$('[data-sidebar-toggle]').onclick=()=>$('.sidebar').classList.toggle('open');$('[data-more]').onclick=e=>{e.preventDefault();$('[data-more-sheet]').classList.add('open');$('[data-sheet-backdrop]').classList.add('open');};$('[data-sheet-backdrop]').onclick=()=>{$('[data-more-sheet]').classList.remove('open');$('[data-sheet-backdrop]').classList.remove('open');};const logout=async()=>{await api('/api/auth/logout',{method:'POST'});state.me=null;go('/');};$('#logout').onclick=logout;$('#mobile-logout').onclick=logout;}
 async function ensureMe(){try{state.me=await api('/api/auth/me');if(!state.me.user.email_verified){go('/verify-email',true);return null;}return state.me;}catch(error){if(error.status===401){go('/login',true);return null;}throw error;}}
 const pageHead=(k,t,d,a='')=>`<header class="page-head ih-page-header"><div class="ih-page-heading"><span class="overline ih-eyebrow">${k}</span><h1 class="ih-title">${t}</h1><p class="ih-subtitle">${d}</p></div>${a?`<div class="ih-page-actions">${a}</div>`:''}</header>`;
@@ -459,7 +460,112 @@ async function dashIntegrations(){
     detail.hidden=!opening;b.ariaExpanded=String(opening);card.classList.toggle('open',opening);
   });
 }
-async function dashWallet(){const [d,p]=await Promise.all([api('/api/wallet?limit=150'),getPlans()]),w=d.wallet||{};dashboardShell('wallet',`${pageHead('CREDITS','Wallet','Monthly credits spend first. Purchased credits roll over.')}<div class="wallet-hero">${[['MONTHLY',w.monthly_credits,'Refreshes with plan'],['PURCHASED',w.purchased_credits,'Rollover balance'],['RESERVED',w.reserved_credits,'Work currently held']].map(x=>`<article><span>${x[0]}</span><b>${fmt(x[1])}</b><small>${x[2]}</small></article>`).join('')}</div><header class="subhead"><span><span class="overline">TOP UP</span><h2>Add rollover credits</h2></span></header><div class="pack-grid">${(p.credit_packs||[]).map(x=>`<article><span>${esc(x.name)}</span><b>${fmt(x.credits)} credits</b><em>${money(x.price_inr)}</em><button class="btn primary small" data-buy="${x.slug}">Purchase</button></article>`).join('')||'<div class="notice">Credit packs unavailable.</div>'}</div><article class="card"><header><span><span class="overline">LEDGER</span><h2>Wallet activity</h2></span></header>${d.ledger.length?`<div class="table-wrap"><table><thead><tr><th>Time</th><th>Kind</th><th>Bucket</th><th>Amount</th><th>Source</th></tr></thead><tbody>${d.ledger.map(x=>`<tr><td>${when(x.created_at)}</td><td>${esc(x.kind)}</td><td>${esc(x.bucket)}</td><td class="${Number(x.amount)>=0?'positive':''}">${Number(x.amount)>0?'+':''}${fmt(x.amount)}</td><td>${esc(x.source)}</td></tr>`).join('')}</tbody></table></div>`:'<div class="smart-empty compact"><span><b>No wallet activity yet</b><p>Grants and purchases appear here.</p></span></div>'}</article>`);$$('[data-buy]').forEach(b=>b.onclick=()=>startCheckout('credits',b.dataset.buy,b));}
+async function dashWallet(){const [d,p]=await Promise.all([api('/api/wallet?limit=150'),getPlans()]),w=d.wallet||{};dashboardShell('wallet',`${pageHead('CREDITS','Wallet','Monthly credits spend first. Purchased credits roll over.','<a class="btn" data-link href="/dashboard/rewards">'+icon('gift')+' Rewards</a>')}<div class="wallet-hero">${[['MONTHLY',w.monthly_credits,'Refreshes with plan'],['PURCHASED',w.purchased_credits,'Rollover balance'],['RESERVED',w.reserved_credits,'Work currently held']].map(x=>`<article><span>${x[0]}</span><b>${fmt(x[1])}</b><small>${x[2]}</small></article>`).join('')}</div><header class="subhead"><span><span class="overline">TOP UP</span><h2>Add rollover credits</h2></span></header><div class="pack-grid">${(p.credit_packs||[]).map(x=>`<article><span>${esc(x.name)}</span><b>${fmt(x.credits)} credits</b><em>${money(x.price_inr)}</em><button class="btn primary small" data-buy="${x.slug}">Purchase</button></article>`).join('')||'<div class="notice">Credit packs unavailable.</div>'}</div><article class="card"><header><span><span class="overline">LEDGER</span><h2>Wallet activity</h2></span></header>${d.ledger.length?`<div class="table-wrap"><table><thead><tr><th>Time</th><th>Kind</th><th>Bucket</th><th>Amount</th><th>Source</th></tr></thead><tbody>${d.ledger.map(x=>`<tr><td>${when(x.created_at)}</td><td>${esc(x.kind)}</td><td>${esc(x.bucket)}</td><td class="${Number(x.amount)>=0?'positive':''}">${Number(x.amount)>0?'+':''}${fmt(x.amount)}</td><td>${esc(x.source)}</td></tr>`).join('')}</tbody></table></div>`:'<div class="smart-empty compact"><span><b>No wallet activity yet</b><p>Grants and purchases appear here.</p></span></div>'}</article>`);$$('[data-buy]').forEach(b=>b.onclick=()=>startCheckout('credits',b.dataset.buy,b));}
+
+async function dashRewards(){
+  const d=await api('/api/rewards?limit=100');
+  const a=d.account||{},wallet=d.wallet||{},catalog=d.catalog||[],redemptions=d.redemptions||[],codeRedemptions=d.code_redemptions||[],ledger=d.ledger||[],rule=d.earning_rule||{};
+  const points=Number(a.points||0);
+  const walletAvailable=Math.max(0,Number(wallet.monthly_credits||0)+Number(wallet.purchased_credits||0)-Number(wallet.reserved_credits||0));
+  const spendPerPoint=Number(rule.usd_spend_per_point||0);
+  dashboardShell('rewards',
+    pageHead(
+      'REWARDS',
+      'Rewards & redemption',
+      'Earn reward points from metered OpenCrawl usage. Redeem them for prizes that are fulfilled directly into your account.',
+      '<span class="badge success">'+fmt(points)+' points</span>'
+    )+
+    '<section class="reward-summary">'+
+      '<article class="reward-balance-card"><span>AVAILABLE POINTS</span><b>'+fmt(points)+'</b><small>'+fmt(a.lifetime_earned||0)+' earned · '+fmt(a.lifetime_redeemed||0)+' redeemed</small></article>'+
+      '<article><span>WALLET AVAILABLE</span><b>'+walletMoney(walletAvailable,d)+'</b><small>'+walletMoney(wallet.purchased_credits||0,d)+' rollover balance</small><a data-link href="/dashboard/wallet">Open wallet '+icon('arrow')+'</a></article>'+
+      '<article><span>EARNING RATE</span><b>1 point</b><small>per '+(spendPerPoint?paymentMoney(Math.round(spendPerPoint*100),'USD'):'metered spend')+' of OpenCrawl usage</small></article>'+
+    '</section>'+
+    (d.earned_now?'<div class="reward-earned-banner">'+icon('gift')+' <b>+'+fmt(d.earned_now)+' points earned</b><span>Your latest metered usage has been converted into rewards.</span></div>':'')+
+    '<section class="reward-code-panel">'+
+      '<div class="reward-code-copy"><span class="overline">COMMUNITY DROP</span><h2>Have a reward code?</h2><p>Codes shared in the OpenCrawl community can unlock points or wallet credit. Each account can claim a campaign once.</p></div>'+
+      '<form id="reward-code-form" autocomplete="off"><label><span>REWARD CODE</span><input name="code" type="text" minlength="4" maxlength="64" placeholder="OPENCRAWL-XXXX" autocapitalize="characters" spellcheck="false" required></label><button class="btn primary" type="submit">'+icon('gift')+' Redeem code</button></form>'+
+      (codeRedemptions.length?'<div class="reward-code-history"><span>RECENT CLAIMS</span>'+codeRedemptions.slice(0,4).map(x=>'<div><b>'+esc(x.label)+'</b><small>'+esc(x.code_hint)+' · '+when(x.created_at)+'</small><em>'+(x.reward_type==='points'?'+'+fmt(x.reward_value)+' pts':'+'+walletMoney(x.reward_value,d))+'</em></div>').join('')+'</div>':'')+
+    '</section>'+
+    '<header class="subhead reward-subhead"><span><span class="overline">PRIZE CATALOG</span><h2>Redeem your points</h2></span><small>Redemptions are final once a prize is fulfilled.</small></header>'+
+    '<section class="reward-grid">'+
+      (catalog.length?catalog.map(r=>{
+        const enough=points>=Number(r.points_cost||0);
+        const value=r.fulfillment_type==='wallet_credit'?walletMoney(r.fulfillment_value||0,d):'Prize';
+        return '<article class="reward-card '+(enough?'available':'locked')+'">'+
+          '<header><span>'+icon('gift')+'</span><em>'+esc(value)+'</em></header>'+
+          '<h3>'+esc(r.name)+'</h3><p>'+esc(r.description||'')+'</p>'+
+          '<div><b>'+fmt(r.points_cost)+' points</b><small>'+(enough?'Ready to redeem':fmt(Number(r.points_cost||0)-points)+' more needed')+'</small></div>'+
+          '<button class="btn '+(enough?'primary':'')+'" data-redeem="'+esc(r.slug)+'" data-reward-name="'+esc(r.name)+'" '+(enough?'':'disabled')+'>'+(enough?'Redeem prize':'Locked')+'</button>'+
+        '</article>';
+      }).join(''):'<div class="smart-empty"><span><b>No rewards available</b><p>The prize catalog is currently empty.</p></span></div>')+
+    '</section>'+
+    '<section class="reward-history-grid">'+
+      '<article class="card"><header><span><span class="overline">REDEMPTIONS</span><h2>Prize history</h2></span></header>'+
+        (redemptions.length?'<div class="table-wrap"><table><thead><tr><th>Time</th><th>Prize</th><th>Points</th><th>Status</th><th>Delivered</th></tr></thead><tbody>'+
+          redemptions.map(x=>'<tr><td>'+when(x.created_at)+'</td><td>'+esc(x.reward_name)+'</td><td>'+fmt(x.points_spent)+'</td><td><span class="badge '+(x.status==='fulfilled'?'success':'warning')+'">'+esc(x.status)+'</span></td><td>'+(x.fulfillment_type==='wallet_credit'?walletMoney(x.fulfillment_value||0,d):esc(x.fulfillment_reference||'Pending'))+'</td></tr>').join('')+
+          '</tbody></table></div>':'<div class="smart-empty compact"><span><b>No redemptions yet</b><p>Your claimed prizes will appear here.</p></span></div>')+
+      '</article>'+
+      '<article class="card"><header><span><span class="overline">POINTS LEDGER</span><h2>Reward activity</h2></span></header>'+
+        (ledger.length?'<div class="reward-ledger">'+ledger.slice(0,12).map(x=>'<div><span><b>'+esc(x.kind==='earn'?'Points earned':'Prize redeemed')+'</b><small>'+when(x.created_at)+' · '+esc(x.source)+'</small></span><em class="'+(Number(x.amount)>=0?'positive':'')+'">'+(Number(x.amount)>0?'+':'')+fmt(x.amount)+'</em></div>').join('')+'</div>':'<div class="smart-empty compact"><span><b>No reward activity yet</b><p>Metered usage earns points automatically.</p></span></div>')+
+      '</article>'+
+    '</section>'
+  );
+  $('#reward-code-form')?.addEventListener('submit',async e=>{
+    e.preventDefault();
+    const form=e.currentTarget,button=e.submitter||form.querySelector('button'),input=form.elements.code;
+    const code=String(input.value||'').trim().toUpperCase();
+    if(!code)return;
+    if(!busy(button,true,'Checking code…'))return;
+    try{
+      const result=await api('/api/rewards/codes/redeem',{method:'POST',body:{code}});
+      const campaign=result.campaign||{};
+      const delivered=campaign.reward_type==='points'
+        ? '+'+fmt(campaign.reward_value||0)+' reward points'
+        : '+'+walletMoney(campaign.reward_value||0,result)+' wallet credit';
+      toast((campaign.label?campaign.label+': ':'')+delivered,'success');
+      input.value='';
+      state.me=null;
+      await ensureMe();
+      await dashRewards();
+    }catch(error){
+      busy(button,false);
+      toast(error.message,'error');
+    }
+  });
+  document.querySelectorAll('[data-redeem]').forEach(button=>button.onclick=async()=>{
+    const slug=button.dataset.redeem,name=button.dataset.rewardName||'this prize';
+    if(!confirm('Redeem '+name+'? Reward points are deducted immediately once fulfilled.'))return;
+    if(!busy(button,true,'Redeeming…'))return;
+    const storageKey='opencrawl:reward-redemption:'+slug;
+    let idempotencyKey='';
+    try{
+      idempotencyKey=sessionStorage.getItem(storageKey)||'rwd-'+(crypto.randomUUID?.()||Date.now().toString(36)+'-'+Math.random().toString(36).slice(2));
+      sessionStorage.setItem(storageKey,idempotencyKey);
+    }catch{
+      idempotencyKey='rwd-'+(crypto.randomUUID?.()||Date.now().toString(36)+'-'+Math.random().toString(36).slice(2));
+    }
+    try{
+      const result=await api('/api/rewards/'+encodeURIComponent(slug)+'/redeem',{
+        method:'POST',
+        headers:{'Idempotency-Key':idempotencyKey},
+        body:{}
+      });
+      try{sessionStorage.removeItem(storageKey)}catch{}
+      if(result.redemption?.status==='fulfilled'){
+        toast(result.replayed?'Prize already delivered — showing the existing redemption':'Prize redeemed and delivered to your wallet','success');
+      }else{
+        toast(result.replayed?'Existing redemption restored':'Redemption submitted','success');
+      }
+      state.me=null;
+      await ensureMe();
+      await dashRewards();
+    }catch(error){
+      busy(button,false);
+      toast(error.message,'error');
+    }
+  });
+}
+
 async function dashBilling(){const [p,s,pay]=await Promise.all([getPlans(),api('/api/billing/status'),api('/api/billing/payments')]),a=state.me.account||{};dashboardShell('billing',`${pageHead('COMMERCIAL','Billing & plans','Plan limits, renewal state and captured-payment history.',`<span class="badge ${s.configured?'success':'warning'}">Razorpay ${s.configured?'ready':'pending'}</span>`)}<div class="current-plan card"><span><span class="overline">CURRENT PLAN</span><h2>${esc(a.plan_name||'Free')}</h2><p>${walletMoney(a.monthly_credits,a)} monthly wallet · resets ${when(a.current_period_end)}</p></span><div><span>Keys <b>${fmt(a.api_key_limit)}</b></span><span>Monitors <b>${fmt(a.monitor_limit)}</b></span><span>RPM <b>${fmt(a.rpm_limit)}</b></span></div></div>${planCards(p.plans)}<article class="card"><header><span><span class="overline">PAYMENTS</span><h2>Purchase history</h2></span><em>${icon('shield')} Verified server-side</em></header>${pay.payments.length?`<div class="table-wrap"><table><thead><tr><th>Created</th><th>Purpose</th><th>Amount</th><th>Status</th><th>Reference</th></tr></thead><tbody>${pay.payments.map(x=>`<tr><td>${when(x.created_at)}</td><td>${esc(x.purpose)}</td><td>${money(Number(x.amount_paise)/100)}</td><td><span class="badge ${['paid','captured'].includes(x.status)?'success':'warning'}">${esc(x.status)}</span></td><td><code>${esc(x.order_id||'—')}</code></td></tr>`).join('')}</tbody></table></div>`:'<div class="smart-empty compact"><span><b>No purchases yet</b><p>Captured payments appear here.</p></span></div>'}</article>`);$$('.plan-card a[href*="plan="]').forEach(a=>a.onclick=e=>{e.preventDefault();startCheckout('subscription',new URL(a.href).searchParams.get('plan'),a);});}
 async function startCheckout(purpose,slug,trigger,extra={}){
   if(trigger&&!busy(trigger,true,'Opening checkout…'))return;
@@ -729,7 +835,7 @@ async function dashPublicData(){
     finally{running=false;busy(button,false);form.removeAttribute('aria-busy');}
   };
 }
-async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,games:dashGames,repositories:dashRepositories,data:dashPublicData,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
+async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,games:dashGames,repositories:dashRepositories,data:dashPublicData,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,rewards:dashRewards,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
 async function renderRoute(){clearTransientUi();window.scrollTo(0,0);const p=location.pathname;try{if(p==='/'||p==='/pricing'||p==='/status'||p.startsWith('/docs')||p.startsWith('/legal')||LEGAL_ALIASES[p])await hydrateOptionalSession();if(p.startsWith('/dashboard'))return await renderDashboard();if(p==='/verify-email')return await renderVerify();if(p==='/login')return renderAuth('login');if(p==='/signup')return renderAuth('signup');if(p==='/forgot-password')return renderRecovery();if(p==='/reset-password')return renderRecovery(true);if(p.startsWith('/legal')||LEGAL_ALIASES[p])return renderLegal();if(p.startsWith('/docs'))return renderDocs();if(p==='/pricing')return await renderPricing();if(p==='/status')return await renderStatus();return await renderHome();}catch(error){console.error(error);if(error.status===401)return go('/login',true);app.innerHTML=`<main class="fatal"><div>${brand()}<span class="eyebrow">REQUEST FAILED</span><h1>The control plane did not answer cleanly.</h1><p>${esc(error.message)}</p><button class="btn primary" onclick="location.reload()">Try again</button></div></main>`;}}
 document.addEventListener('click',e=>{
   if(e.defaultPrevented)return;
@@ -1703,6 +1809,7 @@ function openRunInspector(event) {
     ]],
     ['Manage', [
       ['wallet','wallet','Wallet'],
+      ['rewards','gift','Rewards'],
       ['billing','billing','Billing & Plans'],
       ['settings','settings','Settings & Security']
     ]]
@@ -1758,6 +1865,7 @@ function openRunInspector(event) {
           <a data-link href="/dashboard/settings">${icon('settings')} Settings & Security</a>
           <a data-link href="/dashboard/billing">${icon('billing')} Billing & Plans</a>
           <a data-link href="/dashboard/wallet">${icon('wallet')} Wallet</a>
+          <a data-link href="/dashboard/rewards">${icon('gift')} Rewards</a>
           <a data-link href="/docs">${icon('docs')} Documentation</a>
           <button id="account-logout">Sign out</button>
         </div>
@@ -1781,7 +1889,7 @@ function openRunInspector(event) {
         <span class="cos-sheet-label">Build & observe</span>
         ${[['api-keys','key','API Keys'],['data','search','Public data'],['games','activity','Game Intelligence'],['repositories','api','Repositories'],['monitors','monitor','Monitors']].map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${icon(ico)} ${label}</a>`).join('')}
         <span class="cos-sheet-label">Account & product</span>
-        ${[['wallet','wallet','Wallet'],['billing','billing','Billing & Plans'],['settings','settings','Settings & Security']].map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${icon(ico)} ${label}</a>`).join('')}
+        ${[['wallet','wallet','Wallet'],['rewards','gift','Rewards'],['billing','billing','Billing & Plans'],['settings','settings','Settings & Security']].map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${icon(ico)} ${label}</a>`).join('')}
         <a data-link href="/docs">${icon('docs')} Documentation</a>
         <a data-link href="/status">${icon('activity')} System Status</a>
         <button id="mobile-logout">Sign out</button>
