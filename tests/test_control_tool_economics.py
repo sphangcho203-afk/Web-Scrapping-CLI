@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from internet_hands.capability_economics import estimate_call
-from internet_hands.control_store import AuthIdentity, ControlStore
+from internet_hands.capability_economics import estimate_call, settle_measured_cost
+from internet_hands.control_store import (
+    AuthIdentity,
+    ControlStore,
+    raw_credits_from_wallet_reservation,
+    wallet_credits_for_raw,
+)
 
 
 def _identity(plan: str) -> AuthIdentity:
@@ -188,6 +193,35 @@ def test_credit_burn_multiplier_is_operator_tunable(
     assert quote["credits"] == 12
 
 
+
+
+def test_unmeasured_fallback_is_not_burned_twice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENCRAWL_PROVIDER_READ_RETRIES", "0")
+    monkeypatch.setenv("OPENCRAWL_CREDIT_BURN_MULTIPLIER", "3")
+    store = ControlStore(dsn=None)
+    arguments = {"query": "example"}
+
+    quote = store.quote_tool_call(
+        identity=_identity("free"),
+        tool_name="mesh_search",
+        arguments=arguments,
+    )
+    assert quote["raw_credits"] == 1
+    assert quote["credits"] == 3
+
+    raw_reserved = raw_credits_from_wallet_reservation(quote["credits"])
+    raw_actual = settle_measured_cost(
+        "mesh_search",
+        arguments,
+        "free",
+        reserved_credits=raw_reserved,
+        execution_usage={},
+    )
+    assert raw_reserved == 1
+    assert raw_actual == 1
+    assert wallet_credits_for_raw(raw_actual) == 3
 
 def test_side_effecting_raw_mesh_routes_do_not_reserve_retry_headroom(
     monkeypatch: pytest.MonkeyPatch,
