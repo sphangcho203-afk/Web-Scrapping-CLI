@@ -56,3 +56,7 @@ No production DB credentials were needed for development. Tests use an isolated 
 ## Readable crawl content follow-up
 
 Playground URL crawls now include bounded readable text and provenance in saved page rows. Text is extracted from the existing HTTP capture, with explicit per-page and aggregate UTF-8 limits and failure/truncation fields. The console exposes expandable text, and JSONL exports can feed a RAG chunker. See [CRAWL_CONTENT.md](CRAWL_CONTENT.md) for the current contract. JavaScript rendering, automated embeddings, webhook delivery and asynchronous jobs remain future work. The tables above describe the original audit baseline.
+
+## Signed dataset delivery follow-up
+
+Saved Playground outputs now enqueue account-owned completion events transactionally when an endpoint is enabled. The existing scheduler dispatches signed HTTPS notifications with bounded attempts, lease recovery, safe public-IP connections and explicit delivery history. Datasets contains endpoint, pause, secret rotation and retry controls. Real PostgreSQL verification is part of CI. See [DATASET_WEBHOOKS.md](DATASET_WEBHOOKS.md) for the current contract. Monitor dataset history, schema extraction, recipes and durable collection jobs remain future work.

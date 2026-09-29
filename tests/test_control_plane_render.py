@@ -795,3 +795,68 @@ def test_playground_crawl_text_is_escaped_and_truncation_visible(frontend_url):
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
         assert not errors
         browser.close()
+
+
+def test_dataset_webhook_setup_secret_pause_and_retry_controls(frontend_url):
+    endpoint = None
+    deliveries = [{"id": "wh_fixture", "dataset_id": "ds_fixture", "status": "failed", "attempts": 5,
+                   "last_error": '<img src=x onerror="window.injected=true">'}]
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 800})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+
+        def respond(route):
+            nonlocal endpoint, deliveries
+            path, method = urlsplit(route.request.url).path, route.request.method
+            if path == "/api/auth/me":
+                data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            elif path == "/api/dataset-webhook" and method == "PUT":
+                body = route.request.post_data_json
+                created = endpoint is None
+                endpoint = {"url": body["url"], "enabled": body["enabled"]}
+                data = {"endpoint": endpoint}
+                if created or body["rotate_secret"]:
+                    data["signing_secret"] = "whsec_" + "x" * 43
+            elif path == "/api/dataset-webhook" and method == "DELETE":
+                endpoint, deliveries = None, []
+                data = {"deleted": True}
+            elif path == "/api/dataset-webhook":
+                data = {"available": True, "endpoint": endpoint}
+            elif path.endswith("/retry"):
+                deliveries[0]["status"] = "pending"
+                data = {"delivery": deliveries[0]}
+            elif path == "/api/dataset-webhook/deliveries":
+                data = {"deliveries": deliveries, "total": len(deliveries)}
+            else:
+                data = {"datasets": [], "total": 0}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/datasets")
+        page.get_by_role("link", name="Webhook delivery", exact=True).click()
+        page.get_by_label("Receiver URL", exact=True).fill("https://hooks.example.com/receive")
+        page.get_by_role("button", name="Save webhook", exact=True).click()
+        page.get_by_text("Save your signing secret", exact=True).wait_for()
+        assert page.locator("#dataset-webhook-secret code").inner_text() == "whsec_" + "x" * 43
+        assert page.locator(".table-wrap img").count() == 0
+        for width in (320, 390, 1366):
+            page.set_viewport_size({"width": width, "height": 800})
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
+        page.get_by_label("Enable delivery", exact=True).uncheck()
+        page.get_by_role("button", name="Save webhook", exact=True).click()
+        page.wait_for_function("document.querySelector('#dataset-webhook-secret').hidden")
+        assert page.get_by_role("button", name="Retry delivery", exact=True).is_disabled()
+        page.get_by_label("Enable delivery", exact=True).check()
+        page.get_by_role("button", name="Save webhook", exact=True).click()
+        page.wait_for_function("!document.querySelector('[data-webhook-retry]').disabled")
+        page.get_by_role("button", name="Retry delivery", exact=True).click()
+        page.get_by_role("cell", name="pending", exact=True).wait_for()
+        page.on("dialog", lambda dialog: dialog.accept())
+        page.get_by_role("button", name="Remove webhook", exact=True).click()
+        page.get_by_text("No deliveries yet", exact=True).wait_for()
+        page.goto(frontend_url + "/docs/dataset-webhooks")
+        page.get_by_role("heading", name="Dataset webhooks", exact=True).wait_for()
+        assert not errors
+        browser.close()

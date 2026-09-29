@@ -1,5 +1,6 @@
 /* Account-owned saved outputs. No API secrets are embedded in export URLs. */
 async function dashDatasets() {
+  if (new URL(location.href).searchParams.get('webhooks') === '1') return dashDatasetWebhooks();
   const selected = new URL(location.href).searchParams.get('dataset');
   const offset = Math.max(0, Number(new URL(location.href).searchParams.get('offset')) || 0);
   const query = new URL(location.href).searchParams.get('q') || '';
@@ -9,7 +10,7 @@ async function dashDatasets() {
     const items = Array.isArray(data.datasets) ? data.datasets : [];
     dashboardShell('datasets', pageHead('OUTPUT', 'Datasets',
       'Saved search, crawl and research records. Reopen results or download them without running collection again.',
-      '<a class="btn primary" data-link href="/dashboard/playground">Collect data</a>') +
+      '<a class="btn primary" data-link href="/dashboard/playground">Collect data</a> <a class="btn" data-link href="/dashboard/datasets?webhooks=1">Webhook delivery</a>') +
       '<article class="card">' + (items.length ?
         '<div class="table-wrap"><table><thead><tr><th>Name</th><th>Operation</th><th>Rows</th><th>Created</th></tr></thead><tbody>' +
         items.map(item => '<tr><td><a data-link href="' + root + '?dataset=' + encodeURIComponent(item.id) + '">' + esc(item.name) +
@@ -77,4 +78,66 @@ function datasetPager(base, offset, limit, total) {
   return '<nav class="dataset-pager" aria-label="Dataset pagination"><span>' + (total ? (offset + 1) + '–' + Math.min(total, offset + limit) : '0') + ' of ' + fmt(total) + '</span>' +
     (offset > 0 ? '<a class="btn small" data-link href="' + base + separator + 'offset=' + Math.max(0, offset - limit) + '">Previous</a>' : '') +
     (offset + limit < total ? '<a class="btn small" data-link href="' + base + separator + 'offset=' + (offset + limit) + '">Next</a>' : '') + '</nav>';
+}
+
+async function dashDatasetWebhooks(signingSecret = '') {
+  const offset = Math.max(0, Number(new URL(location.href).searchParams.get('offset')) || 0);
+  const [settings, history] = await Promise.all([
+    api('/api/dataset-webhook'), api('/api/dataset-webhook/deliveries?limit=25&offset=' + offset)
+  ]);
+  const endpoint = settings.endpoint || {}, deliveries = history.deliveries || [];
+  dashboardShell('datasets', pageHead('AUTOMATION', 'Webhook delivery',
+    'Receive a signed notification when a new Playground dataset is saved.',
+    '<a class="btn" data-link href="/dashboard/datasets">All datasets</a>') +
+    '<section class="card dataset-webhook-settings"><form id="dataset-webhook-form">' +
+      '<label>Receiver URL<input name="url" type="url" required maxlength="2000" placeholder="https://your-app.example/webhooks/opencrawl" value="' + esc(endpoint.url || '') + '"></label>' +
+      '<label class="dataset-webhook-check"><input name="enabled" type="checkbox" ' + (endpoint.enabled !== false ? 'checked' : '') + '> Enable delivery</label>' +
+      '<label class="dataset-webhook-check"><input name="rotate" type="checkbox"> Rotate signing secret</label>' +
+      '<button class="btn primary" type="submit" ' + (settings.available ? '' : 'disabled') + '>Save webhook</button>' +
+      (endpoint.url ? '<button class="btn danger" type="button" id="dataset-webhook-remove">Remove webhook</button>' : '') +
+      '</form><p>' + (settings.available ? 'Your secret is shown once when created, rotated, or the URL changes. Save it in your receiver before collecting data.' : 'Webhook setup is unavailable on this deployment.') + '</p>' +
+      '<div id="dataset-webhook-secret" ' + (signingSecret ? '' : 'hidden') + '><b>Save your signing secret</b><code></code><button class="btn small" id="dataset-webhook-copy">Copy secret</button></div>' +
+      '<p>New saved outputs create events only while enabled. Pausing holds queued events. Retries run on the scheduler; a notification can arrive more than once.</p>' +
+      '<a data-link href="/docs/dataset-webhooks">Receiver setup, signature verification and retry behavior →</a></section>' +
+    '<article class="card"><h2>Delivery history</h2>' + (deliveries.length ?
+      '<div class="table-wrap"><table><thead><tr><th>Dataset</th><th>Status</th><th>Attempts</th><th>Outcome</th><th></th></tr></thead><tbody>' +
+      deliveries.map(item => '<tr><td><a data-link href="/dashboard/datasets?dataset=' + encodeURIComponent(item.dataset_id) + '">' + esc(item.dataset_id) + '</a></td>' +
+        '<td>' + esc(item.status) + '</td><td>' + fmt(item.attempts) + '</td><td>' + esc(item.last_error || (item.http_status ? 'HTTP ' + item.http_status : 'Waiting for scheduler')) + '</td><td>' +
+        (item.status === 'failed' ? '<button class="btn small" data-webhook-retry="' + esc(item.id) + '" ' + (endpoint.enabled ? '' : 'disabled') + '>Retry delivery</button>' : '') + '</td></tr>').join('') +
+      '</tbody></table></div>' : '<div class="smart-empty"><span><b>No deliveries yet</b><p>Enable a receiver, then collect data in Playground. Earlier datasets do not create notifications.</p></span></div>') + '</article>' +
+    datasetPager('/dashboard/datasets?webhooks=1', offset, 25, Number(history.total || 0)));
+  if (signingSecret) {
+    $('#dataset-webhook-secret code').textContent = signingSecret;
+    $('#dataset-webhook-copy').onclick = async () => {
+      try { await navigator.clipboard.writeText(signingSecret); toast('Secret copied', 'success'); }
+      catch (_) { toast('Select and copy the signing secret above.', 'error'); }
+    };
+  }
+  $('#dataset-webhook-form').onsubmit = async event => {
+    event.preventDefault();
+    const form = event.currentTarget, button = event.submitter;
+    busy(button, true, 'Saving…');
+    try {
+      const saved = await api('/api/dataset-webhook', {method: 'PUT', body: {
+        url: form.elements.url.value, enabled: form.elements.enabled.checked,
+        rotate_secret: form.elements.rotate.checked
+      }});
+      await dashDatasetWebhooks(saved.signing_secret || '');
+      toast('Webhook saved', 'success');
+    } catch (error) { toast(error.message, 'error'); busy(button, false); }
+  };
+  const remove = $('#dataset-webhook-remove');
+  if (remove) remove.onclick = async () => {
+    if (!confirm('Remove this webhook and its queued deliveries and delivery history? Saved datasets remain.')) return;
+    busy(remove, true, 'Removing…');
+    try { await api('/api/dataset-webhook', {method: 'DELETE'}); await dashDatasetWebhooks(); }
+    catch (error) { toast(error.message, 'error'); busy(remove, false); }
+  };
+  $$('[data-webhook-retry]').forEach(button => button.onclick = async () => {
+    busy(button, true, 'Queueing…');
+    try {
+      await api('/api/dataset-webhook/deliveries/' + encodeURIComponent(button.dataset.webhookRetry) + '/retry', {method: 'POST', body: {}});
+      await dashDatasetWebhooks(); toast('Delivery queued for retry', 'success');
+    } catch (error) { toast(error.message, 'error'); busy(button, false); }
+  });
 }

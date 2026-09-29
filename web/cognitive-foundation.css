@@ -2481,3 +2481,9 @@ html.ih-overlay-open,html.ih-overlay-open body{overflow:hidden}
 .crawl-content summary { cursor: pointer; }
 .crawl-content pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; max-height: 360px; overflow-y: auto; }
 .crawl-content-notice { font-size: 12px; }
+.dataset-webhook-settings form { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+.dataset-webhook-settings form > label:first-child { flex: 1 1 100%; }
+.dataset-webhook-settings input[type="url"] { width: 100%; min-width: 0; }
+.dataset-webhook-check { display: flex; align-items: center; gap: 8px; }
+.dataset-webhook-check input { width: auto; }
+#dataset-webhook-secret code { display: block; overflow-wrap: anywhere; margin: 12px 0; user-select: all; }

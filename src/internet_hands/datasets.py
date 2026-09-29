@@ -8,6 +8,7 @@ import uuid
 from typing import Any
 
 from .control_store import ControlError, ControlStore
+from .dataset_webhook_store import enqueue_dataset_event
 
 MAX_DATASET_BYTES = 2_000_000
 MAX_DATASET_ROWS = 1000
@@ -70,12 +71,16 @@ class DatasetStore:
                 (f"ds_{uuid.uuid4().hex}", name[:120] or operation, operation, len(rows),
                  json.dumps(columns), json.dumps(rows, default=str), payload, request_id, user_id),
             )
+            inserted = cur.rowcount > 0
             cur.execute(f"SELECT {METADATA_COLUMNS} FROM ih_datasets WHERE request_id=%s AND user_id=%s",
                         (request_id, user_id))
             row = cur.fetchone()
             if not row:
                 raise ControlError("dataset_run_not_found", "No owned run exists for this output.", 404)
-            return dict(row)
+            metadata = dict(row)
+            if inserted:
+                enqueue_dataset_event(cur, user_id, metadata)
+            return metadata
 
     def list(self, user_id: str, *, limit: int, offset: int) -> dict[str, Any]:
         self.control.ensure_schema()

@@ -37,3 +37,28 @@ jobs:
       - run: node --check web/usage-intelligence.js
       - run: node --check web/monitor-lifecycle.js
       - run: pytest -q
+  dataset-storage:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: opencrawl_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      OPENCRAWL_TEST_DATASET_DSN: postgresql://postgres:postgres@127.0.0.1:5432/opencrawl_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e '.[dev]'
+      - run: pytest -q tests/test_datasets.py tests/test_dataset_webhooks.py

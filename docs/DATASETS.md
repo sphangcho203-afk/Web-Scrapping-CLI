@@ -88,4 +88,4 @@ Names and values are escaped in the browser; downloads have a server-generated f
 
 ## Next work
 
-Dataset delivery via webhooks, monitor appends, recipes and durable asynchronous jobs remain separate implementation waves. Existing outputs from before this change cannot be reconstructed from usage metadata alone.
+Signed dataset completion delivery is covered in [DATASET_WEBHOOKS.md](DATASET_WEBHOOKS.md). Monitor appends, recipes and durable asynchronous jobs remain separate implementation waves. Existing outputs from before this change cannot be reconstructed from usage metadata alone.

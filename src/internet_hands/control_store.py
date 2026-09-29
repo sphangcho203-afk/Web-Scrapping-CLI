@@ -166,6 +166,35 @@ CREATE TABLE IF NOT EXISTS ih_datasets (
 );
 CREATE INDEX IF NOT EXISTS ih_datasets_user_time_idx ON ih_datasets(user_id, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS ih_dataset_webhook_endpoints (
+    user_id text PRIMARY KEY REFERENCES ih_users(id) ON DELETE CASCADE,
+    url text NOT NULL,
+    secret_enc text NOT NULL,
+    enabled boolean NOT NULL DEFAULT true,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS ih_dataset_webhook_deliveries (
+    id text PRIMARY KEY,
+    user_id text NOT NULL REFERENCES ih_dataset_webhook_endpoints(user_id) ON DELETE CASCADE,
+    dataset_id text NOT NULL UNIQUE REFERENCES ih_datasets(id) ON DELETE CASCADE,
+    body text NOT NULL,
+    status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','delivering','retry','delivered','failed')),
+    attempts integer NOT NULL DEFAULT 0,
+    next_attempt_at timestamptz NOT NULL DEFAULT now(),
+    lease_token text,
+    lease_until timestamptz,
+    http_status integer,
+    last_error text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ih_dataset_webhook_due_idx
+    ON ih_dataset_webhook_deliveries(status,next_attempt_at);
+CREATE INDEX IF NOT EXISTS ih_dataset_webhook_owner_idx
+    ON ih_dataset_webhook_deliveries(user_id,created_at DESC);
+
+
 CREATE TABLE IF NOT EXISTS ih_provider_usage (
     id text PRIMARY KEY,
     request_id text NOT NULL REFERENCES ih_usage_events(request_id) ON DELETE CASCADE,
