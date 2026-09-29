@@ -229,17 +229,17 @@ def _reward_units_per_point() -> int:
     return max(1, min(value, WALLET_UNITS_PER_USD * 100))
 
 
-def _points_from_usage(wallet_units: int) -> int:
-    return max(0, int(wallet_units)) // _reward_units_per_point()
+def _points_from_usage(metered_units: int) -> int:
+    return max(0, int(metered_units)) // _reward_units_per_point()
 
 
 def _accrual_delta(
     total_metered_units: int,
-    processed_wallet_units: int,
+    processed_metered_units: int,
     units_per_point: int,
 ) -> tuple[int, int]:
-    """Return newly earned points and the wallet units consumed by that accrual."""
-    available = max(0, int(total_metered_units) - max(0, int(processed_wallet_units)))
+    """Return newly earned points and raw metered units consumed by that accrual."""
+    available = max(0, int(total_metered_units) - max(0, int(processed_metered_units)))
     rate = max(1, int(units_per_point))
     points = available // rate
     return points, points * rate
