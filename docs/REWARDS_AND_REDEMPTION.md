@@ -4,13 +4,16 @@ OpenCrawl rewards are deliberately separate from the USD service wallet.
 
 ## Earning points
 
-By default, one reward point is earned for every 250 wallet units of metered OpenCrawl usage. At the default denomination of 5,000 wallet units per USD, that is one point per $0.05 of actual OpenCrawl-funded usage.
+Reward earning is based on underlying metered OpenCrawl work rather than whichever wallet-burn multiplier is currently used for pricing.
 
-The rate is controlled by:
+The base rate is controlled by:
 
 ```env
 OPENCRAWL_REWARD_UNITS_PER_POINT=250
+OPENCRAWL_CREDIT_BURN_MULTIPLIER=3
 ```
+
+With the default 3× wallet burn, one reward point requires 750 charged wallet units. This normalization preserves the same underlying 250-unit earning threshold instead of making rewards three times easier to earn when wallet consumption is accelerated.
 
 User-owned connected apps and user-owned remote MCP servers that cost $0 in the OpenCrawl wallet therefore do not mint reward points merely for passing through the Tool Mesh.
 
