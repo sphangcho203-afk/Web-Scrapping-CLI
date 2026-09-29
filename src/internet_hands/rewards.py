@@ -299,17 +299,38 @@ def _ensure_reward_account(cur: Any, user_id: str) -> None:
 
 
 def _sync_usage_points(cur: Any, user_id: str) -> int:
-    """Convert only previously unprocessed metered wallet spend into reward points."""
+    """Convert only previously unprocessed raw metered work into reward points."""
     _ensure_reward_account(cur, user_id)
     cur.execute(
         """
         SELECT COALESCE(
             sum(
                 CASE
-                    WHEN COALESCE(
-                        metadata #>> '{reservation,raw_settled}',
-                        ''
-                    ) ~ '^[0-9]+
+                    WHEN jsonb_typeof(
+                        metadata #> '{reservation,raw_settled}'
+                    ) = 'number'
+                    THEN (metadata #>> '{reservation,raw_settled}')::bigint
+                    WHEN jsonb_typeof(
+                        metadata #> '{pricing,credit_burn_multiplier}'
+                    ) = 'number'
+                    AND (metadata #>> '{pricing,credit_burn_multiplier}')::bigint > 0
+                    THEN credits_charged / (
+                        metadata #>> '{pricing,credit_burn_multiplier}'
+                    )::bigint
+                    ELSE credits_charged
+                END
+            ),
+            0
+        )::bigint AS metered_units
+        FROM ih_usage_events
+        WHERE user_id=%s AND credits_charged > 0
+        """,
+        (user_id,),
+    )
+    usage_row = cur.fetchone() or {}
+    # Legacy events were settled before wallet multipliers existed, so their
+    # charged units already equal raw work. New events persist raw_settled.
+    total_metered_units = int(usage_row.get("metered_units") or 0)
 
     cur.execute(
         """
@@ -326,9 +347,11 @@ def _sync_usage_points(cur: Any, user_id: str) -> int:
         raise ControlError("reward_account_missing", "reward account is unavailable", 503)
 
     rate = _reward_units_per_point()
+    # The column predates raw-work normalization. Before this rollout wallet
+    # charge and raw work were 1:1, so existing values remain numerically valid.
     processed = int(account.get("usage_wallet_units_processed") or 0)
 
-    # Compatibility for accounts that earned points before wallet-unit tracking existed.
+    # Compatibility for accounts that earned points before unit tracking existed.
     legacy_points = int(account.get("usage_points_credited") or 0)
     if processed == 0 and legacy_points > 0:
         processed = min(total_metered_units, legacy_points * rate)
@@ -383,7 +406,6 @@ def _sync_usage_points(cur: Any, user_id: str) -> int:
         ),
     )
     return delta
-
 
 def rewards_snapshot(user_id: str, limit: int = 80) -> dict[str, Any]:
     ensure_rewards_schema()
