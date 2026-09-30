@@ -40,3 +40,7 @@ This implementation is reviewable on the existing draft PR. Before production pr
 ## Sitemap coverage
 
 Set `discover_sitemaps: true` to include unlinked pages discovered through bounded robots hints and XML sitemap indexes. Counts and diagnostics survive checkpoints and appear in saved output. Existing link-only checkpoints remain compatible. See [CRAWL_DISCOVERY.md](CRAWL_DISCOVERY.md) for limits, scope and deadline semantics.
+
+## Cost review and spending limits
+
+Review normalized inputs with POST /api/crawl-runs/quote before creation. Playground requires explicit cost confirmation and submits max_charge_credits plus quote_revision with the job. A changed quote or insufficient cap rejects new work. Accepted reservations retain their stored raw ceiling and wallet multiplier across worker configuration changes. Progress distinguishes held/original funds, final charge and released reservation. See [EXECUTION_BUDGETS.md](EXECUTION_BUDGETS.md) for the end-to-end contract and direct-client compatibility.

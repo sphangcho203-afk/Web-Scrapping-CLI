@@ -82,3 +82,7 @@ Opt-in sitemap discovery now reaches unlinked pages through robots hints, conven
 ## Usage analytics follow-up
 
 Overview and Usage now expose ledger-backed responsive vector charts, shareable metric/window controls, keyboard/touch bucket inspection, exact tables and CSV. UTC series include quiet and partial buckets; pending outcomes no longer reduce completed-request success, and missing latency stays null. All ledger aggregates use one bounded repeatable-read snapshot; operation and status remainders reconcile request shares. Refresh errors preserve and label stale data. See [USAGE_ANALYTICS.md](USAGE_ANALYTICS.md). Comparison periods, per-key filters and historical wallet balances remain follow-up work.
+
+## Execution budget follow-up
+
+Playground now maps normalized inputs to a read-only cost review and explicit confirmation, then enforces the reviewed revision and spending ceiling before execution. Background jobs preserve reservation-time pricing across workers. Paid search/evidence recovery is explicit, bounded and priced using the main router's basic-work policy; PDF fan-out is excluded. Reservations remain pending in usage analytics, and background receipts distinguish original reservation, posted charge and release. See [EXECUTION_BUDGETS.md](EXECUTION_BUDGETS.md). Provider invoices/native compute, promotional credit economics, comparison periods and per-key budgets remain follow-up work; no profitability guarantee is implied.

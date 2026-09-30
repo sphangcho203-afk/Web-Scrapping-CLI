@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import secrets
@@ -1426,7 +1427,17 @@ class ControlStore:
             arguments=arguments,
             plan_slug=identity.plan_slug,
         )
-        return _apply_credit_burn_to_quote(raw_quote)
+        result = _apply_credit_burn_to_quote(raw_quote)
+        canonical = {k: v for k, v in (arguments or {}).items()
+                     if k not in {"max_charge_credits", "quote_revision"}}
+        try:
+            fingerprint = json.dumps({"owner": identity.user_id, "tool": tool_name,
+                "plan": identity.plan_slug, "arguments": canonical, "pricing": result},
+                sort_keys=True, separators=(",", ":"), allow_nan=False)
+        except (TypeError, ValueError) as exc:
+            raise ControlError("invalid_input", "Execution inputs must be valid JSON.", 422) from exc
+        result["quote_revision"] = hashlib.sha256(fingerprint.encode()).hexdigest()
+        return result
 
     def tool_cost(
         self,
@@ -1520,15 +1531,25 @@ class ControlStore:
         input_bytes: int,
         transaction=None,
     ) -> int:
-        self.ensure_schema()
-        if transaction is None:
-            self.release_stale_reservations(identity.user_id)
         quote = self.quote_tool_call(
             identity=identity,
             tool_name=tool_name,
             arguments=arguments,
         )
         reserved = int(quote["credits"])
+        options = arguments or {}
+        if "max_charge_credits" in options:
+            limit = options["max_charge_credits"]
+            if type(limit) is not int or not 0 <= limit <= 1_000_000_000:
+                raise ControlError("invalid_spend_limit", "max_charge_credits must be an integer from 0 to 1000000000.", 422)
+            if reserved > limit:
+                raise ControlError("spend_limit_exceeded",
+                    f"This run requires {reserved} reserved credits, above your spending limit of {limit}.", 409)
+        if "quote_revision" in options and options["quote_revision"] != quote["quote_revision"]:
+            raise ControlError("quote_changed", "The inputs or price changed. Review a fresh quote before executing.", 409)
+        self.ensure_schema()
+        if transaction is None:
+            self.release_stale_reservations(identity.user_id)
         provider = None
         if arguments:
             ref = str(arguments.get("ref") or "")
@@ -1616,6 +1637,8 @@ class ControlStore:
                             {
                                 "auth_source": identity.source,
                                 "arguments_present": bool(arguments),
+                                "budget": {"max_charge_credits": options.get("max_charge_credits"),
+                                           "quote_revision": quote["quote_revision"]},
                                 "tool": tool_name,
                                 "plan": identity.plan_slug,
                                 "reservation": {
@@ -1637,6 +1660,21 @@ class ControlStore:
             if transaction is None:
                 conn.commit()
         return reserved
+
+    def raw_tool_reservation(self, request_id: str, *, transaction=None) -> int:
+        """Read the stored raw ceiling, independent of a later process configuration."""
+        with (self._connect() if transaction is None else nullcontext(transaction)) as conn, conn.cursor() as cur:
+            cur.execute("SELECT metadata FROM ih_usage_events WHERE request_id=%s", (request_id,))
+            row = cur.fetchone()
+        if not row:
+            raise ControlError("reservation_missing", "The execution reservation is unavailable.", 500)
+        metadata = row["metadata"] or {}
+        pricing = metadata.get("pricing") or {}
+        if pricing.get("raw_credits") is not None:
+            return max(0, int(pricing["raw_credits"]))
+        reserved = int((metadata.get("reservation") or {}).get("credits") or 0)
+        multiplier = max(1, int(pricing.get("credit_burn_multiplier") or credit_burn_multiplier()))
+        return max(0, reserved // multiplier)
 
     def settle_tool_call(
         self,
@@ -1757,7 +1795,9 @@ class ControlStore:
                 reservation = dict(metadata.get("reservation") or {})
                 reserved = max(0, int(reservation.get("credits") or 0))
                 raw_actual = None if actual_credits is None else max(0, int(actual_credits))
-                actual = reserved if raw_actual is None else _apply_credit_burn(raw_actual)
+                # Accepted work keeps its reservation-time conversion after configuration changes.
+                multiplier = max(1, int((metadata.get("pricing") or {}).get("credit_burn_multiplier") or credit_burn_multiplier()))
+                actual = reserved if raw_actual is None else raw_actual * multiplier
                 if actual > reserved:
                     raise ControlError(
                         "reservation_exceeded",
@@ -1813,7 +1853,7 @@ class ControlStore:
                         "reserved": reserved,
                         "settled": actual,
                         "raw_settled": raw_actual,
-                        "credit_burn_multiplier": credit_burn_multiplier(),
+                        "credit_burn_multiplier": multiplier,
                         "released": reserved - actual,
                     },
                 }
@@ -1857,7 +1897,7 @@ class ControlStore:
                         "reserved": reserved,
                         "settled": actual,
                         "raw_settled": raw_actual,
-                        "credit_burn_multiplier": credit_burn_multiplier(),
+                        "credit_burn_multiplier": multiplier,
                         "released": reserved - actual,
                     }
                 )

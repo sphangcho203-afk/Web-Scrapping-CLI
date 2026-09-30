@@ -14,7 +14,7 @@ from .crawl_run_worker import dispatch_run
 from .crawl_runs import RunStore
 from .datasets_api import _error, _owner
 from .monitor_executor import _scheduler_authorized
-from .playground_api import _SAFE_EXCLUDES, _patterns, _playground_identity
+from .playground_api import _SAFE_EXCLUDES, _patterns, _playground_identity, execution_quote
 from .policy import PolicyError, ResolutionUnavailable, validate_public_http_url
 
 
@@ -29,7 +29,7 @@ runs = RunStore(store)
 def crawl_arguments(body: dict) -> dict:
     allowed = {"api_key_id", "operation", "url", "max_pages", "max_depth", "concurrency", "max_seconds",
                "include_paths", "exclude_paths", "include_subdomains", "preserve_query", "include_content",
-               "max_content_bytes_per_page", "max_content_bytes", "discover_sitemaps"}
+               "max_content_bytes_per_page", "max_content_bytes", "discover_sitemaps", "max_charge_credits", "quote_revision"}
     if set(body) - allowed or body.get("operation", "crawl") != "crawl":
         raise HTTPException(422, detail="Background runs currently support URL crawls and their documented options.")
     url = body.get("url")
@@ -54,7 +54,27 @@ def crawl_arguments(body: dict) -> dict:
         args.pop("discover_sitemaps")
     args["include_paths"] = sorted(set(_patterns(body.get("include_paths"), "include_paths")))
     args["exclude_paths"] = sorted({*_SAFE_EXCLUDES, *_patterns(body.get("exclude_paths"), "exclude_paths")})
+    for name in ("max_charge_credits", "quote_revision"):
+        if name in body:
+            args[name] = body[name]
     return args
+
+
+@router.post("/api/crawl-runs/quote")
+async def quote_run(request: Request):
+    from .playground_api import playground_body
+    body, _ = await playground_body(request)
+    identity = await run_in_threadpool(_playground_identity, request, body)
+    args = crawl_arguments(body)
+    try:
+        await asyncio.to_thread(validate_public_http_url, args["url"])
+        return _response(await run_in_threadpool(execution_quote, store, identity, "playground:crawl", args))
+    except ResolutionUnavailable as exc:
+        raise HTTPException(503, detail={"code": "resolver_busy", "message": "URL resolution is unavailable."}) from exc
+    except PolicyError as exc:
+        raise HTTPException(422, detail={"code": "target_blocked", "message": str(exc)}) from exc
+    except ControlError as exc:
+        raise _error(exc) from exc
 
 
 @router.post("/api/crawl-runs", status_code=202)

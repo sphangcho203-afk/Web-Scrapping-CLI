@@ -28,6 +28,11 @@ def test_usage_vector_chart_interactions_ranges_and_export(frontend_url):
 
         def respond(route):
             path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
             if path == "/api/auth/me":
                 data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
             elif path == "/api/usage/intelligence":
@@ -89,6 +94,56 @@ def test_usage_vector_chart_interactions_ranges_and_export(frontend_url):
         browser.close()
 
 
+
+def test_playground_cost_review_requires_confirmation_and_requotes_changed_inputs(frontend_url):
+    quotes, executions = [], []
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if path == "/api/auth/me":
+                data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            elif path == "/api/api-keys":
+                data = {"keys": [{"id": "key_fixture", "name": "Collection", "prefix": "oc"}]}
+            elif path == "/api/playground/quote":
+                quotes.append(route.request.post_data_json)
+                data = {"quote": {"credits": 25 if route.request.post_data_json.get("paid_recovery") else 5,
+                    "quote_revision": "b" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}
+            elif path == "/api/playground/run":
+                executions.append(route.request.post_data_json)
+                data = {"ok": True, "operation": "search", "usage": {"credits_reserved": 5, "credits_charged": 5},
+                        "summary": {}, "result": {"pages": [], "search_results": []}}
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/playground")
+        page.locator("#research-query").fill("example company")
+        page.get_by_role("button", name="Review cost", exact=True).click()
+        page.get_by_role("button", name="Confirm run", exact=True).wait_for()
+        assert len(quotes) == 1 and not executions
+        assert quotes[-1]["paid_recovery"] is False
+        page.locator("#research-query").fill("changed company")
+        page.get_by_role("button", name="Review cost", exact=True).click()
+        page.get_by_role("button", name="Confirm run", exact=True).wait_for()
+        assert len(quotes) == 2 and not executions
+        page.locator("#ihp-spend-limit").fill("0")
+        page.get_by_role("button", name="Review cost", exact=True).click()
+        page.get_by_text("This run exceeds your spending limit. Adjust the limit or inputs.", exact=True).wait_for()
+        assert not executions
+        page.locator("#ihp-spend-limit").fill("")
+        page.get_by_role("button", name="Review cost", exact=True).click()
+        page.get_by_role("button", name="Confirm run", exact=True).click()
+        page.locator("#ihp-results .search-result-header").wait_for()
+        assert len(executions) == 1
+        assert executions[0]["max_charge_credits"] == 5 and executions[0]["quote_revision"] == "b" * 64
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        browser.close()
+
 @pytest.mark.parametrize("statuses,label,truncated", [([None], "CRAWL FAILED", False), ([403], "CRAWL FAILED", False), ([200, 503], "CRAWL PARTIAL", False), ([200], "CRAWL COMPLETE", False), ([200], "CRAWL PARTIAL", True)])
 def test_crawl_outcome_labels_match_successful_pages(frontend_url, statuses, label, truncated):
     submissions = []
@@ -97,6 +152,11 @@ def test_crawl_outcome_labels_match_successful_pages(frontend_url, statuses, lab
         page = browser.new_page(viewport={"width": 390, "height": 800})
         def respond(route):
             path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
             if path == "/api/auth/me":
                 data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
             elif path == "/api/api-keys":
@@ -115,6 +175,7 @@ def test_crawl_outcome_labels_match_successful_pages(frontend_url, statuses, lab
         page.locator(".search-advanced summary").click()
         page.locator("#ihp-sitemaps").check()
         page.locator("#ihp-submit").click()
+        page.get_by_role("button", name="Confirm run", exact=True).click()
         page.locator("#ihp-results .search-result-header .search-section-kicker").wait_for()
         assert page.locator("#ihp-results .search-result-header .search-section-kicker").inner_text() == label
         assert "successful" in page.locator("#ihp-results .search-result-header p").inner_text()
@@ -135,6 +196,11 @@ def test_content_monitor_billing_form_and_capture_history(frontend_url):
         page.on("pageerror", lambda error: errors.append(str(error)))
         def respond(route):
             path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
             if path == "/api/auth/me":
                 data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
             elif path == "/api/api-keys":
@@ -190,6 +256,11 @@ def test_background_crawl_submission_reopen_and_cancel(frontend_url):
 
         def respond(route):
             path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
             if path == "/api/auth/me":
                 data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
             elif path == "/api/api-keys":
@@ -216,6 +287,7 @@ def test_background_crawl_submission_reopen_and_cancel(frontend_url):
         page.locator(".search-advanced summary").click()
         page.locator("#ihp-sitemaps").check()
         page.locator("#ihp-submit").click()
+        page.get_by_role("button", name="Confirm run", exact=True).click()
         page.get_by_role("heading", name="Collection progress", exact=True).wait_for()
         assert submissions[0][0]["url"] == "https://example.com/" and submissions[0][1]
         assert submissions[0][0]["discover_sitemaps"] is True
@@ -424,6 +496,11 @@ def test_monitor_history_and_responsive_layout(frontend_url):
 
         def respond(route):
             path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
             if path == "/api/auth/me":
                 data = {"user": {"email": "fixture@example.test", "email_verified": True},
                         "account": {}}
@@ -478,6 +555,11 @@ def test_curl_connection_preview_then_save(frontend_url):
 
         def respond(route):
             path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
             if path == "/api/auth/me":
                 data = {"user": {"email": "fixture@example.test", "email_verified": True},
                         "account": {}}
@@ -542,6 +624,11 @@ def test_game_discovery_schema_execution_and_mobile_state(frontend_url):
 
         def respond(route):
             path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
             if path == "/api/auth/me":
                 data = {"user": {"email": "fixture@example.test", "email_verified": True}, "account": {}}
             elif path == "/api/api-keys":
@@ -619,6 +706,11 @@ def test_repository_investigation_blocks_duplicate_metered_requests(frontend_url
 
         def respond(route):
             path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
             if path == "/api/auth/me":
                 data = {"user": {"email": "fixture@example.test", "email_verified": True}, "account": {}}
             elif path == "/api/api-keys":
@@ -674,6 +766,11 @@ def test_usage_leads_with_workflows_and_retains_technical_trace(frontend_url):
 
         def respond(route):
             path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
             if path == "/api/auth/me":
                 data = {"user": {"email": "fixture@example.test", "email_verified": True}, "account": {}}
             elif path == "/api/usage/intelligence":
@@ -713,6 +810,11 @@ def test_expanded_catalog_paginates_and_searches_at_narrow_widths(frontend_url):
         page.on("pageerror", lambda error: errors.append(str(error)))
         def respond(route):
             path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
             if path == "/api/auth/me":
                 data = {"user": {"email": "fixture@example.test", "email_verified": True}, "account": {}}
             elif path == "/api/games":
@@ -748,6 +850,11 @@ def test_public_data_workspace_validates_executes_and_reports_partial_results(fr
         page.on("pageerror", lambda error: errors.append(str(error)))
         def respond(route):
             path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
             if path == "/api/auth/me":
                 data = {"user": {"email": "fixture@example.test", "email_verified": True}, "account": {}}
             elif path == "/api/api-keys":
@@ -843,6 +950,11 @@ def test_rewards_redemption_delivers_wallet_prize(frontend_url):
 
         def respond(route):
             path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
             if path == "/api/auth/me":
                 data = {
                     "user": {"email": "fixture@example.test", "email_verified": True},
@@ -929,6 +1041,11 @@ def test_community_reward_code_redemption(frontend_url):
 
         def respond(route):
             path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
             if path == "/api/auth/me":
                 data = {
                     "user": {"email": "fixture@example.test", "email_verified": True},
@@ -985,6 +1102,11 @@ def test_playground_crawl_text_is_escaped_and_truncation_visible(frontend_url):
 
         def respond(route):
             path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
             if path == "/api/auth/me":
                 data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
             elif path == "/api/api-keys":
@@ -1003,7 +1125,8 @@ def test_playground_crawl_text_is_escaped_and_truncation_visible(frontend_url):
         page.route("**/api/**", respond)
         page.goto(frontend_url + "/dashboard/playground")
         page.locator("#research-query").fill("https://example.com")
-        page.get_by_role("button", name="Run search", exact=True).click()
+        page.get_by_role("button", name="Review cost", exact=True).click()
+        page.get_by_role("button", name="Confirm run", exact=True).click()
         page.get_by_text("Content was shortened to fit the collection limits.", exact=True).wait_for()
         page.get_by_text("Read page text", exact=True).click()
         assert '<img src=x onerror="window.injected=true">' in page.locator(".crawl-content pre").inner_text()

@@ -12,7 +12,7 @@ def test_series_totals_are_owned_consistent_and_zero_filled(request):
     end = datetime(2026, 9, 30, 12, 30, tzinfo=UTC)
     foreign = "usage_foreign_" + uuid.uuid4().hex
     with control._connect() as conn, conn.cursor() as cur:
-        for hours, status, credits, latency in [(23, "ok", 7, 100), (1, "failed", 3, 300), (0, "accepted", 0, None), (25, "ok", 999, 999)]:
+        for hours, status, credits, latency in [(23, "ok", 7, 100), (1, "failed", 3, 300), (0, "reserved", 0, None), (25, "ok", 999, 999)]:
             cur.execute("""INSERT INTO ih_usage_events(id,user_id,request_id,tool_ref,status,credits_charged,latency_ms,created_at)
                 VALUES (%s,%s,%s,'playground:crawl',%s,%s,%s,%s)""",
                 (uuid.uuid4().hex, identity.user_id, uuid.uuid4().hex, status, credits, latency, end - timedelta(hours=hours, minutes=1)))

@@ -10,7 +10,7 @@ import uuid
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from psycopg import Error as DatabaseError
 
 from .auth import authenticate_secret
@@ -18,6 +18,7 @@ from .capability_economics import settle_measured_cost
 from .control_api import _require_user
 from .control_store import (
     AuthIdentity,
+    WALLET_UNITS_PER_USD,
     ControlError,
     ControlStore,
     raw_credits_from_wallet_reservation,
@@ -193,8 +194,8 @@ async def _firecrawl_fallback(evidence: list[dict[str, Any]], *, limit: int = 3)
             continue
         try:
             validate_public_http_url(url)
-            result = await provider.execute("scrape", {"url": url, "formats": ["markdown"], "onlyMainContent": True, "timeout": 15000}, timeout_seconds=20)
-            usage.append({"provider": "firecrawl", "operation": "scrape", "credits_used": (result.get("metadata") or {}).get("credits_used"), "status": "ok"})
+            result = await provider.execute("scrape", {"url": url, "formats": ["markdown"], "onlyMainContent": True, "parsers": [], "timeout": 15000}, timeout_seconds=20)
+            usage.append({"provider": "firecrawl", "operation": "scrape", "credits_used": (result.get("metadata") or {}).get("credits_used"), "policy_work_units": 1, "status": "ok"})
             data = result.get("data") or {}
             markdown = str(data.get("markdown") or data.get("content") or "").strip() if isinstance(data, dict) else ""
             if len(markdown) >= 280:
@@ -228,7 +229,7 @@ def _synthesize_evidence(query: str, evidence: list[dict[str, Any]]) -> dict[str
     return {"query": query, "method": "extractive", "findings": findings, "sources": [{"citation": i, "url": x.get("url"), "title": x.get("title") or x.get("url"), "score": x.get("relevance_score")} for i,x in enumerate(ranked[:6], start=1)]}
 
 
-async def _discover_search_sources(query: str, *, count: int, timeout: float) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+async def _discover_search_sources(query: str, *, count: int, timeout: float, paid_recovery: bool = True) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     try:
         search_payload = await brave_search(query, kind=SearchKind.WEB, count=min(max(count, 1), 20))
         raw_response = search_payload.get("response") or {}
@@ -246,6 +247,8 @@ async def _discover_search_sources(query: str, *, count: int, timeout: float) ->
         ]
         return sources, {"provider": "brave", "fallback": False}
     except Exception as brave_exc:
+        if not paid_recovery:
+            raise RuntimeError("Search is unavailable. Paid recovery is disabled; review its cost before enabling it.") from brave_exc
         provider = FirecrawlToolProvider()
         if not provider.api_key:
             raise RuntimeError(
@@ -287,6 +290,7 @@ async def _discover_search_sources(query: str, *, count: int, timeout: float) ->
             "credits_used": (result.get("metadata") or {}).get("credits_used"),
             "result_limit": search_limit,
             "mode": "discovery_only",
+            "policy_work_units": 2,
         }
 
 
@@ -328,17 +332,7 @@ async def _research_evidence(sources: list[dict[str, Any]], *, limit: int, timeo
     return await asyncio.gather(*(one(source) for source in sources[:limit]))
 
 
-@router.post("/api/playground/run")
-async def playground_run(request: Request):
-    raw = await request.body()
-    try:
-        body = json.loads(raw or b"{}")
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-        raise HTTPException(status_code=400, detail={"code": "invalid_json", "message": "Request body must be valid JSON."}) from exc
-    if not isinstance(body, dict):
-        raise HTTPException(status_code=400, detail={"code": "invalid_input", "message": "Request body must be a JSON object."})
-
-    identity = _playground_identity(request, body)
+def playground_arguments(body: dict[str, Any]) -> dict[str, Any]:
     operation = str(body.get("operation") or "crawl").strip().lower()
     if operation not in {"crawl", "search", "research", "auto"}:
         raise HTTPException(status_code=400, detail={"code": "unsupported_operation", "message": "Supported operations: crawl, search, research, auto."})
@@ -376,7 +370,6 @@ async def playground_run(request: Request):
     content_per_page = _bounded_int(body.get("max_content_bytes_per_page"), "max_content_bytes_per_page", 50_000, 1, 200_000)
     content_budget = _bounded_int(body.get("max_content_bytes"), "max_content_bytes", 750_000, 1, 1_000_000)
 
-    request_id = f"req_{uuid.uuid4().hex}"
     arguments = {
         "ref": f"playground:{operation}",
         "url": url,
@@ -392,6 +385,67 @@ async def playground_run(request: Request):
         "max_content_bytes_per_page": content_per_page,
         "max_content_bytes": content_budget,
     }
+    arguments["include_paths"] = include_paths
+    arguments["exclude_paths"] = exclude_paths
+    paid = body.get("paid_recovery", False)
+    if not isinstance(paid, bool):
+        raise HTTPException(422, detail={"code": "invalid_input", "message": "paid_recovery must be a boolean."})
+    arguments["paid_recovery"] = paid
+    for name in ("max_charge_credits", "quote_revision"):
+        if name in body:
+            arguments[name] = body[name]
+    return arguments
+
+
+def execution_quote(control: ControlStore, identity: AuthIdentity, tool: str, arguments: dict) -> dict:
+    quote = control.quote_tool_call(identity=identity, tool_name=tool, arguments=arguments)
+    account = control.account_snapshot(identity.user_id)
+    available = max(0, int(account.get("monthly_credits") or 0) + int(account.get("purchased_credits") or 0)
+                    - int(account.get("reserved_credits") or 0))
+    return {"quote": {**quote, "wallet_units_per_usd": WALLET_UNITS_PER_USD,
+            "available_credits": available, "affordable": available >= quote["credits"],
+            "maximum_charge_credits": quote["credits"], "operation": tool.split(":")[-1]}}
+
+
+@router.post("/api/playground/quote")
+async def playground_quote(request: Request, response: Response):
+    body, _ = await playground_body(request)
+    identity = _playground_identity(request, body)
+    arguments = playground_arguments(body)
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return execution_quote(store, identity, arguments["ref"], arguments)
+    except ControlError as exc:
+        raise _http_error(exc) from exc
+
+
+async def playground_body(request: Request) -> tuple[dict, bytes]:
+    raw = await request.body()
+    if len(raw) > 65536:
+        raise HTTPException(413, detail={"code": "request_too_large", "message": "Execution inputs exceed 64 KB."})
+    try:
+        body = json.loads(raw or b"{}")
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise HTTPException(400, detail={"code": "invalid_json", "message": "Request body must be valid JSON."}) from exc
+    if not isinstance(body, dict):
+        raise HTTPException(400, detail={"code": "invalid_input", "message": "Request body must be a JSON object."})
+    return body, raw
+
+
+@router.post("/api/playground/run")
+async def playground_run(request: Request):
+    body, raw = await playground_body(request)
+    identity = _playground_identity(request, body)
+    arguments = playground_arguments(body)
+    operation = arguments["ref"].split(":")[1]
+    url, query = arguments["url"], arguments["query"]
+    max_pages, max_depth = arguments["max_pages"], arguments["max_depth"]
+    concurrency, max_seconds = arguments["concurrency"], arguments["max_seconds"]
+    include_paths, exclude_paths = arguments["include_paths"], arguments["exclude_paths"]
+    include_subdomains, preserve_query = arguments["include_subdomains"], arguments["preserve_query"]
+    include_content, discover_sitemaps = arguments["include_content"], arguments["discover_sitemaps"]
+    content_per_page, content_budget = arguments["max_content_bytes_per_page"], arguments["max_content_bytes"]
+    request_id = f"req_{uuid.uuid4().hex}"
     try:
         reserved = store.reserve_tool_call(
             identity=identity,
@@ -413,9 +467,10 @@ async def playground_run(request: Request):
         search_meta: dict[str, Any] = {"provider": None, "fallback": False}
         if operation in {"search", "research", "auto"} and query:
             raw_sources, search_meta = await _discover_search_sources(
-                query, count=min(max_pages, 20), timeout=min(float(max_seconds), 30.0)
+                query, count=min(max_pages, 20), timeout=min(float(max_seconds), 30.0),
+                paid_recovery=arguments["paid_recovery"]
             )
-            provider_usage.append({"provider": str(search_meta.get("provider") or "unknown"), "operation": "search", "credits_used": search_meta.get("credits_used"), "status": "ok"})
+            provider_usage.append({"provider": str(search_meta.get("provider") or "unknown"), "operation": "search", "credits_used": search_meta.get("credits_used"), "policy_work_units": search_meta.get("policy_work_units"), "status": "ok"})
             for item in raw_sources:
                 candidate = str(item.get("url") or "").strip()
                 if not candidate:
@@ -448,7 +503,10 @@ async def playground_run(request: Request):
             evidence_limit = min(8, max(3, max_pages // 3))
             evidence = await _research_evidence(search_sources, limit=evidence_limit, timeout=min(float(max_seconds), 15.0))
             evidence = _rank_evidence(query, evidence)
-            evidence, fallback = await _firecrawl_fallback(evidence, limit=min(3, evidence_limit))
+            if arguments["paid_recovery"]:
+                evidence, fallback = await _firecrawl_fallback(evidence, limit=min(3, evidence_limit))
+            else:
+                fallback = {"attempted": 0, "recovered": 0, "provider": None}
             provider_usage.extend(fallback.pop("provider_usage", []))
             evidence = _rank_evidence(query, evidence)
         else:

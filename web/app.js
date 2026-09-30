@@ -1507,7 +1507,7 @@ function openRunInspector(event) {
           '<div class="web-search-box">'+
             '<span class="web-search-icon">'+icon('activity')+'</span>'+
             '<textarea id="research-query" rows="1" autocomplete="off" spellcheck="false" maxlength="1000" aria-label="Search query or public URL" placeholder="Search the web — e.g. latest AI news"></textarea>'+
-            '<button id="ihp-submit" type="submit" class="web-search-submit" aria-label="Run search">'+icon('arrow')+'</button>'+
+            '<button id="ihp-submit" type="submit" class="web-search-submit" aria-label="Review cost">'+icon('arrow')+'</button>'+
           '</div>'+
           '<div class="web-search-actions">'+
             '<label class="deep-toggle"><input id="ihp-deep" type="checkbox"><span></span><b>Deep research</b></label>'+
@@ -1535,9 +1535,12 @@ function openRunInspector(event) {
               '<label><input id="ihp-subdomains" type="checkbox"> Include subdomains</label>'+
               '<label><input id="ihp-queryparams" type="checkbox"> Preserve query params</label>'+
               '<label><input id="ihp-sitemaps" type="checkbox"> Discover pages from sitemaps</label>'+
+              '<label><input id="ihp-paid-recovery" type="checkbox"> Allow paid search and evidence recovery</label>'+
             '</div>'+
             '<p class="search-security">'+icon('shield')+' Public targets only · robots respected · SSRF protected · <span data-available-credits aria-live="polite">'+esc(walletMoney(available))+'</span> wallet available</p>'+
           '</details>'+
+          '<div class="execution-budget-controls"><label>Maximum spend (USD)<input id="ihp-spend-limit" type="number" min="0" step="0.0002" placeholder="Use reviewed maximum"></label><p>Review the cost, then confirm. Unused reserved funds return to your available wallet.</p></div>'+
+          '<section id="ihp-cost-review" class="card execution-cost-review" aria-live="polite" hidden></section>'+
         '</form>'+
       '</section>'+
       '<section id="ihp-results" class="web-search-results" aria-live="polite" aria-atomic="false" hidden></section>';
@@ -1546,7 +1549,13 @@ function openRunInspector(event) {
 
     const form=$('#ihp-form'), queryInput=$('#research-query'), submit=$('#ihp-submit'), results=$('#ihp-results');
     queryInput.value=(new URLSearchParams(location.search).get('query')||'').slice(0,1000);
-    const deep=$('#ihp-deep');
+    const deep=$('#ihp-deep'), costReview=$('#ihp-cost-review'), spendLimit=$('#ihp-spend-limit');
+    let reviewedQuote=null, reviewingCost=false, quoteGeneration=0;
+    const invalidateQuote=()=>{
+      quoteGeneration++;reviewedQuote=null;costReview.hidden=true;
+      if(!state.activePlayground){submit.setAttribute('aria-label','Review cost');submit.innerHTML=icon('arrow');}
+    };
+    form.addEventListener('input',invalidateQuote);form.addEventListener('change',invalidateQuote);
     const isUrl=value=>/^https?:\/\/[^\s]+$/i.test(String(value||'').trim());
     const domainOf=value=>{try{return new URL(value).hostname.replace(/^www\./,'')}catch{return ''}};
     const fmtTime=ms=>ms>=1000?(ms/1000).toFixed(ms>=10000?0:1)+'s':String(ms||0)+'ms';
@@ -1649,7 +1658,7 @@ function openRunInspector(event) {
 
     form.addEventListener('submit',async e=>{
       e.preventDefault();
-      if(state.activePlayground)return;
+      if(state.activePlayground||reviewingCost||submit.disabled)return;
       const inputValue=queryInput.value.trim();
       if(!inputValue){toast('Type something to search','error');queryInput.focus();return;}
       const urlMode=isUrl(inputValue);
@@ -1668,8 +1677,52 @@ function openRunInspector(event) {
         discover_sitemaps:$('#ihp-sitemaps').checked
       };
       if(urlMode) body.url=inputValue; else body.query=inputValue;
-      if($('#ihp-background').checked){
-        if(!urlMode){toast('Background collection currently requires a public URL','error');return;}
+      const background=$('#ihp-background').checked;
+      if(background&&!urlMode){toast('Background collection currently requires a public URL','error');return;}
+      if(operation!=='crawl')body.paid_recovery=$('#ihp-paid-recovery').checked;
+      const quoteFingerprint=JSON.stringify({body,background,limit:spendLimit.value});
+      if(!reviewedQuote||reviewedQuote.fingerprint!==quoteFingerprint){
+        const generation=quoteGeneration;
+        reviewingCost=true;submit.disabled=true;costReview.hidden=false;costReview.textContent='Checking cost…';
+        try{
+          const data=await api(background?'/api/crawl-runs/quote':'/api/playground/quote',{method:'POST',body});
+          if(!form.isConnected||location.pathname!=='/dashboard/playground'||generation!==quoteGeneration)return;
+          if(JSON.stringify({body,background,limit:spendLimit.value})!==quoteFingerprint){invalidateQuote();return;}
+          const q=data.quote;
+          if(!q||!Number.isSafeInteger(q.credits)||q.credits<0||typeof q.quote_revision!=='string'||q.quote_revision.length!==64)
+            throw new Error('The cost quote is unavailable. Try again.');
+          const scale=Number(q.wallet_units_per_usd);
+          if(!Number.isFinite(scale)||scale<=0)throw new Error('The wallet conversion is unavailable.');
+          let cap=q.credits;
+          if(spendLimit.value!==''){
+            const value=Number(spendLimit.value)*scale;
+            if(!Number.isFinite(value)||value<0||Math.abs(value-Math.round(value))>0.000001||value>1000000000)
+              throw new Error('Choose a spending limit in whole wallet units.');
+            cap=Math.round(value);
+          }
+          const affordable=q.affordable===true, withinBudget=q.credits<=cap;
+          costReview.innerHTML='<h3>Review this run</h3><p><b>'+esc(walletMoney(q.credits,q))+' maximum charge and reservation</b></p>'+
+            '<p>'+esc(walletMoney(q.available_credits,q))+' available · '+esc(walletMoney(cap,q))+' spending limit</p>'+
+            '<p>Actual charges can be lower. Unused funds are released when the run settles. Paid recovery '+(body.paid_recovery?'is enabled and included in this maximum.':'is disabled.')+'</p>'+
+            (!withinBudget?'<p role="alert">This run exceeds your spending limit. Adjust the limit or inputs.</p>':'')+
+            (!affordable?'<p role="alert">Your available wallet cannot cover this reservation.</p><a class="btn" data-link href="/dashboard/wallet">Open wallet</a>':'')+
+            '<a data-link href="/docs/usage#cost-review">How pricing and reservations work</a>';
+          bindCommon();
+          if(affordable&&withinBudget){
+            reviewedQuote={fingerprint:quoteFingerprint,quote:q,cap};
+            submit.setAttribute('aria-label','Confirm run');submit.innerHTML=icon('check');
+            costReview.insertAdjacentHTML('beforeend','<p>Use Confirm run to begin this reviewed execution.</p>');
+          }
+        }catch(error){
+          reviewedQuote=null;costReview.textContent=error.message||'Could not review the cost.';
+        }finally{reviewingCost=false;if(form.isConnected)submit.disabled=false;}
+        return;
+      }
+      body.max_charge_credits=reviewedQuote.cap;
+      body.quote_revision=reviewedQuote.quote.quote_revision;
+      reviewedQuote=null;
+      submit.setAttribute('aria-label','Review cost');
+      if(background){
         submit.disabled=true;
         const fingerprint=JSON.stringify(body);
         const key=state.crawlSubmission?.fingerprint===fingerprint?state.crawlSubmission.key:crypto.randomUUID();
@@ -1716,7 +1769,7 @@ function openRunInspector(event) {
       }finally{
         if(state.activePlayground===controller)state.activePlayground=null;
         submit.disabled=false;
-        submit.setAttribute('aria-label','Run search');
+        submit.setAttribute('aria-label','Review cost');
         submit.innerHTML=icon('arrow');
       }
     });

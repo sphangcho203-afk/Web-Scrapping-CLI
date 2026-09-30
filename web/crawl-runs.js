@@ -29,7 +29,8 @@ async function dashCrawlRuns() {
     '<article class="card"><p role="status"><b>' + esc(run.status) + (run.cancel_requested && active ? ' · cancellation requested' : '') + '</b></p>' +
     (run.monitor_id ? '<p>Content monitor check. Comparisons capture only the configured page.</p>' : '') +
     '<p>' + fmt(run.progress.pages) + ' pages checked · ' + fmt(run.progress.successful) + ' successful · ' + fmt(run.progress.failed) + ' failed · ' + fmt(run.progress.discovered_urls) + ' URLs discovered · attempt ' + fmt(run.attempts) + '</p>' +
-    '<p>' + fmt(run.credits_reserved) + ' credits reserved · ' + fmt(run.credits_charged) + ' charged</p>' +
+    '<p>' + walletMoney(run.credits_reserved) + ' ' + (active ? 'held for this run' : 'original reservation') + ' · ' + walletMoney(run.credits_charged) + ' charged' +
+    (!active ? ' · ' + walletMoney(Math.max(0,Number(run.credits_reserved||0)-Number(run.credits_charged||0))) + ' reservation released' : '') + '</p>' +
     (run.status === 'queued' ? '<p>Waiting for a worker. You can close this page and return later.</p>' : '') +
     (run.progress.frontier_truncated ? '<p>The URL frontier reached its storage limit; some discovered links were skipped.</p>' : '') +
     (run.progress.sitemap_documents ? '<p>' + fmt(run.progress.sitemap_urls) + ' additional URLs from ' + fmt(run.progress.sitemap_documents) + ' sitemap checks.</p>' : '') +

@@ -6,7 +6,7 @@ import json
 import uuid
 
 from .capability_economics import settle_measured_cost
-from .control_store import ControlError, raw_credits_from_wallet_reservation
+from .control_store import ControlError
 from .datasets import DatasetStore
 
 
@@ -108,7 +108,7 @@ def finish_content_check(runs, cur, conn, job, status, result, usage, error_code
                         (digest, dataset_id, job["monitor_id"]))
     usage = {**usage, "completed": readable and not stale and status == "completed"}
     raw_cost = settle_measured_cost("playground:crawl", job["arguments"], job["plan_slug"],
-        reserved_credits=raw_credits_from_wallet_reservation(job["credits_reserved"]), execution_usage=usage)
+        reserved_credits=control.raw_tool_reservation(job["request_id"], transaction=conn), execution_usage=usage)
     credits = control.settle_tool_call(job["request_id"], status="ok" if status == "completed" else status,
         latency_ms=int(result.get("duration_ms") or 0), output_bytes=len(json.dumps(result).encode()),
         actual_credits=raw_cost, execution_usage=usage, transaction=conn)

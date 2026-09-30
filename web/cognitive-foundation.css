@@ -2493,3 +2493,12 @@ html.ih-overlay-open,html.ih-overlay-open body{overflow:hidden}
 @media(max-width:600px){.usage-chart-tabs{display:grid;grid-template-columns:1fr 1fr}.usage-chart-tabs button{padding:9px 6px}.usage-bucket-detail>div{display:grid;gap:8px}.usage-operations .usage-bar-row>div:first-child{display:grid}.usage-charts-grid{grid-template-columns:minmax(0,1fr)}}
 
 .usage-charts-grid{align-items:start}.usage-bar-track .failure{background:#f18b94}
+
+/* Execution review keeps prices and consent next to the initiating action. */
+.execution-budget-controls{display:flex;flex-wrap:wrap;align-items:end;gap:12px;padding:16px 0}
+.execution-budget-controls label{display:grid;gap:6px;color:var(--ih-text-secondary)}
+.execution-budget-controls input{min-height:44px;width:200px;max-width:100%;border:1px solid var(--ih-border);border-radius:8px;padding:10px;background:var(--ih-surface-2);color:var(--ih-text)}
+.execution-budget-controls p{flex:1;min-width:180px;font-size:12px;color:var(--ih-text-secondary)}
+.execution-cost-review{margin:0 0 16px;padding:16px}.execution-cost-review[hidden]{display:none}
+.execution-cost-review h3{margin:0 0 10px}.execution-cost-review p{margin:10px 0;line-height:1.5}
+.execution-cost-review [role=alert]{color:var(--ih-danger)}.execution-cost-review a{min-height:44px;display:inline-flex;align-items:center}

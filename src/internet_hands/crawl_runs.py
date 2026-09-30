@@ -12,7 +12,6 @@ from .control_store import (
     AuthIdentity,
     ControlError,
     ControlStore,
-    raw_credits_from_wallet_reservation,
 )
 from .datasets import DatasetStore
 
@@ -193,7 +192,7 @@ class RunStore:
                 status, error_code = "failed", "output_limit_exceeded"
                 usage["completed"] = False
         raw_cost = settle_measured_cost("playground:crawl", row["arguments"], row["plan_slug"],
-            reserved_credits=raw_credits_from_wallet_reservation(row["credits_reserved"]), execution_usage=usage)
+            reserved_credits=self.control.raw_tool_reservation(row["request_id"], transaction=conn), execution_usage=usage)
         credits = self.control.settle_tool_call(row["request_id"], status="ok" if status == "completed" else status,
             latency_ms=int(result.get("duration_ms") or 0), output_bytes=len(json.dumps(result).encode()),
             actual_credits=raw_cost, execution_usage=usage, transaction=conn)

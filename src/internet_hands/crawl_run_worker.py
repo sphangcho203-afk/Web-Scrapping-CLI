@@ -40,7 +40,7 @@ async def dispatch_run(runs: RunStore) -> dict:
         # New checkpoints carry the original budgets and committed page captures.
         remaining = job["arguments"]["max_seconds"] - (result.get("duration_ms", 0) / 1000 if resume else 0)
         output = await asyncio.wait_for(crawl(job["arguments"]["url"],
-            **{key: value for key, value in job["arguments"].items() if key != "url"},
+            **{key: value for key, value in job["arguments"].items() if key not in {"url", "max_charge_credits", "quote_revision"}},
             respect_robots=True, delay_seconds=0.10, on_checkpoint=progress,
             # The crawler enforces the I/O budget and returns partial captures.
             # Allow it to save that final checkpoint before the worker failsafe.

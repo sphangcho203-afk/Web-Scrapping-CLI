@@ -90,8 +90,8 @@ class UsageIntelligence:
                 """
                 SELECT count(*)::int AS requests,
                        count(*) FILTER (WHERE status='ok')::int AS succeeded,
-                       count(*) FILTER (WHERE status='accepted')::int AS pending,
-                       count(*) FILTER (WHERE status NOT IN ('ok','accepted'))::int AS failed,
+                       count(*) FILTER (WHERE status IN ('accepted','reserved'))::int AS pending,
+                       count(*) FILTER (WHERE status NOT IN ('ok','accepted','reserved'))::int AS failed,
                        COALESCE(sum(credits_charged),0)::int AS credits,
                        count(latency_ms)::int AS latency_samples,
                        avg(latency_ms)::int AS avg_latency_ms,
@@ -111,8 +111,8 @@ class UsageIntelligence:
                 SELECT date_trunc(%s,created_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' AS bucket,
                        count(*)::int AS requests,
                        count(*) FILTER (WHERE status='ok')::int AS succeeded,
-                       count(*) FILTER (WHERE status='accepted')::int AS pending,
-                       count(*) FILTER (WHERE status NOT IN ('ok','accepted'))::int AS failed,
+                       count(*) FILTER (WHERE status IN ('accepted','reserved'))::int AS pending,
+                       count(*) FILTER (WHERE status NOT IN ('ok','accepted','reserved'))::int AS failed,
                        COALESCE(sum(credits_charged),0)::int AS credits,
                        count(latency_ms)::int AS latency_samples,
                        avg(latency_ms)::int AS avg_latency_ms
@@ -169,7 +169,7 @@ class UsageIntelligence:
                 SELECT request_id,tool_ref,capability,provider,status,credits_charged,latency_ms,created_at
                 FROM ih_usage_events
                 WHERE user_id=%s AND created_at >= %s AND created_at < %s
-                  AND status NOT IN ('ok','accepted')
+                  AND status NOT IN ('ok','accepted','reserved')
                 ORDER BY created_at DESC LIMIT %s
                 """,
                 (*params, recent_limit),

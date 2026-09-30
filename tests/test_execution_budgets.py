@@ -43,10 +43,20 @@ def test_paid_recovery_has_explicit_bounded_headroom():
     paid_args = {"query": "example", "max_pages": 4, "paid_recovery": True}
     paid = estimate_call("playground:research", paid_args, "free")
     assert native.credits == 3
-    assert paid.credits == 1753
+    assert paid.credits == 1253
     measured = {"completed": True, "provider_usage": [
         {"provider": "firecrawl", "operation": "search", "credits_used": 2},
         {"provider": "firecrawl", "operation": "scrape", "credits_used": 1},
     ]}
     assert settle_measured_cost("playground:research", paid_args, "free",
                                reserved_credits=paid.credits, execution_usage=measured) == 751
+
+
+def test_paid_basic_operation_units_are_disclosed_when_upstream_does_not_report_cost():
+    args = {"query": "example", "paid_recovery": True}
+    charge = settle_measured_cost("playground:research", args, "free", reserved_credits=1253,
+        execution_usage={"completed": True, "provider_usage": [
+            {"provider": "firecrawl", "operation": "search", "credits_used": None, "policy_work_units": 2, "status": "ok"},
+            {"provider": "firecrawl", "operation": "scrape", "credits_used": None, "policy_work_units": 1, "status": "error"},
+        ]})
+    assert charge == 501
