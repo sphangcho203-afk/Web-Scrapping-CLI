@@ -6,6 +6,7 @@ from typing import Any
 
 from .crawler import crawl
 from .execution_meter import record_usage
+from .extractor import extract_document, extract_markdown
 from .fetcher import extract_links, fetch_url
 from .tool_mesh import ToolDescriptor
 from .web_search import SearchKind, brave_llm_context, brave_search
@@ -44,6 +45,35 @@ class NativeWebToolProvider:
                     },
                 },
                 tags=["web", "fetch", "native", "fallback"],
+                requires_auth=False,
+                side_effecting=False,
+            ),
+            "scrape": ToolDescriptor(
+                ref="nativeweb:scrape",
+                provider=self.name,
+                tool_id="scrape",
+                name="Native smart page scrape",
+                description=(
+                    "Fetch one public page over bounded HTTP and normalize it into clean text, "
+                    "Markdown, links and metadata without starting a browser."
+                ),
+                input_schema={
+                    "type": "object",
+                    "required": ["url"],
+                    "properties": {
+                        "url": {"type": "string"},
+                        "formats": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "maxItems": 8,
+                        },
+                        "onlyMainContent": {"type": "boolean"},
+                        "timeout": {"type": "integer", "minimum": 1000, "maximum": 60000},
+                        "maxBytes": {"type": "integer", "minimum": 32000, "maximum": 8000000},
+                        "fallbackOnThinContent": {"type": "boolean"},
+                    },
+                },
+                tags=["web", "scrape", "markdown", "text", "links", "native", "http"],
                 requires_auth=False,
                 side_effecting=False,
             ),
@@ -229,6 +259,72 @@ class NativeWebToolProvider:
                 include_body=True,
             )
             return {"status": "completed", "data": result.model_dump(mode="json")}
+
+        if tool_id == "scrape":
+            requested = arguments.get("formats") or ["markdown", "links"]
+            if not isinstance(requested, list):
+                return {"status": "failed", "error": "formats must be an array"}
+            formats = {str(item) for item in requested}
+            unsupported = formats - {"markdown", "links", "rawHtml"}
+            if unsupported:
+                return {
+                    "status": "failed",
+                    "error": "requested format requires a rendered scrape: " + ", ".join(sorted(unsupported)),
+                }
+
+            record_usage("native_web_requests")
+            timeout_ms = int(arguments.get("timeout", min(timeout_seconds, 60) * 1000))
+            result = await fetch_url(
+                str(arguments["url"]),
+                timeout=max(1.0, min(timeout_ms / 1000.0, 60.0)),
+                max_bytes=int(arguments.get("maxBytes", 2_000_000)),
+                include_body=True,
+            )
+            if result.status_code not in range(200, 300) and result.status_code != 304:
+                return {
+                    "status": "failed",
+                    "error": f"native HTTP scrape returned status {result.status_code}",
+                }
+            if result.body_text is None:
+                return {"status": "failed", "error": "native HTTP scrape returned no readable text body"}
+
+            document = extract_document(result)
+            markdown = extract_markdown(result)
+            body = result.body_text or ""
+            body_lower = body.casefold()
+            thin = len(document.text) < 120 and (
+                len(body) > 1500
+                or any(marker in body_lower for marker in (
+                    'id="root"', "id='root'", 'id="app"', "id='app'",
+                    "__next_data__", "__nuxt__", "webpack", "<script",
+                ))
+            )
+            if bool(arguments.get("fallbackOnThinContent", False)) and thin:
+                return {
+                    "status": "failed",
+                    "error": "native HTTP capture looks like an unrendered application shell",
+                }
+
+            data: dict[str, Any] = {
+                "text": document.text,
+                "metadata": {
+                    "title": document.title,
+                    "description": document.description,
+                    "sourceURL": document.url,
+                    "statusCode": result.status_code,
+                    "contentType": result.content_type,
+                    "capturedAt": document.captured_at.isoformat(),
+                    "sha256": document.sha256,
+                    "route": "http",
+                },
+            }
+            if "markdown" in formats:
+                data["markdown"] = markdown
+            if "links" in formats:
+                data["links"] = document.links
+            if "rawHtml" in formats:
+                data["rawHtml"] = body
+            return {"status": "completed", "data": data}
 
         if tool_id == "search":
             record_usage("native_web_requests")
