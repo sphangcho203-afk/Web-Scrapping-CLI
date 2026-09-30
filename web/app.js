@@ -5,7 +5,7 @@
 
 /* === Core application ==================================================== */
 const app = document.getElementById('app');
-const state = { me: null, plans: null, sessionChecked: false, gateway: null, gatewayCheckedAt: 0 };
+const state = { me: null, plans: null, sessionChecked: false, gateway: null, gatewayCheckedAt: 0, extractRunTimer: null };
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = v => String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
