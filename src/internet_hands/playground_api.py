@@ -17,8 +17,8 @@ from .auth import authenticate_secret
 from .capability_economics import settle_measured_cost
 from .control_api import _require_user
 from .control_store import (
-    AuthIdentity,
     WALLET_UNITS_PER_USD,
+    AuthIdentity,
     ControlError,
     ControlStore,
     raw_credits_from_wallet_reservation,
