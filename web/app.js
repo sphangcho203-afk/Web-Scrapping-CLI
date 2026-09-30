@@ -1005,7 +1005,7 @@ const runWorkflow = e => {
   if(/^(gamepublic:|gamecore:|mlbb[.:]|valorant[.:]|league[.:]|dota2[.:]|minecraft[.:]|genshin[.:]|hsr[.:]|zzz[.:]|roblox[.:]|osu[.:]|brawlstars[.:]|clashofclans[.:]|clashroyale[.:]|tft[.:]|steam[.:]|riot[.:]|game[.:])/.test(ref))return 'Game intelligence';
   if(/browser|sandbox/.test(ref))return 'Browser & compute';
   if(/monitor/.test(ref))return 'Monitoring';
-  if(/search|scrape|crawl|fetch|research|nativeweb|publicdata|firecrawl/.test(ref))return 'Web intelligence';
+  if(/^web\.|search|scrape|crawl|fetch|research|map|nativeweb|publicdata|firecrawl/.test(ref))return 'Web intelligence';
   return 'Tool execution';
 };
 
