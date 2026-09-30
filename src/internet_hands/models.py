@@ -57,6 +57,13 @@ class CrawlPage(BaseModel):
     content_type: str | None = None
     elapsed_ms: float | None = None
     error: str | None = None
+    title: str | None = None
+    description: str | None = None
+    text: str | None = None
+    headings: list[str] = Field(default_factory=list)
+    captured_at: datetime | None = None
+    content_truncated: bool = False
+    content_error: str | None = None
 
 
 class CrawlResult(BaseModel):
@@ -66,6 +73,13 @@ class CrawlResult(BaseModel):
     skipped_urls: int = 0
     duration_ms: int = 0
     truncated: bool = False
+    content_bytes: int = 0
+    content_truncated: bool = False
+    frontier_truncated: bool = False
+    sitemap_documents: int = 0
+    sitemap_urls: int = 0
+    sitemap_truncated: bool = False
+    sitemap_errors: list[str] = Field(default_factory=list, max_length=8)
 
 
 class DownloadInfo(BaseModel):

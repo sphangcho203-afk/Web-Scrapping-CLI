@@ -11,12 +11,14 @@ from .control_store import ControlError, ControlStore
 
 router = APIRouter()
 store = ControlStore()
-MONITOR_TYPES = {"web", "api", "mcp", "gaming"}
+MONITOR_TYPES = {"web", "api", "mcp", "gaming", "content"}
 EDITABLE_FIELDS = {"name", "type", "target", "interval_minutes", "config"}
 
 
 def validate_monitor_spec(payload: dict[str, Any], *, partial: bool = False) -> dict[str, Any]:
     """Normalize and validate the user-editable monitor contract."""
+    if not isinstance(payload, dict):
+        raise ValueError("monitor input must be a JSON object")  # noqa: TRY004 -- shared validation contract
     normalized: dict[str, Any] = {}
 
     if not partial or "name" in payload:
@@ -28,7 +30,7 @@ def validate_monitor_spec(payload: dict[str, Any], *, partial: bool = False) -> 
     if not partial or "type" in payload:
         monitor_type = str(payload.get("type") or "web").strip().lower()
         if monitor_type not in MONITOR_TYPES:
-            raise ValueError("monitor type must be web, api, mcp, or gaming")
+            raise ValueError("monitor type must be web, api, mcp, gaming, or content")
         normalized["type"] = monitor_type
     else:
         monitor_type = None
@@ -40,7 +42,7 @@ def validate_monitor_spec(payload: dict[str, Any], *, partial: bool = False) -> 
         if len(target) > 2000:
             raise ValueError("monitor target is too long")
         effective_type = monitor_type or str(payload.get("current_type") or "")
-        if effective_type in {"web", "api", "mcp"}:
+        if effective_type in {"web", "api", "mcp", "content"}:
             parsed = urlparse(target)
             if parsed.scheme not in {"http", "https"} or not parsed.netloc:
                 raise ValueError(f"{effective_type} monitor target must be an http(s) URL")
@@ -64,6 +66,14 @@ def validate_monitor_spec(payload: dict[str, Any], *, partial: bool = False) -> 
             raise ValueError("config must be an object")
         normalized["config"] = config
 
+    if (monitor_type or payload.get("current_type")) == "content" and (not partial or "config" in payload):
+        key = normalized.get("config", {}).get("api_key_id")
+        if not isinstance(key, str) or not key.strip() or len(key) > 120:
+            raise ValueError("content monitors require an API key for billing")
+        if set(normalized["config"]) != {"api_key_id"}:
+            raise ValueError("content monitor config supports only api_key_id")
+        normalized["config"] = {"api_key_id": key.strip()}
+
     if partial and not normalized:
         raise ValueError("no editable monitor fields supplied")
     return normalized
@@ -78,10 +88,16 @@ def _monitor_or_404(user_id: str, monitor_id: str) -> dict[str, Any]:
 
 @router.post("/api/monitors/validate")
 async def validate_monitor(request: Request):
-    _require_verified(_require_user(request))
+    user = _require_verified(_require_user(request))
     body = await request.json()
     try:
-        return {"valid": True, "monitor": validate_monitor_spec(body)}
+        spec = validate_monitor_spec(body)
+        if spec["type"] == "content":
+            from .content_monitors import content_identity
+            content_identity(store, user["id"], spec["config"])
+        return {"valid": True, "monitor": spec}
+    except ControlError as exc:
+        raise _json_error(exc) from exc
     except ValueError as exc:
         detail = {"code": "invalid_monitor", "message": str(exc)}
         raise HTTPException(status_code=422, detail=detail) from exc
@@ -90,25 +106,27 @@ async def validate_monitor(request: Request):
 @router.patch("/api/monitors/{monitor_id}")
 async def update_monitor(request: Request, monitor_id: str):
     user = _require_verified(_require_user(request))
-    current = _monitor_or_404(user["id"], monitor_id)
     body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(422, detail="Expected a JSON object.")
     requested = {key: value for key, value in body.items() if key in EDITABLE_FIELDS}
     if not requested:
         detail = {"code": "invalid_monitor", "message": "no editable monitor fields supplied"}
         raise HTTPException(status_code=422, detail=detail)
     try:
-        merged = {
-            "name": requested.get("name", current["name"]),
-            "type": requested.get("type", current["type"]),
-            "target": requested.get("target", current["target"]),
-            "interval_minutes": requested.get(
-                "interval_minutes", current["interval_minutes"]
-            ),
-            "config": requested.get("config", current.get("config") or {}),
-        }
-        validated = validate_monitor_spec(merged)
-        fields = {key: validated[key] for key in requested}
         with store._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM ih_monitors WHERE id=%s AND user_id=%s FOR UPDATE", (monitor_id, user["id"]))
+            current = cur.fetchone()
+            if not current:
+                raise HTTPException(status_code=404, detail="monitor not found")
+            merged = {key: requested.get(key, current.get(key)) for key in EDITABLE_FIELDS}
+            validated = validate_monitor_spec(merged)
+            if validated["type"] == "content":
+                from .content_monitors import content_identity
+                content_identity(store, user["id"], validated["config"])
+            fields = {key: validated[key] for key in requested}
+            reset_baseline = (current["type"] == "content" or validated["type"] == "content") and any(
+                current.get(key) != fields[key] for key in {"target", "type", "config"} & fields.keys())
             assignments: list[str] = []
             values: list[Any] = []
             for key in ("name", "type", "target", "interval_minutes"):
@@ -118,9 +136,12 @@ async def update_monitor(request: Request, monitor_id: str):
             if "config" in fields:
                 assignments.append("config=%s::jsonb")
                 values.append(json.dumps(fields["config"]))
-            if "interval_minutes" in fields:
+            if "interval_minutes" in fields and not reset_baseline:
                 assignments.append("next_check_at=now()+(%s || ' minutes')::interval")
                 values.append(fields["interval_minutes"])
+            if reset_baseline:
+                assignments.extend(["content_version=content_version+1", "baseline_hash=NULL", "baseline_dataset_id=NULL",
+                                    "last_status=NULL", "last_checked_at=NULL", "next_check_at=now()"])
             assignments.append("updated_at=now()")
             values.extend([monitor_id, user["id"]])
             cur.execute(

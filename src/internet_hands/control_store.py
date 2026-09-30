@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import secrets
 import threading
 import uuid
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -151,6 +153,82 @@ CREATE TABLE IF NOT EXISTS ih_usage_events (
 CREATE INDEX IF NOT EXISTS ih_usage_user_time_idx ON ih_usage_events(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS ih_usage_key_time_idx ON ih_usage_events(api_key_id, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS ih_datasets (
+    id text PRIMARY KEY,
+    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,
+    request_id text NOT NULL UNIQUE REFERENCES ih_usage_events(request_id) ON DELETE CASCADE,
+    name text NOT NULL,
+    operation text NOT NULL,
+    row_count integer NOT NULL CHECK (row_count >= 0),
+    columns jsonb NOT NULL,
+    rows jsonb NOT NULL,
+    output jsonb NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ih_datasets_user_time_idx ON ih_datasets(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS ih_crawl_runs (
+    id text PRIMARY KEY,
+    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,
+    request_id text NOT NULL UNIQUE REFERENCES ih_usage_events(request_id) ON DELETE CASCADE,
+    idempotency_key text NOT NULL,
+    fingerprint text NOT NULL,
+    arguments jsonb NOT NULL,
+    plan_slug text NOT NULL,
+    credits_reserved integer NOT NULL,
+    credits_charged integer NOT NULL DEFAULT 0,
+    status text NOT NULL DEFAULT 'queued' CHECK(status IN ('queued','running','completed','failed','cancelled')),
+    attempts integer NOT NULL DEFAULT 0,
+    cancel_requested boolean NOT NULL DEFAULT false,
+    lease_token text,
+    lease_until timestamptz,
+    checkpoint jsonb NOT NULL DEFAULT '{}'::jsonb,
+    frontier jsonb NOT NULL DEFAULT '{}'::jsonb,
+    measured_usage jsonb NOT NULL DEFAULT '{}'::jsonb,
+    dataset_id text REFERENCES ih_datasets(id) ON DELETE SET NULL,
+    error_code text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    finished_at timestamptz,
+    expires_at timestamptz NOT NULL DEFAULT now()+interval '24 hours',
+    UNIQUE(user_id,idempotency_key)
+);
+ALTER TABLE ih_crawl_runs ADD COLUMN IF NOT EXISTS frontier jsonb NOT NULL DEFAULT '{}'::jsonb;
+CREATE INDEX IF NOT EXISTS ih_crawl_runs_queue_idx ON ih_crawl_runs(status,created_at);
+CREATE INDEX IF NOT EXISTS ih_crawl_runs_owner_idx ON ih_crawl_runs(user_id,created_at DESC);
+
+
+
+CREATE TABLE IF NOT EXISTS ih_dataset_webhook_endpoints (
+    user_id text PRIMARY KEY REFERENCES ih_users(id) ON DELETE CASCADE,
+    url text NOT NULL,
+    secret_enc text NOT NULL,
+    enabled boolean NOT NULL DEFAULT true,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS ih_dataset_webhook_deliveries (
+    id text PRIMARY KEY,
+    user_id text NOT NULL REFERENCES ih_dataset_webhook_endpoints(user_id) ON DELETE CASCADE,
+    dataset_id text NOT NULL UNIQUE REFERENCES ih_datasets(id) ON DELETE CASCADE,
+    body text NOT NULL,
+    status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','delivering','retry','delivered','failed')),
+    attempts integer NOT NULL DEFAULT 0,
+    next_attempt_at timestamptz NOT NULL DEFAULT now(),
+    lease_token text,
+    lease_until timestamptz,
+    http_status integer,
+    last_error text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ih_dataset_webhook_due_idx
+    ON ih_dataset_webhook_deliveries(status,next_attempt_at);
+CREATE INDEX IF NOT EXISTS ih_dataset_webhook_owner_idx
+    ON ih_dataset_webhook_deliveries(user_id,created_at DESC);
+
+
 CREATE TABLE IF NOT EXISTS ih_provider_usage (
     id text PRIMARY KEY,
     request_id text NOT NULL REFERENCES ih_usage_events(request_id) ON DELETE CASCADE,
@@ -222,6 +300,16 @@ CREATE TABLE IF NOT EXISTS ih_monitor_runs (
     created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS ih_monitor_runs_monitor_idx ON ih_monitor_runs(monitor_id, created_at DESC);
+
+ALTER TABLE ih_monitors ADD COLUMN IF NOT EXISTS content_version integer NOT NULL DEFAULT 1;
+ALTER TABLE ih_monitors ADD COLUMN IF NOT EXISTS baseline_hash text;
+ALTER TABLE ih_monitors ADD COLUMN IF NOT EXISTS baseline_dataset_id text REFERENCES ih_datasets(id) ON DELETE SET NULL;
+ALTER TABLE ih_crawl_runs ADD COLUMN IF NOT EXISTS monitor_id text;
+ALTER TABLE ih_crawl_runs ADD COLUMN IF NOT EXISTS monitor_version integer;
+CREATE INDEX IF NOT EXISTS ih_crawl_runs_monitor_idx ON ih_crawl_runs(monitor_id, status);
+ALTER TABLE ih_monitor_runs ADD COLUMN IF NOT EXISTS crawl_run_id text REFERENCES ih_crawl_runs(id) ON DELETE SET NULL;
+ALTER TABLE ih_monitor_runs ADD COLUMN IF NOT EXISTS dataset_id text REFERENCES ih_datasets(id) ON DELETE SET NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ih_monitor_runs_crawl_idx ON ih_monitor_runs(crawl_run_id) WHERE crawl_run_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS ih_credit_packs (
     slug text PRIMARY KEY,
@@ -1339,7 +1427,17 @@ class ControlStore:
             arguments=arguments,
             plan_slug=identity.plan_slug,
         )
-        return _apply_credit_burn_to_quote(raw_quote)
+        result = _apply_credit_burn_to_quote(raw_quote)
+        canonical = {k: v for k, v in (arguments or {}).items()
+                     if k not in {"max_charge_credits", "quote_revision"}}
+        try:
+            fingerprint = json.dumps({"owner": identity.user_id, "tool": tool_name,
+                "plan": identity.plan_slug, "arguments": canonical, "pricing": result},
+                sort_keys=True, separators=(",", ":"), allow_nan=False)
+        except (TypeError, ValueError) as exc:
+            raise ControlError("invalid_input", "Execution inputs must be valid JSON.", 422) from exc
+        result["quote_revision"] = hashlib.sha256(fingerprint.encode()).hexdigest()
+        return result
 
     def tool_cost(
         self,
@@ -1377,6 +1475,9 @@ class ControlStore:
                     WHERE user_id=%s
                       AND status='reserved'
                       AND created_at < now() - (%s * interval '1 minute')
+                      AND NOT EXISTS (SELECT 1 FROM ih_crawl_runs r
+                          WHERE r.request_id=ih_usage_events.request_id
+                          AND r.status IN ('queued','running'))
                     FOR UPDATE
                     """,
                     (user_id, cutoff_minutes),
@@ -1428,22 +1529,34 @@ class ControlStore:
         tool_name: str,
         arguments: dict[str, Any] | None,
         input_bytes: int,
+        transaction=None,
     ) -> int:
-        self.ensure_schema()
-        self.release_stale_reservations(identity.user_id)
         quote = self.quote_tool_call(
             identity=identity,
             tool_name=tool_name,
             arguments=arguments,
         )
         reserved = int(quote["credits"])
+        options = arguments or {}
+        if "max_charge_credits" in options:
+            limit = options["max_charge_credits"]
+            if type(limit) is not int or not 0 <= limit <= 1_000_000_000:
+                raise ControlError("invalid_spend_limit", "max_charge_credits must be an integer from 0 to 1000000000.", 422)
+            if reserved > limit:
+                raise ControlError("spend_limit_exceeded",
+                    f"This run requires {reserved} reserved credits, above your spending limit of {limit}.", 409)
+        if "quote_revision" in options and options["quote_revision"] != quote["quote_revision"]:
+            raise ControlError("quote_changed", "The inputs or price changed. Review a fresh quote before executing.", 409)
+        self.ensure_schema()
+        if transaction is None:
+            self.release_stale_reservations(identity.user_id)
         provider = None
         if arguments:
             ref = str(arguments.get("ref") or "")
             if ":" in ref:
                 provider = ref.split(":", 1)[0]
 
-        with self._connect() as conn:
+        with (self._connect() if transaction is None else nullcontext(transaction)) as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT count(*) AS n FROM ih_usage_events WHERE user_id=%s AND created_at>now()-interval '1 minute'",
@@ -1505,12 +1618,13 @@ class ControlStore:
                         (reserved, identity.user_id),
                     )
 
+                capability = str(options.get("capability") or "").strip()[:160] or None
                 cur.execute(
                     """
                     INSERT INTO ih_usage_events(
-                        id,user_id,api_key_id,request_id,tool_ref,provider,status,
+                        id,user_id,api_key_id,request_id,tool_ref,capability,provider,status,
                         credits_charged,input_bytes,metadata
-                    ) VALUES (%s,%s,%s,%s,%s,%s,'reserved',0,%s,%s::jsonb)
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,'reserved',0,%s,%s::jsonb)
                     """,
                     (
                         self._new_id("use"),
@@ -1518,12 +1632,15 @@ class ControlStore:
                         identity.api_key_id,
                         request_id,
                         tool_name,
+                        capability,
                         provider,
                         input_bytes,
                         json.dumps(
                             {
                                 "auth_source": identity.source,
                                 "arguments_present": bool(arguments),
+                                "budget": {"max_charge_credits": options.get("max_charge_credits"),
+                                           "quote_revision": quote["quote_revision"]},
                                 "tool": tool_name,
                                 "plan": identity.plan_slug,
                                 "reservation": {
@@ -1542,8 +1659,24 @@ class ControlStore:
                         ),
                     ),
                 )
-            conn.commit()
+            if transaction is None:
+                conn.commit()
         return reserved
+
+    def raw_tool_reservation(self, request_id: str, *, transaction=None) -> int:
+        """Read the stored raw ceiling, independent of a later process configuration."""
+        with (self._connect() if transaction is None else nullcontext(transaction)) as conn, conn.cursor() as cur:
+            cur.execute("SELECT metadata FROM ih_usage_events WHERE request_id=%s", (request_id,))
+            row = cur.fetchone()
+        if not row:
+            raise ControlError("reservation_missing", "The execution reservation is unavailable.", 500)
+        metadata = row["metadata"] or {}
+        pricing = metadata.get("pricing") or {}
+        if pricing.get("raw_credits") is not None:
+            return max(0, int(pricing["raw_credits"]))
+        reserved = int((metadata.get("reservation") or {}).get("credits") or 0)
+        multiplier = max(1, int(pricing.get("credit_burn_multiplier") or credit_burn_multiplier()))
+        return max(0, reserved // multiplier)
 
     def settle_tool_call(
         self,
@@ -1554,9 +1687,10 @@ class ControlStore:
         output_bytes: int,
         actual_credits: int | None = None,
         execution_usage: dict[str, Any] | None = None,
+        transaction=None,
     ) -> int:
         self.ensure_schema()
-        with self._connect() as conn:
+        with (self._connect() if transaction is None else nullcontext(transaction)) as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -1663,7 +1797,9 @@ class ControlStore:
                 reservation = dict(metadata.get("reservation") or {})
                 reserved = max(0, int(reservation.get("credits") or 0))
                 raw_actual = None if actual_credits is None else max(0, int(actual_credits))
-                actual = reserved if raw_actual is None else _apply_credit_burn(raw_actual)
+                # Accepted work keeps its reservation-time conversion after configuration changes.
+                multiplier = max(1, int((metadata.get("pricing") or {}).get("credit_burn_multiplier") or credit_burn_multiplier()))
+                actual = reserved if raw_actual is None else raw_actual * multiplier
                 if actual > reserved:
                     raise ControlError(
                         "reservation_exceeded",
@@ -1719,7 +1855,7 @@ class ControlStore:
                         "reserved": reserved,
                         "settled": actual,
                         "raw_settled": raw_actual,
-                        "credit_burn_multiplier": credit_burn_multiplier(),
+                        "credit_burn_multiplier": multiplier,
                         "released": reserved - actual,
                     },
                 }
@@ -1763,7 +1899,7 @@ class ControlStore:
                         "reserved": reserved,
                         "settled": actual,
                         "raw_settled": raw_actual,
-                        "credit_burn_multiplier": credit_burn_multiplier(),
+                        "credit_burn_multiplier": multiplier,
                         "released": reserved - actual,
                     }
                 )
@@ -1784,7 +1920,8 @@ class ControlStore:
                         request_id,
                     ),
                 )
-            conn.commit()
+            if transaction is None:
+                conn.commit()
         return actual
 
     def release_tool_reservation(
@@ -2038,6 +2175,10 @@ class ControlStore:
             )
             result = dict(monitor)
             result["runs"] = [dict(r) for r in cur.fetchall()]
+            cur.execute("""SELECT id,status FROM ih_crawl_runs WHERE monitor_id=%s AND user_id=%s
+                AND status IN ('queued','running') ORDER BY created_at DESC LIMIT 1""", (monitor_id, user_id))
+            pending = cur.fetchone()
+            result["pending_run"] = dict(pending) if pending else None
             return result
 
     def create_monitor(
@@ -2054,6 +2195,7 @@ class ControlStore:
         account = self.account_snapshot(user_id)
         with self._connect() as conn:
             with conn.cursor() as cur:
+                cur.execute("SELECT id FROM ih_users WHERE id=%s FOR UPDATE", (user_id,))
                 cur.execute("SELECT count(*) AS n FROM ih_monitors WHERE user_id=%s", (user_id,))
                 if int(cur.fetchone()["n"]) >= int(account["monitor_limit"]):
                     raise ControlError("monitor_limit", "monitor limit reached for current plan", 403)
@@ -2061,12 +2203,13 @@ class ControlStore:
                 cur.execute(
                     """
                     INSERT INTO ih_monitors(id,user_id,name,type,target,interval_minutes,next_check_at,config)
-                    VALUES (%s,%s,%s,%s,%s,%s,now()+(%s || ' minutes')::interval,%s::jsonb)
+                    VALUES (%s,%s,%s,%s,%s,%s,CASE WHEN %s='content' THEN now()
+                        ELSE now()+(%s || ' minutes')::interval END,%s::jsonb)
                     RETURNING *
                     """,
                     (
                         monitor_id, user_id, name, monitor_type, target, interval_minutes,
-                        interval_minutes, json.dumps(config),
+                        monitor_type, interval_minutes, json.dumps(config),
                     ),
                 )
                 row = cur.fetchone()

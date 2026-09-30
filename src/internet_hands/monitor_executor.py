@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import os
@@ -122,6 +123,7 @@ def _claim_due_monitors(limit: int = MAX_BATCH) -> list[dict[str, Any]]:
                 SELECT id
                 FROM ih_monitors
                 WHERE enabled = true
+                  AND type <> 'content'
                   AND (next_check_at IS NULL OR next_check_at <= now())
                 ORDER BY next_check_at NULLS FIRST, created_at
                 FOR UPDATE SKIP LOCKED
@@ -208,6 +210,8 @@ async def _execute_monitor(monitor: dict[str, Any]) -> dict[str, Any]:
 
 
 async def run_due_monitors(limit: int = MAX_BATCH) -> dict[str, Any]:
+    from .content_monitors import queue_due_content_checks
+    content_checks = await asyncio.to_thread(queue_due_content_checks, store)
     claimed = _claim_due_monitors(limit)
     runs: list[dict[str, Any]] = []
     for monitor in claimed:
@@ -221,7 +225,7 @@ async def run_due_monitors(limit: int = MAX_BATCH) -> dict[str, Any]:
                     "summary": f"{type(exc).__name__}: {exc}"[:1000],
                 }
             )
-    return {"claimed": len(claimed), "completed": len(runs), "runs": runs}
+    return {"claimed": len(claimed), "completed": len(runs), "runs": runs, "content_checks": content_checks}
 
 
 @router.get("/api/internal/monitors/tick")

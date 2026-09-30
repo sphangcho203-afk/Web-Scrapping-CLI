@@ -46,7 +46,9 @@ def _browser_runtime() -> Response:
     runtime = WEB_ROOT / "app.js"
     usage = WEB_ROOT / "usage-intelligence.js"
     monitors = WEB_ROOT / "monitor-lifecycle.js"
-    sources = [legal, docs, runtime, usage, monitors]
+    datasets = WEB_ROOT / "datasets.js"
+    crawl_runs = WEB_ROOT / "crawl-runs.js"
+    sources = [legal, docs, runtime, usage, monitors, datasets, crawl_runs]
     if any(not source.is_file() for source in sources):
         raise HTTPException(status_code=404, detail="asset not found")
     content = "\n\n".join(source.read_text(encoding="utf-8") for source in sources)

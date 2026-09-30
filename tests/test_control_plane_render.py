@@ -11,6 +11,350 @@ from internet_hands.site import WEB_ROOT, _browser_runtime
 playwright = pytest.importorskip("playwright.sync_api")
 
 
+def test_usage_vector_chart_interactions_ranges_and_export(frontend_url):
+    queries = []
+    failure = {"enabled": False}
+    series = [{"bucket": f"2026-09-{day}T00:00:00Z", "bucket_start": f"2026-09-{day}T00:00:00Z",
+        "bucket_end": f"2026-09-{day+1}T00:00:00Z" if day < 30 else "2026-10-01T00:00:00Z", "requests": requests, "credits": credits,
+        "succeeded": 1 if requests == 2 else 0, "failed": 1 if requests == 2 else 0,
+        "pending": 1 if requests == 1 else 0, "success_rate": 50 if requests == 2 else None,
+        "avg_latency_ms": 100 if requests == 2 else None, "partial": day == 30}
+        for day, requests, credits in [(28, 2, 5), (29, 0, 0), (30, 1, 0)]]
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
+            if path == "/api/auth/me":
+                data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            elif path == "/api/usage/intelligence":
+                if failure["enabled"]:
+                    route.fulfill(status=503, content_type="application/json", body='{"detail":"temporarily unavailable"}')
+                    return
+                queries.append(route.request.url)
+                data = {"generated_at": "2026-09-30T12:00:00Z", "range": {"timezone": "UTC", "granularity": "day"},
+                        "series": series, "totals": {"requests": 3, "credits": 5, "success_rate": 50, "pending": 1},
+                        "breakdowns": {"tool": [{"name": "playground:crawl", "requests": 3, "credits": 5}],
+                                       "status": [{"name": "ok", "requests": 1}, {"name": "failed", "requests": 1}, {"name": "accepted", "requests": 1}]},
+                        "recent_runs": []}
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/usage?window=7d&metric=credits")
+        page.locator("[data-usage-chart] svg").wait_for()
+        assert "window=7d" in queries[-1]
+        assert page.locator("[data-usage-chart]").get_attribute("data-metric") == "credits"
+        slider = page.get_by_label("Inspect time bucket")
+        slider.focus()
+        slider.press("Home")
+        assert "5 credits" in page.locator("[data-bucket-detail]").inner_text()
+        slider.press("ArrowRight")
+        assert "0 requests" in page.locator("[data-bucket-detail]").inner_text()
+        page.get_by_role("button", name="Average latency", exact=True).click()
+        assert "No latency measurement" in page.locator("[data-bucket-detail]").inner_text()
+        assert "metric=latency" in page.url
+        page.get_by_role("button", name="Success rate", exact=True).click()
+        assert page.locator("[data-usage-chart] svg").get_attribute("data-domain-max") == "100"
+        page.get_by_role("button", name="24h", exact=True).click()
+        page.locator('[data-usage-window="24h"][aria-pressed="true"]').wait_for()
+        assert "window=24h" in queries[-1]
+        with page.expect_download() as download_info:
+            page.get_by_role("button", name="Export chart CSV", exact=True).click()
+        download = download_info.value
+        with open(download.path()) as exported:
+            assert "bucket_start" in exported.read()
+        failure["enabled"] = True
+        page.get_by_role("button", name="Refresh data", exact=True).click()
+        page.get_by_text("Update failed · showing previous snapshot", exact=True).wait_for()
+        assert page.locator("[data-usage-chart] svg").is_visible()
+        failure["enabled"] = False
+        page.get_by_role("button", name="Refresh data", exact=True).click()
+        page.locator("[data-usage-freshness]").filter(has_text="Updated").wait_for()
+        for width in (320, 390, 1366):
+            page.set_viewport_size({"width": width, "height": 800})
+            page.wait_for_timeout(80)
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+            assert page.locator("[data-usage-chart] svg").bounding_box()["width"] > 150
+        assert not errors, errors
+        page.screenshot(path="/tmp/opencrawl-usage-desktop.png", full_page=True)
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.reload()
+        page.locator("[data-usage-chart] svg").wait_for()
+        page.screenshot(path="/tmp/opencrawl-usage-mobile.png", full_page=True)
+        browser.close()
+
+
+
+def test_playground_cost_review_requires_confirmation_and_requotes_changed_inputs(frontend_url):
+    quotes, executions = [], []
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if path == "/api/auth/me":
+                data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            elif path == "/api/api-keys":
+                data = {"keys": [{"id": "key_fixture", "name": "Collection", "prefix": "oc"}]}
+            elif path == "/api/playground/quote":
+                quotes.append(route.request.post_data_json)
+                data = {"quote": {"credits": 25 if route.request.post_data_json.get("paid_recovery") else 5,
+                    "quote_revision": "b" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}
+            elif path == "/api/playground/run":
+                executions.append(route.request.post_data_json)
+                data = {"ok": True, "operation": "search", "usage": {"credits_reserved": 5, "credits_charged": 5},
+                        "summary": {}, "result": {"pages": [], "search_results": []}}
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/playground")
+        page.locator("#research-query").fill("example company")
+        page.get_by_role("button", name="Review cost", exact=True).click()
+        page.get_by_role("button", name="Confirm run", exact=True).wait_for()
+        assert len(quotes) == 1 and not executions
+        assert page.get_by_role("button", name="Review cost", exact=True).is_visible()
+        assert quotes[-1]["paid_recovery"] is False
+        page.locator("#research-query").fill("changed company")
+        page.get_by_role("button", name="Review cost", exact=True).click()
+        page.get_by_role("button", name="Confirm run", exact=True).wait_for()
+        assert len(quotes) == 2 and not executions
+        page.locator("#ihp-spend-limit").fill("0")
+        page.get_by_role("button", name="Review cost", exact=True).click()
+        page.get_by_text("This run exceeds your spending limit. Adjust the limit or inputs.", exact=True).wait_for()
+        assert not executions
+        page.locator("#ihp-spend-limit").fill("")
+        page.get_by_role("button", name="Review cost", exact=True).click()
+        page.get_by_role("button", name="Confirm run", exact=True).click()
+        page.locator("#ihp-results .search-result-header").wait_for()
+        assert len(executions) == 1
+        assert executions[0]["max_charge_credits"] == 5 and executions[0]["quote_revision"] == "b" * 64
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        browser.close()
+
+@pytest.mark.parametrize("statuses,label,truncated", [([None], "CRAWL FAILED", False), ([403], "CRAWL FAILED", False), ([200, 503], "CRAWL PARTIAL", False), ([200], "CRAWL COMPLETE", False), ([200], "CRAWL PARTIAL", True)])
+def test_crawl_outcome_labels_match_successful_pages(frontend_url, statuses, label, truncated):
+    submissions = []
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 800})
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
+            if path == "/api/auth/me":
+                data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            elif path == "/api/api-keys":
+                data = {"keys": [{"id": "key_fixture", "name": "Collection", "prefix": "oc"}]}
+            elif path == "/api/playground/run":
+                submissions.append(route.request.post_data_json)
+                data = {"ok": 200 in statuses, "operation": "crawl", "usage": {}, "summary": {},
+                        "result": {"sitemap_documents": 2, "sitemap_urls": 1, "truncated": truncated, "pages": [{"url": "https://example.com/", "status_code": code,
+                            "error": "PolicyError: outside scope" if code is None else None} for code in statuses]}}
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/playground")
+        page.locator("#research-query").fill("https://example.com/")
+        page.locator(".search-advanced summary").click()
+        page.locator("#ihp-sitemaps").check()
+        page.locator("#ihp-submit").click()
+        page.get_by_role("button", name="Confirm run", exact=True).click()
+        page.locator("#ihp-results .search-result-header .search-section-kicker").wait_for()
+        assert page.locator("#ihp-results .search-result-header .search-section-kicker").inner_text() == label
+        assert "successful" in page.locator("#ihp-results .search-result-header p").inner_text()
+        assert submissions[0]["discover_sitemaps"] is True
+        page.get_by_text("Run details", exact=True).click()
+        assert page.get_by_text("1 additional URLs from 2 sitemap checks.", exact=True).is_visible()
+        browser.close()
+
+
+def test_content_monitor_billing_form_and_capture_history(frontend_url):
+    submitted = []
+    monitor = {"id": "mon_content", "name": "Price watch", "type": "content", "target": "https://example.com/pricing",
+               "config": {"api_key_id": "key_fixture"}, "enabled": True, "interval_minutes": 60, "last_status": "changed"}
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 800})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
+            if path == "/api/auth/me":
+                data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            elif path == "/api/api-keys":
+                data = {"keys": [{"id": "key_fixture", "name": "Monitoring", "prefix": "oc"}]}
+            elif path == "/api/monitors/validate":
+                submitted.append(route.request.post_data_json)
+                data = {"valid": True, "monitor": route.request.post_data_json}
+            elif path == "/api/monitors" and route.request.method == "POST":
+                data = monitor
+            elif path == "/api/monitors":
+                data = {"monitors": [monitor]}
+            elif path == "/api/monitors/mon_content":
+                data = monitor
+            elif path.endswith("/history"):
+                data = {"runs": [{"status": "changed", "credits_charged": 3, "dataset_id": "ds_new",
+                                  "diff": {"previous_dataset_id": "ds_old"}, "summary": '<img src=x onerror="window.injected=true">'}]}
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/monitors")
+        page.locator('[data-monitor-template="content"]').click()
+        page.locator('input[name="name"]').fill("Price watch")
+        page.locator('input[name="target"]').fill(monitor["target"])
+        page.locator('select[name="api_key_id"]').select_option("key_fixture")
+        assert page.locator("#monitor-content-billing").is_visible()
+        page.get_by_role("button", name="Validate and create").click()
+        page.get_by_text("Monitor created", exact=True).wait_for()
+        assert submitted[0]["type"] == "content" and submitted[0]["config"] == {"api_key_id": "key_fixture"}
+        page.locator(".monitor-row").click()
+        page.get_by_role("link", name="Open capture").wait_for()
+        assert page.get_by_role("link", name="Open capture").get_attribute("href") == "/dashboard/datasets?dataset=ds_new"
+        assert page.get_by_role("link", name="Previous capture").get_attribute("href") == "/dashboard/datasets?dataset=ds_old"
+        assert page.locator(".monitor-history-table img").count() == 0
+        assert page.evaluate("window.injected === undefined")
+        for width in (320, 390, 1366):
+            page.set_viewport_size({"width": width, "height": 800})
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
+        assert not errors
+        browser.close()
+
+
+def test_background_crawl_submission_reopen_and_cancel(frontend_url):
+    run = {"id": "run_fixture", "url": "https://example.com/<unsafe>", "status": "queued",
+           "attempts": 0, "progress": {"pages": 0, "discovered_urls": 0},
+           "credits_reserved": 100, "credits_charged": 0}
+    submissions = []
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 800})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
+            if path == "/api/auth/me":
+                data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            elif path == "/api/api-keys":
+                data = {"keys": [{"id": "key_fixture", "name": "Collection", "prefix": "oc"}]}
+            elif path == "/api/dashboard":
+                data = {"account": {"monthly_credits": 10000}}
+            elif path == "/api/crawl-runs" and route.request.method == "POST":
+                submissions.append((route.request.post_data_json, route.request.headers.get("idempotency-key")))
+                data = {"run": run}
+            elif path.endswith("/cancel"):
+                run["status"] = "cancelled"
+                data = {"run": run}
+            elif path == "/api/crawl-runs/run_fixture":
+                data = {"run": run}
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/playground")
+        page.locator("#research-query").fill("https://example.com/")
+        page.get_by_text("Background URL crawl", exact=True).click()
+        assert page.locator("#ihp-background").is_checked()
+        page.locator(".search-advanced summary").click()
+        page.locator("#ihp-sitemaps").check()
+        page.locator("#ihp-submit").click()
+        page.get_by_role("button", name="Confirm run", exact=True).click()
+        page.get_by_role("heading", name="Collection progress", exact=True).wait_for()
+        assert submissions[0][0]["url"] == "https://example.com/" and submissions[0][1]
+        assert submissions[0][0]["discover_sitemaps"] is True
+        assert page.locator("unsafe").count() == 0
+        for width in (320, 390, 1366):
+            page.set_viewport_size({"width": width, "height": 800})
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
+        page.reload()
+        page.locator("#crawl-run-cancel").click()
+        page.get_by_role("status").filter(has_text="cancelled").wait_for()
+        assert not errors
+        browser.close()
+
+
+def test_saved_dataset_browser_controls_and_exports(frontend_url):
+    dataset = {"id": "ds_fixture", "name": "Collected sources", "operation": "search",
+               "row_count": 1, "columns": ["url", "title"], "request_id": "req_fixture"}
+    deleted = False
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 800})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+
+        def respond(route):
+            nonlocal deleted
+            url, method = route.request.url, route.request.method
+            if "/api/auth/me" in url:
+                data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            elif "/export?format=csv" in url:
+                route.fulfill(status=200, content_type="text/csv", body="title,url\nSource,https://example.com\n")
+                return
+            elif method == "PATCH":
+                dataset["name"] = route.request.post_data_json["name"]
+                data = {"dataset": dataset}
+            elif method == "DELETE":
+                deleted = True
+                data = {"deleted": True}
+            elif "/api/datasets/ds_fixture" in url:
+                data = {"dataset": dataset, "rows": [{"url": "https://example.com", "title": "Source"}], "total": 1}
+            elif "/api/datasets" in url:
+                data = {"datasets": [] if deleted else [dataset], "total": 0 if deleted else 1}
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/datasets")
+        page.get_by_role("link", name="Collected sources", exact=True).click()
+        page.locator("#dataset-rename").wait_for()
+        for width in (320, 390, 1366):
+            page.set_viewport_size({"width": width, "height": 800})
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
+        page.locator('#dataset-rename input').fill("Renamed output")
+        page.locator('#dataset-rename button').click()
+        page.get_by_role("heading", name="Renamed output", exact=True).wait_for()
+        with page.expect_download() as download:
+            page.get_by_role("button", name="Download CSV", exact=True).click()
+        assert download.value.suggested_filename == "ds_fixture.csv"
+        page.on("dialog", lambda dialog: dialog.accept())
+        page.get_by_role("button", name="Delete dataset", exact=True).click()
+        page.get_by_text("No saved outputs yet", exact=True).wait_for()
+        assert deleted and not errors
+        browser.close()
+
+
 @pytest.fixture(scope="module")
 def frontend_url():
     class Handler(BaseHTTPRequestHandler):
@@ -153,6 +497,11 @@ def test_monitor_history_and_responsive_layout(frontend_url):
 
         def respond(route):
             path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
             if path == "/api/auth/me":
                 data = {"user": {"email": "fixture@example.test", "email_verified": True},
                         "account": {}}
@@ -207,6 +556,11 @@ def test_curl_connection_preview_then_save(frontend_url):
 
         def respond(route):
             path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
             if path == "/api/auth/me":
                 data = {"user": {"email": "fixture@example.test", "email_verified": True},
                         "account": {}}
@@ -271,6 +625,11 @@ def test_game_discovery_schema_execution_and_mobile_state(frontend_url):
 
         def respond(route):
             path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
             if path == "/api/auth/me":
                 data = {"user": {"email": "fixture@example.test", "email_verified": True}, "account": {}}
             elif path == "/api/api-keys":
@@ -348,6 +707,11 @@ def test_repository_investigation_blocks_duplicate_metered_requests(frontend_url
 
         def respond(route):
             path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
             if path == "/api/auth/me":
                 data = {"user": {"email": "fixture@example.test", "email_verified": True}, "account": {}}
             elif path == "/api/api-keys":
@@ -403,6 +767,11 @@ def test_usage_leads_with_workflows_and_retains_technical_trace(frontend_url):
 
         def respond(route):
             path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
             if path == "/api/auth/me":
                 data = {"user": {"email": "fixture@example.test", "email_verified": True}, "account": {}}
             elif path == "/api/usage/intelligence":
@@ -442,6 +811,11 @@ def test_expanded_catalog_paginates_and_searches_at_narrow_widths(frontend_url):
         page.on("pageerror", lambda error: errors.append(str(error)))
         def respond(route):
             path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
             if path == "/api/auth/me":
                 data = {"user": {"email": "fixture@example.test", "email_verified": True}, "account": {}}
             elif path == "/api/games":
@@ -477,6 +851,11 @@ def test_public_data_workspace_validates_executes_and_reports_partial_results(fr
         page.on("pageerror", lambda error: errors.append(str(error)))
         def respond(route):
             path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
             if path == "/api/auth/me":
                 data = {"user": {"email": "fixture@example.test", "email_verified": True}, "account": {}}
             elif path == "/api/api-keys":
@@ -572,6 +951,11 @@ def test_rewards_redemption_delivers_wallet_prize(frontend_url):
 
         def respond(route):
             path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
             if path == "/api/auth/me":
                 data = {
                     "user": {"email": "fixture@example.test", "email_verified": True},
@@ -658,6 +1042,11 @@ def test_community_reward_code_redemption(frontend_url):
 
         def respond(route):
             path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
             if path == "/api/auth/me":
                 data = {
                     "user": {"email": "fixture@example.test", "email_verified": True},
@@ -701,5 +1090,270 @@ def test_community_reward_code_redemption(frontend_url):
         page.get_by_text("220", exact=True).first.wait_for()
         assert page.get_by_text("Discord launch drop", exact=True).count() >= 1
         assert page.get_by_text("+100 pts", exact=True).count() >= 1
+        assert not errors, errors
+        browser.close()
+
+
+def test_playground_crawl_text_is_escaped_and_truncation_visible(frontend_url):
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 800})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if path in {"/api/playground/quote", "/api/crawl-runs/quote"}:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"quote": {
+                    "credits": 5, "quote_revision": "a" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}))
+                return
+            if path == "/api/auth/me":
+                data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            elif path == "/api/api-keys":
+                data = {"keys": [{"id": "key_fixture", "name": "Test key", "prefix": "ih_test"}]}
+            elif path == "/api/playground/run":
+                data = {"ok": True, "operation": "crawl", "request_id": "req_fixture",
+                        "usage": {}, "summary": {"pages": 1, "successful": 1, "content_truncated": True},
+                        "dataset": {"id": "ds_fixture"},
+                        "result": {"pages": [{"url": "https://example.com", "title": "API guide",
+                            "status_code": 200, "text": '<img src=x onerror="window.injected=true">' + 'X' * 400,
+                            "content_truncated": True}], "search_results": [], "evidence": []}}
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/playground")
+        page.locator("#research-query").fill("https://example.com")
+        page.get_by_role("button", name="Review cost", exact=True).click()
+        page.get_by_role("button", name="Confirm run", exact=True).click()
+        page.get_by_text("Content was shortened to fit the collection limits.", exact=True).wait_for()
+        page.get_by_text("Read page text", exact=True).click()
+        assert '<img src=x onerror="window.injected=true">' in page.locator(".crawl-content pre").inner_text()
+        assert page.locator(".crawl-content img").count() == 0
+        assert page.evaluate("window.injected === undefined")
+        for width in (320, 390, 1366):
+            page.set_viewport_size({"width": width, "height": 800})
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
+        assert not errors
+        browser.close()
+
+
+def test_dataset_webhook_setup_secret_pause_and_retry_controls(frontend_url):
+    endpoint = None
+    deliveries = [{"id": "wh_fixture", "dataset_id": "ds_fixture", "status": "failed", "attempts": 5,
+                   "last_error": '<img src=x onerror="window.injected=true">'}]
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 800})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+
+        def respond(route):
+            nonlocal endpoint, deliveries
+            path, method = urlsplit(route.request.url).path, route.request.method
+            if path == "/api/auth/me":
+                data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            elif path == "/api/dataset-webhook" and method == "PUT":
+                body = route.request.post_data_json
+                created = endpoint is None
+                endpoint = {"url": body["url"], "enabled": body["enabled"]}
+                data = {"endpoint": endpoint}
+                if created or body["rotate_secret"]:
+                    data["signing_secret"] = "whsec_" + "x" * 43
+            elif path == "/api/dataset-webhook" and method == "DELETE":
+                endpoint, deliveries = None, []
+                data = {"deleted": True}
+            elif path == "/api/dataset-webhook":
+                data = {"available": True, "endpoint": endpoint}
+            elif path.endswith("/retry"):
+                deliveries[0]["status"] = "pending"
+                data = {"delivery": deliveries[0]}
+            elif path == "/api/dataset-webhook/deliveries":
+                data = {"deliveries": deliveries, "total": len(deliveries)}
+            else:
+                data = {"datasets": [], "total": 0}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/datasets")
+        page.get_by_role("link", name="Webhook delivery", exact=True).click()
+        page.get_by_label("Receiver URL", exact=True).fill("https://hooks.example.com/receive")
+        page.get_by_role("button", name="Save webhook", exact=True).click()
+        page.get_by_text("Save your signing secret", exact=True).wait_for()
+        assert page.locator("#dataset-webhook-secret code").inner_text() == "whsec_" + "x" * 43
+        assert page.locator(".table-wrap img").count() == 0
+        for width in (320, 390, 1366):
+            page.set_viewport_size({"width": width, "height": 800})
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
+        page.get_by_label("Enable delivery", exact=True).uncheck()
+        page.get_by_role("button", name="Save webhook", exact=True).click()
+        page.wait_for_function("document.querySelector('#dataset-webhook-secret').hidden")
+        assert page.get_by_role("button", name="Retry delivery", exact=True).is_disabled()
+        page.get_by_label("Enable delivery", exact=True).check()
+        page.get_by_role("button", name="Save webhook", exact=True).click()
+        page.wait_for_function("!document.querySelector('[data-webhook-retry]').disabled")
+        page.get_by_role("button", name="Retry delivery", exact=True).click()
+        page.get_by_role("cell", name="pending", exact=True).wait_for()
+        page.on("dialog", lambda dialog: dialog.accept())
+        page.get_by_role("button", name="Remove webhook", exact=True).click()
+        page.get_by_text("No deliveries yet", exact=True).wait_for()
+        page.goto(frontend_url + "/docs/dataset-webhooks")
+        page.get_by_role("heading", name="Dataset webhooks", exact=True).wait_for()
+        assert not errors
+        browser.close()
+
+
+def test_site_map_review_confirmation_dataset_and_responsive_layout(frontend_url):
+    quotes, executions = [], []
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if path == "/api/auth/me":
+                data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            elif path == "/api/api-keys":
+                data = {"keys": [{"id": "key_fixture", "name": "Mapping", "prefix": "oc_map"}]}
+            elif path == "/api/site-map/quote":
+                quotes.append(route.request.post_data_json)
+                data = {"quote": {"credits": 5, "maximum_charge_credits": 5,
+                    "quote_revision": "m" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}
+            elif path == "/api/site-map/run":
+                executions.append(route.request.post_data_json)
+                data = {"ok": True, "request_id": "req_map_fixture", "operation": "map",
+                    "usage": {"credits_reserved": 5, "credits_charged": 3},
+                    "summary": {"returned_urls": 2, "reported_urls": 2, "max_depth": 2,
+                                "truncated": False, "categories": {"docs": 1, "pricing": 1}},
+                    "dataset": {"id": "ds_map_fixture"},
+                    "result": {"root_url": "https://example.com", "urls": [
+                        {"url": "https://example.com/docs/api", "title": "<img src=x onerror=window.injected=true>",
+                         "path": "/docs/api", "depth": 2, "category": "docs",
+                         "parent_url": "https://example.com/docs/"},
+                        {"url": "https://example.com/pricing", "title": "Pricing",
+                         "path": "/pricing", "depth": 1, "category": "pricing",
+                         "parent_url": "https://example.com/"}
+                    ]}}
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/map")
+        page.get_by_label("Site root", exact=True).fill("https://example.com")
+        page.get_by_label("Focus (optional)", exact=True).fill("docs")
+        page.get_by_role("button", name="Review map cost", exact=True).click()
+        page.get_by_role("button", name="Confirm and map site", exact=True).wait_for()
+        assert len(quotes) == 1 and not executions
+        assert quotes[0]["url"] == "https://example.com"
+        assert quotes[0]["search"] == "docs"
+
+        page.get_by_role("button", name="Confirm and map site", exact=True).click()
+        page.get_by_role("heading", name="2 URLs mapped", exact=True).wait_for()
+        assert len(executions) == 1
+        assert executions[0]["max_charge_credits"] == 5
+        assert executions[0]["quote_revision"] == "m" * 64
+        assert page.get_by_role("link", name="Open saved dataset").get_attribute("href") == "/dashboard/datasets?dataset=ds_map_fixture"
+        assert page.locator(".repo-result-list img").count() == 0
+        assert page.evaluate("window.injected === undefined")
+
+        for width in (320, 390, 1366):
+            page.set_viewport_size({"width": width, "height": 800})
+            page.wait_for_timeout(50)
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
+        assert not errors, errors
+        browser.close()
+
+
+def test_smart_scrape_review_confirmation_dataset_and_safe_outputs(frontend_url):
+    quotes, executions = [], []
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if path == "/api/auth/me":
+                data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            elif path == "/api/api-keys":
+                data = {"keys": [{"id": "key_scrape", "name": "Scrape key", "prefix": "oc_sc"}]}
+            elif path == "/api/scrape/quote":
+                quotes.append(route.request.post_data_json)
+                data = {
+                    "quote": {
+                        "credits": 255,
+                        "maximum_charge_credits": 255,
+                        "quote_revision": "s" * 64,
+                        "wallet_units_per_usd": 5000,
+                        "available_credits": 5000,
+                        "affordable": True,
+                    },
+                    "scrape": {
+                        "requested_mode": "auto",
+                        "execution_mode": "auto",
+                        "formats": ["markdown", "links"],
+                    },
+                }
+            elif path == "/api/scrape/run":
+                executions.append(route.request.post_data_json)
+                data = {
+                    "ok": True,
+                    "request_id": "req_scrape_fixture",
+                    "operation": "scrape",
+                    "usage": {"credits_reserved": 255, "credits_charged": 5},
+                    "summary": {
+                        "execution_path": "http",
+                        "status_code": 200,
+                        "formats": ["markdown", "links"],
+                        "text_bytes": 41,
+                        "links": 1,
+                    },
+                    "dataset": {"id": "ds_scrape_fixture"},
+                    "result": {
+                        "url": "https://example.com/pricing",
+                        "status_code": 200,
+                        "title": '<img src=x onerror="window.injected=true">',
+                        "description": "Pricing page",
+                        "text": "Simple public pricing",
+                        "markdown": '# Pricing\n<img src=x onerror="window.injected=true">',
+                        "links": ["https://example.com/docs"],
+                        "execution_path": "http",
+                    },
+                }
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/scrape")
+        page.get_by_label("Public page URL", exact=True).fill("https://example.com/pricing")
+        page.get_by_role("button", name="Review scrape cost", exact=True).click()
+        page.get_by_role("button", name="Confirm and scrape page", exact=True).wait_for()
+        assert len(quotes) == 1 and not executions
+        assert quotes[0]["mode"] == "auto"
+        assert quotes[0]["formats"] == ["markdown", "links"]
+
+        page.get_by_role("button", name="Confirm and scrape page", exact=True).click()
+        page.get_by_text("Pricing page", exact=True).wait_for()
+        assert len(executions) == 1
+        assert executions[0]["max_charge_credits"] == 255
+        assert executions[0]["quote_revision"] == "s" * 64
+        assert page.get_by_role("link", name="Open saved dataset").get_attribute("href") == "/dashboard/datasets?dataset=ds_scrape_fixture"
+        markdown_panel = page.locator(".scrape-result-tabs details[open] pre").first
+        assert '<img src=x onerror="window.injected=true">' in markdown_panel.inner_text()
+        assert page.locator(".scrape-result-tabs img").count() == 0
+        assert page.evaluate("window.injected === undefined")
+
+        for width in (320, 390, 1366):
+            page.set_viewport_size({"width": width, "height": 800})
+            page.wait_for_timeout(50)
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
         assert not errors, errors
         browser.close()

@@ -274,6 +274,7 @@ async def system_health(
             "native_web_provider": "nativeweb",
             "native_web_tools": [
                 "nativeweb:fetch",
+                "nativeweb:scrape",
                 "nativeweb:search",
                 "nativeweb:context",
                 "nativeweb:map",

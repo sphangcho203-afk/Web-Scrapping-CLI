@@ -2,15 +2,21 @@ from __future__ import annotations
 
 import asyncio
 import fnmatch
+import hashlib
+import json
 import time
 from collections import deque
+from collections.abc import Awaitable, Callable
 from urllib.parse import urlsplit
 from urllib.robotparser import RobotFileParser
 
+from .crawl_frontier import MAX_FRONTIER_URL_BYTES, MAX_FRONTIER_URLS, MAX_URL_BYTES, CrawlFrontier
 from .execution_meter import record_usage
+from .extractor import extract_document
 from .fetcher import DEFAULT_UA, extract_links, fetch_url
 from .models import CrawlPage, CrawlResult
 from .policy import validate_public_http_url
+from .sitemaps import MAX_SITEMAP_BYTES, MAX_SITEMAP_DOCUMENTS, sitemap_locations
 
 _SKIP_SUFFIXES = (
     ".7z", ".avi", ".bmp", ".css", ".eot", ".gif", ".ico", ".jpeg", ".jpg",
@@ -30,7 +36,30 @@ def _same_scope(seed_host: str, candidate_host: str | None, include_subdomains: 
         return False
     host = candidate_host.rstrip(".").casefold()
     root = seed_host.rstrip(".").casefold()
-    return host == root or (include_subdomains and host.endswith("." + root))
+    canonical = root.removeprefix("www.")
+    return host in {root, canonical, "www." + canonical} or (
+        include_subdomains and host.endswith("." + canonical)
+    )
+
+
+def _url_in_scope(seed_url: str, target: str, include_subdomains: bool = False) -> bool:
+    seed, candidate = urlsplit(seed_url), urlsplit(target)
+    if candidate.scheme not in {"http", "https"}:
+        return False
+    if seed.scheme == "https" and candidate.scheme != "https":
+        return False
+    try:
+        seed_port = seed.port or (443 if seed.scheme == "https" else 80)
+        target_port = candidate.port or (443 if candidate.scheme == "https" else 80)
+    except ValueError:
+        return False
+    upgrade = seed.scheme == "http" and candidate.scheme == "https" and seed_port == 80 and target_port == 443
+    return (seed_port == target_port or upgrade) and _same_scope(seed.hostname or "", candidate.hostname, include_subdomains)
+
+
+def _bounded_text(value: str, max_bytes: int) -> tuple[str, bool]:
+    encoded = value.encode("utf-8")
+    return encoded[:max_bytes].decode("utf-8", errors="ignore"), len(encoded) > max_bytes
 
 
 def _path_allowed(url: str, include_paths: tuple[str, ...], exclude_paths: tuple[str, ...]) -> bool:
@@ -55,7 +84,14 @@ async def crawl(
     exclude_paths: list[str] | tuple[str, ...] | None = None,
     include_subdomains: bool = False,
     preserve_query: bool = True,
+    discover_sitemaps: bool = False,
     max_bytes_per_page: int = 2_000_000,
+    include_content: bool = False,
+    max_content_bytes_per_page: int = 50_000,
+    max_content_bytes: int = 750_000,
+    on_progress: Callable[[CrawlResult], Awaitable[None]] | None = None,
+    on_checkpoint: Callable[[CrawlResult, CrawlFrontier], Awaitable[None]] | None = None,
+    resume_checkpoint: tuple[CrawlResult, CrawlFrontier] | None = None,
 ) -> CrawlResult:
     """Crawl a bounded public site with SSRF, robots, depth, time and fan-out controls."""
     validate_public_http_url(seed_url)
@@ -69,13 +105,35 @@ async def crawl(
         raise ValueError("max_seconds must be between 1 and 600")
     if max_bytes_per_page < 32_000 or max_bytes_per_page > 8_000_000:
         raise ValueError("max_bytes_per_page must be between 32000 and 8000000")
+    if not isinstance(include_content, bool):
+        raise TypeError("include_content must be a boolean")
+    if not isinstance(discover_sitemaps, bool):
+        raise TypeError("discover_sitemaps must be a boolean")
+    if type(max_content_bytes_per_page) is not int or type(max_content_bytes) is not int:
+        raise TypeError("content budgets must be integers")
+    if not 1 <= max_content_bytes_per_page <= 200_000:
+        raise ValueError("max_content_bytes_per_page must be between 1 and 200000")
+    if not 1 <= max_content_bytes <= 1_000_000:
+        raise ValueError("max_content_bytes must be between 1 and 1000000")
 
     include = tuple(str(x).strip() for x in (include_paths or ()) if str(x).strip())
     exclude = tuple(str(x).strip() for x in (exclude_paths or ()) if str(x).strip())
     seed_url = _normalize_url(seed_url, preserve_query=preserve_query)
-    seed = urlsplit(seed_url)
-    seed_host = (seed.hostname or "").casefold()
 
+    controls = {
+        "seed_url": seed_url, "max_pages": max_pages, "max_depth": max_depth,
+        "concurrency": concurrency, "max_seconds": float(max_seconds), "respect_robots": respect_robots,
+        "include_paths": list(include), "exclude_paths": list(exclude),
+        "include_subdomains": include_subdomains, "preserve_query": preserve_query,
+        "max_bytes_per_page": max_bytes_per_page, "include_content": include_content,
+        "max_content_bytes_per_page": max_content_bytes_per_page, "max_content_bytes": max_content_bytes,
+    }
+    # Keep hashes for existing link-only checkpoints compatible.
+    if discover_sitemaps:
+        controls["discover_sitemaps"] = True
+    config_hash = hashlib.sha256(json.dumps(controls, sort_keys=True).encode()).hexdigest()
+    if len(seed_url.encode()) > MAX_URL_BYTES:
+        raise ValueError("Checkpoint URLs exceed their byte budget.")
     started = time.monotonic()
     queue: deque[tuple[str, int]] = deque([(seed_url, 0)])
     enqueued: set[str] = {seed_url}
@@ -83,24 +141,166 @@ async def crawl(
     pages: list[CrawlPage] = []
     skipped = 0
     timed_out = False
+    content_bytes = 0
     robots_cache: dict[str, RobotFileParser] = {}
+    robots_locks: dict[str, asyncio.Lock] = {}
+    sitemap_documents = sitemap_urls = 0
+    sitemap_truncated = False
+    sitemap_errors: list[str] = []
+    elapsed_before = 0
+    frontier_truncated = False
+    frontier_bytes = len(seed_url.encode())
+    if resume_checkpoint is not None:
+        prior, frontier = resume_checkpoint
+        # Revalidate even in-memory instances: a caller may have mutated them.
+        frontier = CrawlFrontier.model_validate(frontier.model_dump())
+        if frontier.config_hash != config_hash or prior.seed_url != seed_url:
+            raise ValueError("Checkpoint controls do not match this crawl.")
+        pending_urls = [url for url, _ in frontier.pending]
+        all_urls = [*frontier.completed, *pending_urls]
+        if any(_normalize_url(url, preserve_query=preserve_query) != url
+               or urlsplit(url).scheme not in {"http", "https"}
+               or not _url_in_scope(seed_url, url, include_subdomains)
+               for url in all_urls):
+            raise ValueError("Checkpoint URLs are outside the crawl scope.")
+        if any(depth > max_depth or not _path_allowed(url, include, exclude)
+               for url, depth in frontier.pending if url != seed_url):
+            raise ValueError("Checkpoint frontier violates crawl controls.")
+        if (len(prior.pages) != len(frontier.completed) or len(prior.pages) > max_pages
+                or seed_url not in all_urls or prior.duration_ms < 0 or prior.skipped_urls < 0
+                or prior.content_bytes != sum(len((page.text or "").encode()) for page in prior.pages)
+                or prior.content_bytes > max_content_bytes):
+            raise ValueError("Checkpoint result exceeds crawl budgets or is inconsistent.")
+        queue = deque(frontier.pending)
+        seen = set(frontier.completed)
+        enqueued = seen | set(pending_urls)
+        pages = list(prior.pages)
+        skipped, content_bytes = prior.skipped_urls, prior.content_bytes
+        elapsed_before = prior.duration_ms
+        frontier_truncated = frontier.truncated
+        frontier_bytes = sum(len(url.encode()) for url in enqueued)
+        sitemap_documents, sitemap_urls = prior.sitemap_documents, prior.sitemap_urls
+        sitemap_truncated, sitemap_errors = prior.sitemap_truncated, list(prior.sitemap_errors)
 
-    async def robots_for(url: str) -> RobotFileParser | None:
-        if not respect_robots:
+    def remaining_seconds() -> float:
+        return max(0.0, max_seconds - elapsed_before / 1000 - (time.monotonic() - started))
+
+    async def robots_for(url: str, *, discover: bool = False) -> RobotFileParser | None:
+        if not respect_robots and not discover:
             return None
         parts = urlsplit(url)
         origin = f"{parts.scheme}://{parts.netloc}"
-        cached = robots_cache.get(origin)
-        if cached is not None:
-            return cached
-        parser = await _robots_for(url)
-        robots_cache[origin] = parser
-        return parser
+        # Concurrent pages on a new origin share one policy request.
+        async with robots_locks.setdefault(origin, asyncio.Lock()):
+            cached = robots_cache.get(origin)
+            if cached is not None:
+                return cached
+            parser = await _robots_for(url)
+            robots_cache[origin] = parser
+            return parser
+
+    def enqueue(raw_link: str, depth: int) -> bool:
+        nonlocal skipped, frontier_bytes, frontier_truncated
+        try:
+            normalized = _normalize_url(raw_link, preserve_query=preserve_query)
+            allowed = _url_in_scope(seed_url, normalized, include_subdomains) and _path_allowed(normalized, include, exclude)
+        except ValueError:
+            allowed = False
+        if not allowed:
+            skipped += 1
+            return False
+        if normalized in enqueued:
+            return False
+        url_bytes = len(normalized.encode())
+        if (url_bytes > MAX_URL_BYTES or len(enqueued) >= MAX_FRONTIER_URLS
+                or frontier_bytes + url_bytes > MAX_FRONTIER_URL_BYTES):
+            frontier_truncated = True
+            skipped += 1
+            return False
+        frontier_bytes += url_bytes
+        enqueued.add(normalized)
+        queue.append((normalized, depth))
+        return True
+
+    async def discover_from_sitemaps(root_url: str) -> None:
+        nonlocal sitemap_documents, sitemap_urls, sitemap_truncated
+        parser = await robots_for(root_url, discover=True)
+        parts = urlsplit(root_url)
+        hints = (parser.site_maps() if parser is not None else None) or [f"{parts.scheme}://{parts.netloc}/sitemap.xml"]
+        documents: deque[str] = deque()
+        scheduled: set[str] = set()
+
+        def schedule(raw: str) -> None:
+            nonlocal sitemap_truncated, skipped
+            try:
+                url = _normalize_url(raw, preserve_query=True)
+                valid = (len(url.encode()) <= MAX_URL_BYTES and _url_in_scope(seed_url, url, include_subdomains)
+                         and _path_allowed(url, (), exclude))
+            except ValueError:
+                valid = False
+            if not valid:
+                skipped += 1
+            elif url not in scheduled:
+                if len(scheduled) >= MAX_SITEMAP_DOCUMENTS:
+                    sitemap_truncated = True
+                    return
+                scheduled.add(url)
+                documents.append(url)
+
+        for hint in hints:
+            schedule(hint)
+        while documents:
+            url = documents.popleft()
+            last_hop = url
+
+            async def guard(target: str) -> bool:
+                nonlocal last_hop
+                if (not _url_in_scope(seed_url, target, include_subdomains)
+                        or not _url_in_scope(last_hop, target, include_subdomains)
+                        or not _path_allowed(target, (), exclude)):
+                    return False
+                destination = await robots_for(target)
+                if destination is not None and not destination.can_fetch(DEFAULT_UA, target):
+                    return False
+                last_hop = target
+                return True
+
+            sitemap_documents += 1
+            try:
+                record_usage("native_web_requests")
+                capture = await fetch_url(url, max_bytes=MAX_SITEMAP_BYTES, include_body=True,
+                                          timeout=min(20.0, max_seconds), url_guard=guard)
+                if capture.status_code != 200:
+                    raise ValueError("Sitemap was unavailable.")
+                kind, locations, clipped = sitemap_locations(capture.body_text or "")
+                sitemap_truncated = sitemap_truncated or clipped
+                for location in locations:
+                    if kind == "sitemapindex":
+                        schedule(location)
+                    elif enqueue(location, 1):
+                        sitemap_urls += 1
+            except Exception:  # noqa: BLE001 -- discovery failure preserves captured pages
+                sitemap_errors.append(f"Could not read sitemap: {url}")
 
     async def fetch_one(url: str, depth: int) -> tuple[CrawlPage, list[str]]:
+        nonlocal content_bytes
         parser = await robots_for(url)
         if parser is not None and not parser.can_fetch(DEFAULT_UA, url):
             return CrawlPage(url=url, depth=depth, error="blocked by robots.txt"), []
+
+        last_hop = url
+        async def redirect_allowed(target: str) -> bool:
+            nonlocal last_hop
+            if not _url_in_scope(url, target) or not _url_in_scope(last_hop, target):
+                return False
+            if target != url and not _path_allowed(target, (), exclude):
+                return False
+            destination_policy = await robots_for(target)
+            allowed = destination_policy is None or destination_policy.can_fetch(DEFAULT_UA, target)
+            if allowed:
+                last_hop = target
+            return allowed
+
         try:
             record_usage("native_web_requests")
             result = await fetch_url(
@@ -108,29 +308,75 @@ async def crawl(
                 include_body=True,
                 max_bytes=max_bytes_per_page,
                 timeout=min(20.0, max_seconds),
-                url_guard=lambda target: (
-                    urlsplit(target).netloc.lower() == urlsplit(url).netloc.lower()
-                    and (parser is None or parser.can_fetch(DEFAULT_UA, target))
-                ),
+                url_guard=redirect_allowed,
             )
             links = extract_links(result).links if result.body_text else []
-            return (
-                CrawlPage(
-                    url=result.final_url,
-                    status_code=result.status_code,
-                    sha256=result.sha256,
-                    links_found=len(links),
-                    depth=depth,
-                    content_type=result.content_type,
-                    elapsed_ms=result.elapsed_ms,
-                ),
-                links,
+            page = CrawlPage(
+                url=result.final_url,
+                status_code=result.status_code,
+                sha256=result.sha256,
+                links_found=len(links),
+                depth=depth,
+                content_type=result.content_type,
+                elapsed_ms=result.elapsed_ms,
             )
+            if include_content:
+                page.captured_at = result.captured_at
+                content_type = (result.content_type or "").lower()
+                readable = content_type.startswith("text/") or any(
+                    kind in content_type for kind in ("html", "json", "xml")
+                )
+                if not 200 <= result.status_code < 300:
+                    page.content_error = f"HTTP {result.status_code}: content was not extracted."
+                elif not readable:
+                    page.content_error = "This content type does not support text extraction."
+                else:
+                    try:
+                        document = extract_document(result)
+                        title, title_clipped = _bounded_text(document.title or "", 1000)
+                        description, description_clipped = _bounded_text(document.description or "", 2000)
+                        headings = [_bounded_text(value, 500) for value in document.headings[:40]]
+                        page.title = title or None
+                        page.description = description or None
+                        page.headings = [value for value, _ in headings]
+                        metadata_clipped = (title_clipped or description_clipped
+                                            or len(document.headings) > 40
+                                            or any(clipped for _, clipped in headings))
+                        # No await between reading and claiming the shared budget: concurrent
+                        # fetches cannot each claim the same remaining capacity.
+                        allowance = min(max_content_bytes_per_page, max_content_bytes - content_bytes)
+                        page.text, page.content_truncated = _bounded_text(document.text, allowance)
+                        page.content_truncated = page.content_truncated or metadata_clipped
+                        content_bytes += len(page.text.encode("utf-8"))
+                        if not document.text:
+                            page.content_error = "No readable text was found in this capture."
+                    except Exception:  # noqa: BLE001 -- preserve a successful fetch on extraction failure
+                        page.content_error = "Readable content could not be extracted from this capture."
+            return page, links
         except Exception as exc:  # noqa: BLE001 -- per-page failures are returned as crawl data
             return CrawlPage(url=url, depth=depth, error=f"{type(exc).__name__}: {exc}"), []
 
+    def snapshot() -> CrawlResult:
+        return CrawlResult(
+            seed_url=seed_url, pages=list(pages), discovered_urls=len(enqueued),
+            skipped_urls=skipped, duration_ms=elapsed_before + max(0, int((time.monotonic() - started) * 1000)),
+            truncated=bool(queue) or timed_out or frontier_truncated or sitemap_truncated,
+            frontier_truncated=frontier_truncated,
+            content_bytes=content_bytes, content_truncated=any(page.content_truncated for page in pages),
+            sitemap_documents=sitemap_documents, sitemap_urls=sitemap_urls,
+            sitemap_truncated=sitemap_truncated, sitemap_errors=list(sitemap_errors),
+        )
+
+    async def bounded_fetch(url: str, depth: int) -> tuple[CrawlPage, list[str]]:
+        nonlocal timed_out
+        try:
+            return await asyncio.wait_for(fetch_one(url, depth), timeout=remaining_seconds())
+        except TimeoutError:
+            timed_out = True
+            return CrawlPage(url=url, depth=depth, error="Crawl time budget exhausted."), []
+
     while queue and len(pages) < max_pages:
-        if time.monotonic() - started >= max_seconds:
+        if elapsed_before / 1000 + time.monotonic() - started >= max_seconds:
             timed_out = True
             break
 
@@ -144,40 +390,34 @@ async def crawl(
         if not batch:
             continue
 
-        results = await asyncio.gather(*(fetch_one(url, depth) for url, depth in batch))
+        results = await asyncio.gather(*(bounded_fetch(url, depth) for url, depth in batch))
         for (_source_url, depth), (page, links) in zip(batch, results, strict=True):
             pages.append(page)
             if depth >= max_depth:
                 continue
             for raw_link in links:
-                normalized = _normalize_url(raw_link, preserve_query=preserve_query)
-                parts = urlsplit(normalized)
-                if parts.scheme not in {"http", "https"}:
-                    skipped += 1
-                    continue
-                if not _same_scope(seed_host, parts.hostname, include_subdomains):
-                    skipped += 1
-                    continue
-                if not _path_allowed(normalized, include, exclude):
-                    skipped += 1
-                    continue
-                if normalized in enqueued:
-                    continue
-                enqueued.add(normalized)
-                queue.append((normalized, depth + 1))
+                enqueue(raw_link, depth + 1)
+
+        # Capture the seed first. Discovery and its resulting frontier are saved
+        # together at the first checkpoint, and never replayed on recovery.
+        if (discover_sitemaps and max_depth > 0 and len(pages) == 1 and batch[0][0] == seed_url
+                and pages[0].status_code is not None and 200 <= pages[0].status_code < 300 and not pages[0].error):
+            try:
+                await asyncio.wait_for(discover_from_sitemaps(pages[0].url), timeout=remaining_seconds())
+            except TimeoutError:
+                timed_out = sitemap_truncated = True
+
+        if on_checkpoint is not None:
+            await on_checkpoint(snapshot(), CrawlFrontier(config_hash=config_hash,
+                pending=list(queue), completed=sorted(seen), truncated=frontier_truncated))
+        if on_progress is not None:
+            await on_progress(snapshot())
 
         if queue and delay_seconds > 0:
-            remaining = max(0.0, max_seconds - (time.monotonic() - started))
+            remaining = max(0.0, max_seconds - elapsed_before / 1000 - (time.monotonic() - started))
             await asyncio.sleep(min(delay_seconds, remaining))
 
-    return CrawlResult(
-        seed_url=seed_url,
-        pages=pages,
-        discovered_urls=len(enqueued),
-        skipped_urls=skipped,
-        duration_ms=max(0, int((time.monotonic() - started) * 1000)),
-        truncated=bool(queue) or timed_out or len(pages) >= max_pages,
-    )
+    return snapshot()
 
 
 async def _robots_for(seed_url: str) -> RobotFileParser:
@@ -187,8 +427,12 @@ async def _robots_for(seed_url: str) -> RobotFileParser:
     parser.set_url(robots_url)
     try:
         record_usage("native_web_requests")
-        result = await fetch_url(robots_url, max_bytes=512_000, include_body=True)
-        parser.parse((result.body_text or "").splitlines())
+        result = await fetch_url(robots_url, max_bytes=512_000, include_body=True,
+                                 url_guard=lambda target: _url_in_scope(robots_url, target))
+        if result.status_code in {401, 403}:
+            parser.parse(["User-agent: *", "Disallow: /"])
+        else:
+            parser.parse((result.body_text or "").splitlines() if result.status_code == 200 else [])
     except Exception:  # noqa: BLE001 -- unavailable robots.txt defaults to an empty policy
         parser.parse([])
     return parser
