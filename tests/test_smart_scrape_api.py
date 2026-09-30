@@ -169,3 +169,22 @@ def test_smart_scrape_routes_console_and_mount_are_registered() -> None:
     assert "/api/scrape/quote" in web
     assert "/api/scrape/run" in web
     assert "Confirm and scrape page" in web
+
+
+def test_smart_scrape_is_exposed_in_product_docs() -> None:
+    import json
+
+    root = Path(__file__).resolve().parents[1]
+    raw = (root / "web" / "docs-content.js").read_text(encoding="utf-8").strip()
+    prefix = "window.OPENCRAWL_DOCS = "
+    assert raw.startswith(prefix) and raw.endswith(";")
+    docs = json.loads(raw[len(prefix):-1])
+    title, group, body = docs["smart-scrape"]
+    assert title == "Smart Scrape"
+    assert group == "Collect and use data"
+    assert len(body) >= 1500
+    assert "/api/scrape/quote" in body
+    assert "/api/scrape/run" in body
+    assert "HTTP only" in body
+    assert "quote_revision" in body
+    assert "dataset.saved" in body
