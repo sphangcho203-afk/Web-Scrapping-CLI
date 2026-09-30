@@ -74,3 +74,7 @@ New background crawl checkpoints now persist an ordered owned frontier atomicall
 ## Content-monitor follow-up
 
 Owned content monitors now queue metered one-page checks through the durable crawler, persist baseline/unchanged/changed history and save datasets plus signed notifications only for baselines and changes. Configuration versions, ownership/key checks and worker leases fence stale output. The console exposes billing-key selection, check progress, charges and capture links. Canonical apex/`www` redirects now consult destination robots rules; all-failed crawls report failure and release their completion charge. See [CONTENT_MONITORS.md](CONTENT_MONITORS.md) for limits and the deployed verification gate. Field/schema extraction, rendered-page monitoring, multi-tick crawling and recipe composition remain follow-up work.
+
+## Crawl-discovery follow-up
+
+Opt-in sitemap discovery now reaches unlinked pages through robots hints, conventional sitemap URLs and bounded indexes. Playground, background jobs and native tools share the control. All modes bound the URL frontier, asynchronous I/O respects the original time budget, and progress/saved output report discovery counts and limits. Existing link-only checkpoints remain compatible; recovered sitemap jobs reuse their committed frontier. See [CRAWL_DISCOVERY.md](CRAWL_DISCOVERY.md). Standalone site mapping, compressed sitemaps, schema extraction, rendered crawling and multi-tick collection remain follow-up work.

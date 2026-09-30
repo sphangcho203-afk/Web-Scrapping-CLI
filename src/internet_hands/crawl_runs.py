@@ -32,6 +32,10 @@ def public_run(row: dict) -> dict:
         "successful": checkpoint.get("successful", successful), "failed": checkpoint.get("failed", len(pages) - successful),
         "truncated": checkpoint.get("truncated", False),
         "frontier_truncated": checkpoint.get("frontier_truncated", False),
+        "sitemap_documents": checkpoint.get("sitemap_documents", 0),
+        "sitemap_urls": checkpoint.get("sitemap_urls", 0),
+        "sitemap_truncated": checkpoint.get("sitemap_truncated", False),
+        "sitemap_errors": checkpoint.get("sitemap_error_count", len(checkpoint.get("sitemap_errors") or [])),
     }}
 
 
@@ -202,7 +206,11 @@ class RunStore:
         progress = {"page_count": len(result.get("pages") or []),
                     "discovered_urls": result.get("discovered_urls", 0),
                     "truncated": result.get("truncated", False),
-                    "frontier_truncated": result.get("frontier_truncated", False)}
+                    "frontier_truncated": result.get("frontier_truncated", False),
+                    "sitemap_documents": result.get("sitemap_documents", 0),
+                    "sitemap_urls": result.get("sitemap_urls", 0),
+                    "sitemap_truncated": result.get("sitemap_truncated", False),
+                    "sitemap_error_count": len(result.get("sitemap_errors") or [])}
         progress["successful"] = sum(1 for page in result.get("pages") or []
                                      if 200 <= (page.get("status_code") or 0) < 300 and not page.get("error"))
         progress["failed"] = progress["page_count"] - progress["successful"]

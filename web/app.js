@@ -1534,6 +1534,7 @@ function openRunInspector(event) {
             '<div class="search-advanced-checks">'+
               '<label><input id="ihp-subdomains" type="checkbox"> Include subdomains</label>'+
               '<label><input id="ihp-queryparams" type="checkbox"> Preserve query params</label>'+
+              '<label><input id="ihp-sitemaps" type="checkbox"> Discover pages from sitemaps</label>'+
             '</div>'+
             '<p class="search-security">'+icon('shield')+' Public targets only · robots respected · SSRF protected · <span data-available-credits aria-live="polite">'+esc(walletMoney(available))+'</span> wallet available</p>'+
           '</details>'+
@@ -1559,7 +1560,7 @@ function openRunInspector(event) {
       const pages=safeArr(result.pages);
       const count=operation==='crawl'?pages.length:searches.length;
       const failedPages=pages.filter(page=>page.error || !(Number(page.status_code)>=200 && Number(page.status_code)<300)).length;
-      const label=operation==='crawl'?(failedPages===pages.length?'CRAWL FAILED':failedPages?'CRAWL PARTIAL':'CRAWL COMPLETE'):operation==='research'?'RESEARCH COMPLETE':'SEARCH RESULTS';
+      const label=operation==='crawl'?(failedPages===pages.length?'CRAWL FAILED':(failedPages||result.truncated)?'CRAWL PARTIAL':'CRAWL COMPLETE'):operation==='research'?'RESEARCH COMPLETE':'SEARCH RESULTS';
       const title=operation==='crawl'?(domainOf(inputValue)||inputValue):inputValue;
       const meta=[
         operation==='crawl'?(count-failedPages)+' successful · '+failedPages+' failed':count+(count===1?' result':' results'),
@@ -1622,6 +1623,8 @@ function openRunInspector(event) {
       const technical=
         '<details class="search-details technical"><summary>Run details</summary>'+
           '<div class="run-detail-grid"><span>Request</span><code>'+esc(data.request_id||'—')+'</code><span>Evidence</span><b>'+esc(String(summary.evidence_successful||0))+'</b><span>Recovered</span><b>'+esc(String(summary.fallback_recovered||0))+'</b></div>'+
+          (result.sitemap_documents?'<p>'+esc(String(result.sitemap_urls||0))+' additional URLs from '+esc(String(result.sitemap_documents))+' sitemap checks.'+(result.sitemap_truncated?' Sitemap discovery reached its limits.':'')+'</p>':'')+
+          (result.sitemap_errors?.length?'<p>Some sitemaps could not be read. Collected pages are still available.</p>':'')+
           '<details class="raw-json"><summary>Raw JSON</summary><pre>'+esc(JSON.stringify(data,null,2))+'</pre></details>'+
         '</details>';
 
@@ -1661,7 +1664,8 @@ function openRunInspector(event) {
         include_paths:$('#ihp-include').value.split(',').map(x=>x.trim()).filter(Boolean),
         exclude_paths:$('#ihp-exclude').value.split(',').map(x=>x.trim()).filter(Boolean),
         include_subdomains:$('#ihp-subdomains').checked,
-        preserve_query:$('#ihp-queryparams').checked
+        preserve_query:$('#ihp-queryparams').checked,
+        discover_sitemaps:$('#ihp-sitemaps').checked
       };
       if(urlMode) body.url=inputValue; else body.query=inputValue;
       if($('#ihp-background').checked){

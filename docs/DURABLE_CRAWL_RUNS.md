@@ -35,3 +35,8 @@ The dataset records `run_status`, page errors and truncation flags. Dataset limi
 Real isolated PostgreSQL tests cover concurrent duplicate creates, conflicts, stale-worker fencing, cancellation, expiry, transaction rollback, recovered partial output, output limits, normal worker execution, dataset deletion and replacement-process frontier recovery. Crawler fixtures cover committed-page reuse, in-flight repeats, carried time/content bounds, refreshed robots policies and bounded fan-out. Chromium exercises background submission, reopening and cancellation on mobile and desktop. Existing dataset/webhook, wallet, metering and Playground tests must remain green.
 
 This implementation is reviewable on the existing draft PR. Before production promotion, verify an authenticated create → protected tick → completed job → saved/exported records flow on the deployed environment, followed by duplicate submission, cancellation and optional external webhook receipt. Local provider fixtures and build readiness do not establish that production flow.
+
+
+## Sitemap coverage
+
+Set `discover_sitemaps: true` to include unlinked pages discovered through bounded robots hints and XML sitemap indexes. Counts and diagnostics survive checkpoints and appear in saved output. Existing link-only checkpoints remain compatible. See [CRAWL_DISCOVERY.md](CRAWL_DISCOVERY.md) for limits, scope and deadline semantics.

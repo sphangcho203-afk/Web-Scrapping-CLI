@@ -76,6 +76,10 @@ class CrawlResult(BaseModel):
     content_bytes: int = 0
     content_truncated: bool = False
     frontier_truncated: bool = False
+    sitemap_documents: int = 0
+    sitemap_urls: int = 0
+    sitemap_truncated: bool = False
+    sitemap_errors: list[str] = Field(default_factory=list, max_length=8)
 
 
 class DownloadInfo(BaseModel):

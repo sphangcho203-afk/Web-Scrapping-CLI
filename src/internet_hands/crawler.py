@@ -16,6 +16,7 @@ from .extractor import extract_document
 from .fetcher import DEFAULT_UA, extract_links, fetch_url
 from .models import CrawlPage, CrawlResult
 from .policy import validate_public_http_url
+from .sitemaps import MAX_SITEMAP_BYTES, MAX_SITEMAP_DOCUMENTS, sitemap_locations
 
 _SKIP_SUFFIXES = (
     ".7z", ".avi", ".bmp", ".css", ".eot", ".gif", ".ico", ".jpeg", ".jpg",
@@ -37,7 +38,7 @@ def _same_scope(seed_host: str, candidate_host: str | None, include_subdomains: 
     root = seed_host.rstrip(".").casefold()
     canonical = root.removeprefix("www.")
     return host in {root, canonical, "www." + canonical} or (
-        include_subdomains and host.endswith("." + root)
+        include_subdomains and host.endswith("." + canonical)
     )
 
 
@@ -83,6 +84,7 @@ async def crawl(
     exclude_paths: list[str] | tuple[str, ...] | None = None,
     include_subdomains: bool = False,
     preserve_query: bool = True,
+    discover_sitemaps: bool = False,
     max_bytes_per_page: int = 2_000_000,
     include_content: bool = False,
     max_content_bytes_per_page: int = 50_000,
@@ -105,6 +107,8 @@ async def crawl(
         raise ValueError("max_bytes_per_page must be between 32000 and 8000000")
     if not isinstance(include_content, bool):
         raise TypeError("include_content must be a boolean")
+    if not isinstance(discover_sitemaps, bool):
+        raise TypeError("discover_sitemaps must be a boolean")
     if type(max_content_bytes_per_page) is not int or type(max_content_bytes) is not int:
         raise TypeError("content budgets must be integers")
     if not 1 <= max_content_bytes_per_page <= 200_000:
@@ -116,7 +120,6 @@ async def crawl(
     exclude = tuple(str(x).strip() for x in (exclude_paths or ()) if str(x).strip())
     seed_url = _normalize_url(seed_url, preserve_query=preserve_query)
 
-    resumable = on_checkpoint is not None or resume_checkpoint is not None
     controls = {
         "seed_url": seed_url, "max_pages": max_pages, "max_depth": max_depth,
         "concurrency": concurrency, "max_seconds": float(max_seconds), "respect_robots": respect_robots,
@@ -125,8 +128,11 @@ async def crawl(
         "max_bytes_per_page": max_bytes_per_page, "include_content": include_content,
         "max_content_bytes_per_page": max_content_bytes_per_page, "max_content_bytes": max_content_bytes,
     }
+    # Keep hashes for existing link-only checkpoints compatible.
+    if discover_sitemaps:
+        controls["discover_sitemaps"] = True
     config_hash = hashlib.sha256(json.dumps(controls, sort_keys=True).encode()).hexdigest()
-    if resumable and len(seed_url.encode()) > MAX_URL_BYTES:
+    if len(seed_url.encode()) > MAX_URL_BYTES:
         raise ValueError("Checkpoint URLs exceed their byte budget.")
     started = time.monotonic()
     queue: deque[tuple[str, int]] = deque([(seed_url, 0)])
@@ -137,6 +143,10 @@ async def crawl(
     timed_out = False
     content_bytes = 0
     robots_cache: dict[str, RobotFileParser] = {}
+    robots_locks: dict[str, asyncio.Lock] = {}
+    sitemap_documents = sitemap_urls = 0
+    sitemap_truncated = False
+    sitemap_errors: list[str] = []
     elapsed_before = 0
     frontier_truncated = False
     frontier_bytes = len(seed_url.encode())
@@ -169,18 +179,108 @@ async def crawl(
         elapsed_before = prior.duration_ms
         frontier_truncated = frontier.truncated
         frontier_bytes = sum(len(url.encode()) for url in enqueued)
+        sitemap_documents, sitemap_urls = prior.sitemap_documents, prior.sitemap_urls
+        sitemap_truncated, sitemap_errors = prior.sitemap_truncated, list(prior.sitemap_errors)
 
-    async def robots_for(url: str) -> RobotFileParser | None:
-        if not respect_robots:
+    def remaining_seconds() -> float:
+        return max(0.0, max_seconds - elapsed_before / 1000 - (time.monotonic() - started))
+
+    async def robots_for(url: str, *, discover: bool = False) -> RobotFileParser | None:
+        if not respect_robots and not discover:
             return None
         parts = urlsplit(url)
         origin = f"{parts.scheme}://{parts.netloc}"
-        cached = robots_cache.get(origin)
-        if cached is not None:
-            return cached
-        parser = await _robots_for(url)
-        robots_cache[origin] = parser
-        return parser
+        # Concurrent pages on a new origin share one policy request.
+        async with robots_locks.setdefault(origin, asyncio.Lock()):
+            cached = robots_cache.get(origin)
+            if cached is not None:
+                return cached
+            parser = await _robots_for(url)
+            robots_cache[origin] = parser
+            return parser
+
+    def enqueue(raw_link: str, depth: int) -> bool:
+        nonlocal skipped, frontier_bytes, frontier_truncated
+        try:
+            normalized = _normalize_url(raw_link, preserve_query=preserve_query)
+            allowed = _url_in_scope(seed_url, normalized, include_subdomains) and _path_allowed(normalized, include, exclude)
+        except ValueError:
+            allowed = False
+        if not allowed:
+            skipped += 1
+            return False
+        if normalized in enqueued:
+            return False
+        url_bytes = len(normalized.encode())
+        if (url_bytes > MAX_URL_BYTES or len(enqueued) >= MAX_FRONTIER_URLS
+                or frontier_bytes + url_bytes > MAX_FRONTIER_URL_BYTES):
+            frontier_truncated = True
+            skipped += 1
+            return False
+        frontier_bytes += url_bytes
+        enqueued.add(normalized)
+        queue.append((normalized, depth))
+        return True
+
+    async def discover_from_sitemaps(root_url: str) -> None:
+        nonlocal sitemap_documents, sitemap_urls, sitemap_truncated
+        parser = await robots_for(root_url, discover=True)
+        parts = urlsplit(root_url)
+        hints = (parser.site_maps() if parser is not None else None) or [f"{parts.scheme}://{parts.netloc}/sitemap.xml"]
+        documents: deque[str] = deque()
+        scheduled: set[str] = set()
+
+        def schedule(raw: str) -> None:
+            nonlocal sitemap_truncated, skipped
+            try:
+                url = _normalize_url(raw, preserve_query=True)
+                valid = (len(url.encode()) <= MAX_URL_BYTES and _url_in_scope(seed_url, url, include_subdomains)
+                         and _path_allowed(url, (), exclude))
+            except ValueError:
+                valid = False
+            if not valid:
+                skipped += 1
+            elif url not in scheduled:
+                if len(scheduled) >= MAX_SITEMAP_DOCUMENTS:
+                    sitemap_truncated = True
+                    return
+                scheduled.add(url)
+                documents.append(url)
+
+        for hint in hints:
+            schedule(hint)
+        while documents:
+            url = documents.popleft()
+            last_hop = url
+
+            async def guard(target: str) -> bool:
+                nonlocal last_hop
+                if (not _url_in_scope(seed_url, target, include_subdomains)
+                        or not _url_in_scope(last_hop, target, include_subdomains)
+                        or not _path_allowed(target, (), exclude)):
+                    return False
+                destination = await robots_for(target)
+                if destination is not None and not destination.can_fetch(DEFAULT_UA, target):
+                    return False
+                last_hop = target
+                return True
+
+            sitemap_documents += 1
+            try:
+                record_usage("native_web_requests")
+                capture = await fetch_url(url, max_bytes=MAX_SITEMAP_BYTES, include_body=True,
+                                          timeout=min(20.0, max_seconds), url_guard=guard)
+                if capture.status_code != 200:
+                    raise ValueError("Sitemap was unavailable.")
+                kind, locations, clipped = sitemap_locations(capture.body_text or "")
+                sitemap_truncated = sitemap_truncated or clipped
+                for location in locations:
+                    if kind == "sitemapindex":
+                        schedule(location)
+                    elif enqueue(location, 1):
+                        sitemap_urls += 1
+            except Exception:  # noqa: BLE001 -- discovery failure preserves captured pages
+                sitemap_errors.append(f"Could not read sitemap: {url}")
 
     async def fetch_one(url: str, depth: int) -> tuple[CrawlPage, list[str]]:
         nonlocal content_bytes
@@ -260,10 +360,20 @@ async def crawl(
         return CrawlResult(
             seed_url=seed_url, pages=list(pages), discovered_urls=len(enqueued),
             skipped_urls=skipped, duration_ms=elapsed_before + max(0, int((time.monotonic() - started) * 1000)),
-            truncated=bool(queue) or timed_out or len(pages) >= max_pages or frontier_truncated,
+            truncated=bool(queue) or timed_out or frontier_truncated or sitemap_truncated,
             frontier_truncated=frontier_truncated,
             content_bytes=content_bytes, content_truncated=any(page.content_truncated for page in pages),
+            sitemap_documents=sitemap_documents, sitemap_urls=sitemap_urls,
+            sitemap_truncated=sitemap_truncated, sitemap_errors=list(sitemap_errors),
         )
+
+    async def bounded_fetch(url: str, depth: int) -> tuple[CrawlPage, list[str]]:
+        nonlocal timed_out
+        try:
+            return await asyncio.wait_for(fetch_one(url, depth), timeout=remaining_seconds())
+        except TimeoutError:
+            timed_out = True
+            return CrawlPage(url=url, depth=depth, error="Crawl time budget exhausted."), []
 
     while queue and len(pages) < max_pages:
         if elapsed_before / 1000 + time.monotonic() - started >= max_seconds:
@@ -280,35 +390,22 @@ async def crawl(
         if not batch:
             continue
 
-        results = await asyncio.gather(*(fetch_one(url, depth) for url, depth in batch))
+        results = await asyncio.gather(*(bounded_fetch(url, depth) for url, depth in batch))
         for (_source_url, depth), (page, links) in zip(batch, results, strict=True):
             pages.append(page)
             if depth >= max_depth:
                 continue
             for raw_link in links:
-                normalized = _normalize_url(raw_link, preserve_query=preserve_query)
-                parts = urlsplit(normalized)
-                if parts.scheme not in {"http", "https"}:
-                    skipped += 1
-                    continue
-                if not _url_in_scope(seed_url, normalized, include_subdomains):
-                    skipped += 1
-                    continue
-                if not _path_allowed(normalized, include, exclude):
-                    skipped += 1
-                    continue
-                if normalized in enqueued:
-                    continue
-                if resumable:
-                    url_bytes = len(normalized.encode())
-                    if (url_bytes > MAX_URL_BYTES or len(enqueued) >= MAX_FRONTIER_URLS
-                            or frontier_bytes + url_bytes > MAX_FRONTIER_URL_BYTES):
-                        frontier_truncated = True
-                        skipped += 1
-                        continue
-                    frontier_bytes += url_bytes
-                enqueued.add(normalized)
-                queue.append((normalized, depth + 1))
+                enqueue(raw_link, depth + 1)
+
+        # Capture the seed first. Discovery and its resulting frontier are saved
+        # together at the first checkpoint, and never replayed on recovery.
+        if (discover_sitemaps and max_depth > 0 and len(pages) == 1 and batch[0][0] == seed_url
+                and pages[0].status_code is not None and 200 <= pages[0].status_code < 300 and not pages[0].error):
+            try:
+                await asyncio.wait_for(discover_from_sitemaps(pages[0].url), timeout=remaining_seconds())
+            except TimeoutError:
+                timed_out = sitemap_truncated = True
 
         if on_checkpoint is not None:
             await on_checkpoint(snapshot(), CrawlFrontier(config_hash=config_hash,

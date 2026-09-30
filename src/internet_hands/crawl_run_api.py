@@ -29,7 +29,7 @@ runs = RunStore(store)
 def crawl_arguments(body: dict) -> dict:
     allowed = {"api_key_id", "operation", "url", "max_pages", "max_depth", "concurrency", "max_seconds",
                "include_paths", "exclude_paths", "include_subdomains", "preserve_query", "include_content",
-               "max_content_bytes_per_page", "max_content_bytes"}
+               "max_content_bytes_per_page", "max_content_bytes", "discover_sitemaps"}
     if set(body) - allowed or body.get("operation", "crawl") != "crawl":
         raise HTTPException(422, detail="Background runs currently support URL crawls and their documented options.")
     url = body.get("url")
@@ -43,11 +43,15 @@ def crawl_arguments(body: dict) -> dict:
         if type(value) is not int or not low <= value <= high:
             raise HTTPException(422, detail=f"{name} must be an integer between {low} and {high}.")
         args[name] = value
-    for name, default in (("include_subdomains", False), ("preserve_query", False), ("include_content", True)):
+    for name, default in (("include_subdomains", False), ("preserve_query", False), ("include_content", True), ("discover_sitemaps", False)):
         value = body.get(name, default)
         if not isinstance(value, bool):
             raise HTTPException(422, detail=f"{name} must be a boolean.")
         args[name] = value
+    # Omitting the false default preserves fingerprints for pre-existing
+    # idempotent link-only submissions when a client repeats them after deploy.
+    if not args["discover_sitemaps"]:
+        args.pop("discover_sitemaps")
     args["include_paths"] = sorted(set(_patterns(body.get("include_paths"), "include_paths")))
     args["exclude_paths"] = sorted({*_SAFE_EXCLUDES, *_patterns(body.get("exclude_paths"), "exclude_paths")})
     return args

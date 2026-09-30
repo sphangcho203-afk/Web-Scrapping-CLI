@@ -156,6 +156,7 @@ class NativeWebToolProvider:
                         "exclude_paths": {"type": "array", "items": {"type": "string"}},
                         "include_subdomains": {"type": "boolean"},
                         "preserve_query": {"type": "boolean"},
+                        "discover_sitemaps": {"type": "boolean", "default": False},
                     },
                 },
                 tags=["web", "crawl", "native", "fallback"],
@@ -300,6 +301,7 @@ class NativeWebToolProvider:
                 exclude_paths=arguments.get("exclude_paths"),
                 include_subdomains=bool(arguments.get("include_subdomains", False)),
                 preserve_query=bool(arguments.get("preserve_query", True)),
+                discover_sitemaps=arguments.get("discover_sitemaps", False),
             )
             return {"status": "completed", "data": result.model_dump(mode="json")}
 

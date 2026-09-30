@@ -42,7 +42,9 @@ async def dispatch_run(runs: RunStore) -> dict:
         output = await asyncio.wait_for(crawl(job["arguments"]["url"],
             **{key: value for key, value in job["arguments"].items() if key != "url"},
             respect_robots=True, delay_seconds=0.10, on_checkpoint=progress,
-            resume_checkpoint=resume), timeout=max(0.001, min(50, remaining)))
+            # The crawler enforces the I/O budget and returns partial captures.
+            # Allow it to save that final checkpoint before the worker failsafe.
+            resume_checkpoint=resume), timeout=max(0.001, min(50, remaining + 1)))
         result = output.model_dump(mode="json")
     except RunCancelled:
         status = "cancelled"

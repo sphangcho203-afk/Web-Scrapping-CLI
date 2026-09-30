@@ -368,6 +368,9 @@ async def playground_run(request: Request):
     include_subdomains = bool(body.get("include_subdomains", False))
     preserve_query = bool(body.get("preserve_query", False))
     include_content = body.get("include_content", True)
+    discover_sitemaps = body.get("discover_sitemaps", False)
+    if not isinstance(discover_sitemaps, bool):
+        raise HTTPException(status_code=400, detail={"code": "invalid_input", "message": "discover_sitemaps must be a boolean."})
     if not isinstance(include_content, bool):
         raise HTTPException(status_code=400, detail={"code": "invalid_input", "message": "include_content must be a boolean."})
     content_per_page = _bounded_int(body.get("max_content_bytes_per_page"), "max_content_bytes_per_page", 50_000, 1, 200_000)
@@ -385,6 +388,7 @@ async def playground_run(request: Request):
         "include_subdomains": include_subdomains,
         "preserve_query": preserve_query,
         "include_content": include_content,
+        "discover_sitemaps": discover_sitemaps,
         "max_content_bytes_per_page": content_per_page,
         "max_content_bytes": content_budget,
     }
@@ -467,6 +471,7 @@ async def playground_run(request: Request):
                 preserve_query=preserve_query,
                 max_bytes_per_page=2_000_000,
                 include_content=include_content,
+                discover_sitemaps=discover_sitemaps,
                 max_content_bytes_per_page=content_per_page,
                 max_content_bytes=content_budget,
             )
