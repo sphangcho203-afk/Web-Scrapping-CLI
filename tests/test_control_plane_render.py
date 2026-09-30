@@ -1268,3 +1268,92 @@ def test_site_map_review_confirmation_dataset_and_responsive_layout(frontend_url
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
         assert not errors, errors
         browser.close()
+
+
+def test_smart_scrape_review_confirmation_dataset_and_safe_outputs(frontend_url):
+    quotes, executions = [], []
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if path == "/api/auth/me":
+                data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            elif path == "/api/api-keys":
+                data = {"keys": [{"id": "key_scrape", "name": "Scrape key", "prefix": "oc_sc"}]}
+            elif path == "/api/scrape/quote":
+                quotes.append(route.request.post_data_json)
+                data = {
+                    "quote": {
+                        "credits": 255,
+                        "maximum_charge_credits": 255,
+                        "quote_revision": "s" * 64,
+                        "wallet_units_per_usd": 5000,
+                        "available_credits": 5000,
+                        "affordable": True,
+                    },
+                    "scrape": {
+                        "requested_mode": "auto",
+                        "execution_mode": "auto",
+                        "formats": ["markdown", "links"],
+                    },
+                }
+            elif path == "/api/scrape/run":
+                executions.append(route.request.post_data_json)
+                data = {
+                    "ok": True,
+                    "request_id": "req_scrape_fixture",
+                    "operation": "scrape",
+                    "usage": {"credits_reserved": 255, "credits_charged": 5},
+                    "summary": {
+                        "execution_path": "http",
+                        "status_code": 200,
+                        "formats": ["markdown", "links"],
+                        "text_bytes": 41,
+                        "links": 1,
+                    },
+                    "dataset": {"id": "ds_scrape_fixture"},
+                    "result": {
+                        "url": "https://example.com/pricing",
+                        "status_code": 200,
+                        "title": '<img src=x onerror="window.injected=true">',
+                        "description": "Pricing page",
+                        "text": "Simple public pricing",
+                        "markdown": '# Pricing\n<img src=x onerror="window.injected=true">',
+                        "links": ["https://example.com/docs"],
+                        "execution_path": "http",
+                    },
+                }
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/scrape")
+        page.get_by_label("Public page URL", exact=True).fill("https://example.com/pricing")
+        page.get_by_role("button", name="Review scrape cost", exact=True).click()
+        page.get_by_role("button", name="Confirm and scrape page", exact=True).wait_for()
+        assert len(quotes) == 1 and not executions
+        assert quotes[0]["mode"] == "auto"
+        assert quotes[0]["formats"] == ["markdown", "links"]
+
+        page.get_by_role("button", name="Confirm and scrape page", exact=True).click()
+        page.get_by_text("Pricing page", exact=True).wait_for()
+        assert len(executions) == 1
+        assert executions[0]["max_charge_credits"] == 255
+        assert executions[0]["quote_revision"] == "s" * 64
+        assert page.get_by_role("link", name="Open saved dataset").get_attribute("href") == "/dashboard/datasets?dataset=ds_scrape_fixture"
+        page.get_by_text("Markdown", exact=True).click()
+        assert '<img src=x onerror="window.injected=true">' in page.locator(".scrape-result-tabs pre").first.inner_text()
+        assert page.locator(".scrape-result-tabs img").count() == 0
+        assert page.evaluate("window.injected === undefined")
+
+        for width in (320, 390, 1366):
+            page.set_viewport_size({"width": width, "height": 800})
+            page.wait_for_timeout(50)
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
+        assert not errors, errors
+        browser.close()
