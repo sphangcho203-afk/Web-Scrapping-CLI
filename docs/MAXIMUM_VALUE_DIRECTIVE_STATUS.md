@@ -77,7 +77,7 @@ Current research is enough to justify datasets/crawls/monitors, but not enough t
 | Structured Extract | PARTIAL | `web.extract.structured` semantic capability, Firecrawl bounded-agent route, public structured document extraction | no complete OpenCrawl schema/natural-language extraction workflow across URL(s), crawl results and saved datasets; no consistent schema-validation/provenance UI |
 | Question / Highlights | PARTIAL / thin | Firecrawl scrape can request highlights/questions; research returns evidence | no product-level page/dataset Q&A primitive with grounded highlights and low-token mode |
 | Crawl | PARTIAL / strong | synchronous crawl, durable background jobs, resumable frontier, robots/public-target policy, canonical redirects, sitemaps, cancellation, progress, datasets, accounting | no pause/resume user control, page graph, rendered crawl, extraction schema, multi-tick huge crawl, async search/research or remaining-cost forecast |
-| Map | PARTIAL | `web.map.site` exists in semantic registry; Firecrawl map + native link-map fallback | no first-class Map endpoint/UI/dataset workflow; native fallback only sees links on the fetched page; no hierarchy/classification/select-subset UX |
+| Map | PARTIAL / newly productized | `web.map.site` now has `/api/site-map/quote` + `/api/site-map/run`, explicit review/confirmation, semantic routing, normalized/classified URL rows, saved datasets, console UI and docs; Firecrawl map + native link-map fallback remain behind the capability boundary | CI/deployed verification is still pending; native fallback only sees links on the fetched root page; no visual graph or select-subset -> crawl UX |
 | Browser / Interact | PARTIAL | browser/sandbox backends, connected browser task capability, Firecrawl interact, Playwright-oriented infrastructure | no coherent first-class browser-task/session UI with reusable authorized profiles, session logs and expiry across providers |
 | Monitor | PARTIAL | health/API/MCP-style monitors plus new owned content-change monitor using durable crawl jobs | content monitor is text/title only; no field/selector/search/product/stock/structured threshold models; actions are not a unified alert/delivery abstraction |
 | Datasets | PARTIAL / strong | owned persistence, provenance-bearing output, search/filter/pagination, rename/delete, JSON/JSONL/CSV export, signed webhook event | no column-visibility controls, Markdown/XML/XLSX, rerun action, append-in-place monitor history, retention policy or broad destination delivery |
@@ -392,13 +392,10 @@ PR #45 is a useful release note, but a directive-complete handoff still needs:
 
 Do **not** add random provider cards.
 
-1. **First-class Site Map workflow**
-   - close the existing backend-to-product gap around `web.map.site`;
-   - cost review + explicit confirmation;
-   - provider-independent normalized URL rows;
-   - page-type classification/hierarchy metadata without fetching every page;
-   - saved dataset/export;
-   - UI + docs + tests.
+1. **Finish verification of the new first-class Site Map workflow**
+   - CI/build must pass on the exact branch head;
+   - deployed authenticated quote -> confirm -> dataset -> Usage must be verified before promotion;
+   - keep it marked unverified until that gate is proven.
 
 2. **Smart Scrape workflow**
    - cheapest-sufficient native HTTP first;
@@ -430,3 +427,21 @@ Do **not** add random provider cards.
    - capture failed-run and missing-capability demand tied to actual account/capability context.
 
 This order completes Wave 1 before creating broad Wave 2/3 surface area.
+
+
+## Current continuation — Site Map tranche
+
+Implemented after this audit on the same draft branch:
+
+- first-class `POST /api/site-map/quote` and `POST /api/site-map/run`;
+- semantic execution through `web.map.site`, not a new provider-specific product path;
+- explicit cost review, quote revision and maximum-spend enforcement;
+- normalized same-site URL rows with depth, parent and deterministic URL-path category;
+- optional subdomains and sitemap behavior;
+- saved map datasets using the existing 2 MB / 1000-row DatasetStore and JSON/JSONL/CSV export;
+- semantic capability identity stored in the usage ledger for new capability executions;
+- Site Map console route and navigation;
+- in-product Site Map documentation plus curl/JavaScript/Python examples;
+- targeted route, normalization, dataset and UI-contract tests.
+
+This tranche is **implemented but not yet marked shipped**. CI and Vercel checks for the new head are currently required, followed by the directive's deployed production behavior gate.
