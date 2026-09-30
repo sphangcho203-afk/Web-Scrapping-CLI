@@ -126,6 +126,7 @@ def test_playground_cost_review_requires_confirmation_and_requotes_changed_input
         page.get_by_role("button", name="Review cost", exact=True).click()
         page.get_by_role("button", name="Confirm run", exact=True).wait_for()
         assert len(quotes) == 1 and not executions
+        assert page.get_by_role("button", name="Review cost", exact=True).is_visible()
         assert quotes[-1]["paid_recovery"] is False
         page.locator("#research-query").fill("changed company")
         page.get_by_role("button", name="Review cost", exact=True).click()

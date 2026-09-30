@@ -1553,7 +1553,7 @@ function openRunInspector(event) {
     let reviewedQuote=null, reviewingCost=false, quoteGeneration=0;
     const invalidateQuote=()=>{
       quoteGeneration++;reviewedQuote=null;costReview.hidden=true;
-      if(!state.activePlayground){submit.setAttribute('aria-label','Review cost');submit.innerHTML=icon('arrow');}
+      if(!state.activePlayground)submit.setAttribute('aria-label','Review cost');
     };
     form.addEventListener('input',invalidateQuote);form.addEventListener('change',invalidateQuote);
     const isUrl=value=>/^https?:\/\/[^\s]+$/i.test(String(value||'').trim());
@@ -1681,7 +1681,7 @@ function openRunInspector(event) {
       if(background&&!urlMode){toast('Background collection currently requires a public URL','error');return;}
       if(operation!=='crawl')body.paid_recovery=$('#ihp-paid-recovery').checked;
       const quoteFingerprint=JSON.stringify({body,background,limit:spendLimit.value});
-      if(!reviewedQuote||reviewedQuote.fingerprint!==quoteFingerprint){
+      if(!reviewedQuote||reviewedQuote.fingerprint!==quoteFingerprint||e.submitter?.id!=='ihp-confirm-run'){
         const generation=quoteGeneration;
         reviewingCost=true;submit.disabled=true;costReview.hidden=false;costReview.textContent='Checking cost…';
         try{
@@ -1710,8 +1710,7 @@ function openRunInspector(event) {
           bindCommon();
           if(affordable&&withinBudget){
             reviewedQuote={fingerprint:quoteFingerprint,quote:q,cap};
-            submit.setAttribute('aria-label','Confirm run');submit.innerHTML=icon('check');
-            costReview.insertAdjacentHTML('beforeend','<p>Use Confirm run to begin this reviewed execution.</p>');
+            costReview.insertAdjacentHTML('beforeend','<button id="ihp-confirm-run" type="submit" class="btn primary">Confirm run</button>');
           }
         }catch(error){
           reviewedQuote=null;costReview.textContent=error.message||'Could not review the cost.';
