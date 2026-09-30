@@ -30,6 +30,7 @@ from .repository_api import router as repository_router
 from .rewards import router as rewards_router
 from .security_api import router as security_router
 from .security_hardening import router as security_hardening_router
+from .site_map_api import router as site_map_router
 from .site import router as site_router
 from .system_health import router as system_health_router
 from .usage_api import router as usage_router
@@ -77,6 +78,7 @@ app.include_router(rewards_router)
 app.include_router(playground_router)
 app.include_router(repository_router)
 app.include_router(public_data_router)
+app.include_router(site_map_router)
 app.include_router(game_router)
 app.include_router(intelligence_router)
 app.include_router(site_router)
