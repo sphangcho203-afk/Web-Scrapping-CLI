@@ -1234,7 +1234,7 @@ async function dashStructuredExtract(){
     }
   };
 
-  $$$('[data-open-extract]').forEach(button=>button.addEventListener('click',()=>pollRun(button.dataset.openExtract)));
+  $('[data-open-extract]').forEach(button=>button.addEventListener('click',()=>pollRun(button.dataset.openExtract)));
 
   form.onsubmit=async event=>{
     event.preventDefault();
