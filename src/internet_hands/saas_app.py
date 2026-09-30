@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from . import account_mcp as _account_mcp  # noqa: F401
 from .control_api import router as control_router
 from .connected_apps_api import router as connected_apps_router
+from .capability_api import router as capability_router
 from .control_hardening import router as hardening_router
 from .crawl_run_api import router as crawl_run_router
 from .datasets_api import router as datasets_router
@@ -69,6 +70,7 @@ app.include_router(monitor_lifecycle_router)
 app.include_router(system_health_router)
 app.include_router(control_router)
 app.include_router(connected_apps_router)
+app.include_router(capability_router)
 app.include_router(usage_router)
 app.include_router(crawl_run_router)
 app.include_router(datasets_router)
