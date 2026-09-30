@@ -23,7 +23,7 @@ def test_detailed_docs_are_composed_before_app_in_single_runtime() -> None:
     assert index.count('<script src="/assets/') == 1
     assert '/assets/app.js' in index
     assert 'docs = WEB_ROOT / "docs-content.js"' in site
-    assert "sources = [legal, docs, runtime, usage, monitors, datasets]" in site
+    assert "sources = [legal, docs, runtime, usage, monitors, datasets, crawl_runs]" in site
     assert '"docs-content.js": "application/javascript"' not in site
     assert 'window.OPENCRAWL_DOCS || {' in (WEB / "app.js").read_text(encoding="utf-8")
 
