@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import math
 import time
 from typing import Any
@@ -278,7 +277,15 @@ async def dispatch_capability_run(
         return {"processed": 1, "run_id": job["id"], "status": "completed"}
     except LostCapabilityLease:
         return {"processed": 0, "lease_lost": True, "run_id": job["id"]}
-    except Exception:
+    except (
+        LookupError,
+        OSError,
+        PermissionError,
+        RuntimeError,
+        TimeoutError,
+        TypeError,
+        ValueError,
+    ):
         usage = execution_usage_snapshot()
         await asyncio.to_thread(
             runs.fail,
