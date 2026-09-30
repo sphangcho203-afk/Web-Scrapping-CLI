@@ -175,6 +175,13 @@ async def dispatch_capability_run(
             execution = result.get("execution") or {}
             state = _status(execution.get("status"))
             usage = execution_usage_snapshot()
+            if state == "running":
+                # Firecrawl records maxCredits when an async agent is launched.
+                # That is reservation headroom, not measured consumption. Remove
+                # it until a terminal status reports creditsUsed.
+                counters = dict(usage.get("counters") or {})
+                counters.pop("firecrawl_work_units", None)
+                usage["counters"] = counters
             if state == "failed" or not execution:
                 await asyncio.to_thread(
                     runs.fail,
