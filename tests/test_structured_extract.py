@@ -320,3 +320,30 @@ def test_extract_routes_scheduler_and_mount_are_registered() -> None:
     )
     assert "execute-capability-runs:" in workflow
     assert "/api/internal/capability-runs/tick" in workflow
+
+
+
+def test_extract_ui_and_docs_are_productized() -> None:
+    import json
+
+    root = Path(__file__).resolve().parents[1]
+    web = (root / "web" / "app.js").read_text(encoding="utf-8")
+    assert "extract:dashStructuredExtract" in web
+    assert "['extract','docs','Structured Extract']" in web
+    assert "/api/extract/quote" in web
+    assert "/api/extract/runs" in web
+    assert "Confirm and start extraction" in web
+    assert "provider job identity stays private" in web
+
+    raw = (root / "web" / "docs-content.js").read_text(encoding="utf-8").strip()
+    prefix = "window.OPENCRAWL_DOCS = "
+    assert raw.startswith(prefix) and raw.endswith(";")
+    docs = json.loads(raw[len(prefix):-1])
+    title, group, body = docs["structured-extract"]
+    assert title == "Structured Extract"
+    assert group == "Collect and use data"
+    assert len(body) >= 1800
+    assert "/api/extract/quote" in body
+    assert "/api/extract/runs" in body
+    assert "run_already_started" in body
+    assert "measured" in body.casefold()
