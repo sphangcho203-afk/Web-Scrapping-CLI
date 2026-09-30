@@ -11,6 +11,56 @@ from internet_hands.site import WEB_ROOT, _browser_runtime
 playwright = pytest.importorskip("playwright.sync_api")
 
 
+def test_background_crawl_submission_reopen_and_cancel(frontend_url):
+    run = {"id": "run_fixture", "url": "https://example.com/<unsafe>", "status": "queued",
+           "attempts": 0, "progress": {"pages": 0, "discovered_urls": 0},
+           "credits_reserved": 100, "credits_charged": 0}
+    submissions = []
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 800})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if path == "/api/auth/me":
+                data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            elif path == "/api/api-keys":
+                data = {"keys": [{"id": "key_fixture", "name": "Collection", "prefix": "oc"}]}
+            elif path == "/api/dashboard":
+                data = {"account": {"monthly_credits": 10000}}
+            elif path == "/api/crawl-runs" and route.request.method == "POST":
+                submissions.append((route.request.post_data_json, route.request.headers.get("idempotency-key")))
+                data = {"run": run}
+            elif path.endswith("/cancel"):
+                run["status"] = "cancelled"
+                data = {"run": run}
+            elif path == "/api/crawl-runs/run_fixture":
+                data = {"run": run}
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/playground")
+        page.locator("#research-query").fill("https://example.com/")
+        page.get_by_text("Background URL crawl", exact=True).click()
+        assert page.locator("#ihp-background").is_checked()
+        page.locator("#ihp-submit").click()
+        page.get_by_role("heading", name="Collection progress", exact=True).wait_for()
+        assert submissions[0][0]["url"] == "https://example.com/" and submissions[0][1]
+        assert page.locator("unsafe").count() == 0
+        for width in (320, 390, 1366):
+            page.set_viewport_size({"width": width, "height": 800})
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
+        page.reload()
+        page.locator("#crawl-run-cancel").click()
+        page.get_by_role("status").filter(has_text="cancelled").wait_for()
+        assert not errors
+        browser.close()
+
+
 def test_saved_dataset_browser_controls_and_exports(frontend_url):
     dataset = {"id": "ds_fixture", "name": "Collected sources", "operation": "search",
                "row_count": 1, "columns": ["url", "title"], "request_id": "req_fixture"}

@@ -12,6 +12,7 @@ from . import account_mcp as _account_mcp  # noqa: F401
 from .control_api import router as control_router
 from .connected_apps_api import router as connected_apps_router
 from .control_hardening import router as hardening_router
+from .crawl_run_api import router as crawl_run_router
 from .datasets_api import router as datasets_router
 from .dataset_webhook_api import router as dataset_webhook_router
 from .control_migration import run_requested_control_plane_migration
@@ -69,6 +70,7 @@ app.include_router(system_health_router)
 app.include_router(control_router)
 app.include_router(connected_apps_router)
 app.include_router(usage_router)
+app.include_router(crawl_run_router)
 app.include_router(datasets_router)
 app.include_router(dataset_webhook_router)
 app.include_router(rewards_router)

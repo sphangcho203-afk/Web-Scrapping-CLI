@@ -5,6 +5,7 @@ import csv
 import io
 import json
 import uuid
+from contextlib import nullcontext
 from typing import Any
 
 from .control_store import ControlError, ControlStore
@@ -54,14 +55,14 @@ class DatasetStore:
         self.control = control
 
     def save(self, user_id: str, request_id: str, operation: str,
-             result: dict[str, Any], name: str) -> dict[str, Any]:
+             result: dict[str, Any], name: str, *, transaction=None) -> dict[str, Any]:
         rows = result_rows(result)
         payload = json.dumps(result, ensure_ascii=False, default=str)
         if len(rows) > MAX_DATASET_ROWS or len(payload.encode()) > MAX_DATASET_BYTES:
             raise ControlError("dataset_too_large", "Output exceeds the saved dataset limit (2 MB / 1000 rows).", 413)
         columns = sorted({key for row in rows for key in row})
         self.control.ensure_schema()
-        with self.control._connect() as conn, conn.cursor() as cur:
+        with (self.control._connect() if transaction is None else nullcontext(transaction)) as conn, conn.cursor() as cur:
             # Bind the owner to the existing reservation, never a client-supplied user ID.
             cur.execute(
                 """INSERT INTO ih_datasets(id,user_id,request_id,name,operation,row_count,columns,rows,output)

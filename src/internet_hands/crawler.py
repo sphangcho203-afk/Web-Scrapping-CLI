@@ -4,6 +4,7 @@ import asyncio
 import fnmatch
 import time
 from collections import deque
+from collections.abc import Awaitable, Callable
 from urllib.parse import urlsplit
 from urllib.robotparser import RobotFileParser
 
@@ -65,6 +66,7 @@ async def crawl(
     include_content: bool = False,
     max_content_bytes_per_page: int = 50_000,
     max_content_bytes: int = 750_000,
+    on_progress: Callable[[CrawlResult], Awaitable[None]] | None = None,
 ) -> CrawlResult:
     """Crawl a bounded public site with SSRF, robots, depth, time and fan-out controls."""
     validate_public_http_url(seed_url)
@@ -178,6 +180,14 @@ async def crawl(
         except Exception as exc:  # noqa: BLE001 -- per-page failures are returned as crawl data
             return CrawlPage(url=url, depth=depth, error=f"{type(exc).__name__}: {exc}"), []
 
+    def snapshot() -> CrawlResult:
+        return CrawlResult(
+            seed_url=seed_url, pages=list(pages), discovered_urls=len(enqueued),
+            skipped_urls=skipped, duration_ms=max(0, int((time.monotonic() - started) * 1000)),
+            truncated=bool(queue) or timed_out or len(pages) >= max_pages,
+            content_bytes=content_bytes, content_truncated=any(page.content_truncated for page in pages),
+        )
+
     while queue and len(pages) < max_pages:
         if time.monotonic() - started >= max_seconds:
             timed_out = True
@@ -215,20 +225,14 @@ async def crawl(
                 enqueued.add(normalized)
                 queue.append((normalized, depth + 1))
 
+        if on_progress is not None:
+            await on_progress(snapshot())
+
         if queue and delay_seconds > 0:
             remaining = max(0.0, max_seconds - (time.monotonic() - started))
             await asyncio.sleep(min(delay_seconds, remaining))
 
-    return CrawlResult(
-        seed_url=seed_url,
-        pages=pages,
-        discovered_urls=len(enqueued),
-        skipped_urls=skipped,
-        duration_ms=max(0, int((time.monotonic() - started) * 1000)),
-        truncated=bool(queue) or timed_out or len(pages) >= max_pages,
-        content_bytes=content_bytes,
-        content_truncated=any(page.content_truncated for page in pages),
-    )
+    return snapshot()
 
 
 async def _robots_for(seed_url: str) -> RobotFileParser:

@@ -5,6 +5,7 @@ import os
 import secrets
 import threading
 import uuid
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -165,6 +166,36 @@ CREATE TABLE IF NOT EXISTS ih_datasets (
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS ih_datasets_user_time_idx ON ih_datasets(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS ih_crawl_runs (
+    id text PRIMARY KEY,
+    user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,
+    request_id text NOT NULL UNIQUE REFERENCES ih_usage_events(request_id) ON DELETE CASCADE,
+    idempotency_key text NOT NULL,
+    fingerprint text NOT NULL,
+    arguments jsonb NOT NULL,
+    plan_slug text NOT NULL,
+    credits_reserved integer NOT NULL,
+    credits_charged integer NOT NULL DEFAULT 0,
+    status text NOT NULL DEFAULT 'queued' CHECK(status IN ('queued','running','completed','failed','cancelled')),
+    attempts integer NOT NULL DEFAULT 0,
+    cancel_requested boolean NOT NULL DEFAULT false,
+    lease_token text,
+    lease_until timestamptz,
+    checkpoint jsonb NOT NULL DEFAULT '{}'::jsonb,
+    measured_usage jsonb NOT NULL DEFAULT '{}'::jsonb,
+    dataset_id text REFERENCES ih_datasets(id) ON DELETE SET NULL,
+    error_code text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    finished_at timestamptz,
+    expires_at timestamptz NOT NULL DEFAULT now()+interval '24 hours',
+    UNIQUE(user_id,idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS ih_crawl_runs_queue_idx ON ih_crawl_runs(status,created_at);
+CREATE INDEX IF NOT EXISTS ih_crawl_runs_owner_idx ON ih_crawl_runs(user_id,created_at DESC);
+
+
 
 CREATE TABLE IF NOT EXISTS ih_dataset_webhook_endpoints (
     user_id text PRIMARY KEY REFERENCES ih_users(id) ON DELETE CASCADE,
@@ -1421,6 +1452,9 @@ class ControlStore:
                     WHERE user_id=%s
                       AND status='reserved'
                       AND created_at < now() - (%s * interval '1 minute')
+                      AND NOT EXISTS (SELECT 1 FROM ih_crawl_runs r
+                          WHERE r.request_id=ih_usage_events.request_id
+                          AND r.status IN ('queued','running'))
                     FOR UPDATE
                     """,
                     (user_id, cutoff_minutes),
@@ -1472,9 +1506,11 @@ class ControlStore:
         tool_name: str,
         arguments: dict[str, Any] | None,
         input_bytes: int,
+        transaction=None,
     ) -> int:
         self.ensure_schema()
-        self.release_stale_reservations(identity.user_id)
+        if transaction is None:
+            self.release_stale_reservations(identity.user_id)
         quote = self.quote_tool_call(
             identity=identity,
             tool_name=tool_name,
@@ -1487,7 +1523,7 @@ class ControlStore:
             if ":" in ref:
                 provider = ref.split(":", 1)[0]
 
-        with self._connect() as conn:
+        with (self._connect() if transaction is None else nullcontext(transaction)) as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT count(*) AS n FROM ih_usage_events WHERE user_id=%s AND created_at>now()-interval '1 minute'",
@@ -1586,7 +1622,8 @@ class ControlStore:
                         ),
                     ),
                 )
-            conn.commit()
+            if transaction is None:
+                conn.commit()
         return reserved
 
     def settle_tool_call(
@@ -1598,9 +1635,10 @@ class ControlStore:
         output_bytes: int,
         actual_credits: int | None = None,
         execution_usage: dict[str, Any] | None = None,
+        transaction=None,
     ) -> int:
         self.ensure_schema()
-        with self._connect() as conn:
+        with (self._connect() if transaction is None else nullcontext(transaction)) as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -1828,7 +1866,8 @@ class ControlStore:
                         request_id,
                     ),
                 )
-            conn.commit()
+            if transaction is None:
+                conn.commit()
         return actual
 
     def release_tool_reservation(

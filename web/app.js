@@ -144,6 +144,7 @@ async function hydrateOptionalSession() {
   } catch {}
 }
 function clearTransientUi() {
+  clearTimeout(state.crawlRunTimer);
   document.querySelectorAll('.modal-backdrop').forEach(el=>el.remove());
   document.documentElement.classList.remove('ih-overlay-open');
   document.body?.classList.remove('ih-overlay-open');
@@ -835,7 +836,7 @@ async function dashPublicData(){
     finally{running=false;busy(button,false);form.removeAttribute('aria-busy');}
   };
 }
-async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,datasets:dashDatasets,games:dashGames,repositories:dashRepositories,data:dashPublicData,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,rewards:dashRewards,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
+async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,datasets:dashDatasets,'crawl-runs':dashCrawlRuns,games:dashGames,repositories:dashRepositories,data:dashPublicData,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,rewards:dashRewards,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
 async function renderRoute(){clearTransientUi();window.scrollTo(0,0);const p=location.pathname;try{if(p==='/'||p==='/pricing'||p==='/status'||p.startsWith('/docs')||p.startsWith('/legal')||LEGAL_ALIASES[p])await hydrateOptionalSession();if(p.startsWith('/dashboard'))return await renderDashboard();if(p==='/verify-email')return await renderVerify();if(p==='/login')return renderAuth('login');if(p==='/signup')return renderAuth('signup');if(p==='/forgot-password')return renderRecovery();if(p==='/reset-password')return renderRecovery(true);if(p.startsWith('/legal')||LEGAL_ALIASES[p])return renderLegal();if(p.startsWith('/docs'))return renderDocs();if(p==='/pricing')return await renderPricing();if(p==='/status')return await renderStatus();return await renderHome();}catch(error){console.error(error);if(error.status===401)return go('/login',true);app.innerHTML=`<main class="fatal"><div>${brand()}<span class="eyebrow">REQUEST FAILED</span><h1>The control plane did not answer cleanly.</h1><p>${esc(error.message)}</p><button class="btn primary" onclick="location.reload()">Try again</button></div></main>`;}}
 document.addEventListener('click',e=>{
   if(e.defaultPrevented)return;
@@ -1510,6 +1511,7 @@ function openRunInspector(event) {
           '</div>'+
           '<div class="web-search-actions">'+
             '<label class="deep-toggle"><input id="ihp-deep" type="checkbox"><span></span><b>Deep research</b></label>'+
+            '<label class="deep-toggle"><input id="ihp-background" type="checkbox"><span></span><b>Background URL crawl</b></label>'+
             '<span class="search-hint">Paste a URL to crawl it automatically</span>'+
           '</div>'+
           '<div class="search-examples" aria-label="Examples">'+
@@ -1661,6 +1663,20 @@ function openRunInspector(event) {
         preserve_query:$('#ihp-queryparams').checked
       };
       if(urlMode) body.url=inputValue; else body.query=inputValue;
+      if($('#ihp-background').checked){
+        if(!urlMode){toast('Background collection currently requires a public URL','error');return;}
+        submit.disabled=true;
+        const fingerprint=JSON.stringify(body);
+        const key=state.crawlSubmission?.fingerprint===fingerprint?state.crawlSubmission.key:crypto.randomUUID();
+        state.crawlSubmission={fingerprint,key};
+        try{
+          const data=await api('/api/crawl-runs',{method:'POST',body,headers:{'Idempotency-Key':key}});
+          state.crawlSubmission=null;
+          if(form.isConnected&&location.pathname==='/dashboard/playground')go('/dashboard/crawl-runs?run='+encodeURIComponent(data.run.id));
+        }catch(error){toast(error.message,'error');}
+        finally{submit.disabled=false;}
+        return;
+      }
 
       const controller=new AbortController();
       state.activePlayground=controller;
@@ -1808,6 +1824,7 @@ function openRunInspector(event) {
       ['overview','terminal','Overview'],
       ['playground','activity','Playground'],
       ['datasets','docs','Datasets'],
+      ['crawl-runs','activity','Background crawls'],
       ['data','search','Public data'],
       ['games','activity','Game Intelligence'],
       ['repositories','api','Repositories'],

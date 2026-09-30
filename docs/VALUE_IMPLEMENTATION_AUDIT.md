@@ -60,3 +60,8 @@ Playground URL crawls now include bounded readable text and provenance in saved 
 ## Signed dataset delivery follow-up
 
 Saved Playground outputs now enqueue account-owned completion events transactionally when an endpoint is enabled. The existing scheduler dispatches signed HTTPS notifications with bounded attempts, lease recovery, safe public-IP connections and explicit delivery history. Datasets contains endpoint, pause, secret rotation and retry controls. Real PostgreSQL verification is part of CI. See [DATASET_WEBHOOKS.md](DATASET_WEBHOOKS.md) for the current contract. Monitor dataset history, schema extraction, recipes and durable collection jobs remain future work.
+
+
+## Durable collection follow-up
+
+Bounded URL crawls now have an owned background job API and dashboard with idempotent submission, transactional reservations, fenced worker recovery, persisted batch progress, cooperative cancellation and atomic dataset/webhook/billing completion. See [DURABLE_CRAWL_RUNS.md](DURABLE_CRAWL_RUNS.md). Recovery restarts a bounded crawl once; resumable per-page frontiers, asynchronous search/research and actual content-change monitor delivery remain follow-up architecture. Production promotion still requires the authenticated deployed flow.
