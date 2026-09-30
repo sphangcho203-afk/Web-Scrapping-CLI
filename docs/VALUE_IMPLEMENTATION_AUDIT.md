@@ -78,3 +78,7 @@ Owned content monitors now queue metered one-page checks through the durable cra
 ## Crawl-discovery follow-up
 
 Opt-in sitemap discovery now reaches unlinked pages through robots hints, conventional sitemap URLs and bounded indexes. Playground, background jobs and native tools share the control. All modes bound the URL frontier, asynchronous I/O respects the original time budget, and progress/saved output report discovery counts and limits. Existing link-only checkpoints remain compatible; recovered sitemap jobs reuse their committed frontier. See [CRAWL_DISCOVERY.md](CRAWL_DISCOVERY.md). Standalone site mapping, compressed sitemaps, schema extraction, rendered crawling and multi-tick collection remain follow-up work.
+
+## Usage analytics follow-up
+
+Overview and Usage now expose ledger-backed responsive vector charts, shareable metric/window controls, keyboard/touch bucket inspection, exact tables and CSV. UTC series include quiet and partial buckets; pending outcomes no longer reduce completed-request success, and missing latency stays null. All ledger aggregates use one bounded repeatable-read snapshot; operation and status remainders reconcile request shares. Refresh errors preserve and label stale data. See [USAGE_ANALYTICS.md](USAGE_ANALYTICS.md). Comparison periods, per-key filters and historical wallet balances remain follow-up work.

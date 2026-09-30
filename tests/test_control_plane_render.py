@@ -11,6 +11,84 @@ from internet_hands.site import WEB_ROOT, _browser_runtime
 playwright = pytest.importorskip("playwright.sync_api")
 
 
+def test_usage_vector_chart_interactions_ranges_and_export(frontend_url):
+    queries = []
+    failure = {"enabled": False}
+    series = [{"bucket": f"2026-09-{day}T00:00:00Z", "bucket_start": f"2026-09-{day}T00:00:00Z",
+        "bucket_end": f"2026-09-{day+1}T00:00:00Z" if day < 30 else "2026-10-01T00:00:00Z", "requests": requests, "credits": credits,
+        "succeeded": 1 if requests == 2 else 0, "failed": 1 if requests == 2 else 0,
+        "pending": 1 if requests == 1 else 0, "success_rate": 50 if requests == 2 else None,
+        "avg_latency_ms": 100 if requests == 2 else None, "partial": day == 30}
+        for day, requests, credits in [(28, 2, 5), (29, 0, 0), (30, 1, 0)]]
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if path == "/api/auth/me":
+                data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            elif path == "/api/usage/intelligence":
+                if failure["enabled"]:
+                    route.fulfill(status=503, content_type="application/json", body='{"detail":"temporarily unavailable"}')
+                    return
+                queries.append(route.request.url)
+                data = {"generated_at": "2026-09-30T12:00:00Z", "range": {"timezone": "UTC", "granularity": "day"},
+                        "series": series, "totals": {"requests": 3, "credits": 5, "success_rate": 50, "pending": 1},
+                        "breakdowns": {"tool": [{"name": "playground:crawl", "requests": 3, "credits": 5}],
+                                       "status": [{"name": "ok", "requests": 1}, {"name": "failed", "requests": 1}, {"name": "accepted", "requests": 1}]},
+                        "recent_runs": []}
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/usage?window=7d&metric=credits")
+        page.locator("[data-usage-chart] svg").wait_for()
+        assert "window=7d" in queries[-1]
+        assert page.locator("[data-usage-chart]").get_attribute("data-metric") == "credits"
+        slider = page.get_by_label("Inspect time bucket")
+        slider.focus()
+        slider.press("Home")
+        assert "5 credits" in page.locator("[data-bucket-detail]").inner_text()
+        slider.press("ArrowRight")
+        assert "0 requests" in page.locator("[data-bucket-detail]").inner_text()
+        page.get_by_role("button", name="Average latency", exact=True).click()
+        assert "No latency measurement" in page.locator("[data-bucket-detail]").inner_text()
+        assert "metric=latency" in page.url
+        page.get_by_role("button", name="Success rate", exact=True).click()
+        assert page.locator("[data-usage-chart] svg").get_attribute("data-domain-max") == "100"
+        page.get_by_role("button", name="24h", exact=True).click()
+        page.locator('[data-usage-window="24h"][aria-pressed="true"]').wait_for()
+        assert "window=24h" in queries[-1]
+        with page.expect_download() as download_info:
+            page.get_by_role("button", name="Export chart CSV", exact=True).click()
+        download = download_info.value
+        with open(download.path()) as exported:
+            assert "bucket_start" in exported.read()
+        failure["enabled"] = True
+        page.get_by_role("button", name="Refresh data", exact=True).click()
+        page.get_by_text("Update failed · showing previous snapshot", exact=True).wait_for()
+        assert page.locator("[data-usage-chart] svg").is_visible()
+        failure["enabled"] = False
+        page.get_by_role("button", name="Refresh data", exact=True).click()
+        page.locator("[data-usage-freshness]").filter(has_text="Updated").wait_for()
+        for width in (320, 390, 1366):
+            page.set_viewport_size({"width": width, "height": 800})
+            page.wait_for_timeout(80)
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+            assert page.locator("[data-usage-chart] svg").bounding_box()["width"] > 150
+        assert not errors, errors
+        page.screenshot(path="/tmp/opencrawl-usage-desktop.png", full_page=True)
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.reload()
+        page.locator("[data-usage-chart] svg").wait_for()
+        page.screenshot(path="/tmp/opencrawl-usage-mobile.png", full_page=True)
+        browser.close()
+
+
 @pytest.mark.parametrize("statuses,label,truncated", [([None], "CRAWL FAILED", False), ([403], "CRAWL FAILED", False), ([200, 503], "CRAWL PARTIAL", False), ([200], "CRAWL COMPLETE", False), ([200], "CRAWL PARTIAL", True)])
 def test_crawl_outcome_labels_match_successful_pages(frontend_url, statuses, label, truncated):
     submissions = []
