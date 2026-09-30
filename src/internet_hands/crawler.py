@@ -35,7 +35,25 @@ def _same_scope(seed_host: str, candidate_host: str | None, include_subdomains: 
         return False
     host = candidate_host.rstrip(".").casefold()
     root = seed_host.rstrip(".").casefold()
-    return host == root or (include_subdomains and host.endswith("." + root))
+    canonical = root.removeprefix("www.")
+    return host in {root, canonical, "www." + canonical} or (
+        include_subdomains and host.endswith("." + root)
+    )
+
+
+def _url_in_scope(seed_url: str, target: str, include_subdomains: bool = False) -> bool:
+    seed, candidate = urlsplit(seed_url), urlsplit(target)
+    if candidate.scheme not in {"http", "https"}:
+        return False
+    if seed.scheme == "https" and candidate.scheme != "https":
+        return False
+    try:
+        seed_port = seed.port or (443 if seed.scheme == "https" else 80)
+        target_port = candidate.port or (443 if candidate.scheme == "https" else 80)
+    except ValueError:
+        return False
+    upgrade = seed.scheme == "http" and candidate.scheme == "https" and seed_port == 80 and target_port == 443
+    return (seed_port == target_port or upgrade) and _same_scope(seed.hostname or "", candidate.hostname, include_subdomains)
 
 
 def _bounded_text(value: str, max_bytes: int) -> tuple[str, bool]:
@@ -97,8 +115,6 @@ async def crawl(
     include = tuple(str(x).strip() for x in (include_paths or ()) if str(x).strip())
     exclude = tuple(str(x).strip() for x in (exclude_paths or ()) if str(x).strip())
     seed_url = _normalize_url(seed_url, preserve_query=preserve_query)
-    seed = urlsplit(seed_url)
-    seed_host = (seed.hostname or "").casefold()
 
     resumable = on_checkpoint is not None or resume_checkpoint is not None
     controls = {
@@ -134,7 +150,7 @@ async def crawl(
         all_urls = [*frontier.completed, *pending_urls]
         if any(_normalize_url(url, preserve_query=preserve_query) != url
                or urlsplit(url).scheme not in {"http", "https"}
-               or not _same_scope(seed_host, urlsplit(url).hostname, include_subdomains)
+               or not _url_in_scope(seed_url, url, include_subdomains)
                for url in all_urls):
             raise ValueError("Checkpoint URLs are outside the crawl scope.")
         if any(depth > max_depth or not _path_allowed(url, include, exclude)
@@ -171,6 +187,20 @@ async def crawl(
         parser = await robots_for(url)
         if parser is not None and not parser.can_fetch(DEFAULT_UA, url):
             return CrawlPage(url=url, depth=depth, error="blocked by robots.txt"), []
+
+        last_hop = url
+        async def redirect_allowed(target: str) -> bool:
+            nonlocal last_hop
+            if not _url_in_scope(url, target) or not _url_in_scope(last_hop, target):
+                return False
+            if target != url and not _path_allowed(target, (), exclude):
+                return False
+            destination_policy = await robots_for(target)
+            allowed = destination_policy is None or destination_policy.can_fetch(DEFAULT_UA, target)
+            if allowed:
+                last_hop = target
+            return allowed
+
         try:
             record_usage("native_web_requests")
             result = await fetch_url(
@@ -178,10 +208,7 @@ async def crawl(
                 include_body=True,
                 max_bytes=max_bytes_per_page,
                 timeout=min(20.0, max_seconds),
-                url_guard=lambda target: (
-                    urlsplit(target).netloc.lower() == urlsplit(url).netloc.lower()
-                    and (parser is None or parser.can_fetch(DEFAULT_UA, target))
-                ),
+                url_guard=redirect_allowed,
             )
             links = extract_links(result).links if result.body_text else []
             page = CrawlPage(
@@ -264,7 +291,7 @@ async def crawl(
                 if parts.scheme not in {"http", "https"}:
                     skipped += 1
                     continue
-                if not _same_scope(seed_host, parts.hostname, include_subdomains):
+                if not _url_in_scope(seed_url, normalized, include_subdomains):
                     skipped += 1
                     continue
                 if not _path_allowed(normalized, include, exclude):
@@ -303,8 +330,12 @@ async def _robots_for(seed_url: str) -> RobotFileParser:
     parser.set_url(robots_url)
     try:
         record_usage("native_web_requests")
-        result = await fetch_url(robots_url, max_bytes=512_000, include_body=True)
-        parser.parse((result.body_text or "").splitlines())
+        result = await fetch_url(robots_url, max_bytes=512_000, include_body=True,
+                                 url_guard=lambda target: _url_in_scope(robots_url, target))
+        if result.status_code in {401, 403}:
+            parser.parse(["User-agent: *", "Disallow: /"])
+        else:
+            parser.parse((result.body_text or "").splitlines() if result.status_code == 200 else [])
     except Exception:  # noqa: BLE001 -- unavailable robots.txt defaults to an empty policy
         parser.parse([])
     return parser

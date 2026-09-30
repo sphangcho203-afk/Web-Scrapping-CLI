@@ -52,7 +52,7 @@ def test_recovery_fences_old_worker_and_settles_once(runs):
         cur.execute("UPDATE ih_crawl_runs SET lease_until=now()-interval '1 second' WHERE id=%s", (row["id"],))
     second = jobs.claim()
     assert second["attempts"] == 2 and second["lease_token"] != first["lease_token"]
-    output = {"pages": [{"url": "https://example.com", "text": "Captured"}]}
+    output = {"pages": [{"url": "https://example.com", "status_code": 200, "text": "Captured"}]}
     assert jobs.finish(first, "completed", output, {"completed": True}) is False
     assert jobs.finish(second, "completed", output, {"completed": True}) is True
     assert jobs.finish(second, "completed", output, {"completed": True}) is False
@@ -64,6 +64,20 @@ def test_recovery_fences_old_worker_and_settles_once(runs):
         assert cur.fetchone()["reserved_credits"] == 0
         cur.execute("SELECT count(*) AS n FROM ih_datasets WHERE user_id=%s", (identity.user_id,))
         assert cur.fetchone()["n"] == 1
+
+
+def test_all_failed_crawl_is_reported_failed_and_not_charged(runs):
+    jobs, identity = runs
+    row = jobs.create(identity, "all-failed", {"url": "https://example.com"})
+    job = jobs.claim()
+    assert jobs.finish(job, "completed", {"pages": [{"url": "https://example.com", "status_code": 403}]}, {})
+    saved = jobs.get(identity.user_id, row["id"])
+    assert saved["status"] == "failed" and saved["error_code"] == "no_successful_pages"
+    assert saved["progress"]["successful"] == 0 and saved["progress"]["failed"] == 1
+    assert saved["credits_charged"] == 0
+    with jobs.control._connect() as conn, conn.cursor() as cur:
+        cur.execute("SELECT reserved_credits FROM ih_wallets WHERE user_id=%s", (identity.user_id,))
+        assert cur.fetchone()["reserved_credits"] == 0
 
 
 def test_queued_cancel_refunds_and_foreign_access_fails(runs):

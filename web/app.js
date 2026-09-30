@@ -1558,10 +1558,11 @@ function openRunInspector(event) {
       const findings=safeArr((result.synthesis||{}).findings);
       const pages=safeArr(result.pages);
       const count=operation==='crawl'?pages.length:searches.length;
-      const label=operation==='crawl'?'CRAWL COMPLETE':operation==='research'?'RESEARCH COMPLETE':'SEARCH RESULTS';
+      const failedPages=pages.filter(page=>page.error || !(Number(page.status_code)>=200 && Number(page.status_code)<300)).length;
+      const label=operation==='crawl'?(failedPages===pages.length?'CRAWL FAILED':failedPages?'CRAWL PARTIAL':'CRAWL COMPLETE'):operation==='research'?'RESEARCH COMPLETE':'SEARCH RESULTS';
       const title=operation==='crawl'?(domainOf(inputValue)||inputValue):inputValue;
       const meta=[
-        count+(operation==='crawl'?' pages':count===1?' result':' results'),
+        operation==='crawl'?(count-failedPages)+' successful · '+failedPages+' failed':count+(count===1?' result':' results'),
         walletMoney(usage.credits_charged||0)+' spent',
         fmtTime(summary.duration_ms||0)
       ].join(' · ');

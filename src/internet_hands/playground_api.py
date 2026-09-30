@@ -44,7 +44,7 @@ def _save_output(user_id: str, request_id: str, operation: str,
         logger.exception("Dataset persistence failed for run %s", request_id)
         # Collection still completed and is metered. Never claim persistence succeeded.
         return {"dataset": None, "warnings": [{"code": "dataset_not_saved",
-                "message": "Collection completed, but the output could not be saved. Copy the result before leaving this page. The collection charge still applies."}]}
+                "message": "The output could not be saved. Copy the result before leaving this page. Any execution charge is shown in this run."}]}
 
 _SAFE_EXCLUDES = (
     "*/logout*",
@@ -480,8 +480,8 @@ async def playground_run(request: Request):
         pages = payload.get("pages") or []
         summary = {
             "pages": len(pages),
-            "successful": sum(1 for page in pages if page.get("status_code") and not page.get("error")),
-            "failed": sum(1 for page in pages if page.get("error")),
+            "successful": sum(1 for page in pages if 200 <= (page.get("status_code") or 0) < 300 and not page.get("error")),
+            "failed": sum(1 for page in pages if page.get("error") or not 200 <= (page.get("status_code") or 0) < 300),
             "links_found": sum(int(page.get("links_found") or 0) for page in pages),
             "discovered_urls": int(payload.get("discovered_urls") or 0),
             "skipped_urls": int(payload.get("skipped_urls") or 0),
@@ -497,8 +497,9 @@ async def playground_run(request: Request):
             "content_bytes": int(payload.get("content_bytes") or 0),
             "content_truncated": bool(payload.get("content_truncated")),
         }
+        completed = operation != "crawl" or summary["successful"] > 0
         response = {
-            "ok": True,
+            "ok": completed,
             "request_id": request_id,
             "operation": operation,
             "usage": {
@@ -509,7 +510,7 @@ async def playground_run(request: Request):
                         identity.plan_slug,
                         reserved_credits=raw_reserved,
                         execution_usage={
-                            "completed": True,
+                            "completed": completed,
                             "provider_usage": provider_usage,
                         },
                     )
@@ -523,7 +524,7 @@ async def playground_run(request: Request):
         }
         response.update(_save_output(identity.user_id, request_id, operation, payload, query or url))
         output_bytes = len(json.dumps(response, default=str, separators=(",", ":")).encode())
-        status = "ok"
+        status = "ok" if completed else "failed"
         return response
     except ResolutionUnavailable as exc:
         raise HTTPException(

@@ -11,6 +11,87 @@ from internet_hands.site import WEB_ROOT, _browser_runtime
 playwright = pytest.importorskip("playwright.sync_api")
 
 
+@pytest.mark.parametrize("statuses,label", [([None], "CRAWL FAILED"), ([403], "CRAWL FAILED"), ([200, 503], "CRAWL PARTIAL"), ([200], "CRAWL COMPLETE")])
+def test_crawl_outcome_labels_match_successful_pages(frontend_url, statuses, label):
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 800})
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if path == "/api/auth/me":
+                data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            elif path == "/api/api-keys":
+                data = {"keys": [{"id": "key_fixture", "name": "Collection", "prefix": "oc"}]}
+            elif path == "/api/playground/run":
+                data = {"ok": 200 in statuses, "operation": "crawl", "usage": {}, "summary": {},
+                        "result": {"pages": [{"url": "https://example.com/", "status_code": code,
+                            "error": "PolicyError: outside scope" if code is None else None} for code in statuses]}}
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/playground")
+        page.locator("#research-query").fill("https://example.com/")
+        page.locator("#ihp-submit").click()
+        page.locator("#ihp-results .search-result-header .search-section-kicker").wait_for()
+        assert page.locator("#ihp-results .search-result-header .search-section-kicker").inner_text() == label
+        assert "successful" in page.locator("#ihp-results .search-result-header p").inner_text()
+        browser.close()
+
+
+def test_content_monitor_billing_form_and_capture_history(frontend_url):
+    submitted = []
+    monitor = {"id": "mon_content", "name": "Price watch", "type": "content", "target": "https://example.com/pricing",
+               "config": {"api_key_id": "key_fixture"}, "enabled": True, "interval_minutes": 60, "last_status": "changed"}
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 800})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if path == "/api/auth/me":
+                data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            elif path == "/api/api-keys":
+                data = {"keys": [{"id": "key_fixture", "name": "Monitoring", "prefix": "oc"}]}
+            elif path == "/api/monitors/validate":
+                submitted.append(route.request.post_data_json)
+                data = {"valid": True, "monitor": route.request.post_data_json}
+            elif path == "/api/monitors" and route.request.method == "POST":
+                data = monitor
+            elif path == "/api/monitors":
+                data = {"monitors": [monitor]}
+            elif path == "/api/monitors/mon_content":
+                data = monitor
+            elif path.endswith("/history"):
+                data = {"runs": [{"status": "changed", "credits_charged": 3, "dataset_id": "ds_new",
+                                  "diff": {"previous_dataset_id": "ds_old"}, "summary": '<img src=x onerror="window.injected=true">'}]}
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/monitors")
+        page.locator('[data-monitor-template="content"]').click()
+        page.locator('input[name="name"]').fill("Price watch")
+        page.locator('input[name="target"]').fill(monitor["target"])
+        page.locator('select[name="api_key_id"]').select_option("key_fixture")
+        assert page.locator("#monitor-content-billing").is_visible()
+        page.get_by_role("button", name="Validate and create").click()
+        page.get_by_text("Monitor created", exact=True).wait_for()
+        assert submitted[0]["type"] == "content" and submitted[0]["config"] == {"api_key_id": "key_fixture"}
+        page.locator(".monitor-row").click()
+        page.get_by_role("link", name="Open capture").wait_for()
+        assert page.get_by_role("link", name="Open capture").get_attribute("href") == "/dashboard/datasets?dataset=ds_new"
+        assert page.get_by_role("link", name="Previous capture").get_attribute("href") == "/dashboard/datasets?dataset=ds_old"
+        assert page.locator(".monitor-history-table img").count() == 0
+        assert page.evaluate("window.injected === undefined")
+        for width in (320, 390, 1366):
+            page.set_viewport_size({"width": width, "height": 800})
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
+        assert not errors
+        browser.close()
+
+
 def test_background_crawl_submission_reopen_and_cancel(frontend_url):
     run = {"id": "run_fixture", "url": "https://example.com/<unsafe>", "status": "queued",
            "attempts": 0, "progress": {"pages": 0, "discovered_urls": 0},

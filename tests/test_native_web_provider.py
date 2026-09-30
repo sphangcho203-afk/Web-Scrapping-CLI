@@ -167,7 +167,11 @@ async def test_native_crawl_counts_robots_and_pages_and_guards_redirects(monkeyp
     async def fake_fetch(url, **kwargs):
         visited.append(url)
         if "url_guard" in kwargs:
-            assert not kwargs["url_guard"]("https://elsewhere.example/private")
+            import inspect
+            allowed = kwargs["url_guard"]("https://elsewhere.example/private")
+            if inspect.isawaitable(allowed):
+                allowed = await allowed
+            assert not allowed
         body = ("User-agent: *\nDisallow: /private" if url.endswith("robots.txt") else
                 '<a href="/next">Next</a><a href="/private">Blocked</a>' if url.endswith("/") else "Done")
         return FetchResult(request_url=url, final_url=url, status_code=200, headers={},

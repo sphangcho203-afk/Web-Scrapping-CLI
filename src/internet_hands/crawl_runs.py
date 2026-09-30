@@ -23,11 +23,13 @@ MAX_ATTEMPTS = 2
 def public_run(row: dict) -> dict:
     checkpoint = row.get("checkpoint") or {}
     pages = checkpoint.get("pages") or []
+    successful = sum(1 for page in pages if 200 <= (page.get("status_code") or 0) < 300 and not page.get("error"))
     return {key: row.get(key) for key in (
         "id", "request_id", "status", "attempts", "cancel_requested", "dataset_id",
-        "credits_reserved", "credits_charged", "error_code", "created_at", "updated_at", "finished_at",
+        "credits_reserved", "credits_charged", "error_code", "created_at", "updated_at", "finished_at", "monitor_id",
     )} | {"url": row["arguments"]["url"], "progress": {
         "pages": checkpoint.get("page_count", len(pages)), "discovered_urls": checkpoint.get("discovered_urls", 0),
+        "successful": checkpoint.get("successful", successful), "failed": checkpoint.get("failed", len(pages) - successful),
         "truncated": checkpoint.get("truncated", False),
         "frontier_truncated": checkpoint.get("frontier_truncated", False),
     }}
@@ -37,14 +39,21 @@ class RunStore:
     def __init__(self, control: ControlStore):
         self.control = control
 
-    def create(self, identity: AuthIdentity, key: str, arguments: dict[str, Any]) -> dict:
+    def create(self, identity: AuthIdentity, key: str, arguments: dict[str, Any], *,
+               transaction=None, monitor: dict | None = None) -> dict:
         if not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", key):
             raise ControlError("idempotency_key_required", "Provide an Idempotency-Key (1–128 letters, digits, . _ : -).", 422)
         payload = json.dumps(arguments, sort_keys=True, separators=(",", ":"))
         fingerprint = hashlib.sha256(payload.encode()).hexdigest()
+        if transaction is not None:
+            return self._create(transaction, identity, key, arguments, payload, fingerprint, monitor)
         self.control.ensure_schema()
         self.control.release_stale_reservations(identity.user_id)
-        with self.control._connect() as conn, conn.cursor() as cur:
+        with self.control._connect() as conn:
+            return self._create(conn, identity, key, arguments, payload, fingerprint, monitor)
+
+    def _create(self, conn, identity, key, arguments, payload, fingerprint, monitor):
+        with conn.cursor() as cur:
             # Serialize account creates before checking the unique key and wallet.
             cur.execute("SELECT id FROM ih_users WHERE id=%s FOR UPDATE", (identity.user_id,))
             cur.execute("SELECT * FROM ih_crawl_runs WHERE user_id=%s AND idempotency_key=%s", (identity.user_id, key))
@@ -56,12 +65,14 @@ class RunStore:
             request_id, run_id = "req_" + uuid.uuid4().hex, "run_" + uuid.uuid4().hex
             reserved = self.control.reserve_tool_call(
                 identity=identity, request_id=request_id, tool_name="playground:crawl",
-                arguments=arguments, input_bytes=len(payload.encode()), transaction=conn,
+                arguments={**arguments, "monitor_id": monitor["id"]} if monitor else arguments,
+                input_bytes=len(payload.encode()), transaction=conn,
             )
             cur.execute("""INSERT INTO ih_crawl_runs
-                (id,user_id,request_id,idempotency_key,fingerprint,arguments,plan_slug,credits_reserved)
-                VALUES (%s,%s,%s,%s,%s,%s::jsonb,%s,%s) RETURNING *""",
-                (run_id, identity.user_id, request_id, key, fingerprint, payload, identity.plan_slug, reserved))
+                (id,user_id,request_id,idempotency_key,fingerprint,arguments,plan_slug,credits_reserved,monitor_id,monitor_version)
+                VALUES (%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s) RETURNING *""",
+                (run_id, identity.user_id, request_id, key, fingerprint, payload, identity.plan_slug, reserved,
+                 monitor["id"] if monitor else None, monitor["content_version"] if monitor else None))
             return public_run(cur.fetchone())
 
     def get(self, owner: str, run_id: str) -> dict:
@@ -107,6 +118,12 @@ class RunStore:
             row = cur.fetchone()
             if not row:
                 return None
+            if row.get("monitor_id"):
+                from .content_monitors import content_job_error
+                code = content_job_error(self.control, cur, row)
+                if code:
+                    self._finish(cur, conn, row, "cancelled", {}, row["measured_usage"], code)
+                    return {"recovered_terminal": True, "id": row["id"]}
             if row["cancel_requested"] or row["expired"] or row["attempts"] >= MAX_ATTEMPTS:
                 status = "cancelled" if row["cancel_requested"] else "failed"
                 code = None if status == "cancelled" else ("run_expired" if row["expired"] else "worker_lost")
@@ -147,10 +164,18 @@ class RunStore:
             return True
 
     def _finish(self, cur, conn, row, status, result, usage, error_code):
+        if row.get("monitor_id"):
+            from .content_monitors import finish_content_check
+            finish_content_check(self, cur, conn, row, status, result, usage, error_code)
+            return
         # Atomic dataset + outbox + wallet ledger + terminal transition. A rollback
         # leaves the lease recoverable; no half-charged or unsaved successful run.
         dataset_id = None
-        usage = {**usage, "completed": status == "completed" or bool(result.get("pages"))}
+        pages = result.get("pages") or []
+        successful = any(200 <= (page.get("status_code") or 0) < 300 and not page.get("error") for page in pages)
+        if status == "completed" and not successful:
+            status, error_code = "failed", "no_successful_pages"
+        usage = {**usage, "completed": successful}
         if status == "completed" or result.get("pages"):
             try:
                 saved = DatasetStore(self.control).save(row["user_id"], row["request_id"], "crawl",
@@ -168,12 +193,19 @@ class RunStore:
         credits = self.control.settle_tool_call(row["request_id"], status="ok" if status == "completed" else status,
             latency_ms=int(result.get("duration_ms") or 0), output_bytes=len(json.dumps(result).encode()),
             actual_credits=raw_cost, execution_usage=usage, transaction=conn)
+        self._write_terminal(cur, row, status, result, usage, error_code, dataset_id, credits)
+
+    @staticmethod
+    def _write_terminal(cur, row, status, result, usage, error_code, dataset_id, credits):
         # Once saved, retain progress only; dataset deletion also removes the run
         # link through its FK and does not leave a second copy of captured text.
         progress = {"page_count": len(result.get("pages") or []),
                     "discovered_urls": result.get("discovered_urls", 0),
                     "truncated": result.get("truncated", False),
                     "frontier_truncated": result.get("frontier_truncated", False)}
+        progress["successful"] = sum(1 for page in result.get("pages") or []
+                                     if 200 <= (page.get("status_code") or 0) < 300 and not page.get("error"))
+        progress["failed"] = progress["page_count"] - progress["successful"]
         cur.execute("""UPDATE ih_crawl_runs SET status=%s,credits_charged=%s,dataset_id=%s,
             checkpoint=%s::jsonb,frontier='{}'::jsonb,measured_usage=%s::jsonb,error_code=%s,lease_token=NULL,lease_until=NULL,
             updated_at=now(),finished_at=now() WHERE id=%s""",

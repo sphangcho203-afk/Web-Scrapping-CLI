@@ -27,11 +27,12 @@ async function dashCrawlRuns() {
   dashboardShell('crawl-runs', pageHead('BACKGROUND CRAWL', 'Collection progress', esc(run.url),
     '<a class="btn" data-link href="/dashboard/crawl-runs">All background crawls</a>') +
     '<article class="card"><p role="status"><b>' + esc(run.status) + (run.cancel_requested && active ? ' · cancellation requested' : '') + '</b></p>' +
-    '<p>' + fmt(run.progress.pages) + ' pages captured · ' + fmt(run.progress.discovered_urls) + ' URLs discovered · attempt ' + fmt(run.attempts) + '</p>' +
+    (run.monitor_id ? '<p>Content monitor check. Comparisons capture only the configured page.</p>' : '') +
+    '<p>' + fmt(run.progress.pages) + ' pages checked · ' + fmt(run.progress.successful) + ' successful · ' + fmt(run.progress.failed) + ' failed · ' + fmt(run.progress.discovered_urls) + ' URLs discovered · attempt ' + fmt(run.attempts) + '</p>' +
     '<p>' + fmt(run.credits_reserved) + ' credits reserved · ' + fmt(run.credits_charged) + ' charged</p>' +
     (run.status === 'queued' ? '<p>Waiting for a worker. You can close this page and return later.</p>' : '') +
     (run.progress.frontier_truncated ? '<p>The URL frontier reached its storage limit; some discovered links were skipped.</p>' : '') +
-    (run.progress.truncated ? '<p>The saved output is partial because a crawl limit or interruption was reached.</p>' : '') +
+    (run.progress.truncated && !run.monitor_id ? '<p>The saved output is partial because a crawl limit or interruption was reached.</p>' : '') +
     (run.error_code ? '<p role="alert">Collection stopped: ' + esc(run.error_code.replaceAll('_', ' ')) + '. Any saved records remain available below.</p>' : '') +
     (run.dataset_id ? '<a class="btn primary" data-link href="/dashboard/datasets?dataset=' + encodeURIComponent(run.dataset_id) + '">Open saved records</a> ' : '') +
     (active ? '<button id="crawl-run-cancel" class="btn" ' + (run.cancel_requested ? 'disabled' : '') + '>Cancel collection</button><p>Queued cancellation releases all reserved credits. Captured work can still be charged.</p>' : '') + '</article>');

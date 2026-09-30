@@ -70,3 +70,7 @@ Bounded URL crawls now have an owned background job API and dashboard with idemp
 ## Resumable frontier follow-up
 
 New background crawl checkpoints now persist an ordered owned frontier atomically with captured pages and measured usage. A replacement process resumes pending requests, preserves committed captures and carries original budgets. Legacy capture-only jobs retain seed-restart compatibility. In-flight uncommitted batches can repeat; URL frontier capacity is bounded and reported explicitly. Large multi-tick collection, asynchronous search/research and content-change monitor delivery remain follow-up work.
+
+## Content-monitor follow-up
+
+Owned content monitors now queue metered one-page checks through the durable crawler, persist baseline/unchanged/changed history and save datasets plus signed notifications only for baselines and changes. Configuration versions, ownership/key checks and worker leases fence stale output. The console exposes billing-key selection, check progress, charges and capture links. Canonical apex/`www` redirects now consult destination robots rules; all-failed crawls report failure and release their completion charge. See [CONTENT_MONITORS.md](CONTENT_MONITORS.md) for limits and the deployed verification gate. Field/schema extraction, rendered-page monitoring, multi-tick crawling and recipe composition remain follow-up work.

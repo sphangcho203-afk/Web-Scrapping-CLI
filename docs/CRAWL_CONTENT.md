@@ -2,6 +2,8 @@
 
 Playground URL crawls now extract readable content from each existing HTTP capture and save it in the run's dataset. Extraction does not issue another request. Existing public-target validation, redirect checks, robots policy, traversal limits and wallet accounting still apply.
 
+Canonical redirects between a hostname and its `www` counterpart remain in scope without enabling other subdomains. Redirects retain port and HTTPS protections and check the destination origin's robots rules. A crawl with no successful 2xx pages returns `ok: false`, reports accurate failed counts and releases its completion charge. The console distinguishes failed, partial and complete crawls; diagnostic records can still be saved for inspection.
+
 ```json
 {"operation":"crawl","url":"https://example.com/docs/","max_pages":10,"include_content":true,"max_content_bytes_per_page":50000,"max_content_bytes":750000}
 ```

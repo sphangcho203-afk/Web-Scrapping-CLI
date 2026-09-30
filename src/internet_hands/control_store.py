@@ -300,6 +300,16 @@ CREATE TABLE IF NOT EXISTS ih_monitor_runs (
 );
 CREATE INDEX IF NOT EXISTS ih_monitor_runs_monitor_idx ON ih_monitor_runs(monitor_id, created_at DESC);
 
+ALTER TABLE ih_monitors ADD COLUMN IF NOT EXISTS content_version integer NOT NULL DEFAULT 1;
+ALTER TABLE ih_monitors ADD COLUMN IF NOT EXISTS baseline_hash text;
+ALTER TABLE ih_monitors ADD COLUMN IF NOT EXISTS baseline_dataset_id text REFERENCES ih_datasets(id) ON DELETE SET NULL;
+ALTER TABLE ih_crawl_runs ADD COLUMN IF NOT EXISTS monitor_id text;
+ALTER TABLE ih_crawl_runs ADD COLUMN IF NOT EXISTS monitor_version integer;
+CREATE INDEX IF NOT EXISTS ih_crawl_runs_monitor_idx ON ih_crawl_runs(monitor_id, status);
+ALTER TABLE ih_monitor_runs ADD COLUMN IF NOT EXISTS crawl_run_id text REFERENCES ih_crawl_runs(id) ON DELETE SET NULL;
+ALTER TABLE ih_monitor_runs ADD COLUMN IF NOT EXISTS dataset_id text REFERENCES ih_datasets(id) ON DELETE SET NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ih_monitor_runs_crawl_idx ON ih_monitor_runs(crawl_run_id) WHERE crawl_run_id IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS ih_credit_packs (
     slug text PRIMARY KEY,
     name text NOT NULL,
@@ -2123,6 +2133,10 @@ class ControlStore:
             )
             result = dict(monitor)
             result["runs"] = [dict(r) for r in cur.fetchall()]
+            cur.execute("""SELECT id,status FROM ih_crawl_runs WHERE monitor_id=%s AND user_id=%s
+                AND status IN ('queued','running') ORDER BY created_at DESC LIMIT 1""", (monitor_id, user_id))
+            pending = cur.fetchone()
+            result["pending_run"] = dict(pending) if pending else None
             return result
 
     def create_monitor(
@@ -2139,6 +2153,7 @@ class ControlStore:
         account = self.account_snapshot(user_id)
         with self._connect() as conn:
             with conn.cursor() as cur:
+                cur.execute("SELECT id FROM ih_users WHERE id=%s FOR UPDATE", (user_id,))
                 cur.execute("SELECT count(*) AS n FROM ih_monitors WHERE user_id=%s", (user_id,))
                 if int(cur.fetchone()["n"]) >= int(account["monitor_limit"]):
                     raise ControlError("monitor_limit", "monitor limit reached for current plan", 403)
@@ -2146,12 +2161,13 @@ class ControlStore:
                 cur.execute(
                     """
                     INSERT INTO ih_monitors(id,user_id,name,type,target,interval_minutes,next_check_at,config)
-                    VALUES (%s,%s,%s,%s,%s,%s,now()+(%s || ' minutes')::interval,%s::jsonb)
+                    VALUES (%s,%s,%s,%s,%s,%s,CASE WHEN %s='content' THEN now()
+                        ELSE now()+(%s || ' minutes')::interval END,%s::jsonb)
                     RETURNING *
                     """,
                     (
                         monitor_id, user_id, name, monitor_type, target, interval_minutes,
-                        interval_minutes, json.dumps(config),
+                        monitor_type, interval_minutes, json.dumps(config),
                     ),
                 )
                 row = cur.fetchone()
