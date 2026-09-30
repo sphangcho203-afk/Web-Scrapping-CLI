@@ -836,7 +836,138 @@ async function dashPublicData(){
     finally{running=false;busy(button,false);form.removeAttribute('aria-busy');}
   };
 }
-async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,datasets:dashDatasets,'crawl-runs':dashCrawlRuns,games:dashGames,repositories:dashRepositories,data:dashPublicData,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,rewards:dashRewards,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
+
+async function dashSiteMap(){
+  const keyData=await api('/api/api-keys');
+  const keys=(keyData.keys||[]).filter(k=>!k.revoked_at&&(!k.expires_at||new Date(k.expires_at)>new Date()));
+  if(!keys.length){
+    dashboardShell('map',
+      pageHead('SITE MAP','Map a site before crawling it','Discover and classify public URLs without fetching every page.')+
+      '<section class="search-key-lock">'+icon('key')+'<div><h2>Create an API key first</h2><p>Site maps are metered runs and need an execution key.</p></div><a class="btn primary" data-link href="/dashboard/api-keys">Create API key</a></section>'
+    );
+    return;
+  }
+  const keyOptions=keys.map((k,i)=>'<option value="'+esc(k.id)+'" '+(i===0?'selected':'')+'>'+esc(k.name||k.prefix)+' · '+esc(k.prefix)+'…</option>').join('');
+  dashboardShell('map',
+    pageHead('SITE MAP','Map a site before crawling it','Discover URLs cheaply, classify the structure, then save the result as a dataset.','<a class="btn" data-link href="/dashboard/datasets">'+icon('docs')+' Datasets</a>')+
+    '<section class="game-tool-runner"><form id="site-map-form" class="form-stack">'+
+      '<label>Site root<input name="url" type="url" required maxlength="2000" placeholder="https://example.com"></label>'+
+      '<label>Focus (optional)<input name="search" maxlength="160" placeholder="docs, pricing, products, careers…"></label>'+
+      '<div class="search-advanced-grid"><label>Maximum URLs<input name="limit" type="number" min="1" max="1000" value="250" required></label>'+
+      '<label>Sitemap behavior<select name="sitemap_mode"><option value="auto">Use sitemap when available</option><option value="only">Sitemap only</option><option value="ignore">Ignore sitemap</option></select></label>'+
+      '<label>Execution key<select name="api_key_id" required>'+keyOptions+'</select></label></div>'+
+      '<label class="check"><input name="include_subdomains" type="checkbox"> Include subdomains</label>'+
+      '<div class="execution-budget-controls"><label>Maximum spend (USD)<input name="max_spend_usd" type="number" min="0" step="0.0002" placeholder="Set after cost review"></label><p>Review creates no provider work. Confirmation rechecks price and wallet balance before execution.</p></div>'+
+      '<button class="btn primary" id="site-map-review" type="submit">Review map cost '+icon('arrow')+'</button>'+
+      '<section id="site-map-quote" class="card execution-cost-review" hidden aria-live="polite"></section>'+
+      '<button class="btn primary" id="site-map-confirm" type="button" hidden>Confirm and map site</button>'+
+    '</form><div id="site-map-output" class="game-tool-output" aria-live="polite"></div></section>'
+  );
+  const form=$('#site-map-form'),quoteBox=$('#site-map-quote'),confirmButton=$('#site-map-confirm'),reviewButton=$('#site-map-review'),output=$('#site-map-output');
+  let reviewed=null,running=false,generation=0;
+
+  const requestBody=()=>({
+    url:String(form.elements.url.value||'').trim(),
+    search:String(form.elements.search.value||'').trim(),
+    limit:Number(form.elements.limit.value),
+    sitemap_mode:form.elements.sitemap_mode.value,
+    include_subdomains:Boolean(form.elements.include_subdomains.checked),
+    api_key_id:form.elements.api_key_id.value
+  });
+  const invalidate=()=>{
+    generation++;
+    reviewed=null;
+    quoteBox.hidden=true;
+    confirmButton.hidden=true;
+    output.innerHTML='';
+  };
+  ['url','search','limit','sitemap_mode','include_subdomains','api_key_id'].forEach(name=>{
+    form.elements[name].addEventListener(name==='search'||name==='url'||name==='limit'?'input':'change',invalidate);
+  });
+
+  form.onsubmit=async event=>{
+    event.preventDefault();
+    if(running)return;
+    const body=requestBody();
+    try{
+      const parsed=new URL(body.url);
+      if(!['http:','https:'].includes(parsed.protocol)||parsed.username||parsed.password)throw new Error();
+    }catch{
+      output.innerHTML='<p class="game-error" role="alert">Use a complete public HTTP(S) URL without embedded credentials.</p>';
+      return;
+    }
+    const run=++generation;
+    busy(reviewButton,true,'Reviewing cost…');
+    try{
+      const data=await api('/api/site-map/quote',{method:'POST',body});
+      if(run!==generation||!form.isConnected)return;
+      reviewed=data.quote||{};
+      const scale=Number(reviewed.wallet_units_per_usd||5000);
+      const maximum=Number(reviewed.maximum_charge_credits??reviewed.credits??0);
+      const usd=scale>0?maximum/scale:0;
+      form.elements.max_spend_usd.value=usd.toFixed(4);
+      quoteBox.hidden=false;
+      quoteBox.innerHTML='<header><span><span class="overline">COST REVIEW</span><h3>Maximum reservation '+esc(walletMoney(maximum,{wallet_units_per_usd:scale}))+'</h3></span><span class="badge '+(reviewed.affordable?'success':'danger')+'">'+(reviewed.affordable?'Wallet ready':'Insufficient wallet')+'</span></header>'+
+        '<p>This is a ceiling, not a guaranteed charge. Unused reservation is released. Mapping returns URL structure only; it does not download every page body.</p>'+
+        '<div class="ih-inspector-grid"><div><small>Available</small><b>'+esc(walletMoney(reviewed.available_credits||0,{wallet_units_per_usd:scale}))+'</b></div><div><small>URL limit</small><b>'+fmt(body.limit)+'</b></div><div><small>Sitemap</small><b>'+esc(body.sitemap_mode)+'</b></div><div><small>Subdomains</small><b>'+(body.include_subdomains?'Included':'Root host only')+'</b></div></div>';
+      confirmButton.hidden=false;
+      confirmButton.disabled=!reviewed.affordable;
+      confirmButton.textContent=reviewed.affordable?'Confirm and map site':'Add wallet balance to continue';
+    }catch(error){
+      reviewed=null;
+      quoteBox.hidden=true;
+      confirmButton.hidden=true;
+      output.innerHTML='<p class="game-error" role="alert">'+esc(error.message)+'</p>';
+    }finally{busy(reviewButton,false);}
+  };
+
+  confirmButton.onclick=async()=>{
+    if(!reviewed||running||confirmButton.disabled)return;
+    const body=requestBody();
+    const scale=Number(reviewed.wallet_units_per_usd||5000);
+    const spendUsd=Number(form.elements.max_spend_usd.value);
+    if(!Number.isFinite(spendUsd)||spendUsd<0){
+      output.innerHTML='<p class="game-error" role="alert">Enter a valid non-negative maximum spend.</p>';
+      return;
+    }
+    body.max_charge_credits=Math.floor(spendUsd*scale+1e-9);
+    body.quote_revision=reviewed.quote_revision;
+    running=true;
+    busy(confirmButton,true,'Mapping site…');
+    output.innerHTML='<p role="status">Mapping public URLs. OpenCrawl will use the available site-map route and keep provider details behind the capability boundary.</p>';
+    try{
+      const response=await api('/api/site-map/run',{method:'POST',body});
+      if(!output.isConnected)return;
+      const result=response.result||{},rows=result.urls||[],summary=response.summary||{},dataset=response.dataset;
+      const categoryEntries=Object.entries(summary.categories||{});
+      const visible=rows.slice(0,200);
+      output.innerHTML='<header class="repo-result-head"><div><span class="overline">SITE MAP COMPLETE</span><h2>'+fmt(summary.returned_urls||rows.length)+' URLs mapped</h2><p>'+esc(result.root_url||body.url)+'</p><small>'+esc(walletMoney(response.usage?.credits_charged||0))+' charged · <code>'+esc(response.request_id||'')+'</code>'+(summary.truncated?' · result limit reached':'')+'</small></div>'+(dataset?.id?'<a data-link href="/dashboard/datasets?dataset='+encodeURIComponent(dataset.id)+'">Open saved dataset '+icon('arrow')+'</a>':'')+'</header>'+
+        '<section class="stats-grid">'+
+          stat('Returned URLs',fmt(summary.returned_urls||0),'Normalized same-site records')+
+          stat('Reported URLs',fmt(summary.reported_urls||0),'Before OpenCrawl normalization')+
+          stat('Max depth',fmt(summary.max_depth||0),'URL path segments')+
+          stat('Categories',fmt(categoryEntries.length),'Heuristic URL classes')+
+        '</section>'+
+        (categoryEntries.length?'<div class="repo-suggestions">'+categoryEntries.map(([name,count])=>'<span class="badge">'+esc(name)+' · '+fmt(count)+'</span>').join('')+'</div>':'')+
+        (visible.length?'<div class="repo-result-list">'+visible.map(row=>'<article class="repo-card"><div><strong>'+esc(row.title||row.path||row.url)+'</strong><p>'+esc(row.url)+'</p><small>'+esc(row.category)+' · depth '+fmt(row.depth)+(row.parent_url?' · parent '+esc(row.parent_url):'')+'</small></div><div class="repo-card-actions"><a href="'+esc(row.url)+'" target="_blank" rel="noopener noreferrer">Open URL</a></div></article>').join('')+'</div>':'<p class="repo-empty">No same-site public URLs were returned.</p>')+
+        (rows.length>visible.length?'<p class="repo-note">Showing the first '+fmt(visible.length)+' URLs here. The saved dataset contains all returned rows.</p>':'')+
+        '<details class="game-operation-trace"><summary>Structured map result</summary><pre>'+esc(JSON.stringify(result,null,2))+'</pre></details>'+
+        (response.warnings?.length?'<div class="notice warning">'+response.warnings.map(x=>esc(x.message)).join('<br>')+'</div>':'');
+      bindCommon();
+    }catch(error){
+      const usage=error.usage?(' · '+walletMoney(error.usage.credits_charged||0)+' charged'):'';
+      output.innerHTML='<p class="game-error" role="alert">'+esc(error.message)+(error.requestId?' · '+esc(error.requestId):'')+esc(usage)+'</p>';
+    }finally{
+      running=false;
+      reviewed=null;
+      quoteBox.hidden=true;
+      confirmButton.hidden=true;
+      busy(confirmButton,false);
+    }
+  };
+}
+
+async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,map:dashSiteMap,datasets:dashDatasets,'crawl-runs':dashCrawlRuns,games:dashGames,repositories:dashRepositories,data:dashPublicData,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,rewards:dashRewards,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
 async function renderRoute(){clearTransientUi();window.scrollTo(0,0);const p=location.pathname;try{if(p==='/'||p==='/pricing'||p==='/status'||p.startsWith('/docs')||p.startsWith('/legal')||LEGAL_ALIASES[p])await hydrateOptionalSession();if(p.startsWith('/dashboard'))return await renderDashboard();if(p==='/verify-email')return await renderVerify();if(p==='/login')return renderAuth('login');if(p==='/signup')return renderAuth('signup');if(p==='/forgot-password')return renderRecovery();if(p==='/reset-password')return renderRecovery(true);if(p.startsWith('/legal')||LEGAL_ALIASES[p])return renderLegal();if(p.startsWith('/docs'))return renderDocs();if(p==='/pricing')return await renderPricing();if(p==='/status')return await renderStatus();return await renderHome();}catch(error){console.error(error);if(error.status===401)return go('/login',true);app.innerHTML=`<main class="fatal"><div>${brand()}<span class="eyebrow">REQUEST FAILED</span><h1>The control plane did not answer cleanly.</h1><p>${esc(error.message)}</p><button class="btn primary" onclick="location.reload()">Try again</button></div></main>`;}}
 document.addEventListener('click',e=>{
   if(e.defaultPrevented)return;
@@ -1880,6 +2011,7 @@ function openRunInspector(event) {
     ['Build', [
       ['overview','terminal','Overview'],
       ['playground','activity','Playground'],
+      ['map','search','Site Map'],
       ['datasets','docs','Datasets'],
       ['crawl-runs','activity','Background crawls'],
       ['data','search','Public data'],
@@ -1974,7 +2106,7 @@ function openRunInspector(event) {
         <div class="cos-sheet-handle"></div>
         <div class="cos-sheet-title"><b>More</b><small>Workspace navigation</small></div>
         <span class="cos-sheet-label">Build & observe</span>
-        ${[['api-keys','key','API Keys'],['data','search','Public data'],['games','activity','Game Intelligence'],['repositories','api','Repositories'],['monitors','monitor','Monitors']].map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${icon(ico)} ${label}</a>`).join('')}
+        ${[['api-keys','key','API Keys'],['map','search','Site Map'],['data','search','Public data'],['games','activity','Game Intelligence'],['repositories','api','Repositories'],['monitors','monitor','Monitors']].map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${icon(ico)} ${label}</a>`).join('')}
         <span class="cos-sheet-label">Account & product</span>
         ${[['wallet','wallet','Wallet'],['rewards','gift','Rewards'],['billing','billing','Billing & Plans'],['settings','settings','Settings & Security']].map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${icon(ico)} ${label}</a>`).join('')}
         <a data-link href="/docs">${icon('docs')} Documentation</a>
