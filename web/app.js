@@ -947,7 +947,7 @@ async function dashCapabilities(){
     const schema=(spec&&spec.capability&&spec.capability.input_schema)||{};
     const properties=schema.properties||{};
     const args={};
-    $('[data-cap-field]',fields).forEach(function(control){
+    $$('[data-cap-field]',fields).forEach(function(control){
       const name=control.dataset.capField,field=properties[name]||{},value=control.value;
       if(value==='')return;
       let parsed=value;
