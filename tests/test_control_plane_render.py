@@ -1203,3 +1203,68 @@ def test_dataset_webhook_setup_secret_pause_and_retry_controls(frontend_url):
         page.get_by_role("heading", name="Dataset webhooks", exact=True).wait_for()
         assert not errors
         browser.close()
+
+
+def test_site_map_review_confirmation_dataset_and_responsive_layout(frontend_url):
+    quotes, executions = [], []
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if path == "/api/auth/me":
+                data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            elif path == "/api/api-keys":
+                data = {"keys": [{"id": "key_fixture", "name": "Mapping", "prefix": "oc_map"}]}
+            elif path == "/api/site-map/quote":
+                quotes.append(route.request.post_data_json)
+                data = {"quote": {"credits": 5, "maximum_charge_credits": 5,
+                    "quote_revision": "m" * 64, "wallet_units_per_usd": 5000,
+                    "available_credits": 1000, "affordable": True}}
+            elif path == "/api/site-map/run":
+                executions.append(route.request.post_data_json)
+                data = {"ok": True, "request_id": "req_map_fixture", "operation": "map",
+                    "usage": {"credits_reserved": 5, "credits_charged": 3},
+                    "summary": {"returned_urls": 2, "reported_urls": 2, "max_depth": 2,
+                                "truncated": False, "categories": {"docs": 1, "pricing": 1}},
+                    "dataset": {"id": "ds_map_fixture"},
+                    "result": {"root_url": "https://example.com", "urls": [
+                        {"url": "https://example.com/docs/api", "title": "<img src=x onerror=window.injected=true>",
+                         "path": "/docs/api", "depth": 2, "category": "docs",
+                         "parent_url": "https://example.com/docs/"},
+                        {"url": "https://example.com/pricing", "title": "Pricing",
+                         "path": "/pricing", "depth": 1, "category": "pricing",
+                         "parent_url": "https://example.com/"}
+                    ]}}
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/map")
+        page.get_by_label("Site root", exact=True).fill("https://example.com")
+        page.get_by_label("Focus (optional)", exact=True).fill("docs")
+        page.get_by_role("button", name="Review map cost", exact=True).click()
+        page.get_by_role("button", name="Confirm and map site", exact=True).wait_for()
+        assert len(quotes) == 1 and not executions
+        assert quotes[0]["url"] == "https://example.com"
+        assert quotes[0]["search"] == "docs"
+
+        page.get_by_role("button", name="Confirm and map site", exact=True).click()
+        page.get_by_role("heading", name="2 URLs mapped", exact=True).wait_for()
+        assert len(executions) == 1
+        assert executions[0]["max_charge_credits"] == 5
+        assert executions[0]["quote_revision"] == "m" * 64
+        assert page.get_by_role("link", name="Open saved dataset").get_attribute("href") == "/dashboard/datasets?dataset=ds_map_fixture"
+        assert page.locator(".repo-result-list img").count() == 0
+        assert page.evaluate("window.injected === undefined")
+
+        for width in (320, 390, 1366):
+            page.set_viewport_size({"width": width, "height": 800})
+            page.wait_for_timeout(50)
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
+        assert not errors, errors
+        browser.close()
