@@ -88,13 +88,16 @@ def test_site_map_payload_is_dataset_compatible() -> None:
 
 
 def test_site_map_routes_and_console_surface_are_registered() -> None:
-    from internet_hands.saas_app import app
-
-    paths = {route.path for route in app.routes if hasattr(route, "path")}
+    paths = {route.path for route in site_map_api.router.routes if hasattr(route, "path")}
     assert "/api/site-map/quote" in paths
     assert "/api/site-map/run" in paths
 
-    web = (Path(__file__).resolve().parents[1] / "web" / "app.js").read_text(encoding="utf-8")
+    root = Path(__file__).resolve().parents[1]
+    saas = (root / "src" / "internet_hands" / "saas_app.py").read_text(encoding="utf-8")
+    assert "from .site_map_api import router as site_map_router" in saas
+    assert "app.include_router(site_map_router)" in saas
+
+    web = (root / "web" / "app.js").read_text(encoding="utf-8")
     assert "/dashboard/map" in web
     assert "/api/site-map/quote" in web
     assert "/api/site-map/run" in web
