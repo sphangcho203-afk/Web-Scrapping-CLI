@@ -94,7 +94,7 @@ def test_scrape_normalizer_hides_provider_shape_and_preserves_outputs() -> None:
         route="rendered",
     )
     assert document["title"] == "Pricing"
-    assert document["text"] == "# Pricing Plans"
+    assert document["text"] == "Pricing Plans"\n    assert document["markdown"] == "# Pricing\\n[Plans](https://example.com/pricing)"
     assert document["links"] == [
         "https://example.com/pricing",
         "https://example.com/docs",
