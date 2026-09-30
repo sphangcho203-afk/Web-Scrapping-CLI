@@ -260,6 +260,12 @@ async def create_extract_run(request: Request):
             _CAPABILITY,
             metered,
         )
+        # Launch a newly queued run immediately so the user does not wait for the
+        # scheduler just to start upstream work. The durable row and reservation
+        # already exist; a lost response can be retried with the same idempotency key.
+        if run.get("status") == "queued":
+            await dispatch_capability_run(runs, run_id=run["id"])
+            run = await run_in_threadpool(runs.get, identity.user_id, run["id"])
         return _response({"run": run}, status_code=202)
     except ControlError as exc:
         raise _error(exc) from exc
