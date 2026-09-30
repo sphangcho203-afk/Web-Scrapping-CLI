@@ -19,7 +19,7 @@ METADATA_COLUMNS = "id,request_id,name,operation,row_count,columns,created_at,up
 def result_rows(result: dict[str, Any]) -> list[dict[str, Any]]:
     """Preserve each source record, including failures, with its collection type."""
     rows = []
-    for collection in ("search_results", "pages", "evidence"):
+    for collection in ("search_results", "pages", "evidence", "urls"):
         for item in result.get(collection) or []:
             if isinstance(item, dict):
                 rows.append({**item, "record_type": collection})
