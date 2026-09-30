@@ -120,10 +120,11 @@ async def test_native_batch_fetch_isolates_failures(monkeypatch: pytest.MonkeyPa
     assert rows[1]["status"] == "failed"
 
 
-def test_native_provider_exposes_six_bounded_tools() -> None:
+def test_native_provider_exposes_seven_bounded_tools() -> None:
     provider = NativeWebToolProvider()
     assert set(provider._descriptors()) == {
         "fetch",
+        "scrape",
         "search",
         "context",
         "map",
@@ -132,6 +133,77 @@ def test_native_provider_exposes_six_bounded_tools() -> None:
     }
     assert all(not row.side_effecting for row in provider._descriptors().values())
 
+
+
+@pytest.mark.asyncio
+async def test_native_scrape_returns_clean_document_without_browser(monkeypatch: pytest.MonkeyPatch) -> None:
+    html = """<html><head><title>Docs</title><meta name="description" content="API guide"></head>
+    <body><main><h1>Quickstart</h1><p>Use the API to collect public data reliably.</p>
+    <a href="/reference">Reference</a></main></body></html>"""
+
+    async def fake_fetch(url: str, **_kwargs):
+        return FetchResult(
+            request_url=url, final_url=url, status_code=200, headers={},
+            content_type="text/html", content_length=len(html), sha256="native-scrape",
+            elapsed_ms=1, captured_at=datetime.now(UTC), body_text=html,
+        )
+
+    monkeypatch.setattr("internet_hands.native_web_provider.fetch_url", fake_fetch)
+    provider = NativeWebToolProvider()
+    result = await provider.execute(
+        "scrape",
+        {"url": "https://example.com/docs", "formats": ["markdown", "links"]},
+    )
+    assert result["status"] == "completed"
+    assert result["data"]["metadata"]["title"] == "Docs"
+    assert "public data reliably" in result["data"]["text"]
+    assert "https://example.com/reference" in result["data"]["links"]
+    assert result["data"]["metadata"]["route"] == "http"
+
+
+@pytest.mark.asyncio
+async def test_native_smart_scrape_fails_over_on_unrendered_shell(monkeypatch: pytest.MonkeyPatch) -> None:
+    html = '<html><body><div id="root"></div><script src="/app.js"></script>' + (" " * 2000) + "</body></html>"
+
+    async def fake_fetch(url: str, **_kwargs):
+        return FetchResult(
+            request_url=url, final_url=url, status_code=200, headers={},
+            content_type="text/html", content_length=len(html), sha256="shell",
+            elapsed_ms=1, captured_at=datetime.now(UTC), body_text=html,
+        )
+
+    monkeypatch.setattr("internet_hands.native_web_provider.fetch_url", fake_fetch)
+    provider = NativeWebToolProvider()
+    smart = await provider.execute(
+        "scrape",
+        {"url": "https://example.com/app", "formats": ["markdown"], "fallbackOnThinContent": True},
+    )
+    forced_http = await provider.execute(
+        "scrape",
+        {"url": "https://example.com/app", "formats": ["markdown"], "fallbackOnThinContent": False},
+    )
+    assert smart["status"] == "failed"
+    assert "unrendered application shell" in smart["error"]
+    assert forced_http["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_native_scrape_rejects_rendered_only_formats_before_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    called = False
+
+    async def fake_fetch(url: str, **_kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("render-only format must not start the native fetch")
+
+    monkeypatch.setattr("internet_hands.native_web_provider.fetch_url", fake_fetch)
+    result = await NativeWebToolProvider().execute(
+        "scrape",
+        {"url": "https://example.com", "formats": ["screenshot"]},
+    )
+    assert result["status"] == "failed"
+    assert "requires a rendered scrape" in result["error"]
+    assert called is False
 
 @pytest.mark.asyncio
 async def test_native_batch_reserves_per_url_and_charges_failed_attempts(monkeypatch):
