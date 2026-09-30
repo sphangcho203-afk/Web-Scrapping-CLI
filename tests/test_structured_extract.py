@@ -334,6 +334,8 @@ def test_extract_ui_and_docs_are_productized() -> None:
     assert "/api/extract/runs" in web
     assert "Confirm and start extraction" in web
     assert "provider job identity stays private" in web
+    assert "$('[data-open-extract]').forEach" in web
+    assert "$$('[data-open-extract]')" not in web
 
     raw = (root / "web" / "docs-content.js").read_text(encoding="utf-8").strip()
     prefix = "window.OPENCRAWL_DOCS = "
