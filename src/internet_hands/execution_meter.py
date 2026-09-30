@@ -74,8 +74,15 @@ _current_usage: ContextVar[ExecutionUsage | None] = ContextVar(
 )
 
 
-def start_execution_meter():
-    return _current_usage.set(ExecutionUsage())
+def start_execution_meter(initial: dict[str, Any] | None = None):
+    usage = ExecutionUsage()
+    if initial:
+        for name, value in (initial.get("counters") or {}).items():
+            usage.add(name, value)
+        for name, value in (initial.get("provider_calls") or {}).items():
+            usage.add_provider_call(name, value)
+        usage.provider_events = [dict(event) for event in initial.get("provider_events") or []]
+    return _current_usage.set(usage)
 
 
 def reset_execution_meter(token: Any) -> None:

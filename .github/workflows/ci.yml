@@ -61,4 +61,4 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e '.[dev]'
-      - run: pytest -q tests/test_datasets.py tests/test_dataset_webhooks.py tests/test_crawl_runs.py
+      - run: pytest -q tests/test_datasets.py tests/test_dataset_webhooks.py tests/test_crawl_runs.py tests/test_crawl_resume.py

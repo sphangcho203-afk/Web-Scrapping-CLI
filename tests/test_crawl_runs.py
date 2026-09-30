@@ -217,7 +217,8 @@ def test_api_auth_validation_idempotency_and_owned_history(runs, monkeypatch):
     assert client.post("/api/crawl-runs", json=body, headers={**headers, "Authorization": "Bearer read"}).status_code == 403
     assert client.post("/api/crawl-runs", json=body, headers={**headers, "Authorization": "Bearer invalid"}).status_code == 401
     assert client.post("/api/crawl-runs", json=body, headers={"Authorization": "Bearer execute"}).status_code == 422
-    for invalid in ({**body, "max_pages": True}, {**body, "include_content": "yes"}, {**body, "operation": "research"}):
+    for invalid in ({**body, "max_pages": True}, {**body, "include_content": "yes"}, {**body, "operation": "research"},
+                    {"url": "https://example.com/" + "é" * 2048}):
         assert client.post("/api/crawl-runs", json=invalid, headers=headers).status_code == 422
     created = client.post("/api/crawl-runs", json=body, headers=headers)
     assert created.status_code == 202 and created.headers["cache-control"] == "no-store"
@@ -230,3 +231,88 @@ def test_api_auth_validation_idempotency_and_owned_history(runs, monkeypatch):
     assert client.post(base + "/cancel", headers={"Authorization": "Bearer read"}).status_code == 403
     assert client.post(base + "/cancel", headers={"Authorization": "Bearer foreign"}).status_code == 404
     assert client.post(base + "/cancel", headers=headers).json()["run"]["status"] == "cancelled"
+
+
+async def test_new_worker_resumes_atomic_frontier_without_recollecting_seed(runs, monkeypatch):
+    from datetime import UTC, datetime
+    from urllib.robotparser import RobotFileParser
+
+    from internet_hands import crawler
+    from internet_hands.crawl_run_api import crawl_arguments
+    from internet_hands.crawl_run_worker import dispatch_run
+    from internet_hands.datasets import DatasetStore
+    from internet_hands.models import FetchResult
+
+    class WorkerCrash(BaseException):
+        pass
+
+    jobs, identity = runs
+    row = jobs.create(identity, "resume", crawl_arguments({"url": "https://example.com/", "concurrency": 1}))
+    calls = []
+
+    async def fetch(url, **kwargs):
+        calls.append(url)
+        body = '<p>Seed</p><a href="/next">Next</a>' if url.endswith("/") else '<p>Next page</p>'
+        return FetchResult(request_url=url, final_url=url, status_code=200, headers={},
+            content_type="text/html", content_length=len(body), sha256="a" * 64,
+            elapsed_ms=1, captured_at=datetime.now(UTC), body_text=body)
+
+    async def robots(url):
+        parser = RobotFileParser()
+        parser.parse(["User-agent: *", "Allow: /"])
+        return parser
+
+    monkeypatch.setattr(crawler, "fetch_url", fetch)
+    monkeypatch.setattr(crawler, "_robots_for", robots)
+    monkeypatch.setattr(crawler, "validate_public_http_url", lambda _: None)
+    persist = jobs.checkpoint
+
+    def crash_after_commit(*args):
+        persist(*args)
+        raise WorkerCrash()
+
+    monkeypatch.setattr(jobs, "checkpoint", crash_after_commit)
+    with pytest.raises(WorkerCrash):
+        await dispatch_run(jobs)
+    with jobs.control._connect() as conn, conn.cursor() as cur:
+        cur.execute("SELECT * FROM ih_crawl_runs WHERE id=%s", (row["id"],))
+        checkpoint = cur.fetchone()
+        assert len(checkpoint["checkpoint"]["pages"]) == 1
+        assert checkpoint["frontier"]["pending"] == [["https://example.com/next", 1]]
+        assert checkpoint["measured_usage"]["counters"]["native_web_requests"] == 1
+        cur.execute("UPDATE ih_crawl_runs SET lease_until=now()-interval '1 second' WHERE id=%s", (row["id"],))
+    # New instances restore exclusively from the database, as a replacement process does.
+    recovered = RunStore(ControlStore(jobs.control.dsn))
+    assert (await dispatch_run(recovered))["processed"] == 1
+    assert calls == ["https://example.com/", "https://example.com/next"]
+    current = recovered.get(identity.user_id, row["id"])
+    assert current["status"] == "completed" and current["attempts"] == 2
+    dataset = DatasetStore(recovered.control).get(identity.user_id, current["dataset_id"])
+    assert len(dataset["rows"]) == 2 and "Seed" in dataset["rows"][0]["text"]
+    with recovered.control._connect() as conn, conn.cursor() as cur:
+        cur.execute("SELECT measured_usage,frontier FROM ih_crawl_runs WHERE id=%s", (row["id"],))
+        terminal = cur.fetchone()
+        assert terminal["measured_usage"]["counters"]["native_web_requests"] == 2
+        assert terminal["frontier"] == {}
+        cur.execute("SELECT count(*) AS n FROM ih_usage_events WHERE user_id=%s", (identity.user_id,))
+        assert cur.fetchone()["n"] == 1
+
+
+async def test_invalid_frontier_is_visible_and_never_restarts_seed(runs, monkeypatch):
+    from internet_hands import crawl_run_worker
+    from internet_hands.crawl_run_api import crawl_arguments
+    jobs, identity = runs
+    row = jobs.create(identity, "invalid-frontier", crawl_arguments({"url": "https://example.com/"}))
+    job = jobs.claim()
+    jobs.checkpoint(job, {"seed_url": "https://example.com/", "pages": []}, {}, {"version": 999})
+    with jobs.control._connect() as conn, conn.cursor() as cur:
+        cur.execute("UPDATE ih_crawl_runs SET lease_until=now()-interval '1 second' WHERE id=%s", (row["id"],))
+
+    async def unexpected(*args, **kwargs):
+        pytest.fail("Invalid checkpoint must not start network collection.")
+
+    monkeypatch.setattr(crawl_run_worker, "crawl", unexpected)
+    assert (await crawl_run_worker.dispatch_run(jobs))["processed"] == 1
+    current = jobs.get(identity.user_id, row["id"])
+    assert current["status"] == "failed" and current["error_code"] == "invalid_checkpoint"
+    assert current["credits_charged"] == 0

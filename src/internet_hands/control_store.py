@@ -183,6 +183,7 @@ CREATE TABLE IF NOT EXISTS ih_crawl_runs (
     lease_token text,
     lease_until timestamptz,
     checkpoint jsonb NOT NULL DEFAULT '{}'::jsonb,
+    frontier jsonb NOT NULL DEFAULT '{}'::jsonb,
     measured_usage jsonb NOT NULL DEFAULT '{}'::jsonb,
     dataset_id text REFERENCES ih_datasets(id) ON DELETE SET NULL,
     error_code text,
@@ -192,6 +193,7 @@ CREATE TABLE IF NOT EXISTS ih_crawl_runs (
     expires_at timestamptz NOT NULL DEFAULT now()+interval '24 hours',
     UNIQUE(user_id,idempotency_key)
 );
+ALTER TABLE ih_crawl_runs ADD COLUMN IF NOT EXISTS frontier jsonb NOT NULL DEFAULT '{}'::jsonb;
 CREATE INDEX IF NOT EXISTS ih_crawl_runs_queue_idx ON ih_crawl_runs(status,created_at);
 CREATE INDEX IF NOT EXISTS ih_crawl_runs_owner_idx ON ih_crawl_runs(user_id,created_at DESC);
 

@@ -29,6 +29,7 @@ def public_run(row: dict) -> dict:
     )} | {"url": row["arguments"]["url"], "progress": {
         "pages": checkpoint.get("page_count", len(pages)), "discovered_urls": checkpoint.get("discovered_urls", 0),
         "truncated": checkpoint.get("truncated", False),
+        "frontier_truncated": checkpoint.get("frontier_truncated", False),
     }}
 
 
@@ -117,13 +118,15 @@ class RunStore:
                 WHERE id=%s RETURNING *""", (token, row["id"]))
             return dict(cur.fetchone())
 
-    def checkpoint(self, job: dict, result: dict, usage: dict) -> bool:
+    def checkpoint(self, job: dict, result: dict, usage: dict, frontier: dict | None = None) -> bool:
         """Return cancellation intent; reject expired workers before they can write."""
         with self.control._connect() as conn, conn.cursor() as cur:
-            cur.execute("""UPDATE ih_crawl_runs SET checkpoint=%s::jsonb,measured_usage=%s::jsonb,updated_at=now()
+            cur.execute("""UPDATE ih_crawl_runs SET checkpoint=%s::jsonb,measured_usage=%s::jsonb,
+                frontier=COALESCE(%s::jsonb,frontier),updated_at=now()
                 WHERE id=%s AND status='running' AND lease_token=%s AND lease_until>now()
                 RETURNING cancel_requested""",
-                (json.dumps(result), json.dumps(usage), job["id"], job["lease_token"]))
+                (json.dumps(result), json.dumps(usage), json.dumps(frontier) if frontier is not None else None,
+                 job["id"], job["lease_token"]))
             row = cur.fetchone()
             if not row:
                 raise LostLease()
@@ -169,9 +172,10 @@ class RunStore:
         # link through its FK and does not leave a second copy of captured text.
         progress = {"page_count": len(result.get("pages") or []),
                     "discovered_urls": result.get("discovered_urls", 0),
-                    "truncated": result.get("truncated", False)}
+                    "truncated": result.get("truncated", False),
+                    "frontier_truncated": result.get("frontier_truncated", False)}
         cur.execute("""UPDATE ih_crawl_runs SET status=%s,credits_charged=%s,dataset_id=%s,
-            checkpoint=%s::jsonb,measured_usage=%s::jsonb,error_code=%s,lease_token=NULL,lease_until=NULL,
+            checkpoint=%s::jsonb,frontier='{}'::jsonb,measured_usage=%s::jsonb,error_code=%s,lease_token=NULL,lease_until=NULL,
             updated_at=now(),finished_at=now() WHERE id=%s""",
             (status, credits, dataset_id, json.dumps(progress), json.dumps(usage), error_code, row["id"]))
 

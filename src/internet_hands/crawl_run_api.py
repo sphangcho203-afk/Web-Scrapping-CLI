@@ -33,8 +33,8 @@ def crawl_arguments(body: dict) -> dict:
     if set(body) - allowed or body.get("operation", "crawl") != "crawl":
         raise HTTPException(422, detail="Background runs currently support URL crawls and their documented options.")
     url = body.get("url")
-    if not isinstance(url, str) or not url.strip() or len(url) > 4096:
-        raise HTTPException(422, detail="A public URL of at most 4096 characters is required.")
+    if not isinstance(url, str) or not url.strip() or len(url.strip().encode()) > 4096:
+        raise HTTPException(422, detail="A public URL of at most 4096 UTF-8 bytes is required.")
     args = {"url": url.strip()}
     for name, default, low, high in (("max_pages", 12, 1, 50), ("max_depth", 2, 0, 4),
         ("concurrency", 4, 1, 6), ("max_seconds", 30, 5, 45),

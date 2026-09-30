@@ -65,3 +65,8 @@ Saved Playground outputs now enqueue account-owned completion events transaction
 ## Durable collection follow-up
 
 Bounded URL crawls now have an owned background job API and dashboard with idempotent submission, transactional reservations, fenced worker recovery, persisted batch progress, cooperative cancellation and atomic dataset/webhook/billing completion. See [DURABLE_CRAWL_RUNS.md](DURABLE_CRAWL_RUNS.md). Recovery restarts a bounded crawl once; resumable per-page frontiers, asynchronous search/research and actual content-change monitor delivery remain follow-up architecture. Production promotion still requires the authenticated deployed flow.
+
+
+## Resumable frontier follow-up
+
+New background crawl checkpoints now persist an ordered owned frontier atomically with captured pages and measured usage. A replacement process resumes pending requests, preserves committed captures and carries original budgets. Legacy capture-only jobs retain seed-restart compatibility. In-flight uncommitted batches can repeat; URL frontier capacity is bounded and reported explicitly. Large multi-tick collection, asynchronous search/research and content-change monitor delivery remain follow-up work.

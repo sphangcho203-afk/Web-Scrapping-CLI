@@ -14,6 +14,17 @@ from internet_hands.execution_meter import (
 )
 
 
+def test_execution_meter_carries_saved_work_without_mutating_checkpoint():
+    saved = {"counters": {"native_web_requests": 2}, "provider_calls": {}, "provider_events": []}
+    token = start_execution_meter(saved)
+    try:
+        record_usage("native_web_requests")
+        assert execution_usage_snapshot()["counters"]["native_web_requests"] == 3
+        assert saved["counters"]["native_web_requests"] == 2
+    finally:
+        reset_execution_meter(token)
+
+
 def test_execution_meter_records_and_resets() -> None:
     token = start_execution_meter()
     try:

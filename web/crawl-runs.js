@@ -30,6 +30,7 @@ async function dashCrawlRuns() {
     '<p>' + fmt(run.progress.pages) + ' pages captured · ' + fmt(run.progress.discovered_urls) + ' URLs discovered · attempt ' + fmt(run.attempts) + '</p>' +
     '<p>' + fmt(run.credits_reserved) + ' credits reserved · ' + fmt(run.credits_charged) + ' charged</p>' +
     (run.status === 'queued' ? '<p>Waiting for a worker. You can close this page and return later.</p>' : '') +
+    (run.progress.frontier_truncated ? '<p>The URL frontier reached its storage limit; some discovered links were skipped.</p>' : '') +
     (run.progress.truncated ? '<p>The saved output is partial because a crawl limit or interruption was reached.</p>' : '') +
     (run.error_code ? '<p role="alert">Collection stopped: ' + esc(run.error_code.replaceAll('_', ' ')) + '. Any saved records remain available below.</p>' : '') +
     (run.dataset_id ? '<a class="btn primary" data-link href="/dashboard/datasets?dataset=' + encodeURIComponent(run.dataset_id) + '">Open saved records</a> ' : '') +

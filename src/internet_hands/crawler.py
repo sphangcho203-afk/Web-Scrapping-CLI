@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import fnmatch
+import hashlib
+import json
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable
 from urllib.parse import urlsplit
 from urllib.robotparser import RobotFileParser
 
+from .crawl_frontier import MAX_FRONTIER_URL_BYTES, MAX_FRONTIER_URLS, MAX_URL_BYTES, CrawlFrontier
 from .execution_meter import record_usage
 from .extractor import extract_document
 from .fetcher import DEFAULT_UA, extract_links, fetch_url
@@ -67,6 +70,8 @@ async def crawl(
     max_content_bytes_per_page: int = 50_000,
     max_content_bytes: int = 750_000,
     on_progress: Callable[[CrawlResult], Awaitable[None]] | None = None,
+    on_checkpoint: Callable[[CrawlResult, CrawlFrontier], Awaitable[None]] | None = None,
+    resume_checkpoint: tuple[CrawlResult, CrawlFrontier] | None = None,
 ) -> CrawlResult:
     """Crawl a bounded public site with SSRF, robots, depth, time and fan-out controls."""
     validate_public_http_url(seed_url)
@@ -95,6 +100,18 @@ async def crawl(
     seed = urlsplit(seed_url)
     seed_host = (seed.hostname or "").casefold()
 
+    resumable = on_checkpoint is not None or resume_checkpoint is not None
+    controls = {
+        "seed_url": seed_url, "max_pages": max_pages, "max_depth": max_depth,
+        "concurrency": concurrency, "max_seconds": float(max_seconds), "respect_robots": respect_robots,
+        "include_paths": list(include), "exclude_paths": list(exclude),
+        "include_subdomains": include_subdomains, "preserve_query": preserve_query,
+        "max_bytes_per_page": max_bytes_per_page, "include_content": include_content,
+        "max_content_bytes_per_page": max_content_bytes_per_page, "max_content_bytes": max_content_bytes,
+    }
+    config_hash = hashlib.sha256(json.dumps(controls, sort_keys=True).encode()).hexdigest()
+    if resumable and len(seed_url.encode()) > MAX_URL_BYTES:
+        raise ValueError("Checkpoint URLs exceed their byte budget.")
     started = time.monotonic()
     queue: deque[tuple[str, int]] = deque([(seed_url, 0)])
     enqueued: set[str] = {seed_url}
@@ -104,6 +121,38 @@ async def crawl(
     timed_out = False
     content_bytes = 0
     robots_cache: dict[str, RobotFileParser] = {}
+    elapsed_before = 0
+    frontier_truncated = False
+    frontier_bytes = len(seed_url.encode())
+    if resume_checkpoint is not None:
+        prior, frontier = resume_checkpoint
+        # Revalidate even in-memory instances: a caller may have mutated them.
+        frontier = CrawlFrontier.model_validate(frontier.model_dump())
+        if frontier.config_hash != config_hash or prior.seed_url != seed_url:
+            raise ValueError("Checkpoint controls do not match this crawl.")
+        pending_urls = [url for url, _ in frontier.pending]
+        all_urls = [*frontier.completed, *pending_urls]
+        if any(_normalize_url(url, preserve_query=preserve_query) != url
+               or urlsplit(url).scheme not in {"http", "https"}
+               or not _same_scope(seed_host, urlsplit(url).hostname, include_subdomains)
+               for url in all_urls):
+            raise ValueError("Checkpoint URLs are outside the crawl scope.")
+        if any(depth > max_depth or not _path_allowed(url, include, exclude)
+               for url, depth in frontier.pending if url != seed_url):
+            raise ValueError("Checkpoint frontier violates crawl controls.")
+        if (len(prior.pages) != len(frontier.completed) or len(prior.pages) > max_pages
+                or seed_url not in all_urls or prior.duration_ms < 0 or prior.skipped_urls < 0
+                or prior.content_bytes != sum(len((page.text or "").encode()) for page in prior.pages)
+                or prior.content_bytes > max_content_bytes):
+            raise ValueError("Checkpoint result exceeds crawl budgets or is inconsistent.")
+        queue = deque(frontier.pending)
+        seen = set(frontier.completed)
+        enqueued = seen | set(pending_urls)
+        pages = list(prior.pages)
+        skipped, content_bytes = prior.skipped_urls, prior.content_bytes
+        elapsed_before = prior.duration_ms
+        frontier_truncated = frontier.truncated
+        frontier_bytes = sum(len(url.encode()) for url in enqueued)
 
     async def robots_for(url: str) -> RobotFileParser | None:
         if not respect_robots:
@@ -183,13 +232,14 @@ async def crawl(
     def snapshot() -> CrawlResult:
         return CrawlResult(
             seed_url=seed_url, pages=list(pages), discovered_urls=len(enqueued),
-            skipped_urls=skipped, duration_ms=max(0, int((time.monotonic() - started) * 1000)),
-            truncated=bool(queue) or timed_out or len(pages) >= max_pages,
+            skipped_urls=skipped, duration_ms=elapsed_before + max(0, int((time.monotonic() - started) * 1000)),
+            truncated=bool(queue) or timed_out or len(pages) >= max_pages or frontier_truncated,
+            frontier_truncated=frontier_truncated,
             content_bytes=content_bytes, content_truncated=any(page.content_truncated for page in pages),
         )
 
     while queue and len(pages) < max_pages:
-        if time.monotonic() - started >= max_seconds:
+        if elapsed_before / 1000 + time.monotonic() - started >= max_seconds:
             timed_out = True
             break
 
@@ -222,14 +272,25 @@ async def crawl(
                     continue
                 if normalized in enqueued:
                     continue
+                if resumable:
+                    url_bytes = len(normalized.encode())
+                    if (url_bytes > MAX_URL_BYTES or len(enqueued) >= MAX_FRONTIER_URLS
+                            or frontier_bytes + url_bytes > MAX_FRONTIER_URL_BYTES):
+                        frontier_truncated = True
+                        skipped += 1
+                        continue
+                    frontier_bytes += url_bytes
                 enqueued.add(normalized)
                 queue.append((normalized, depth + 1))
 
+        if on_checkpoint is not None:
+            await on_checkpoint(snapshot(), CrawlFrontier(config_hash=config_hash,
+                pending=list(queue), completed=sorted(seen), truncated=frontier_truncated))
         if on_progress is not None:
             await on_progress(snapshot())
 
         if queue and delay_seconds > 0:
-            remaining = max(0.0, max_seconds - (time.monotonic() - started))
+            remaining = max(0.0, max_seconds - elapsed_before / 1000 - (time.monotonic() - started))
             await asyncio.sleep(min(delay_seconds, remaining))
 
     return snapshot()

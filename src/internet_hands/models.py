@@ -75,6 +75,7 @@ class CrawlResult(BaseModel):
     truncated: bool = False
     content_bytes: int = 0
     content_truncated: bool = False
+    frontier_truncated: bool = False
 
 
 class DownloadInfo(BaseModel):
