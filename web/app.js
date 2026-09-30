@@ -145,6 +145,7 @@ async function hydrateOptionalSession() {
 }
 function clearTransientUi() {
   clearTimeout(state.crawlRunTimer);
+  clearTimeout(state.extractRunTimer);
   document.querySelectorAll('.modal-backdrop').forEach(el=>el.remove());
   document.documentElement.classList.remove('ih-overlay-open');
   document.body?.classList.remove('ih-overlay-open');
@@ -1120,7 +1121,183 @@ async function dashSiteMap(){
   };
 }
 
-async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,scrape:dashSmartScrape,map:dashSiteMap,datasets:dashDatasets,'crawl-runs':dashCrawlRuns,games:dashGames,repositories:dashRepositories,data:dashPublicData,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,rewards:dashRewards,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
+
+async function dashStructuredExtract(){
+  const [keyData,recentData]=await Promise.all([
+    api('/api/api-keys'),
+    api('/api/extract/runs?limit=12&offset=0')
+  ]);
+  const keys=(keyData.keys||[]).filter(k=>!k.revoked_at&&(!k.expires_at||new Date(k.expires_at)>new Date()));
+  if(!keys.length){
+    dashboardShell('extract',
+      pageHead('STRUCTURED EXTRACT','Turn public pages into validated JSON','Give OpenCrawl public URLs, extraction instructions and an optional JSON Schema. The owned run continues even if you leave the page.')+
+      '<section class="search-key-lock">'+icon('key')+'<div><h2>Create an API key first</h2><p>Extraction is metered background work and needs an owned execution key.</p></div><a class="btn primary" data-link href="/dashboard/api-keys">Create API key</a></section>'
+    );
+    return;
+  }
+
+  const keyOptions=keys.map((k,i)=>'<option value="'+esc(k.id)+'" '+(i===0?'selected':'')+'>'+esc(k.name||k.prefix)+' · '+esc(k.prefix)+'…</option>').join('');
+  const recent=recentData.runs||[];
+
+  const runCard=run=>{
+    const status=String(run.status||'unknown');
+    const tone=status==='completed'?'success':status==='failed'||status==='cancelled'?'danger':'';
+    const result=run.result||{};
+    return '<article class="repo-card" data-extract-run="'+esc(run.id)+'"><div><span class="badge '+tone+'">'+esc(status)+'</span><strong>'+esc(run.capability||'Structured extraction')+'</strong><p><code>'+esc(run.id||'')+'</code></p><small>'+fmt(run.input?.source_count||0)+' source(s) · '+esc(when(run.updated_at))+(run.credits_charged!=null?' · '+esc(walletMoney(run.credits_charged))+' charged':'')+'</small></div><div class="repo-card-actions">'+(run.dataset_id?'<a data-link href="/dashboard/datasets?dataset='+encodeURIComponent(run.dataset_id)+'">Open dataset</a>':'<button class="btn small" type="button" data-open-extract="'+esc(run.id)+'">Inspect</button>')+'</div></article>';
+  };
+
+  dashboardShell('extract',
+    pageHead('STRUCTURED EXTRACT','Turn public pages into validated JSON','Use one to twenty public URLs, describe the fields you need, and optionally provide JSON Schema. OpenCrawl owns the durable run, billing and saved output.','<a class="btn" data-link href="/docs/structured-extract">'+icon('docs')+' Guide</a>')+
+    '<section class="game-tool-runner"><form id="extract-form" class="form-stack">'+
+      '<label>Public source URLs <small>One per line · 1–20</small><textarea name="urls" rows="5" maxlength="82000" required placeholder="https://example.com/pricing\nhttps://example.com/features"></textarea></label>'+
+      '<label>What should OpenCrawl extract?<textarea name="prompt" rows="4" maxlength="4000" required placeholder="Extract plan name, monthly price, currency and included features. Do not invent missing fields."></textarea></label>'+
+      '<div class="search-advanced-grid">'+
+        '<label>Effort<select name="effort"><option value="low">Low · small focused extraction</option><option value="medium" selected>Medium · balanced</option><option value="high">High · deeper research</option></select></label>'+
+        '<label>Execution key<select name="api_key_id" required>'+keyOptions+'</select></label>'+
+      '</div>'+
+      '<details class="game-operation-trace"><summary>Optional JSON Schema</summary><p>Use Schema when you need predictable downstream fields. Missing source values remain missing; OpenCrawl validates the returned structure instead of fabricating them.</p><textarea name="schema" rows="10" maxlength="32768" spellcheck="false" placeholder=\'{"type":"object","required":["plans"],"properties":{"plans":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"price":{"type":"number"}}}}}}\'></textarea></details>'+
+      '<div class="execution-budget-controls"><label>Maximum spend (USD)<input name="max_spend_usd" type="number" min="0" step="0.0002" placeholder="Set after cost review"></label><p>Review creates no provider work. Confirmation reserves the ceiling; unused funds are released.</p></div>'+
+      '<p class="search-security">'+icon('shield')+' Public targets only · private networks blocked · zero-data-retention requested upstream · provider job identity stays private</p>'+
+      '<button class="btn primary" id="extract-review" type="submit">Review extraction cost '+icon('arrow')+'</button>'+
+      '<section id="extract-quote" class="card execution-cost-review" hidden aria-live="polite"></section>'+
+      '<button class="btn primary" id="extract-confirm" type="button" hidden>Confirm and start extraction</button>'+
+    '</form><div id="extract-output" class="game-tool-output" aria-live="polite"></div></section>'+
+    '<section class="repo-workspace"><header class="repo-result-head"><div><span class="overline">RECENT EXTRACT RUNS</span><h2>Owned background work</h2><p>Reopen a run after leaving this page. Completed output lives in Datasets.</p></div></header><div id="extract-recent">'+(recent.length?'<div class="repo-result-list">'+recent.map(runCard).join('')+'</div>':'<p class="repo-empty">No structured extraction runs yet.</p>')+'</div></section>'
+  );
+
+  const form=$('#extract-form'),reviewButton=$('#extract-review'),confirmButton=$('#extract-confirm'),quoteBox=$('#extract-quote'),output=$('#extract-output');
+  let reviewed=null,running=false,generation=0;
+
+  const bodyFromForm=()=>{
+    const urls=String(form.elements.urls.value||'').split(/\r?\n/).map(v=>v.trim()).filter(Boolean);
+    let schema=null;
+    const rawSchema=String(form.elements.schema.value||'').trim();
+    if(rawSchema){
+      try{schema=JSON.parse(rawSchema);}catch{throw new Error('JSON Schema must be valid JSON.');}
+      if(!schema||Array.isArray(schema)||typeof schema!=='object')throw new Error('JSON Schema must be a JSON object.');
+    }
+    return {
+      urls,
+      prompt:String(form.elements.prompt.value||'').trim(),
+      effort:form.elements.effort.value,
+      api_key_id:form.elements.api_key_id.value,
+      ...(schema?{schema}:{}),
+    };
+  };
+
+  const invalidate=()=>{
+    generation++;
+    reviewed=null;
+    quoteBox.hidden=true;
+    confirmButton.hidden=true;
+  };
+  form.querySelectorAll('textarea,input:not([name="max_spend_usd"]),select').forEach(node=>{
+    node.addEventListener(node.tagName==='SELECT'?'change':'input',invalidate);
+  });
+
+  const showRun=run=>{
+    const result=run.result||{},stateName=String(run.status||'unknown');
+    const active=['queued','running','waiting'].includes(stateName);
+    output.innerHTML='<header class="repo-result-head"><div><span class="overline">EXTRACT RUN · '+esc(stateName.toUpperCase())+'</span><h2>'+fmt(run.input?.source_count||0)+' public source(s)</h2><p><code>'+esc(run.id||'')+'</code></p><small>'+esc(walletMoney(run.credits_reserved||0))+' reserved'+(run.credits_charged!=null?' · '+esc(walletMoney(run.credits_charged||0))+' charged':'')+'</small></div>'+(run.dataset_id?'<a class="btn primary" data-link href="/dashboard/datasets?dataset='+encodeURIComponent(run.dataset_id)+'">Open saved dataset '+icon('arrow')+'</a>':'')+'</header>'+
+      '<section class="stats-grid">'+
+        stat('State',esc(stateName),active?'Background execution is durable':'Terminal run state')+
+        stat('Records',fmt(result.record_count||0),'Saved structured rows')+
+        stat('Schema',result.schema_valid==null?'Not supplied':result.schema_valid?'Valid':'Mismatch','OpenCrawl validation')+
+        stat('Attempts',fmt(run.attempts||0),'Owned worker leases')+
+      '</section>'+
+      (result.schema_errors?.length?'<div class="notice warning"><b>Schema mismatches</b><br>'+result.schema_errors.slice(0,20).map(esc).join('<br>')+'</div>':'')+
+      (stateName==='waiting'?'<p class="repo-note">The upstream extraction is running. You can leave this page; OpenCrawl will keep the run and settle it when the protected worker observes a terminal result.</p>':'')+
+      (stateName==='queued'?'<button class="btn danger small" id="cancel-extract-run" type="button">Cancel queued run</button>':'')+
+      (stateName==='failed'?'<div class="notice danger">Extraction failed with <code>'+esc(run.error_code||'unknown_error')+'</code>. Usage reflects only the measured work OpenCrawl settled.</div>':'')+
+      (stateName==='cancelled'?'<div class="notice">This extraction was cancelled before upstream work began.</div>':'');
+    bindCommon();
+    $('#cancel-extract-run')?.addEventListener('click',async()=>{
+      try{
+        const data=await api('/api/extract/runs/'+encodeURIComponent(run.id)+'/cancel',{method:'POST',body:{}});
+        showRun(data.run);
+      }catch(error){toast(error.message,'error');}
+    });
+  };
+
+  const pollRun=async runId=>{
+    clearTimeout(state.extractRunTimer);
+    if(!location.pathname.endsWith('/extract'))return;
+    try{
+      const data=await api('/api/extract/runs/'+encodeURIComponent(runId));
+      const run=data.run||{};
+      showRun(run);
+      if(['queued','running','waiting'].includes(String(run.status||''))){
+        state.extractRunTimer=setTimeout(()=>pollRun(runId),15000);
+      }
+    }catch(error){
+      output.innerHTML='<p class="game-error" role="alert">'+esc(error.message)+'</p>';
+    }
+  };
+
+  $('[data-open-extract]').forEach(button=>button.addEventListener('click',()=>pollRun(button.dataset.openExtract)));
+
+  form.onsubmit=async event=>{
+    event.preventDefault();
+    if(running)return;
+    let body;
+    try{body=bodyFromForm();}catch(error){output.innerHTML='<p class="game-error" role="alert">'+esc(error.message)+'</p>';return;}
+    if(body.urls.length<1||body.urls.length>20){
+      output.innerHTML='<p class="game-error" role="alert">Enter between 1 and 20 public URLs, one per line.</p>';return;
+    }
+    if(body.prompt.length<3){
+      output.innerHTML='<p class="game-error" role="alert">Describe what you want extracted.</p>';return;
+    }
+    const run=++generation;
+    busy(reviewButton,true,'Reviewing cost…');
+    try{
+      const data=await api('/api/extract/quote',{method:'POST',body});
+      if(run!==generation||!form.isConnected)return;
+      reviewed=data.quote||{};
+      const meta=data.extract||{},scale=Number(reviewed.wallet_units_per_usd||5000);
+      const maximum=Number(reviewed.maximum_charge_credits??reviewed.credits??0);
+      form.elements.max_spend_usd.value=(scale>0?maximum/scale:0).toFixed(4);
+      quoteBox.hidden=false;
+      quoteBox.innerHTML='<header><span><span class="overline">COST REVIEW</span><h3>Maximum reservation '+esc(walletMoney(maximum,{wallet_units_per_usd:scale}))+'</h3></span><span class="badge '+(reviewed.affordable?'success':'danger')+'">'+(reviewed.affordable?'Wallet ready':'Insufficient wallet')+'</span></header>'+
+        '<p>This background extraction may finish after you leave the page. The accepted reservation is the ceiling; final measured work can settle lower.</p>'+
+        '<div class="ih-inspector-grid"><div><small>Sources</small><b>'+fmt(meta.source_count||body.urls.length)+'</b></div><div><small>Effort</small><b>'+esc(meta.effort||body.effort)+'</b></div><div><small>Schema</small><b>'+(meta.schema_provided?'Provided':'None')+'</b></div><div><small>Available</small><b>'+esc(walletMoney(reviewed.available_credits||0,{wallet_units_per_usd:scale}))+'</b></div></div>';
+      confirmButton.hidden=false;
+      confirmButton.disabled=!reviewed.affordable;
+      confirmButton.textContent=reviewed.affordable?'Confirm and start extraction':'Add wallet balance to continue';
+    }catch(error){
+      reviewed=null;quoteBox.hidden=true;confirmButton.hidden=true;
+      output.innerHTML='<p class="game-error" role="alert">'+esc(error.message)+'</p>';
+    }finally{busy(reviewButton,false);}
+  };
+
+  confirmButton.onclick=async()=>{
+    if(!reviewed||running||confirmButton.disabled)return;
+    let body;
+    try{body=bodyFromForm();}catch(error){toast(error.message,'error');return;}
+    const scale=Number(reviewed.wallet_units_per_usd||5000),spendUsd=Number(form.elements.max_spend_usd.value);
+    if(!Number.isFinite(spendUsd)||spendUsd<0){
+      output.innerHTML='<p class="game-error" role="alert">Enter a valid non-negative maximum spend.</p>';return;
+    }
+    body.max_charge_credits=Math.floor(spendUsd*scale+1e-9);
+    body.quote_revision=reviewed.quote_revision;
+    const key='extract:'+((globalThis.crypto&&typeof crypto.randomUUID==='function')?crypto.randomUUID():Date.now().toString(36)+'-'+Math.random().toString(36).slice(2));
+    running=true;busy(confirmButton,true,'Starting extraction…');
+    output.innerHTML='<p role="status">Creating an owned extraction run and launching bounded upstream work…</p>';
+    try{
+      const data=await api('/api/extract/runs',{method:'POST',body,headers:{'Idempotency-Key':key}});
+      const run=data.run||{};
+      showRun(run);
+      if(['queued','running','waiting'].includes(String(run.status||''))){
+        state.extractRunTimer=setTimeout(()=>pollRun(run.id),5000);
+      }
+    }catch(error){
+      output.innerHTML='<p class="game-error" role="alert">'+esc(error.message)+(error.requestId?' · '+esc(error.requestId):'')+'</p>';
+    }finally{
+      running=false;reviewed=null;quoteBox.hidden=true;confirmButton.hidden=true;busy(confirmButton,false);
+    }
+  };
+}
+
+async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,scrape:dashSmartScrape,map:dashSiteMap,extract:dashStructuredExtract,datasets:dashDatasets,'crawl-runs':dashCrawlRuns,games:dashGames,repositories:dashRepositories,data:dashPublicData,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,rewards:dashRewards,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
 async function renderRoute(){clearTransientUi();window.scrollTo(0,0);const p=location.pathname;try{if(p==='/'||p==='/pricing'||p==='/status'||p.startsWith('/docs')||p.startsWith('/legal')||LEGAL_ALIASES[p])await hydrateOptionalSession();if(p.startsWith('/dashboard'))return await renderDashboard();if(p==='/verify-email')return await renderVerify();if(p==='/login')return renderAuth('login');if(p==='/signup')return renderAuth('signup');if(p==='/forgot-password')return renderRecovery();if(p==='/reset-password')return renderRecovery(true);if(p.startsWith('/legal')||LEGAL_ALIASES[p])return renderLegal();if(p.startsWith('/docs'))return renderDocs();if(p==='/pricing')return await renderPricing();if(p==='/status')return await renderStatus();return await renderHome();}catch(error){console.error(error);if(error.status===401)return go('/login',true);app.innerHTML=`<main class="fatal"><div>${brand()}<span class="eyebrow">REQUEST FAILED</span><h1>The control plane did not answer cleanly.</h1><p>${esc(error.message)}</p><button class="btn primary" onclick="location.reload()">Try again</button></div></main>`;}}
 document.addEventListener('click',e=>{
   if(e.defaultPrevented)return;
@@ -2166,6 +2343,7 @@ function openRunInspector(event) {
       ['playground','activity','Playground'],
       ['scrape','api','Smart Scrape'],
       ['map','search','Site Map'],
+      ['extract','docs','Structured Extract'],
       ['datasets','docs','Datasets'],
       ['crawl-runs','activity','Background crawls'],
       ['data','search','Public data'],
