@@ -836,7 +836,238 @@ async function dashPublicData(){
     finally{running=false;busy(button,false);form.removeAttribute('aria-busy');}
   };
 }
-async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,datasets:dashDatasets,'crawl-runs':dashCrawlRuns,games:dashGames,repositories:dashRepositories,data:dashPublicData,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,rewards:dashRewards,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
+
+async function dashCapabilities(){
+  const [catalog,keyData,dashboard]=await Promise.all([
+    api('/api/capabilities?pack=web&limit=100'),
+    api('/api/api-keys'),
+    api('/api/dashboard')
+  ]);
+  const capabilities=catalog.capabilities||[];
+  const keys=(keyData.keys||[]).filter(function(k){return !k.revoked_at&&(!k.expires_at||new Date(k.expires_at)>new Date());});
+  const account=dashboard.account||{};
+  const available=Number(account.monthly_credits||0)+Number(account.purchased_credits||0)-Number(account.reserved_credits||0);
+  if(!keys.length){
+    dashboardShell('capabilities',
+      headline('WEB CAPABILITIES','Run registered web tools','Use the same semantic capabilities exposed to agents, with real wallet accounting and saved outputs.')+
+      '<section class="search-key-lock">'+icon('key')+'<div><small>API KEY REQUIRED</small><h2>Create an API key first.</h2><p>Workbench runs are metered and attributed to an owned execution key.</p></div><a class="btn primary" data-link href="/dashboard/api-keys">Create API key</a></section>'
+    );
+    return;
+  }
+  if(!capabilities.length){
+    dashboardShell('capabilities',
+      headline('WEB CAPABILITIES','Run registered web tools','Only real registered capabilities appear here.')+
+      '<div class="smart-empty">'+icon('activity')+'<span><b>No web capabilities are registered.</b><p>The workbench will not invent placeholder tools.</p></span></div>'
+    );
+    return;
+  }
+
+  const capabilityOptions=capabilities.map(function(cap){
+    return '<option value="'+esc(cap.id)+'">'+esc(cap.name)+' · '+esc(cap.id)+'</option>';
+  }).join('');
+  const keyOptions=keys.map(function(k,i){
+    return '<option value="'+esc(k.id)+'" '+(i===0?'selected':'')+'>'+esc(k.name)+' · '+esc(k.prefix)+'…</option>';
+  }).join('');
+
+  dashboardShell('capabilities',
+    headline('WEB CAPABILITIES','Capability workbench','Run OpenCrawl semantic capabilities directly. Provider routing stays behind the product boundary; cost, output and failures stay visible.','<a class="btn" data-link href="/dashboard/datasets">'+icon('docs')+' Datasets</a>')+
+    '<section class="cap-workbench">'+
+      '<aside class="cap-workbench-picker">'+
+        '<label>Capability<select id="cap-id">'+capabilityOptions+'</select></label>'+
+        '<div id="cap-summary" class="cap-summary" aria-live="polite"></div>'+
+        '<details><summary>Execution identity</summary><label>API key<select id="cap-key">'+keyOptions+'</select></label><p>'+icon('shield')+' Scoped key · server-held provider credentials</p></details>'+
+        '<a data-link href="/docs/tool-mesh">How semantic routing works →</a>'+
+      '</aside>'+
+      '<section class="cap-workbench-main">'+
+        '<form id="cap-form" class="form-stack">'+
+          '<div id="cap-fields" class="cap-fields" aria-live="polite"></div>'+
+          '<details class="cap-raw"><summary>Raw JSON arguments</summary>'+
+            '<label class="check"><input id="cap-use-raw" type="checkbox"> Use raw JSON instead of generated fields</label>'+
+            '<textarea id="cap-raw-json" rows="9" spellcheck="false">{}</textarea>'+
+          '</details>'+
+          '<div class="execution-budget-controls"><label>Maximum spend (USD)<input id="cap-spend-limit" type="number" min="0" step="0.0002" placeholder="Use reviewed maximum"></label><p>Review first. The server rechecks the quote and wallet before execution.</p></div>'+
+          '<p class="search-security">'+icon('shield')+' Read-only workbench · <span id="cap-wallet">'+esc(walletMoney(available))+'</span> wallet available</p>'+
+          '<button class="btn primary" id="cap-review" type="submit">Review cost '+icon('arrow')+'</button>'+
+          '<section id="cap-cost-review" class="card execution-cost-review" hidden aria-live="polite"></section>'+
+        '</form>'+
+        '<section id="cap-output" class="cap-output" hidden aria-live="polite"></section>'+
+      '</section>'+
+    '</section>'
+  );
+  bindCommon();
+
+  const selector=$('#cap-id'),form=$('#cap-form'),fields=$('#cap-fields'),summary=$('#cap-summary');
+  const rawToggle=$('#cap-use-raw'),raw=$('#cap-raw-json'),cost=$('#cap-cost-review'),output=$('#cap-output');
+  const spend=$('#cap-spend-limit'),review=$('#cap-review');
+  let spec=null,reviewed=null,quoteGeneration=0,running=false;
+
+  function invalidate(){
+    quoteGeneration++;reviewed=null;cost.hidden=true;
+    const old=$('#cap-confirm');if(old)old.remove();
+  }
+
+  function renderFields(schema){
+    const properties=(schema&&schema.properties)||{};
+    const required=new Set((schema&&schema.required)||[]);
+    const entries=Object.entries(properties);
+    if(!entries.length){
+      fields.innerHTML='<div class="notice">This capability has no generated fields. Use Raw JSON arguments.</div>';
+      rawToggle.checked=true;
+      raw.closest('details').open=true;
+      return;
+    }
+    fields.innerHTML=entries.map(function(entry,index){
+      const name=entry[0],field=entry[1]||{},req=required.has(name);
+      const label=esc(name)+(req?' *':'');
+      const desc=field.description?'<small>'+esc(field.description)+'</small>':'';
+      const attr=' data-cap-field="'+esc(name)+'" data-cap-index="'+index+'" '+(req?'required':'');
+      let control='';
+      if(Array.isArray(field.enum)){
+        control='<select'+attr+'><option value="">Choose a value</option>'+field.enum.map(function(value,i){return '<option value="'+i+'">'+esc(String(value))+'</option>';}).join('')+'</select>';
+      }else if(field.type==='boolean'){
+        control='<select'+attr+'><option value="">Choose</option><option value="true">True</option><option value="false">False</option></select>';
+      }else if(field.type==='object'||field.type==='array'){
+        control='<textarea'+attr+' rows="5" spellcheck="false" placeholder="'+(field.type==='array'?'[]':'{}')+'"></textarea>';
+      }else{
+        const numeric=field.type==='integer'||field.type==='number';
+        const urlish=field.format==='uri'||/url$/i.test(name);
+        control='<input'+attr+' type="'+(numeric?'number':urlish?'url':'text')+'" '+(numeric?'step="'+(field.type==='integer'?'1':'any')+'" ':'')+(field.minimum!=null?'min="'+esc(String(field.minimum))+'" ':'')+(field.maximum!=null?'max="'+esc(String(field.maximum))+'" ':'')+'>';
+      }
+      return '<label class="cap-field"><span>'+label+'</span>'+control+desc+'</label>';
+    }).join('');
+  }
+
+  function collectArguments(){
+    if(rawToggle.checked){
+      let parsed;
+      try{parsed=JSON.parse(raw.value||'{}');}catch{throw new Error('Raw arguments must be valid JSON.');}
+      if(!parsed||Array.isArray(parsed)||typeof parsed!=='object')throw new Error('Raw arguments must be a JSON object.');
+      return parsed;
+    }
+    const schema=(spec&&spec.capability&&spec.capability.input_schema)||{};
+    const properties=schema.properties||{};
+    const args={};
+    $('[data-cap-field]',fields).forEach(function(control){
+      const name=control.dataset.capField,field=properties[name]||{},value=control.value;
+      if(value==='')return;
+      let parsed=value;
+      if(Array.isArray(field.enum))parsed=field.enum[Number(value)];
+      else if(field.type==='integer')parsed=Number.parseInt(value,10);
+      else if(field.type==='number')parsed=Number(value);
+      else if(field.type==='boolean')parsed=value==='true';
+      else if(field.type==='object'||field.type==='array'){
+        try{parsed=JSON.parse(value);}catch{throw new Error(name+' must be valid JSON.');}
+        if(field.type==='array'&&!Array.isArray(parsed))throw new Error(name+' must be a JSON array.');
+        if(field.type==='object'&&(!parsed||Array.isArray(parsed)||typeof parsed!=='object'))throw new Error(name+' must be a JSON object.');
+      }
+      args[name]=parsed;
+    });
+    return args;
+  }
+
+  async function loadCapability(){
+    invalidate();output.hidden=true;review.disabled=true;
+    summary.innerHTML='<p>Loading registered schema and availability…</p>';
+    fields.innerHTML='<p>Inspecting capability…</p>';
+    try{
+      const data=await api('/api/capabilities/'+encodeURIComponent(selector.value));
+      spec=data;
+      const cap=data.capability||{},availability=data.availability||{};
+      summary.innerHTML='<span class="overline">'+esc(cap.id||'CAPABILITY')+'</span><h2>'+esc(cap.name||cap.id||'Capability')+'</h2><p>'+esc(cap.description||'')+'</p>'+
+        '<div class="cap-tags">'+(cap.tags||[]).slice(0,8).map(function(tag){return '<span>'+esc(tag)+'</span>';}).join('')+'</div>'+
+        (availability.interactive_ready?'<p class="cap-ready">'+icon('check')+' Interactive execution ready · '+esc(String(availability.available_routes||0))+' route(s)</p>':'<div class="notice warning"><b>Not runnable here yet.</b><p>'+esc(availability.reason||'No synchronous route is available.')+'</p></div>');
+      renderFields(cap.input_schema||{});
+      raw.value='{}';
+      review.disabled=!availability.interactive_ready;
+      review.textContent=availability.interactive_ready?'Review cost':'Unavailable in interactive workbench';
+    }catch(error){
+      spec=null;summary.innerHTML='<div class="notice danger">'+esc(error.message)+'</div>';
+      fields.innerHTML='';review.disabled=true;
+    }
+  }
+
+  selector.addEventListener('change',loadCapability);
+  form.addEventListener('input',function(e){if(e.target!==rawToggle)invalidate();});
+  form.addEventListener('change',invalidate);
+  rawToggle.addEventListener('change',function(){
+    fields.hidden=rawToggle.checked;
+    raw.disabled=!rawToggle.checked;
+    invalidate();
+  });
+  raw.disabled=true;
+
+  form.addEventListener('submit',async function(e){
+    e.preventDefault();
+    if(running||!spec||!spec.availability.interactive_ready)return;
+    let args;
+    try{args=collectArguments();}catch(error){toast(error.message,'error');return;}
+    const key=$('#cap-key').value;
+    const fingerprint=JSON.stringify({id:selector.value,key:key,args:args,limit:spend.value});
+    if(!reviewed||reviewed.fingerprint!==fingerprint||!e.submitter||e.submitter.id!=='cap-confirm'){
+      const generation=quoteGeneration;
+      review.disabled=true;cost.hidden=false;cost.textContent='Checking current price…';
+      try{
+        const data=await api('/api/capabilities/'+encodeURIComponent(selector.value)+'/quote',{method:'POST',body:{api_key_id:key,arguments:args}});
+        if(generation!==quoteGeneration||!form.isConnected)return;
+        const q=data.quote||{},scale=Number(q.wallet_units_per_usd);
+        if(!Number.isSafeInteger(q.credits)||q.credits<0||typeof q.quote_revision!=='string'||q.quote_revision.length!==64||!Number.isFinite(scale)||scale<=0)
+          throw new Error('The server did not return a valid execution quote.');
+        let cap=q.credits;
+        if(spend.value!==''){
+          const converted=Number(spend.value)*scale;
+          if(!Number.isFinite(converted)||converted<0||Math.abs(converted-Math.round(converted))>0.000001||converted>1000000000)
+            throw new Error('Choose a spending limit in whole wallet units.');
+          cap=Math.round(converted);
+        }
+        const affordable=q.affordable===true,within=q.credits<=cap;
+        cost.innerHTML='<h3>Review this capability run</h3><p><b>'+esc(walletMoney(q.credits,q))+' maximum reservation</b></p><p>'+esc(walletMoney(q.available_credits,q))+' available · '+esc(walletMoney(cap,q))+' spending limit</p>'+
+          '<p>The reservation is the ceiling. Final measured work may charge less; unused funds are released.</p>'+
+          (!within?'<p role="alert">This execution exceeds your spending limit.</p>':'')+
+          (!affordable?'<p role="alert">Your wallet cannot cover this reservation.</p><a class="btn" data-link href="/dashboard/wallet">Open wallet</a>':'');
+        bindCommon();
+        if(affordable&&within){
+          reviewed={fingerprint:fingerprint,quote:q,cap:cap,args:args,key:key};
+          cost.insertAdjacentHTML('beforeend','<button class="btn primary" id="cap-confirm" type="submit">Confirm & run</button>');
+        }
+      }catch(error){reviewed=null;cost.innerHTML='<p role="alert">'+esc(error.message)+'</p>';}
+      finally{review.disabled=false;}
+      return;
+    }
+
+    running=true;review.disabled=true;
+    const confirmed=reviewed;reviewed=null;cost.hidden=true;
+    output.hidden=false;output.innerHTML='<div class="ih-execution-progress" role="status"><div class="ih-execution-head"><span class="ih-execution-symbol">⚙️</span><div><b>Executing capability</b><p>'+esc(selector.value)+'</p></div></div><ol class="ih-execution-stages"><li class="done">Quote confirmed</li><li class="done">Wallet reservation requested</li><li class="current">Routing read-only capability</li><li>Saving bounded output</li><li>Complete</li></ol></div>';
+    try{
+      const data=await api('/api/capabilities/'+encodeURIComponent(selector.value)+'/run',{method:'POST',body:{
+        api_key_id:confirmed.key,
+        arguments:confirmed.args,
+        max_charge_credits:confirmed.cap,
+        quote_revision:confirmed.quote.quote_revision
+      }});
+      const result=data.result||{},attempts=result.route_attempts||[];
+      output.innerHTML='<div class="cap-result-head"><div><span class="overline">COMPLETE</span><h2>'+esc((spec.capability||{}).name||selector.value)+'</h2><p>'+esc(walletMoney((data.usage||{}).credits_charged||0))+' charged · <code>'+esc(data.request_id||'')+'</code></p></div><button class="btn" id="cap-rerun">Run again</button></div>'+
+        (data.dataset&&data.dataset.id?'<a class="btn primary" data-link href="/dashboard/datasets?dataset='+encodeURIComponent(data.dataset.id)+'">Open saved dataset</a>':'')+
+        ((data.warnings||[]).map(function(w){return '<div class="notice warning">'+esc(w.message||'Output was not saved.')+'</div>';}).join(''))+
+        '<details open><summary>Result</summary><pre>'+esc(JSON.stringify(result.data,null,2))+'</pre></details>'+
+        '<details><summary>Execution trace</summary><p>'+attempts.length+' route attempt(s) · '+esc(String(result.duration_ms||0))+' ms</p><pre>'+esc(JSON.stringify(attempts,null,2))+'</pre></details>';
+      bindCommon();
+      $('#cap-rerun')?.addEventListener('click',function(){output.hidden=true;form.scrollIntoView({behavior:'smooth',block:'start'});});
+      api('/api/dashboard').then(function(d){
+        const a=d.account||{},balance=Number(a.monthly_credits||0)+Number(a.purchased_credits||0)-Number(a.reserved_credits||0);
+        const node=$('#cap-wallet');if(node)node.textContent=walletMoney(balance);
+      }).catch(function(){});
+    }catch(error){
+      output.innerHTML='<div class="search-error" role="alert">'+icon('shield')+'<div><h3>Capability did not complete</h3><p>'+esc(error.message)+'</p>'+(error.requestId?'<p>Request <code>'+esc(error.requestId)+'</code></p>':'')+(error.usage?'<p>'+esc(walletMoney(error.usage.credits_charged||0))+' charged for measured work.</p>':'')+'<button class="btn small" id="cap-retry">Review again</button></div></div>';
+      $('#cap-retry')?.addEventListener('click',function(){output.hidden=true;form.requestSubmit(review);});
+    }finally{
+      running=false;review.disabled=false;invalidate();
+    }
+  });
+
+  await loadCapability();
+}
+
+async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,capabilities:dashCapabilities,datasets:dashDatasets,'crawl-runs':dashCrawlRuns,games:dashGames,repositories:dashRepositories,data:dashPublicData,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,rewards:dashRewards,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
 async function renderRoute(){clearTransientUi();window.scrollTo(0,0);const p=location.pathname;try{if(p==='/'||p==='/pricing'||p==='/status'||p.startsWith('/docs')||p.startsWith('/legal')||LEGAL_ALIASES[p])await hydrateOptionalSession();if(p.startsWith('/dashboard'))return await renderDashboard();if(p==='/verify-email')return await renderVerify();if(p==='/login')return renderAuth('login');if(p==='/signup')return renderAuth('signup');if(p==='/forgot-password')return renderRecovery();if(p==='/reset-password')return renderRecovery(true);if(p.startsWith('/legal')||LEGAL_ALIASES[p])return renderLegal();if(p.startsWith('/docs'))return renderDocs();if(p==='/pricing')return await renderPricing();if(p==='/status')return await renderStatus();return await renderHome();}catch(error){console.error(error);if(error.status===401)return go('/login',true);app.innerHTML=`<main class="fatal"><div>${brand()}<span class="eyebrow">REQUEST FAILED</span><h1>The control plane did not answer cleanly.</h1><p>${esc(error.message)}</p><button class="btn primary" onclick="location.reload()">Try again</button></div></main>`;}}
 document.addEventListener('click',e=>{
   if(e.defaultPrevented)return;
@@ -1880,6 +2111,7 @@ function openRunInspector(event) {
     ['Build', [
       ['overview','terminal','Overview'],
       ['playground','activity','Playground'],
+      ['capabilities','terminal','Web Tools'],
       ['datasets','docs','Datasets'],
       ['crawl-runs','activity','Background crawls'],
       ['data','search','Public data'],
@@ -1974,7 +2206,7 @@ function openRunInspector(event) {
         <div class="cos-sheet-handle"></div>
         <div class="cos-sheet-title"><b>More</b><small>Workspace navigation</small></div>
         <span class="cos-sheet-label">Build & observe</span>
-        ${[['api-keys','key','API Keys'],['data','search','Public data'],['games','activity','Game Intelligence'],['repositories','api','Repositories'],['monitors','monitor','Monitors']].map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${icon(ico)} ${label}</a>`).join('')}
+        ${[['capabilities','terminal','Web Tools'],['api-keys','key','API Keys'],['data','search','Public data'],['games','activity','Game Intelligence'],['repositories','api','Repositories'],['monitors','monitor','Monitors']].map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${icon(ico)} ${label}</a>`).join('')}
         <span class="cos-sheet-label">Account & product</span>
         ${[['wallet','wallet','Wallet'],['rewards','gift','Rewards'],['billing','billing','Billing & Plans'],['settings','settings','Settings & Security']].map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${icon(ico)} ${label}</a>`).join('')}
         <a data-link href="/docs">${icon('docs')} Documentation</a>
