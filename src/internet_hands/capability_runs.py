@@ -251,23 +251,29 @@ class CapabilityRunStore:
                 )
             return public_run(dict(row))
 
-    def claim(self) -> dict[str, Any] | None:
-        """Lease one queued launch or due provider-status poll."""
+    def claim(self, run_id: str | None = None) -> dict[str, Any] | None:
+        """Lease one queued launch or due provider-status poll.
+
+        A caller may name a newly created run to launch it immediately. Scheduled
+        workers omit run_id and select the oldest eligible global job.
+        """
         self.ensure_schema()
         with self.control._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT *,expires_at<=now() AS expired
                 FROM ih_capability_runs
-                WHERE (
+                WHERE (%s IS NULL OR id=%s)
+                  AND (
                     status='queued'
                     OR (status='waiting' AND next_poll_at<=now())
                     OR (status='running' AND lease_until<=now())
-                )
+                  )
                 ORDER BY next_poll_at,created_at,id
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
-                """
+                """,
+                (run_id, run_id),
             )
             row = cur.fetchone()
             if not row:
