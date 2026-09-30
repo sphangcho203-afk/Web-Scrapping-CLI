@@ -177,7 +177,9 @@ class _Runs:
         self.finished = None
         self.failed = None
 
-    def claim(self):
+    def claim(self, run_id=None):
+        if run_id is not None and self.job is not None:
+            assert run_id == self.job["id"]
         value, self.job = self.job, None
         return value
 
