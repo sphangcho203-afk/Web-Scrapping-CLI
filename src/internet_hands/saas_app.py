@@ -32,6 +32,7 @@ from .security_api import router as security_router
 from .security_hardening import router as security_hardening_router
 from .site_map_api import router as site_map_router
 from .smart_scrape_api import router as smart_scrape_router
+from .structured_extract_api import router as structured_extract_router
 from .site import router as site_router
 from .system_health import router as system_health_router
 from .usage_api import router as usage_router
@@ -81,6 +82,7 @@ app.include_router(repository_router)
 app.include_router(public_data_router)
 app.include_router(site_map_router)
 app.include_router(smart_scrape_router)
+app.include_router(structured_extract_router)
 app.include_router(game_router)
 app.include_router(intelligence_router)
 app.include_router(site_router)
