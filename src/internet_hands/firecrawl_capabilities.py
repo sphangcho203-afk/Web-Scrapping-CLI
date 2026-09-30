@@ -37,6 +37,100 @@ def build_firecrawl_capabilities() -> list[Capability]:
             ),
         ),
         Capability(
+            id="web.scrape.smart",
+            name="Smart public page scrape",
+            description=(
+                "Scrape one public page with the least expensive reliable route: bounded native "
+                "HTTP extraction first, then a rendered Firecrawl fallback only when needed."
+            ),
+            pack="web",
+            tags=("web", "scrape", "smart", "markdown", "http", "rendered"),
+            candidates=(
+                CapabilityCandidate(
+                    provider="nativeweb",
+                    ref="nativeweb:scrape",
+                    priority=5,
+                    defaults={"fallbackOnThinContent": True},
+                    argument_map={
+                        "url": "url", "formats": "formats", "onlyMainContent": "onlyMainContent",
+                        "timeout": "timeout", "maxBytes": "maxBytes",
+                    },
+                    passthrough_arguments=False,
+                    note="Cheap first-party HTTP extraction; fails over when content looks unrendered.",
+                ),
+                CapabilityCandidate(
+                    provider="firecrawl",
+                    ref="firecrawl:scrape",
+                    priority=20,
+                    argument_map={
+                        "url": "url", "formats": "formats", "onlyMainContent": "onlyMainContent",
+                        "timeout": "timeout", "waitFor": "waitFor", "mobile": "mobile", "maxAge": "maxAge",
+                    },
+                    passthrough_arguments=False,
+                    note="Rendered/anti-bot-capable fallback when native HTTP extraction is insufficient.",
+                ),
+            ),
+            input_schema={
+                "type": "object",
+                "required": ["url"],
+                "properties": {
+                    "url": {"type": "string"},
+                    "formats": {"type": "array", "items": {"type": "string"}, "maxItems": 8},
+                    "onlyMainContent": {"type": "boolean"},
+                    "timeout": {"type": "integer", "minimum": 1000, "maximum": 60000},
+                    "waitFor": {"type": "integer", "minimum": 0, "maximum": 10000},
+                    "mobile": {"type": "boolean"},
+                    "maxAge": {"type": "integer", "minimum": 0},
+                    "maxBytes": {"type": "integer", "minimum": 32000, "maximum": 8000000},
+                },
+            },
+        ),
+        Capability(
+            id="web.scrape.http",
+            name="HTTP-only public page scrape",
+            description=(
+                "Scrape one public page through OpenCrawl's bounded first-party HTTP extractor "
+                "without escalating to a rendered browser/provider route."
+            ),
+            pack="web",
+            tags=("web", "scrape", "http", "markdown", "native"),
+            candidates=(
+                CapabilityCandidate(
+                    provider="nativeweb",
+                    ref="nativeweb:scrape",
+                    priority=5,
+                    defaults={"fallbackOnThinContent": False},
+                    argument_map={
+                        "url": "url", "formats": "formats", "onlyMainContent": "onlyMainContent",
+                        "timeout": "timeout", "maxBytes": "maxBytes",
+                    },
+                    passthrough_arguments=False,
+                ),
+            ),
+        ),
+        Capability(
+            id="web.scrape.rendered",
+            name="Rendered public page scrape",
+            description=(
+                "Scrape one public page with the configured rendered extraction backend for "
+                "JavaScript-heavy content, clean HTML, screenshots and other browser-backed formats."
+            ),
+            pack="web",
+            tags=("web", "scrape", "rendered", "browser", "screenshot", "html"),
+            candidates=(
+                CapabilityCandidate(
+                    provider="firecrawl",
+                    ref="firecrawl:scrape",
+                    priority=5,
+                    argument_map={
+                        "url": "url", "formats": "formats", "onlyMainContent": "onlyMainContent",
+                        "timeout": "timeout", "waitFor": "waitFor", "mobile": "mobile", "maxAge": "maxAge",
+                    },
+                    passthrough_arguments=False,
+                ),
+            ),
+        ),
+        Capability(
             id="web.search.live",
             name="Live web search with optional page content",
             description=(
