@@ -1618,12 +1618,13 @@ class ControlStore:
                         (reserved, identity.user_id),
                     )
 
+                capability = str(options.get("capability") or "").strip()[:160] or None
                 cur.execute(
                     """
                     INSERT INTO ih_usage_events(
-                        id,user_id,api_key_id,request_id,tool_ref,provider,status,
+                        id,user_id,api_key_id,request_id,tool_ref,capability,provider,status,
                         credits_charged,input_bytes,metadata
-                    ) VALUES (%s,%s,%s,%s,%s,%s,'reserved',0,%s,%s::jsonb)
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,'reserved',0,%s,%s::jsonb)
                     """,
                     (
                         self._new_id("use"),
@@ -1631,6 +1632,7 @@ class ControlStore:
                         identity.api_key_id,
                         request_id,
                         tool_name,
+                        capability,
                         provider,
                         input_bytes,
                         json.dumps(
