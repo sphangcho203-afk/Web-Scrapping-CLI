@@ -10,8 +10,8 @@ Overview and Usage render responsive SVG charts from the authenticated canonical
 | --- | --- |
 | Requests | All ledger events created inside the selected interval |
 | Credits | Sum of recorded `credits_charged`; excludes top-ups, rewards and outstanding reservations |
-| Success | `ok` events divided by completed events; `accepted` events are pending and excluded |
-| Failures | Every outcome other than `ok` and `accepted` |
+| Success | `ok` events divided by completed events; `accepted` and `reserved` events are pending and excluded |
+| Failures | Every outcome other than `ok`, `accepted` and `reserved` |
 | Latency | Average and p95 of recorded latency measurements; sample count is returned; missing measurements remain null |
 
 Buckets align to UTC hours for 24h and UTC days for longer windows. Quiet buckets contain zero request/credit counts and null latency/success. Rolling ranges usually cross 25 hourly or 8/31/91 daily buckets. The first and last can be partial: explicit `bucket_start`, `bucket_end` and `partial` fields identify their actual coverage. Bucket counts and charges sum to the corresponding totals. A request stays in its creation-time bucket when its outcome is updated.
