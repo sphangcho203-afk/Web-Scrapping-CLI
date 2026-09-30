@@ -1346,7 +1346,7 @@ def test_smart_scrape_review_confirmation_dataset_and_safe_outputs(frontend_url)
         assert executions[0]["max_charge_credits"] == 255
         assert executions[0]["quote_revision"] == "s" * 64
         assert page.get_by_role("link", name="Open saved dataset").get_attribute("href") == "/dashboard/datasets?dataset=ds_scrape_fixture"
-        page.get_by_text("Markdown", exact=True).click()
+        page.locator("#smart-scrape-output summary", has_text="Markdown").click()
         assert '<img src=x onerror="window.injected=true">' in page.locator(".scrape-result-tabs pre").first.inner_text()
         assert page.locator(".scrape-result-tabs img").count() == 0
         assert page.evaluate("window.injected === undefined")
