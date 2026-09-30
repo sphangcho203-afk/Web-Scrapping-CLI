@@ -837,6 +837,159 @@ async function dashPublicData(){
   };
 }
 
+
+async function dashSmartScrape(){
+  const keyData=await api('/api/api-keys');
+  const keys=(keyData.keys||[]).filter(k=>!k.revoked_at&&(!k.expires_at||new Date(k.expires_at)>new Date()));
+  if(!keys.length){
+    dashboardShell('scrape',
+      pageHead('SMART SCRAPE','Turn a page into usable data','OpenCrawl starts with bounded HTTP extraction when it can and escalates only when the requested result needs rendering.')+
+      '<section class="search-key-lock">'+icon('key')+'<div><h2>Create an API key first</h2><p>Scrapes are metered runs and need an execution key.</p></div><a class="btn primary" data-link href="/dashboard/api-keys">Create API key</a></section>'
+    );
+    return;
+  }
+  const keyOptions=keys.map((k,i)=>'<option value="'+esc(k.id)+'" '+(i===0?'selected':'')+'>'+esc(k.name||k.prefix)+' · '+esc(k.prefix)+'…</option>').join('');
+  dashboardShell('scrape',
+    pageHead('SMART SCRAPE','Turn a page into usable data','Request the output you need. Auto mode uses the least expensive reliable path and only renders when required.','<a class="btn" data-link href="/dashboard/datasets">'+icon('docs')+' Datasets</a>')+
+    '<section class="game-tool-runner"><form id="smart-scrape-form" class="form-stack">'+
+      '<label>Public page URL<input name="url" type="url" required maxlength="2000" placeholder="https://example.com/pricing"></label>'+
+      '<div class="search-advanced-grid">'+
+        '<label>Execution mode<select name="mode"><option value="auto">Auto · cheapest reliable path</option><option value="http">HTTP only · never render</option><option value="rendered">Rendered · JavaScript/browser-backed</option></select></label>'+
+        '<label>Execution key<select name="api_key_id" required>'+keyOptions+'</select></label>'+
+        '<label>Timeout (ms)<input name="timeout_ms" type="number" min="1000" max="60000" value="30000"></label>'+
+        '<label>Max response bytes<input name="max_bytes" type="number" min="32000" max="8000000" value="2000000"></label>'+
+      '</div>'+
+      '<fieldset><legend>Output formats</legend>'+
+        '<label class="check"><input name="format" type="checkbox" value="markdown" checked> Markdown</label>'+
+        '<label class="check"><input name="format" type="checkbox" value="links" checked> Links</label>'+
+        '<label class="check"><input name="format" type="checkbox" value="raw_html"> Raw HTML</label>'+
+        '<label class="check"><input name="format" type="checkbox" value="html"> Clean rendered HTML</label>'+
+        '<label class="check"><input name="format" type="checkbox" value="screenshot"> Screenshot</label>'+
+      '</fieldset>'+
+      '<div class="search-advanced-checks"><label><input name="only_main_content" type="checkbox" checked> Prefer main content</label><label><input name="mobile" type="checkbox"> Render as mobile</label></div>'+
+      '<div class="search-advanced-grid"><label>Wait before extraction (ms)<input name="wait_ms" type="number" min="0" max="10000" value="0"></label><label>Rendered cache age (ms)<input name="max_age_ms" type="number" min="0" max="86400000" value="0"></label></div>'+
+      '<p class="search-security">'+icon('shield')+' Public targets only · private-network targets blocked · provider routing stays behind OpenCrawl</p>'+
+      '<div class="execution-budget-controls"><label>Maximum spend (USD)<input name="max_spend_usd" type="number" min="0" step="0.0002" placeholder="Set after cost review"></label><p>Review creates no provider work. Confirmation rechecks price and wallet balance before execution.</p></div>'+
+      '<button class="btn primary" id="smart-scrape-review" type="submit">Review scrape cost '+icon('arrow')+'</button>'+
+      '<section id="smart-scrape-quote" class="card execution-cost-review" hidden aria-live="polite"></section>'+
+      '<button class="btn primary" id="smart-scrape-confirm" type="button" hidden>Confirm and scrape page</button>'+
+    '</form><div id="smart-scrape-output" class="game-tool-output" aria-live="polite"></div></section>'
+  );
+
+  const form=$('#smart-scrape-form'),quoteBox=$('#smart-scrape-quote'),confirmButton=$('#smart-scrape-confirm'),reviewButton=$('#smart-scrape-review'),output=$('#smart-scrape-output');
+  let reviewed=null,running=false,generation=0;
+
+  const requestBody=()=>({
+    url:String(form.elements.url.value||'').trim(),
+    mode:form.elements.mode.value,
+    formats:[...form.querySelectorAll('[name="format"]:checked')].map(input=>input.value),
+    only_main_content:Boolean(form.elements.only_main_content.checked),
+    mobile:Boolean(form.elements.mobile.checked),
+    timeout_ms:Number(form.elements.timeout_ms.value),
+    max_bytes:Number(form.elements.max_bytes.value),
+    wait_ms:Number(form.elements.wait_ms.value),
+    max_age_ms:Number(form.elements.max_age_ms.value),
+    api_key_id:form.elements.api_key_id.value
+  });
+  const invalidate=()=>{
+    generation++;
+    reviewed=null;
+    quoteBox.hidden=true;
+    confirmButton.hidden=true;
+    output.innerHTML='';
+  };
+  form.querySelectorAll('input:not([name="max_spend_usd"]),select').forEach(node=>{
+    node.addEventListener(node.type==='checkbox'||node.tagName==='SELECT'?'change':'input',invalidate);
+  });
+
+  form.onsubmit=async event=>{
+    event.preventDefault();
+    if(running)return;
+    const body=requestBody();
+    try{
+      const parsed=new URL(body.url);
+      if(!['http:','https:'].includes(parsed.protocol)||parsed.username||parsed.password)throw new Error();
+    }catch{
+      output.innerHTML='<p class="game-error" role="alert">Use a complete public HTTP(S) URL without embedded credentials.</p>';
+      return;
+    }
+    if(!body.formats.length){
+      output.innerHTML='<p class="game-error" role="alert">Select at least one output format.</p>';
+      return;
+    }
+    const run=++generation;
+    busy(reviewButton,true,'Reviewing cost…');
+    try{
+      const data=await api('/api/scrape/quote',{method:'POST',body});
+      if(run!==generation||!form.isConnected)return;
+      reviewed=data.quote||{};
+      const plan=data.scrape||{};
+      const scale=Number(reviewed.wallet_units_per_usd||5000);
+      const maximum=Number(reviewed.maximum_charge_credits??reviewed.credits??0);
+      form.elements.max_spend_usd.value=(scale>0?maximum/scale:0).toFixed(4);
+      quoteBox.hidden=false;
+      quoteBox.innerHTML='<header><span><span class="overline">COST REVIEW</span><h3>Maximum reservation '+esc(walletMoney(maximum,{wallet_units_per_usd:scale}))+'</h3></span><span class="badge '+(reviewed.affordable?'success':'danger')+'">'+(reviewed.affordable?'Wallet ready':'Insufficient wallet')+'</span></header>'+
+        '<p>'+(plan.execution_mode==='rendered'?'This request needs the rendered path because of its output/options.':'Auto/HTTP mode can begin with the low-cost bounded HTTP extractor.')+' The final charge stays below this reservation and unused funds are released.</p>'+
+        '<div class="ih-inspector-grid"><div><small>Execution plan</small><b>'+esc(plan.execution_mode||body.mode)+'</b></div><div><small>Formats</small><b>'+esc((plan.formats||body.formats).join(', '))+'</b></div><div><small>Available</small><b>'+esc(walletMoney(reviewed.available_credits||0,{wallet_units_per_usd:scale}))+'</b></div><div><small>Timeout</small><b>'+fmt(body.timeout_ms)+' ms</b></div></div>';
+      confirmButton.hidden=false;
+      confirmButton.disabled=!reviewed.affordable;
+      confirmButton.textContent=reviewed.affordable?'Confirm and scrape page':'Add wallet balance to continue';
+    }catch(error){
+      reviewed=null;
+      quoteBox.hidden=true;
+      confirmButton.hidden=true;
+      output.innerHTML='<p class="game-error" role="alert">'+esc(error.message)+'</p>';
+    }finally{busy(reviewButton,false);}
+  };
+
+  confirmButton.onclick=async()=>{
+    if(!reviewed||running||confirmButton.disabled)return;
+    const body=requestBody(),scale=Number(reviewed.wallet_units_per_usd||5000);
+    const spendUsd=Number(form.elements.max_spend_usd.value);
+    if(!Number.isFinite(spendUsd)||spendUsd<0){
+      output.innerHTML='<p class="game-error" role="alert">Enter a valid non-negative maximum spend.</p>';
+      return;
+    }
+    body.max_charge_credits=Math.floor(spendUsd*scale+1e-9);
+    body.quote_revision=reviewed.quote_revision;
+    running=true;
+    busy(confirmButton,true,'Scraping page…');
+    output.innerHTML='<p role="status">Collecting the public page. The run may stay on bounded HTTP or escalate to rendered extraction according to the reviewed request.</p>';
+    try{
+      const response=await api('/api/scrape/run',{method:'POST',body});
+      if(!output.isConnected)return;
+      const result=response.result||{},summary=response.summary||{},dataset=response.dataset;
+      const tabs=[];
+      if(result.markdown)tabs.push(['Markdown','<pre>'+esc(result.markdown)+'</pre>']);
+      if(result.text)tabs.push(['Text','<pre>'+esc(result.text)+'</pre>']);
+      if(result.html)tabs.push(['HTML','<pre>'+esc(result.html)+'</pre>']);
+      if(result.raw_html)tabs.push(['Raw HTML','<pre>'+esc(result.raw_html)+'</pre>']);
+      if((result.links||[]).length)tabs.push(['Links','<div class="repo-files">'+result.links.slice(0,500).map(link=>'<a href="'+esc(link)+'" target="_blank" rel="noopener noreferrer">'+esc(link)+'</a>').join('')+'</div>']);
+      if(result.screenshot)tabs.push(['Screenshot','<a href="'+esc(result.screenshot)+'" target="_blank" rel="noopener noreferrer">Open captured screenshot '+icon('external')+'</a>']);
+      output.innerHTML='<header class="repo-result-head"><div><span class="overline">SCRAPE COMPLETE · '+esc(String(summary.execution_path||'').toUpperCase())+'</span><h2>'+esc(result.title||new URL(result.url||body.url).hostname)+'</h2><p>'+esc(result.description||result.url||body.url)+'</p><small>'+esc(walletMoney(response.usage?.credits_charged||0))+' charged · <code>'+esc(response.request_id||'')+'</code>'+(summary.status_code?' · HTTP '+esc(summary.status_code):'')+'</small></div>'+(dataset?.id?'<a data-link href="/dashboard/datasets?dataset='+encodeURIComponent(dataset.id)+'">Open saved dataset '+icon('arrow')+'</a>':'')+'</header>'+
+        '<section class="stats-grid">'+
+          stat('Execution path',esc(summary.execution_path||'—'),'OpenCrawl routing outcome')+
+          stat('Readable bytes',fmt(summary.text_bytes||0),'Normalized text')+
+          stat('Links',fmt(summary.links||0),'Discovered public URLs')+
+          stat('Formats',fmt((summary.formats||[]).length),'Returned output types')+
+        '</section>'+
+        (tabs.length?'<div class="scrape-result-tabs">'+tabs.map(([label,body],index)=>'<details '+(index===0?'open':'')+'><summary>'+esc(label)+'</summary><div class="crawl-content">'+body+'</div></details>').join('')+'</div>':'<p class="repo-empty">The page returned no displayable content.</p>')+
+        '<details class="game-operation-trace"><summary>Structured scrape result</summary><pre>'+esc(JSON.stringify(result,null,2))+'</pre></details>'+
+        (response.warnings?.length?'<div class="notice warning">'+response.warnings.map(x=>esc(x.message)).join('<br>')+'</div>':'');
+      bindCommon();
+    }catch(error){
+      const usage=error.usage?(' · '+walletMoney(error.usage.credits_charged||0)+' charged'):'';
+      output.innerHTML='<p class="game-error" role="alert">'+esc(error.message)+(error.requestId?' · '+esc(error.requestId):'')+esc(usage)+'</p>';
+    }finally{
+      running=false;
+      reviewed=null;
+      quoteBox.hidden=true;
+      confirmButton.hidden=true;
+      busy(confirmButton,false);
+    }
+  };
+}
+
 async function dashSiteMap(){
   const keyData=await api('/api/api-keys');
   const keys=(keyData.keys||[]).filter(k=>!k.revoked_at&&(!k.expires_at||new Date(k.expires_at)>new Date()));
@@ -967,7 +1120,7 @@ async function dashSiteMap(){
   };
 }
 
-async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,map:dashSiteMap,datasets:dashDatasets,'crawl-runs':dashCrawlRuns,games:dashGames,repositories:dashRepositories,data:dashPublicData,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,rewards:dashRewards,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
+async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,scrape:dashSmartScrape,map:dashSiteMap,datasets:dashDatasets,'crawl-runs':dashCrawlRuns,games:dashGames,repositories:dashRepositories,data:dashPublicData,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,rewards:dashRewards,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
 async function renderRoute(){clearTransientUi();window.scrollTo(0,0);const p=location.pathname;try{if(p==='/'||p==='/pricing'||p==='/status'||p.startsWith('/docs')||p.startsWith('/legal')||LEGAL_ALIASES[p])await hydrateOptionalSession();if(p.startsWith('/dashboard'))return await renderDashboard();if(p==='/verify-email')return await renderVerify();if(p==='/login')return renderAuth('login');if(p==='/signup')return renderAuth('signup');if(p==='/forgot-password')return renderRecovery();if(p==='/reset-password')return renderRecovery(true);if(p.startsWith('/legal')||LEGAL_ALIASES[p])return renderLegal();if(p.startsWith('/docs'))return renderDocs();if(p==='/pricing')return await renderPricing();if(p==='/status')return await renderStatus();return await renderHome();}catch(error){console.error(error);if(error.status===401)return go('/login',true);app.innerHTML=`<main class="fatal"><div>${brand()}<span class="eyebrow">REQUEST FAILED</span><h1>The control plane did not answer cleanly.</h1><p>${esc(error.message)}</p><button class="btn primary" onclick="location.reload()">Try again</button></div></main>`;}}
 document.addEventListener('click',e=>{
   if(e.defaultPrevented)return;
@@ -2011,6 +2164,7 @@ function openRunInspector(event) {
     ['Build', [
       ['overview','terminal','Overview'],
       ['playground','activity','Playground'],
+      ['scrape','api','Smart Scrape'],
       ['map','search','Site Map'],
       ['datasets','docs','Datasets'],
       ['crawl-runs','activity','Background crawls'],
@@ -2106,7 +2260,7 @@ function openRunInspector(event) {
         <div class="cos-sheet-handle"></div>
         <div class="cos-sheet-title"><b>More</b><small>Workspace navigation</small></div>
         <span class="cos-sheet-label">Build & observe</span>
-        ${[['api-keys','key','API Keys'],['map','search','Site Map'],['data','search','Public data'],['games','activity','Game Intelligence'],['repositories','api','Repositories'],['monitors','monitor','Monitors']].map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${icon(ico)} ${label}</a>`).join('')}
+        ${[['api-keys','key','API Keys'],['scrape','api','Smart Scrape'],['map','search','Site Map'],['data','search','Public data'],['games','activity','Game Intelligence'],['repositories','api','Repositories'],['monitors','monitor','Monitors']].map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${icon(ico)} ${label}</a>`).join('')}
         <span class="cos-sheet-label">Account & product</span>
         ${[['wallet','wallet','Wallet'],['rewards','gift','Rewards'],['billing','billing','Billing & Plans'],['settings','settings','Settings & Security']].map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${icon(ico)} ${label}</a>`).join('')}
         <a data-link href="/docs">${icon('docs')} Documentation</a>
