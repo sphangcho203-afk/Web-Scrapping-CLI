@@ -151,8 +151,10 @@ def _identity(job: dict[str, Any]) -> AuthIdentity:
     )
 
 
-async def dispatch_capability_run(runs: CapabilityRunStore) -> dict[str, Any]:
-    job = await asyncio.to_thread(runs.claim)
+async def dispatch_capability_run(
+    runs: CapabilityRunStore, run_id: str | None = None
+) -> dict[str, Any]:
+    job = await asyncio.to_thread(runs.claim, run_id)
     if job is None:
         return {"processed": 0}
     if job.get("recovered_terminal"):
