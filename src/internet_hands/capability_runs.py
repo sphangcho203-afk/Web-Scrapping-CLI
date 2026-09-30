@@ -219,9 +219,14 @@ class CapabilityRunStore:
             )
             row = self._owned(cur.fetchone())
             if row["status"] == "queued":
-                credits = self.control.release_tool_reservation(
+                credits = self.control.settle_tool_call(
                     row["request_id"],
                     status="cancelled",
+                    latency_ms=0,
+                    output_bytes=0,
+                    actual_credits=0,
+                    execution_usage={"completed": False},
+                    transaction=conn,
                 )
                 cur.execute(
                     """
