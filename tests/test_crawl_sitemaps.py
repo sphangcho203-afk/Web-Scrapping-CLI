@@ -3,6 +3,7 @@ import time
 
 import httpx
 import pytest
+from test_crawl_runs import runs  # noqa: F401 -- expose the shared fixture in this test module
 
 from internet_hands import crawler, fetcher, policy
 from internet_hands.execution_meter import (
@@ -10,8 +11,6 @@ from internet_hands.execution_meter import (
     reset_execution_meter,
     start_execution_meter,
 )
-
-pytest_plugins = ["test_crawl_runs"]
 
 
 def xml(kind, urls):
@@ -156,7 +155,7 @@ def test_job_api_rejects_non_boolean_discovery():
         crawl_arguments({"url": "https://example.com", "discover_sitemaps": "yes"})
 
 
-async def test_owned_worker_persists_sitemap_output_progress_and_metering(site, runs):
+async def test_owned_worker_persists_sitemap_output_progress_and_metering(site, runs):  # noqa: F811 -- imported pytest fixture
     from internet_hands.crawl_run_api import crawl_arguments
     from internet_hands.crawl_run_worker import dispatch_run
     from internet_hands.datasets import DatasetStore
