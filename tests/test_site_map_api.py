@@ -99,3 +99,20 @@ def test_site_map_routes_and_console_surface_are_registered() -> None:
     assert "/api/site-map/quote" in web
     assert "/api/site-map/run" in web
     assert "Confirm and map site" in web
+
+
+def test_site_map_is_exposed_in_product_docs() -> None:
+    import json
+
+    raw = (Path(__file__).resolve().parents[1] / "web" / "docs-content.js").read_text(encoding="utf-8").strip()
+    prefix = "window.OPENCRAWL_DOCS = "
+    assert raw.startswith(prefix) and raw.endswith(";")
+    docs = json.loads(raw[len(prefix):-1])
+    title, group, body = docs["site-map"]
+    assert title == "Site Map"
+    assert group == "Collect and use data"
+    assert len(body) >= 1200
+    assert "/api/site-map/quote" in body
+    assert "/api/site-map/run" in body
+    assert "quote_revision" in body
+    assert "dataset.saved" in body
