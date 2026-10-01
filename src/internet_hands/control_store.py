@@ -16,6 +16,7 @@ from psycopg.errors import UniqueViolation
 from psycopg.rows import dict_row
 
 from .capability_economics import estimate_call, plan_privileges
+from .cost_measurements import normalize_provider_units
 from .provider_errors import read_retry_budget
 from .provider_reliability_store import record_provider_reliability_event
 
@@ -681,6 +682,10 @@ class ControlStore:
                     cur.execute(RUN_SCHEMA)
                     from .cost_events import SCHEMA as COST_EVENT_SCHEMA
                     cur.execute(COST_EVENT_SCHEMA)
+                    from .cost_rates import SCHEMA as COST_RATE_SCHEMA
+                    cur.execute(COST_RATE_SCHEMA)
+                    from .cost_measurements import SCHEMA as COST_MEASUREMENT_SCHEMA
+                    cur.execute(COST_MEASUREMENT_SCHEMA)
                     for row in PLAN_ROWS:
                         cur.execute(
                             """
@@ -1713,6 +1718,7 @@ class ControlStore:
 
                 metadata = dict(event.get("metadata") or {})
                 if execution_usage is not None:
+                    execution_usage = normalize_provider_units(execution_usage)
                     metadata["measured_usage"] = execution_usage
 
                 if event["status"] != "reserved":
@@ -1758,8 +1764,8 @@ class ControlStore:
                         """
                         INSERT INTO ih_provider_usage(
                             id,request_id,provider,operation,credits_used,status,
-                            ref,latency_ms,error_class,retryable,error_text,attempt
-                        ) VALUES (%s,%s,%s,%s,NULL,%s,%s,%s,%s,%s,%s,%s)
+                            ref,latency_ms,error_class,retryable,error_text,attempt,measurement_kind
+                        ) VALUES (%s,%s,%s,%s,NULL,%s,%s,%s,%s,%s,%s,%s,'attempt')
                         """,
                         (
                             self._new_id("pru"),
@@ -1785,16 +1791,11 @@ class ControlStore:
                     operation = str(item.get("operation") or "")[:80]
                     if not provider or not operation:
                         continue
-                    raw_credits = item.get("credits_used")
-                    credits_used = (
-                        max(0, int(raw_credits))
-                        if isinstance(raw_credits, (int, float)) and not isinstance(raw_credits, bool)
-                        else None
-                    )
+                    credits_used = item.get("credits_used")
                     cur.execute(
                         """
-                        INSERT INTO ih_provider_usage(id,request_id,provider,operation,credits_used,status)
-                        VALUES (%s,%s,%s,%s,%s,%s)
+                        INSERT INTO ih_provider_usage(id,request_id,provider,operation,credits_used,status,measurement_kind)
+                        VALUES (%s,%s,%s,%s,%s,%s,'usage')
                         """,
                         (self._new_id("pru"), request_id, provider, operation, credits_used,
                          str(item.get("status") or "unknown")[:40]),

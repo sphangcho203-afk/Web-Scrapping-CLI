@@ -188,3 +188,36 @@ async def test_render_never_does_not_escalate_failed_http_to_browser(monkeypatch
             "https://example.com/",
             render="never",
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('fails',[False,True])
+async def test_browser_wall_time_is_measured_on_success_and_failure(monkeypatch,fails):
+    from types import SimpleNamespace
+
+    from internet_hands.execution_meter import (
+        execution_usage_snapshot,
+        reset_execution_meter,
+        start_execution_meter,
+    )
+    ticks=iter([10.0,13.75])
+    monkeypatch.setattr(module,'time',SimpleNamespace(monotonic=lambda:next(ticks)))
+    monkeypatch.setattr(module,'validate_public_http_url',lambda url:url)
+    async def browser(*args,**kwargs):
+        if fails:
+            raise TimeoutError('render timed out')
+        return BrowserResult(request_url='https://example.com',final_url='https://example.com',status_code=200,
+            title='Measured',html='<html><body>Captured</body></html>',sha256='a'*64,captured_at=datetime.now(UTC))
+    monkeypatch.setattr(module,'render_page',browser)
+    token=start_execution_meter()
+    try:
+        if fails:
+            with pytest.raises(TimeoutError):
+                await module.resilient_public_fetch('https://example.com',backend='native-playwright',discover_interfaces=False)
+        else:
+            await module.resilient_public_fetch('https://example.com',backend='native-playwright',discover_interfaces=False)
+        counters=execution_usage_snapshot()['counters']
+        assert counters['intelligence_browser_elapsed_ms']==3750
+        assert counters['intelligence_browser_renders']==1
+    finally:
+        reset_execution_meter(token)

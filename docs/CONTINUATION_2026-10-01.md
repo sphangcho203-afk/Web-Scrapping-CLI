@@ -68,8 +68,29 @@ No promotion or branch pruning occurred. Detailed checkpoint events, quote-only
 identity and populated workflow/live Dataset parentage remain subsequent work.
 Unbilled HTTP health probes remain monitor history.
 
-Provider invoice rates, full infrastructure measurement, spend-policy controls,
+Reconciled provider invoices, full infrastructure measurement, spend-policy controls,
 margin dashboards and cost-aware routing remain. Overall run COGS stays unknown;
 wallet burn and reported provider credits are not converted to imaginary dollars.
-Next work should capture versioned valuation sources and measurement coverage,
-then add economics guardrails before recurring workflows multiply unknown costs.
+Next work should extend measurement and economics guardrails before recurring
+workflows multiply unknown costs.
+
+## Sourced rate and coverage continuation
+
+The dependent `codex/versioned-provider-rates-20261001` tranche adds immutable
+content-addressed provider-credit rates, sourced/as-of validity, pinned decimal
+estimates and an operator-only historical valuation flow that previews by default.
+Existing valuations are never repriced. Unknown quantity/provider/operation gaps
+block provider totals; unpriced reasons expose missing and stale rate contracts.
+Native Playwright wall-clock measurement includes failed attempts and persists
+inside settlement. Customer credit settlement and quote conversion do not change.
+
+`PROVIDER_COST_RATES.md` records architecture, API examples, additive migration and
+rollback compatibility. PostgreSQL coverage includes concurrency, exact precision,
+validity boundaries, immutability, malformed quantities, operator authorization,
+bounded preview/confirmation and schema reinstall. The integrated local suite
+passed 858 tests with PostgreSQL and Chromium; Ruff, compile and whitespace checks
+also passed. Published exact-head CI/preview evidence belongs in this tranche's PR.
+
+No actual rate is seeded without its source. These estimates do not establish
+reconciled invoice cost, full browser/compute/model/infrastructure coverage or
+positive margin. Production authenticated operator execution remains unverified.

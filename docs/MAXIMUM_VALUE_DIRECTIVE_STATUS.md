@@ -482,8 +482,9 @@ claims; the claim now works against PostgreSQL.
 **NOT VERIFIED:** authenticated production provider execution and billing,
 scheduler and signed delivery. CI/deployment evidence for this continuation belongs
 to its exact published head; prior green checks apply only to the prior head.
-Operator COGS, automations and Live Dataset lineage have no producers yet. Internal
-cost columns and future parent fields stay empty rather than manufacturing values.
+Complete operator COGS, automations and Live Dataset lineage remain incomplete.
+Canonical internal cost columns and future parent fields stay empty rather than
+manufacturing values.
 
 ### Wave 2 foundation — measured provider cost events
 
@@ -495,7 +496,25 @@ explicitly unknown valuations. Decimal amounts retain precision. See
 `OPERATOR_COST_EVENTS.md`.
 
 **PARTIAL:** this is the required internal cost interface, not a finished margin
-engine. Provider invoices/rates, browser/model/compute/storage costs, full coverage,
+engine. Reconciled invoices, browser/model/compute/storage costs, full coverage,
 spend policies and cost-aware routing remain. Total COGS and margin are not
 fabricated. Production operator execution and invoice reconciliation remain
 **NOT VERIFIED**.
+
+### Sourced provider-rate revisions and coverage
+
+**Implemented in code:** immutable sourced provider-credit rates with exact decimal
+prices, as-of dates and exclusive validity ends; version/revision pinning;
+operator-only import/list and bounded historical valuation (preview by default);
+unknown/stale/unreviewed valuation reasons; missing quantity/provider/operation
+coverage; transactional native Playwright wall-clock measurement on success and
+failure. Revisions never reprice existing pinned facts. No guessed prices are
+seeded and customer wallet/quote pricing remains unchanged. See
+`PROVIDER_COST_RATES.md` for contracts and rollback compatibility.
+
+**PARTIAL:** provider valuations are rate estimates, not invoice reconciliation.
+Native browser duration is partial measurement with unknown USD value. Model,
+compute, storage, delivery and proxy remain uninstrumented; complete run COGS and
+margin remain unknown. Policies and cost-aware routing remain subsequent work.
+Production authenticated operator use and sourced invoice reconciliation remain
+**NOT VERIFIED**. Verification evidence must match the new published head.
