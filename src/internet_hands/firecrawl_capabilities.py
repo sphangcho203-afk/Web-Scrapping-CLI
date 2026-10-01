@@ -250,11 +250,6 @@ def build_firecrawl_capabilities() -> list[Capability]:
                     ref="firecrawl:agent",
                     priority=5,
                 ),
-                CapabilityCandidate(
-                    provider="firecrawl",
-                    ref="firecrawl:extract",
-                    priority=20,
-                ),
             ),
         ),
         Capability(

@@ -1,3 +1,21 @@
+## 1 October continuation update
+
+Fresh main: `56ca429`. PR #45 remains draft at `dbc61de`; PR #47 was reconciled
+with that parent in commit `2f84ecc`. Continue on the existing Structured Extract
+branch; no new parallel implementation branch. Neither draft is promoted.
+
+Wave 1 **PARTIAL**: additive canonical billing receipts/events, owned read APIs,
+existing Usage inspector integration and migration regression coverage. See
+`CANONICAL_RUNS.md` for semantics and remaining execution-event bridges.
+Authenticated deployed verification remains **NOT VERIFIED**.
+
+Local full suite before new receipt tests: 727 passed, 46 skipped, 15 failures
+in existing provider tests due to unavailable DNS resolution. New API regression
+passes. PostgreSQL regression is included in the dedicated CI database job;
+local PostgreSQL startup is blocked by system-user creation restrictions.
+Lint, compileall and JavaScript syntax pass. Exact-head CI must be checked after
+publishing; this text does not claim green CI or production behavior.
+
 # Maximum Value Directive — implementation status
 
 Audit target: OpenCrawl maximum-value / market-demand / real-capability directive.
