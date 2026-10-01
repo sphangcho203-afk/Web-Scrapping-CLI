@@ -463,3 +463,24 @@ Implemented after this audit on the same draft branch:
 - targeted route, normalization, dataset and UI-contract tests.
 
 This tranche is **implemented but not yet marked shipped**. CI and Vercel checks for the new head are currently required, followed by the directive's deployed production behavior gate.
+
+## 1 October 2026 continuation — Wave 1 execution envelope
+
+Fresh remote state: #45 remains draft at `dbc61de`; #47 now includes its parent
+reconciliation plus the receipt slice at `34f300d`. This continuation extends that
+same implementation on `codex/canonical-runs-20261001`, based on #47. No drafts were
+merged to production or deleted.
+
+**Implemented in code:** normalized execution status alongside compatible billing
+status; transactional specialized state/output/provider-attempt bridges; bounded
+source counts, retries, warnings, cancellation and duration; account-owned list/detail
+and cancellation facade; responsive Runs history/inspector with event paging;
+repository and product docs. See `CANONICAL_RUNS.md` for actual contracts and limits.
+A real PostgreSQL test exposed a missing type cast in target-specific extraction
+claims; the claim now works against PostgreSQL.
+
+**NOT VERIFIED:** authenticated production provider execution and billing,
+scheduler and signed delivery. CI/deployment evidence for this continuation belongs
+to its exact published head; prior green checks apply only to the prior head.
+Operator COGS, automations and Live Dataset lineage have no producers yet. Internal
+cost columns and future parent fields stay empty rather than manufacturing values.

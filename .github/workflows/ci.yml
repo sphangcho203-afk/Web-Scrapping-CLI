@@ -36,6 +36,7 @@ jobs:
       - run: node --check web/app.js
       - run: node --check web/usage-intelligence.js
       - run: node --check web/monitor-lifecycle.js
+      - run: node --check web/runs.js
       - run: pytest -q
   dataset-storage:
     runs-on: ubuntu-latest

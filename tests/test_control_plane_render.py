@@ -1541,3 +1541,58 @@ def test_structured_extract_review_starts_owned_run_and_hides_provider(frontend_
 
         assert not errors, errors
         browser.close()
+
+
+def test_canonical_runs_list_timeline_paging_and_cancel_on_mobile(frontend_url):
+    cancelled = False
+    event_pages = []
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={'width':390,'height':844})
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+
+        def respond(route):
+            nonlocal cancelled
+            path = urlsplit(route.request.url).path
+            run = {'id':'req_fixture','capability_id':'playground:crawl','execution_status':'cancelled' if cancelled else 'queued',
+                'status':'cancelled' if cancelled else 'reserved','source_kind':'crawl','source_ref':'crawl_fixture',
+                'credits_reserved':100,'credits_charged':0,'source_count':1,'retry_count':0,'warning_count':0,
+                'created_at':'2026-10-01T00:00:00Z','output_dataset_id':None,'history_origin':'observed'}
+            if path=='/api/auth/me':
+                data={'user':{'email':'owner@test.invalid','email_verified':True},'account':{}}
+            elif path=='/api/runs':
+                data={'runs':[run],'total':1}
+            elif path=='/api/runs/req_fixture/cancel':
+                cancelled=True
+                data={'run':{**run,'execution_status':'cancelled'},'events':[]}
+            elif path=='/api/runs/req_fixture':
+                next_page = 'after=100' in route.request.url
+                event_pages.append(route.request.url)
+                events = [{'sequence':n,'timestamp':'2026-10-01T00:00:00Z','type':'execution_status',
+                           'status':'queued','message':'Execution state: queued.'} for n in range(1,101)]
+                if next_page:
+                    events=[{'sequence':101,'timestamp':'2026-10-01T00:01:00Z','type':'provider_attempt',
+                             'status':'failed','attempt':2,'message':'Provider attempt recorded.'}]
+                data={'run':run,'events':events,'next_after':101 if next_page else 100}
+            else:
+                data={}
+            route.fulfill(status=200,content_type='application/json',body=json.dumps(data))
+
+        page.route('**/api/**', respond)
+        page.goto(frontend_url+'/dashboard/runs')
+        page.get_by_role('link',name='playground:crawl',exact=True).click()
+        page.locator('[data-canonical-run]').wait_for()
+        assert page.locator('#canonical-run-events li').count()==100
+        page.get_by_role('button',name='Load more events').click()
+        page.get_by_text('Provider attempt recorded.',exact=False).wait_for()
+        assert page.locator('#canonical-run-events li').count()==101
+        assert any('after=100' in request for request in event_pages)
+        for width in (320,390,1366):
+            page.set_viewport_size({'width':width,'height':844})
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+        page.get_by_role('button',name='Cancel run',exact=True).click()
+        page.locator('[data-canonical-run]').get_by_text('cancelled',exact=True).wait_for()
+        assert page.get_by_role('button',name='Cancel run',exact=True).count()==0
+        assert not errors, errors
+        browser.close()
