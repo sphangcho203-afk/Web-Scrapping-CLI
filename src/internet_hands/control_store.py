@@ -677,6 +677,8 @@ class ControlStore:
             with self._connect() as conn:
                 with conn.cursor() as cur:
                     cur.execute(SCHEMA_SQL)
+                    from .run_envelope import SCHEMA as RUN_SCHEMA
+                    cur.execute(RUN_SCHEMA)
                     for row in PLAN_ROWS:
                         cur.execute(
                             """

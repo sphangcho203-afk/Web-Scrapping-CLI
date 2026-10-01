@@ -36,6 +36,7 @@ from .structured_extract_api import router as structured_extract_router
 from .site import router as site_router
 from .system_health import router as system_health_router
 from .usage_api import router as usage_router
+from .runs_api import router as runs_router
 
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,7 @@ app.include_router(system_health_router)
 app.include_router(control_router)
 app.include_router(connected_apps_router)
 app.include_router(usage_router)
+app.include_router(runs_router)
 app.include_router(crawl_run_router)
 app.include_router(datasets_router)
 app.include_router(dataset_webhook_router)

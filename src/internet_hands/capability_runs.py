@@ -49,6 +49,9 @@ CREATE TABLE IF NOT EXISTS ih_capability_runs (
     expires_at timestamptz NOT NULL DEFAULT now()+interval '60 minutes',
     UNIQUE(user_id,idempotency_key)
 );
+DROP TRIGGER IF EXISTS ih_capability_execution_event ON ih_capability_runs;
+CREATE TRIGGER ih_capability_execution_event AFTER INSERT OR UPDATE ON ih_capability_runs
+    FOR EACH ROW EXECUTE FUNCTION ih_record_execution_transition();
 CREATE INDEX IF NOT EXISTS ih_capability_runs_queue_idx
     ON ih_capability_runs(status,next_poll_at,created_at);
 CREATE INDEX IF NOT EXISTS ih_capability_runs_owner_idx
