@@ -87,3 +87,11 @@ def test_internal_economics_requires_operator_token(costs, monkeypatch):
     assert response.status_code==200
     assert response.headers['Cache-Control']=='no-store'
     assert response.json()['summary']['cost_state']=='unknown'
+
+def test_runtime_measurement_rolls_back_with_billing(costs):
+    control,store,run_id=costs
+    with control._connect() as conn:
+        control.settle_tool_call(run_id,status='ok',latency_ms=10,output_bytes=20,actual_credits=1,
+            execution_usage={'counters':{'intelligence_browser_elapsed_ms':1250}},transaction=conn)
+        conn.rollback()
+    assert store.for_run(run_id,100,0)['coverage']['browser']['state']=='not_instrumented'
