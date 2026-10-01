@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from .control_store import ControlError
+from .run_projection import PUBLIC_COLUMNS
+from .run_projection import SCHEMA as PROJECTION_SCHEMA
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS ih_runs (
@@ -97,6 +99,8 @@ INSERT INTO ih_runs(id,user_id,capability_id,status,api_key_id,credits_reserved,
  ON CONFLICT(id) DO NOTHING;
 """
 
+SCHEMA += PROJECTION_SCHEMA
+
 
 class RunEnvelopeStore:
     def __init__(self, control):
@@ -107,21 +111,21 @@ class RunEnvelopeStore:
         with self.control._connect() as conn, conn.cursor() as cur:
             cur.execute("SELECT count(*) AS total FROM ih_runs WHERE user_id=%s", (owner,))
             total = cur.fetchone()["total"]
-            cur.execute("""SELECT id,capability_id,status,credits_reserved,credits_charged,
-                quote_revision,created_at,finished_at FROM ih_runs WHERE user_id=%s
+            cur.execute(f"""SELECT {PUBLIC_COLUMNS} FROM ih_runs WHERE user_id=%s
                 ORDER BY created_at DESC,id DESC LIMIT %s OFFSET %s""", (owner, limit, offset))
             return {"runs": [dict(row) for row in cur.fetchall()], "total": total}
 
     def get(self, owner, run_id, after, limit):
         self.control.ensure_schema()
         with self.control._connect() as conn, conn.cursor() as cur:
-            cur.execute("""SELECT id,capability_id,status,credits_reserved,credits_charged,
-                quote_revision,created_at,finished_at FROM ih_runs WHERE id=%s AND user_id=%s""",
-                (run_id, owner))
+            cur.execute(f"""SELECT {PUBLIC_COLUMNS} FROM ih_runs WHERE user_id=%s
+                AND (id=%s OR source_ref=%s) ORDER BY (id=%s) DESC LIMIT 1""",
+                (owner, run_id, run_id, run_id))
             row = cur.fetchone()
             if not row:
                 raise ControlError("run_not_found", "Run not found for this account.", 404)
             run = dict(row)
+            run_id = run["id"]
             cur.execute("""SELECT id,status,attempts,cancel_requested,monitor_id,dataset_id,
                 finished_at,error_code FROM ih_crawl_runs WHERE request_id=%s AND user_id=%s""",
                 (run_id, owner))
@@ -139,7 +143,7 @@ class RunEnvelopeStore:
             cur.execute("SELECT id FROM ih_datasets WHERE request_id=%s AND user_id=%s", (run_id, owner))
             dataset = cur.fetchone()
             run["output_dataset_id"] = dataset["id"] if dataset else None
-            cur.execute("""SELECT sequence,timestamp,type,status,attempt FROM ih_run_events
+            cur.execute("""SELECT sequence,timestamp,type,status,attempt,message FROM ih_run_events
                 WHERE run_id=%s AND sequence>%s ORDER BY sequence LIMIT %s""",
                 (run_id, after, limit))
             events = [dict(event) for event in cur.fetchall()]
