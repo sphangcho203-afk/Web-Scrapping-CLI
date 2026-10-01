@@ -9,6 +9,11 @@ source as-of timestamp and explicit validity window. These valuations are rate
 estimates; they do not establish reconciled invoice expense or complete run COGS.
 Wallet settlement, quote prices and reservation-time conversion remain unchanged.
 
+Exa's exact response-dollar statements have a separate immutable observation
+contract in [PROVIDER_DOLLAR_REPORTS.md](PROVIDER_DOLLAR_REPORTS.md). They are not
+rate revisions or invoice reconciliation, and rate estimates must not be added to
+overlapping reported dollars automatically.
+
 `ih_cost_rates` stores immutable, content-addressed revisions and an increasing
 version. Repeating the same normalized import returns the same revision. Revisions
 are serialized per provider/operation/unit. Among overlapping valid revisions,

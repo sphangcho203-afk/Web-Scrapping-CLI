@@ -14,6 +14,12 @@ rate revision, estimation flag and timestamp. Monetary fields use PostgreSQL
 pinned valuations are immutable. See [PROVIDER_COST_RATES.md](PROVIDER_COST_RATES.md)
 for sourced imports, validity, historical valuation and migration contracts.
 
+Exact Exa response-dollar observations are now stored separately in
+`ih_provider_dollar_reports`. Their own subtotal and coverage distinguish valid,
+missing, malformed and unobserved reports without combining overlapping credit
+valuations. See [PROVIDER_DOLLAR_REPORTS.md](PROVIDER_DOLLAR_REPORTS.md). They remain
+unreconciled provider statements; total COGS stays unknown.
+
 ## Internal read interface
 
 `GET /api/internal/runs/{run_id}/economics?limit=100&offset=0` returns paged measured

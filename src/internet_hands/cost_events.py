@@ -1,5 +1,6 @@
-"""Internal provider usage facts; customer credits are never treated as provider COGS."""
+"""Private provider credit facts and dollar reports, separate from wallet accounting."""
 from .control_store import ControlError
+from .provider_cost_reports import read_reports
 from .resource_measurements import resource_coverage
 
 SCHEMA = """
@@ -98,6 +99,13 @@ class CostEventStore:
                     group.update(state='partial', valuation_state='unknown')
                     group.setdefault('measurements', []).append(measurement)
             coverage.update(resource_coverage(cur, run_id))
+            exa_calls = sum(count for name, count in expected.items()
+                            if name.lower() == 'exa' and type(count) is int and count > 0)
+            dollar_coverage, dollar_reports = read_reports(cur, run_id,
+                exa_calls, limit, offset)
+            coverage['provider_reported_dollars'] = dollar_coverage
+            summary['known_reported_provider_subtotal_usd'] = dollar_coverage['known_reported_subtotal_usd']
+            summary['known_cost_subtotal_basis'] = 'provider_credit_valuations'
             summary['valuation_kind']=('mixed_or_legacy' if summary['legacy_valued_count'] else 'rate_estimate') if not incomplete else 'incomplete'
             cur.execute('''SELECT reason,count(*) AS count FROM (SELECT CASE
                 WHEN EXISTS(SELECT 1 FROM ih_cost_rates r WHERE r.provider=lower(c.provider)
@@ -109,4 +117,5 @@ class CostEventStore:
                 WHERE c.run_id=%s AND c.unit_cost_usd IS NULL) unpriced GROUP BY reason''',(run_id,))
             summary['unpriced_reason_counts']={row['reason']:row['count'] for row in cur.fetchall()}
             return {'run_id':run_id,'summary':summary,'events':events,'coverage':coverage,
+                    'provider_dollar_reports': dollar_reports,
                     'limit':limit,'offset':offset}
