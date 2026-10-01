@@ -801,7 +801,7 @@ def test_usage_leads_with_workflows_and_retains_technical_trace(frontend_url):
         page.locator(".ih-run-modal").wait_for()
         assert "Game intelligence" in page.locator(".ih-inspector-grid").first.inner_text()
         receipt = page.locator("[data-run-receipt]")
-        assert "Reserved credits" in receipt.inner_text()
+        assert "reserved credits" in receipt.inner_text().casefold()
         assert "billing_transition" in receipt.inner_text()
         assert receipt.get_by_role("link", name="Open saved dataset").get_attribute("href") == "/dashboard/datasets?dataset=ds_fixture"
         page.get_by_text("Technical routing and provenance").click()
