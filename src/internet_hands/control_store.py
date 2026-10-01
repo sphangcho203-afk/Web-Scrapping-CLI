@@ -679,6 +679,8 @@ class ControlStore:
                     cur.execute(SCHEMA_SQL)
                     from .run_envelope import SCHEMA as RUN_SCHEMA
                     cur.execute(RUN_SCHEMA)
+                    from .cost_events import SCHEMA as COST_EVENT_SCHEMA
+                    cur.execute(COST_EVENT_SCHEMA)
                     for row in PLAN_ROWS:
                         cur.execute(
                             """

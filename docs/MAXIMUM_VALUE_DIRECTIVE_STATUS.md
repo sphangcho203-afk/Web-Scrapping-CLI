@@ -484,3 +484,18 @@ scheduler and signed delivery. CI/deployment evidence for this continuation belo
 to its exact published head; prior green checks apply only to the prior head.
 Operator COGS, automations and Live Dataset lineage have no producers yet. Internal
 cost columns and future parent fields stay empty rather than manufacturing values.
+
+### Wave 2 foundation — measured provider cost events
+
+A separate dependent tranche now records trustworthy provider-reported units in
+`ih_cost_events`, linked to the canonical run and uniquely identified by their
+source usage event. Settlement rollback/idempotency applies to these facts as well.
+An operator-authenticated internal read endpoint exposes measured units and
+explicitly unknown valuations. Decimal amounts retain precision. See
+`OPERATOR_COST_EVENTS.md`.
+
+**PARTIAL:** this is the required internal cost interface, not a finished margin
+engine. Provider invoices/rates, browser/model/compute/storage costs, full coverage,
+spend policies and cost-aware routing remain. Total COGS and margin are not
+fabricated. Production operator execution and invoice reconciliation remain
+**NOT VERIFIED**.
