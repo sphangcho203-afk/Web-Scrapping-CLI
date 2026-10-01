@@ -1620,6 +1620,7 @@ class ControlStore:
                         (reserved, identity.user_id),
                     )
 
+                from .run_projection import input_summary
                 capability = str(options.get("capability") or "").strip()[:160] or None
                 cur.execute(
                     """
@@ -1641,6 +1642,7 @@ class ControlStore:
                             {
                                 "auth_source": identity.source,
                                 "arguments_present": bool(arguments),
+                                "run": input_summary(arguments),
                                 "budget": {"max_charge_credits": options.get("max_charge_credits"),
                                            "quote_revision": quote["quote_revision"]},
                                 "tool": tool_name,
