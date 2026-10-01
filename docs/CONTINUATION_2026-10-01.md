@@ -94,3 +94,26 @@ also passed. Published exact-head CI/preview evidence belongs in this tranche's 
 No actual rate is seeded without its source. These estimates do not establish
 reconciled invoice cost, full browser/compute/model/infrastructure coverage or
 positive margin. Production authenticated operator execution remains unverified.
+
+## Account/key spend-policy continuation
+
+Refreshed the unchanged draft stack through #50 at `5826e82` and continued on
+`codex/spend-policies-20261001`. Additive owner/key policy rows enforce optional
+per-run/day/month caps at wallet reservation, using posted charges plus active
+holds. No cap is imposed by default. Saved versions prevent lost updates; accepted
+requests preserve applied policy provenance and original billing. Quotes remain
+price-compatible and eligibility is checked at admission.
+
+The `/dashboard/spending` page manages account and owned key limits, with USD
+display, usage/headroom, explicit saves and conflict/retry states. API keys cannot
+raise limits; foreign keys cannot be inspected. Monitor scheduler denial records
+blocked history without a charge or job and recovers when limits permit a later
+check. `SPEND_POLICIES.md` documents architecture, admission-period UTC semantics,
+owned APIs, additive migration, rollback and remaining scope. Exact-head
+verification evidence belongs in the dependent PR; production authenticated
+execution remains unverified.
+
+Final integrated local verification passed 885 tests with PostgreSQL 16 and
+Chromium. Ruff, Python compile, JavaScript syntax and whitespace checks passed.
+The initial full-suite concurrency-order regression was corrected without
+changing the existing test or its contract; the final run includes that check.
