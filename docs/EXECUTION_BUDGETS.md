@@ -20,6 +20,13 @@ Both quote endpoints return a quote containing credits, maximum_charge_credits, 
 
 ## API controls
 
+Persistent account and API-key per-run/day/month hard limits now supplement the
+request-specific ceiling. They count posted charges plus active reservations and
+are checked under the wallet lock before admission. Manage them at
+`/dashboard/spending`; see [SPEND_POLICIES.md](SPEND_POLICIES.md) for APIs, UTC
+period semantics, conflict handling and compatibility. Reviewing a price does not
+reserve policy headroom; a subsequent confirmation can be denied by these limits.
+
 Execution accepts optional max_charge_credits, an integer from 0 to 1,000,000,000 in internal wallet units. It is a ceiling for the whole reservation, not an instruction to perform partial unfunded work. A smaller ceiling rejects the request with spend_limit_exceeded (409). Booleans, floats, strings and null are invalid. A provided quote_revision must still match; changed price or inputs return quote_changed (409), requiring a fresh review. Direct clients can omit these controls for compatibility; the console always confirms with both.
 
 Quoted inputs use the same normalizer as execution. Authorization is evaluated again on confirmation. Quotes are not transferable: revisions include the account identity. A quote does not reserve capacity, bypass revoked keys or promise execution at a stale price. No expiry token is needed; the revision is compared with the current policy and inputs. A policy/input change invalidates it immediately.
