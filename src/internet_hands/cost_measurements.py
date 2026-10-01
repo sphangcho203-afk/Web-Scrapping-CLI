@@ -1,6 +1,8 @@
 """Measured runtime quantities; a wall-clock duration is not invoiced compute."""
 import math
 
+from .provider_cost_reports import normalize_reports
+
 
 def reported_credit_units(value):
     """Reject malformed telemetry rather than inventing zero or fractional units."""
@@ -13,6 +15,8 @@ def reported_credit_units(value):
 
 def normalize_provider_units(usage):
     normalized = dict(usage)
+    if 'provider_cost_reports' in usage:
+        normalized['provider_cost_reports'] = normalize_reports(usage['provider_cost_reports'])
     if 'provider_usage' not in usage:
         return normalized
     normalized['provider_usage'] = [

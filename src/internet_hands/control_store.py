@@ -688,6 +688,8 @@ class ControlStore:
                     cur.execute(COST_MEASUREMENT_SCHEMA)
                     from .resource_measurements import SCHEMA as RESOURCE_MEASUREMENT_SCHEMA
                     cur.execute(RESOURCE_MEASUREMENT_SCHEMA)
+                    from .provider_cost_reports import SCHEMA as PROVIDER_DOLLAR_SCHEMA
+                    cur.execute(PROVIDER_DOLLAR_SCHEMA)
                     from .spend_policies import SCHEMA as SPEND_POLICY_SCHEMA
                     cur.execute(SPEND_POLICY_SCHEMA)
                     for row in PLAN_ROWS:
@@ -1728,8 +1730,12 @@ class ControlStore:
                     return 0
 
                 metadata = dict(event.get("metadata") or {})
+                provider_reports = []
                 if execution_usage is not None:
                     execution_usage = normalize_provider_units(execution_usage)
+                    # Checkpoint evidence is private; customer usage/ledger metadata
+                    # contains existing metering quantities, not dollar observations.
+                    provider_reports = execution_usage.pop('provider_cost_reports', [])
                     metadata["measured_usage"] = execution_usage
 
                 if event["status"] != "reserved":
@@ -1737,6 +1743,9 @@ class ControlStore:
                     # timeout handler, or late worker must never rewrite a settled or
                     # abandoned request after wallet/ledger state has been finalized.
                     return int(event["credits_charged"] or 0)
+
+                from .provider_cost_reports import persist_reports
+                persist_reports(cur, request_id, provider_reports)
 
                 provider_events = (execution_usage or {}).get("provider_events") or []
                 for item in provider_events:
