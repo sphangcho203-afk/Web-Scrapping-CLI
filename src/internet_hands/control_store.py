@@ -686,6 +686,8 @@ class ControlStore:
                     cur.execute(COST_RATE_SCHEMA)
                     from .cost_measurements import SCHEMA as COST_MEASUREMENT_SCHEMA
                     cur.execute(COST_MEASUREMENT_SCHEMA)
+                    from .resource_measurements import SCHEMA as RESOURCE_MEASUREMENT_SCHEMA
+                    cur.execute(RESOURCE_MEASUREMENT_SCHEMA)
                     from .spend_policies import SCHEMA as SPEND_POLICY_SCHEMA
                     cur.execute(SPEND_POLICY_SCHEMA)
                     for row in PLAN_ROWS:

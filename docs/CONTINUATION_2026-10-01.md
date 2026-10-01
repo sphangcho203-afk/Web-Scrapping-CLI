@@ -117,3 +117,33 @@ Final integrated local verification passed 885 tests with PostgreSQL 16 and
 Chromium. Ruff, Python compile, JavaScript syntax and whitespace checks passed.
 The initial full-suite concurrency-order regression was corrected without
 changing the existing test or its contract; the final run includes that check.
+
+## Dataset payload and webhook measurement continuation
+
+Refreshed the unchanged stack through #51 at `0bcc0cc` and verified every ancestry
+edge from main through #45/#47/#48/#49/#50/#51. Continued on
+`codex/resource-measurements-20261001`; all upstream work remains draft.
+
+New insert-time dataset observations measure stored columns/rows/output JSONB
+UTF-8 payload volume, including separately stored rows and original output.
+Surviving historical datasets get an explicitly marked current snapshot. A private
+webhook attempt journal records each claimed lease, one live-lease dispatch intent
+and the first outcome. It preserves unknown crash/persistence gaps and separate
+manual retries even when the outbox attempt counter resets. Late outcomes cannot
+overwrite a newer delivery lease. The operator report aggregates this evidence
+from one repeatable-read snapshot without exposing payloads or fencing tokens.
+
+`RESOURCE_MEASUREMENTS.md` documents exact units, coverage, migrations, retention
+and rollback order. Storage/delivery evidence survives output/history cleanup;
+canonical account/run deletion removes it. Physical storage, retention duration,
+wire egress and USD costs remain unmeasured. Complete COGS and margin remain
+unknown; model/compute/proxy coverage is still absent. No customer charge changed.
+
+Final local verification passed 908 tests with PostgreSQL 16 and Chromium,
+including 23 new resource cases. The focused resource/webhook/provider-cost set
+passed 75 tests. Ruff, Python compile, JavaScript syntax and whitespace checks also
+passed. Test activity polling and fixture collection-order issues found during
+verification were fixed; the final full run includes both checks. Published
+exact-head CI and preview evidence belongs in this dependent draft PR.
+Authenticated production execution, signed external delivery and invoice
+reconciliation remain unverified.

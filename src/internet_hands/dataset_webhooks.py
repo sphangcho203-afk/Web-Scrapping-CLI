@@ -77,6 +77,9 @@ async def dispatch_webhooks(webhooks, *, limit: int = MAX_BATCH) -> dict:
         try:
             body = event["body"].encode("utf-8")
             headers = delivery_headers(decrypt_secret(event["secret_enc"]), event["id"], body)
+            if not await asyncio.to_thread(webhooks.begin_attempt, event):
+                results.append({"id": event["id"], "error": "Delivery attempt is no longer available."})
+                continue
             http_status = await asyncio.wait_for(send_webhook(event["url"], body, headers), DELIVERY_TIMEOUT)
             if not 200 <= http_status < 300:
                 error = f"Receiver returned HTTP {http_status}."
