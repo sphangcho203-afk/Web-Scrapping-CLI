@@ -65,6 +65,21 @@ def test_run_envelope_postgres_transaction_and_idempotency():
             cur.execute("UPDATE ih_usage_events SET credits_charged=9 WHERE request_id=%s", (request_id,))
             conn.rollback()
         assert len(runs.get(owner, request_id, 0, 100)['events']) == 2
+        with control._connect() as conn, conn.cursor() as cur:
+            cur.execute("""INSERT INTO ih_crawl_runs(id,user_id,request_id,idempotency_key,
+                fingerprint,arguments,plan_slug,credits_reserved)
+                VALUES (%s,%s,%s,%s,'fingerprint','{"url":"https://example.com"}','free',10)""",
+                ('crawl_' + suffix, owner, request_id, suffix))
+            cur.execute("UPDATE ih_crawl_runs SET status='running',attempts=1 WHERE request_id=%s",
+                        (request_id,))
+            cur.execute("UPDATE ih_crawl_runs SET cancel_requested=true WHERE request_id=%s",
+                        (request_id,))
+        receipt = runs.get(owner, request_id, 0, 100)
+        assert [e['type'] for e in receipt['events']][-3:] == [
+            'execution_created', 'execution_status', 'cancellation_requested']
+        assert receipt['events'][-1]['attempt'] == 1
+        assert receipt['run']['execution']['cancel_requested'] is True
+        assert receipt['run']['credits_charged'] == 3
     finally:
         with control._connect() as conn, conn.cursor() as cur:
             cur.execute('DELETE FROM ih_users WHERE id=%s', (owner,))
