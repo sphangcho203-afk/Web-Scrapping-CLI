@@ -782,6 +782,12 @@ def test_usage_leads_with_workflows_and_retains_technical_trace(frontend_url):
                         "recent_runs": [run], "recent_failures": []}
             elif path == "/api/usage/runs/req_fixture":
                 data = {"run": run}
+            elif path == "/api/runs/req_fixture":
+                data = {"run": {"id": "req_fixture", "credits_reserved": 10,
+                        "credits_charged": 2, "output_dataset_id": "ds_fixture",
+                        "execution": {"status": "completed", "attempts": 1}},
+                        "events": [{"sequence": 1, "type": "billing_transition", "status": "ok",
+                                    "timestamp": "2026-09-25T12:00:00Z"}]}
             else:
                 data = {}
             route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
@@ -793,7 +799,11 @@ def test_usage_leads_with_workflows_and_retains_technical_trace(frontend_url):
         assert "openapi" not in page.locator(".ih-run-table-wrap").inner_text()
         page.locator(".ih-run-table-row").click()
         page.locator(".ih-run-modal").wait_for()
-        assert "Game intelligence" in page.locator(".ih-inspector-grid").inner_text()
+        assert "Game intelligence" in page.locator(".ih-inspector-grid").first.inner_text()
+        receipt = page.locator("[data-run-receipt]")
+        assert "Reserved credits" in receipt.inner_text()
+        assert "billing_transition" in receipt.inner_text()
+        assert receipt.get_by_role("link", name="Open saved dataset").get_attribute("href") == "/dashboard/datasets?dataset=ds_fixture"
         page.get_by_text("Technical routing and provenance").click()
         assert "openapi:rank" in page.locator(".ih-run-diagnostics").inner_text()
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
