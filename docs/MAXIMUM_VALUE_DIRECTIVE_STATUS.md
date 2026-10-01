@@ -535,3 +535,22 @@ entity, warn-only behavior or notification thresholds. Wallet credit caps do not
 measure provider margin. Production authenticated saves and actual provider/worker
 denial remain **NOT VERIFIED**. Exact-head CI/preview evidence belongs in this
 tranche's published PR.
+
+### Saved payload and webhook attempt measurements
+
+**Implemented in code:** transactional immutable observations of dataset JSONB
+UTF-8 payloads; explicit surviving-history snapshot provenance; a durable journal
+of webhook claims, live-lease dispatch intents and first outcomes, including
+manual replay and unknown abandoned attempts. Operator coverage uses one database
+snapshot, exact byte totals and bounded aggregates. It retains evidence after
+dataset, endpoint or delivery-history cleanup and removes it on canonical
+account/run deletion. Customer APIs exclude the private measurements. See
+`RESOURCE_MEASUREMENTS.md` for units, lifecycle and rollback order.
+
+**PARTIAL:** these quantities are application payload observations. They do not
+measure physical storage, byte-hours, actual wire egress, compute or invoice
+expense. Storage/delivery now have partial coverage; model/compute/proxy remain
+uninstrumented. Complete COGS and margin remain unknown. The integrated local
+suite passed 908 tests with PostgreSQL and Chromium; exact-head CI/preview evidence
+belongs in the published dependent draft. Authenticated production operator use,
+signed external delivery and invoice reconciliation remain **NOT VERIFIED**.

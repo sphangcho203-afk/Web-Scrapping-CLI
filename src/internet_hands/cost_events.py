@@ -1,5 +1,6 @@
 """Internal provider usage facts; customer credits are never treated as provider COGS."""
 from .control_store import ControlError
+from .resource_measurements import resource_coverage
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS ih_cost_events (
@@ -45,6 +46,7 @@ class CostEventStore:
     def for_run(self, run_id, limit, offset):
         self.control.ensure_schema()
         with self.control._connect() as conn, conn.cursor() as cur:
+            cur.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
             cur.execute('''SELECT r.id,u.metadata#>'{measured_usage,provider_calls}' AS provider_calls
                 FROM ih_runs r JOIN ih_usage_events u ON u.request_id=r.id WHERE r.id=%s''', (run_id,))
             run=cur.fetchone()
@@ -78,7 +80,7 @@ class CostEventStore:
             incomplete = not quantity_complete or summary['unknown_event_count']>0
             summary['provider_unit_valuation_state'] = 'unknown' if incomplete else 'valued'
             summary['cost_state'] = 'unknown'
-            summary['coverage'] = 'provider_units_only'
+            summary['coverage'] = 'partial'
             summary['provider_cost_total_usd'] = None if incomplete else summary['known_cost_subtotal_usd']
             summary['total_cost_usd'] = None
             cur.execute('''SELECT id,provider,operation,cost_type,quantity,unit,unit_cost_usd,total_cost_usd,rate_revision,
@@ -89,8 +91,13 @@ class CostEventStore:
             measurements=[dict(row) for row in cur.fetchall()]
             coverage={name:{'state':'not_instrumented'} for name in ('browser','model','compute','storage','delivery','proxy')}
             coverage['provider_units']=unit_coverage
-            if measurements:
-                coverage['browser']={'state':'partial','measurements':measurements,'valuation_state':'unknown'}
+            for measurement in measurements:
+                dimension = measurement['dimension']
+                if dimension in coverage:
+                    group = coverage[dimension]
+                    group.update(state='partial', valuation_state='unknown')
+                    group.setdefault('measurements', []).append(measurement)
+            coverage.update(resource_coverage(cur, run_id))
             summary['valuation_kind']=('mixed_or_legacy' if summary['legacy_valued_count'] else 'rate_estimate') if not incomplete else 'incomplete'
             cur.execute('''SELECT reason,count(*) AS count FROM (SELECT CASE
                 WHEN EXISTS(SELECT 1 FROM ih_cost_rates r WHERE r.provider=lower(c.provider)
