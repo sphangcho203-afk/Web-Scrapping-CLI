@@ -4,6 +4,7 @@ import asyncio
 import os
 import smtplib
 import ssl
+import time
 from dataclasses import dataclass, field
 from email.message import EmailMessage
 from email.utils import formataddr, make_msgid
@@ -51,11 +52,55 @@ def _clean(value: Any) -> str | None:
     return normalized or None
 
 
+_VAULT_SECRET_CACHE: dict[str, tuple[float, str]] = {}
+
+
 @lru_cache(maxsize=1)
 def _control_store() -> ControlStore:
     # The DSN remains a root infrastructure secret. Product integration secrets
     # can live behind the control database instead of in every Vercel deployment.
     return ControlStore()
+
+
+def _supabase_vault_secret(name: str) -> str | None:
+    """Read a named Supabase Vault secret through a service-role-only RPC."""
+    normalized = name.strip()
+    if not normalized:
+        return None
+
+    now = time.monotonic()
+    cached = _VAULT_SECRET_CACHE.get(normalized)
+    if cached is not None and now - cached[0] < 60:
+        return cached[1]
+
+    url = _clean(os.getenv("SUPABASE_URL"))
+    service_key = _clean(os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
+    if not url or not service_key:
+        return None
+
+    try:
+        response = httpx.post(
+            f"{url.rstrip('/')}/rest/v1/rpc/open_crawl_get_vault_secret",
+            headers={
+                "apikey": service_key,
+                "Authorization": f"Bearer {service_key}",
+                "Content-Type": "application/json",
+            },
+            json={"p_secret_name": normalized},
+            timeout=5.0,
+        )
+    except httpx.HTTPError:
+        return None
+    if not response.is_success:
+        return None
+
+    try:
+        value = _clean(response.json())
+    except ValueError:
+        return None
+    if value:
+        _VAULT_SECRET_CACHE[normalized] = (now, value)
+    return value
 
 
 def _env_mail_settings() -> MailSettings:
@@ -116,10 +161,16 @@ def _database_mail_settings(fallback: MailSettings) -> MailSettings | None:
     resend_api_key = fallback.resend_api_key
     secret_name = _clean(integration.get("secret_name"))
     if provider == "resend" and secret_name:
-        try:
-            vault_secret = _clean(store.get_vault_secret(secret_name))
-        except Exception:
-            vault_secret = None
+        # OpenCrawl's application state currently lives in Neon while Supabase
+        # remains the Auth/Vault boundary. Resolve Vault through the existing
+        # service-role credential first; direct DB lookup remains a migration
+        # fallback for deployments whose control DB is itself Supabase.
+        vault_secret = _supabase_vault_secret(secret_name)
+        if not vault_secret:
+            try:
+                vault_secret = _clean(store.get_vault_secret(secret_name))
+            except Exception:
+                vault_secret = None
         if vault_secret:
             resend_api_key = vault_secret
 
