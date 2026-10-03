@@ -75,7 +75,9 @@ def _supabase_vault_secret(name: str) -> str | None:
         return cached[1]
 
     url = _clean(os.getenv("SUPABASE_URL"))
-    service_key = _clean(os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
+    service_key = _clean(os.getenv("SUPABASE_SECRET_KEY")) or _clean(
+        os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    )
     if not url or not service_key:
         return None
 
@@ -416,7 +418,7 @@ async def send_mail(
     reply_to: str | None = None,
 ) -> MailResult:
     """Send transactional mail through DB/Vault config first, with env fallback."""
-    settings = _mail_settings()
+    settings = await asyncio.to_thread(_mail_settings)
     preferred = mail_provider(settings)
     resend_error: MailError | None = None
     smtp_error: MailError | None = None
