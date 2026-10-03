@@ -12,6 +12,7 @@ from functools import lru_cache
 from typing import Any
 
 import httpx
+import psycopg
 
 from .control_store import ControlStore
 
@@ -131,7 +132,7 @@ def _database_mail_settings(fallback: MailSettings) -> MailSettings | None:
         return None
     try:
         integration = store.get_platform_integration("transactional_email")
-    except Exception:
+    except (RuntimeError, OSError, psycopg.Error):
         # Database-backed configuration is an enhancement, not a reason to make
         # authentication and password recovery unavailable during DB incidents.
         return None
@@ -169,7 +170,7 @@ def _database_mail_settings(fallback: MailSettings) -> MailSettings | None:
         if not vault_secret:
             try:
                 vault_secret = _clean(store.get_vault_secret(secret_name))
-            except Exception:
+            except (RuntimeError, OSError, psycopg.Error):
                 vault_secret = None
         if vault_secret:
             resend_api_key = vault_secret
