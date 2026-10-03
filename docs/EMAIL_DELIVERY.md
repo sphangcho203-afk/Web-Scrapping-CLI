@@ -5,14 +5,40 @@ provider credentials out of Vercel environment variables.
 
 ## Production layout
 
-- `ih_platform_integrations` stores non-secret configuration.
+- Neon remains the authoritative OpenCrawl control/application database.
+- `ih_platform_integrations` stores non-secret configuration in the control DB.
 - `secret_name` points to a Supabase Vault secret.
-- `mailer.py` reads the database first and falls back to environment variables
-  only when the database configuration is absent or unavailable.
+- `mailer.py` resolves that secret through a service-role-only Supabase RPC,
+  using the already-configured `SUPABASE_URL` and
+  `SUPABASE_SERVICE_ROLE_KEY`.
+- Environment mail variables are used only when database/Vault configuration is
+  absent or temporarily unavailable.
 - A disabled database integration is authoritative and prevents environment
   fallback from silently re-enabling mail.
 
 ## Resend configuration
+
+Create the service-role-only Vault RPC once in the OpenCrawl Supabase project:
+
+```sql
+create or replace function public.open_crawl_get_vault_secret(p_secret_name text)
+returns text
+language sql
+security definer
+set search_path = ''
+as $
+  select decrypted_secret
+  from vault.decrypted_secrets
+  where name = p_secret_name
+  order by updated_at desc nulls last, created_at desc
+  limit 1;
+$;
+
+revoke all on function public.open_crawl_get_vault_secret(text)
+  from public, anon, authenticated;
+grant execute on function public.open_crawl_get_vault_secret(text)
+  to service_role;
+```
 
 Create the Resend secret in Supabase Vault:
 
@@ -24,7 +50,7 @@ select vault.create_secret(
 );
 ```
 
-Then configure transactional email:
+Then configure transactional email in the Neon control database:
 
 ```sql
 insert into ih_platform_integrations (
