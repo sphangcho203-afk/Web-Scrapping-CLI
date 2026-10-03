@@ -198,7 +198,13 @@ def _smtp_from_email(
     sender_key: str | None = None,
 ) -> str | None:
     settings = settings or _mail_settings()
-    return _sender_email(settings, sender_key) or _clean(os.getenv("SMTP_FROM_EMAIL"))
+    if settings.source == "database":
+        selected = _sender_email(settings, sender_key)
+        if selected:
+            return selected
+    return _clean(os.getenv("SMTP_FROM_EMAIL")) or _clean(
+        os.getenv("INTERNET_HANDS_FROM_EMAIL")
+    )
 
 
 def _resend_from_email(
@@ -206,7 +212,13 @@ def _resend_from_email(
     sender_key: str | None = None,
 ) -> str | None:
     settings = settings or _mail_settings()
-    return _sender_email(settings, sender_key) or _clean(os.getenv("RESEND_FROM_EMAIL"))
+    if settings.source == "database":
+        selected = _sender_email(settings, sender_key)
+        if selected:
+            return selected
+    return _clean(os.getenv("RESEND_FROM_EMAIL")) or _clean(
+        os.getenv("INTERNET_HANDS_FROM_EMAIL")
+    )
 
 
 def _from_header(
