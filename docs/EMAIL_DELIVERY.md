@@ -9,8 +9,8 @@ provider credentials out of Vercel environment variables.
 - `ih_platform_integrations` stores non-secret configuration in the control DB.
 - `secret_name` points to a Supabase Vault secret.
 - `mailer.py` resolves that secret through a service-role-only Supabase RPC,
-  using the already-configured `SUPABASE_URL` and
-  `SUPABASE_SERVICE_ROLE_KEY`.
+  using the already-configured `SUPABASE_URL` and preferred
+  `SUPABASE_SECRET_KEY` (with `SUPABASE_SERVICE_ROLE_KEY` as a legacy alias).
 - Environment mail variables are used only when database/Vault configuration is
   absent or temporarily unavailable.
 - A disabled database integration is authoritative and prevents environment
@@ -26,13 +26,13 @@ returns text
 language sql
 security definer
 set search_path = ''
-as $
+as $vault$
   select decrypted_secret
   from vault.decrypted_secrets
   where name = p_secret_name
   order by updated_at desc nulls last, created_at desc
   limit 1;
-$;
+$vault$;
 
 revoke all on function public.open_crawl_get_vault_secret(text)
   from public, anon, authenticated;
