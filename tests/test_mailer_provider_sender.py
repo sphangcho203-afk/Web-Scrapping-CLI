@@ -117,3 +117,36 @@ def test_database_failure_uses_environment_fallback(monkeypatch) -> None:
 
     assert settings.source == "environment"
     assert mailer.mail_provider(settings) == "resend"
+
+
+def test_supabase_vault_lookup_prefers_modern_secret_key(monkeypatch) -> None:
+    captured: dict[str, str] = {}
+
+    class FakeResponse:
+        is_success = True
+
+        @staticmethod
+        def json():
+            return "vault-value"
+
+    def fake_post(url: str, *, headers, json, timeout: float):
+        captured["url"] = url
+        captured["apikey"] = headers["apikey"]
+        captured["authorization"] = headers["Authorization"]
+        captured["secret_name"] = json["p_secret_name"]
+        captured["timeout"] = str(timeout)
+        return FakeResponse()
+
+    mailer._VAULT_SECRET_CACHE.clear()
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_SECRET_KEY", "modern-secret")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "legacy-secret")
+    monkeypatch.setattr(mailer.httpx, "post", fake_post)
+
+    value = mailer._supabase_vault_secret("opencrawl_resend_api_key")
+
+    assert value == "vault-value"
+    assert captured["apikey"] == "modern-secret"
+    assert captured["authorization"] == "Bearer modern-secret"
+    assert captured["secret_name"] == "opencrawl_resend_api_key"
+
