@@ -37,7 +37,7 @@ from .control_api import (
     store,
 )
 from .control_store import ControlError, random_token
-from .mailer import MailError, mail_provider, send_mail
+from .mailer import mail_provider, send_mail
 from .security_store import SecurityStore
 from .supabase_auth import SupabaseAuthError
 from .supabase_auth import admin_create_user as supabase_admin_create_user
