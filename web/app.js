@@ -55,6 +55,34 @@ const platformPaths = {
 };
 const platformMark = (name, label = '') => `<svg class="platform-mark mark-${name}" viewBox="0 0 24 24" ${label ? `aria-label="${esc(label)}" role="img"` : 'aria-hidden="true"'}><path d="${platformPaths[name] || platformPaths.api}"/></svg>`;
 
+const pageHeadline = (kicker, title, body, action='') => `<header class="ihx-page-head"><div><span>${esc(kicker)}</span><h1>${esc(title)}</h1><p>${esc(body)}</p></div>${action}</header>`;
+const safeProviderLogo = value => {
+  try {
+    const url = new URL(String(value || ''), location.origin);
+    return url.protocol === 'https:' ? url.href : '';
+  } catch { return ''; }
+};
+const toolkitPlatformAlias = toolkit => ({
+  github:'github',
+  openai:'openai',
+  anthropic:'anthropic',
+  claude:'anthropic',
+  xai:'xai'
+}[String(toolkit || '').toLowerCase()] || '');
+const toolkitInitials = (name, toolkit) => {
+  const source=String(name || toolkit || '?').trim();
+  const words=source.split(/[\s._-]+/).filter(Boolean);
+  return (words.length > 1 ? words.slice(0,2).map(x=>x[0]).join('') : source.slice(0,2)).toUpperCase();
+};
+const connectedAppMark = item => {
+  const toolkit=String(item?.toolkit || '').toLowerCase();
+  const name=String(item?.name || toolkit || 'App');
+  const logo=safeProviderLogo(item?.logo);
+  const alias=toolkitPlatformAlias(toolkit);
+  const fallback=alias ? platformMark(alias,name) : `<span class="connected-app-initials" aria-hidden="true">${esc(toolkitInitials(name,toolkit))}</span>`;
+  return `<span class="connected-app-mark" data-toolkit="${esc(toolkit)}">${logo ? `<img src="${esc(logo)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span class="connected-app-logo-fallback" hidden>${fallback}</span>` : fallback}</span>`;
+};
+
 
 function toast(message, tone = '') {
   let region = $('#toast-region');
@@ -1134,14 +1162,14 @@ async function dashCapabilities(){
   const available=Number(account.monthly_credits||0)+Number(account.purchased_credits||0)-Number(account.reserved_credits||0);
   if(!keys.length){
     dashboardShell('capabilities',
-      headline('WEB CAPABILITIES','Run registered web tools','Use the same semantic capabilities exposed to agents, with real wallet accounting and saved outputs.')+
+      pageHeadline('WEB CAPABILITIES','Run registered web tools','Use the same semantic capabilities exposed to agents, with real wallet accounting and saved outputs.')+
       '<section class="search-key-lock">'+icon('key')+'<div><small>API KEY REQUIRED</small><h2>Create an API key first.</h2><p>Workbench runs are metered and attributed to an owned execution key.</p></div><a class="btn primary" data-link href="/dashboard/api-keys">Create API key</a></section>'
     );
     return;
   }
   if(!capabilities.length){
     dashboardShell('capabilities',
-      headline('WEB CAPABILITIES','Run registered web tools','Only real registered capabilities appear here.')+
+      pageHeadline('WEB CAPABILITIES','Run registered web tools','Only real registered capabilities appear here.')+
       '<div class="smart-empty">'+icon('activity')+'<span><b>No web capabilities are registered.</b><p>The workbench will not invent placeholder tools.</p></span></div>'
     );
     return;
@@ -1155,7 +1183,7 @@ async function dashCapabilities(){
   }).join('');
 
   dashboardShell('capabilities',
-    headline('WEB CAPABILITIES','Capability workbench','Run OpenCrawl semantic capabilities directly. Provider routing stays behind the product boundary; cost, output and failures stay visible.','<a class="btn" data-link href="/dashboard/datasets">'+icon('docs')+' Datasets</a>')+
+    pageHeadline('WEB CAPABILITIES','Capability workbench','Run OpenCrawl semantic capabilities directly. Provider routing stays behind the product boundary; cost, output and failures stay visible.','<a class="btn" data-link href="/dashboard/datasets">'+icon('docs')+' Datasets</a>')+
     '<section class="cap-workbench">'+
       '<aside class="cap-workbench-picker">'+
         '<label>Capability<select id="cap-id">'+capabilityOptions+'</select></label>'+
@@ -1891,7 +1919,7 @@ function openRunInspector(event) {
   };
 
   dashIntegrations = async function dashIntegrationsV3() {
-    const endpoint=location.origin+'/mcp';
+    const endpoint='https://opencrawl.top/mcp';
     const [d,connectedData,catalogData]=await Promise.all([
       api('/api/connections'),
       api('/api/integrations/apps').catch(error=>({configured:false,apps:[],connections:[],error:error.message})),
@@ -1940,7 +1968,7 @@ function openRunInspector(event) {
                 : '');
             return '<article><div><b>'+esc(alias)+'</b><code>'+esc(a.id)+'</code>'+reason+'</div><span class="ihx-state '+tone+'">'+dot(status==='ACTIVE'?'ok':status==='EXPIRED'||status==='FAILED'?'warn':'idle')+' '+esc(status)+'</span><div>'+reconnect+toggle+'<button class="btn quiet small" data-rename-app="'+esc(a.id)+'" data-app-alias="'+esc(a.alias||'')+'">Rename</button><button class="btn quiet small" data-disconnect-app="'+esc(a.id)+'">Disconnect</button></div></article>';
           }).join('')+'</div>':'<p class="connected-app-empty">No account connected yet. Connecting opens the provider authorization flow; credentials stay with the connection provider and never pass through the browser as raw tokens.</p>';
-          return '<article class="connected-app-card"><header><div class="connected-app-mark">'+esc((appItem.name||toolkit||'?').slice(0,1).toUpperCase())+'</div><div><small>'+esc(toolkit)+'</small><h3>'+esc(appItem.name||toolkit)+'</h3><p>'+esc((appItem.auth_schemes||[]).join(' · ')||'Managed connection')+'</p></div><span class="ihx-state '+state+'">'+dot(active?'ok':expired?'warn':'idle')+' '+esc(stateLabel)+'</span></header>'+accountRows+'<footer><button class="btn primary small" data-connect-app="'+esc(toolkit)+'" data-app-name="'+esc(appItem.name||toolkit)+'" data-auth-configs="'+configAttr+'" data-allow-multiple="'+String(accounts.some(x=>String(x.status||'').toUpperCase()==='ACTIVE'))+'">'+(accounts.length?'Connect another account':'Connect account')+'</button><small>When active, this toolkit becomes eligible for your Tool Mesh. Connected-app execution does not consume OpenCrawl wallet balance; the upstream service may still bill your own account.</small></footer></article>';
+          return '<article class="connected-app-card"><header>'+connectedAppMark(appItem)+'<div><small>'+esc(toolkit)+'</small><h3>'+esc(appItem.name||toolkit)+'</h3><p>'+esc((appItem.auth_schemes||[]).join(' · ')||'Managed connection')+'</p></div><span class="ihx-state '+state+'">'+dot(active?'ok':expired?'warn':'idle')+' '+esc(stateLabel)+'</span></header>'+accountRows+'<footer><button class="btn primary small" data-connect-app="'+esc(toolkit)+'" data-app-name="'+esc(appItem.name||toolkit)+'" data-auth-configs="'+configAttr+'" data-allow-multiple="'+String(accounts.some(x=>String(x.status||'').toUpperCase()==='ACTIVE'))+'">'+(accounts.length?'Connect another account':'Connect account')+'</button><small>When active, this toolkit becomes eligible for your Tool Mesh. Connected-app execution does not consume OpenCrawl wallet balance; the upstream service may still bill your own account.</small></footer></article>';
         }).join(''):'<div class="mcp-empty"><b>No provider accounts connected</b><p>Choose Connect app to authorize GitHub, Gmail, Slack, Notion or another supported toolkit. OpenCrawl stores only the connected-account reference; provider credentials remain server-side.</p></div>')
       : '<div class="mcp-empty"><b>Connected apps are not configured</b><p>OpenCrawl cannot start account authorization until the server-side Composio project key is available.</p></div>';
     const rows=cs.length?cs.map(c=>{
@@ -1952,7 +1980,7 @@ function openRunInspector(event) {
     }).join(''):'<div class="mcp-empty"><b>No remote MCP connections</b><p>Add one manually or import a cURL command. Saving is only step one; OpenCrawl will then perform a live MCP handshake and discover the remote tool catalog.</p></div>';
     dashboardShell('connections', headline('CONNECTIONS','MCP connections','One page, two directions: connect AI clients into OpenCrawl, and connect trusted remote MCP servers outward from OpenCrawl. Keep those permission boundaries separate.','<button class="btn primary" id="mcp-add">+ Add remote MCP</button>')+
       '<section class="ihx-endpoint-hero"><div><span>YOUR OPENCRAWL MCP</span><h2>'+esc(endpoint)+'</h2><p>This is the inbound endpoint for supported MCP hosts such as Codex, Claude Code, VS Code, Cursor and compatible remote MCP clients. Authentication is handled separately through OAuth or a dedicated scoped key.</p><a class="mcp-link" data-link href="/docs/clients">Read exact client setup guides →</a></div><div class="ihx-endpoint-meta"><span><small>Transport</small><b>Streamable HTTP</b></span><span><small>Identity</small><b>OAuth / key</b></span><span><small>State</small><b>Server-side policy</b></span></div></section>'+
-      '<section class="ihx-connection-direction"><article><span>INBOUND</span><h3>Client → OpenCrawl</h3><p>Your AI host connects to <code>'+esc(endpoint)+'</code>. Give each host its own OAuth grant or scoped key so it can be revoked independently.</p><a data-link href="/docs/clients">Client guides →</a></article><article><span>OUTBOUND</span><h3>OpenCrawl → provider / remote MCP</h3><p>These saved connections let the Tool Mesh reach another trusted MCP server. Provider credentials stay server-side and are not rendered back into the browser.</p><a data-link href="/docs/sync#remote-mcp">How federation works →</a></article></section><section class="agent-connect"><header><span>CONNECT A CLIENT</span><h2>Use OpenCrawl from the tools you already work in</h2><p>These are starter configurations. The full guide explains authentication, scope, secret storage, what happens after connection, and host-specific limitations.</p><a class="mcp-link" data-link href="/docs/clients">Open detailed client documentation →</a></header><div class="agent-tabs" role="group" aria-label="Client setup"><button class="active" aria-pressed="true" data-agent-tab="codex">Codex</button><button aria-pressed="false" data-agent-tab="claude">Claude Code</button><button aria-pressed="false" data-agent-tab="vscode">VS Code</button><button aria-pressed="false" data-agent-tab="cursor">Cursor</button><button aria-pressed="false" data-agent-tab="http">HTTP probe</button></div><div id="agent-setup"></div></section><section class="mcp-secondary"><button id="mcp-add2"><b>Connect remote MCP</b><small>OpenCrawl → another MCP server</small></button><button id="mcp-curl"><b>Import provider cURL</b><small>Parse endpoint + supported auth headers; never execute shell text</small></button></section><div class="mcp-doc-strip"><span>Need the model, not just the button?</span><a data-link href="/docs/sync">Connections & synchronization →</a><a data-link href="/docs/tool-mesh">Tool Mesh execution →</a><a data-link href="/docs/security#mcp-trust">MCP trust & security →</a></div>'+
+      '<section class="ihx-connection-direction"><article><span>INBOUND</span><h3>Client → OpenCrawl</h3><p>Your AI host connects to <code>'+esc(endpoint)+'</code>. Give each host its own OAuth grant or scoped key so it can be revoked independently.</p><a data-link href="/docs/clients">Client guides →</a></article><article><span>OUTBOUND</span><h3>OpenCrawl → provider / remote MCP</h3><p>These saved connections let the Tool Mesh reach another trusted MCP server. Provider credentials stay server-side and are not rendered back into the browser.</p><a data-link href="/docs/sync#remote-mcp">How federation works →</a></article></section><section class="agent-connect"><header><span>CONNECT A CLIENT</span><h2>Use OpenCrawl from the tools you already work in</h2><p>These are starter configurations. The full guide explains authentication, scope, secret storage, what happens after connection, and host-specific limitations.</p><a class="mcp-link" data-link href="/docs/clients">Open detailed client documentation →</a></header><div class="agent-tabs" role="group" aria-label="Client setup"><button class="active" aria-pressed="true" data-agent-tab="codex"><span class="agent-tab-mark">${platformMark('openai','OpenAI')}</span>Codex</button><button aria-pressed="false" data-agent-tab="claude"><span class="agent-tab-mark">${platformMark('anthropic','Anthropic')}</span>Claude Code</button><button aria-pressed="false" data-agent-tab="vscode"><span class="agent-tab-mark">${icon('docs')}</span>VS Code</button><button aria-pressed="false" data-agent-tab="cursor"><span class="agent-tab-mark">${icon('activity')}</span>Cursor</button><button aria-pressed="false" data-agent-tab="http"><span class="agent-tab-mark">${platformMark('mcp','MCP')}</span>HTTP probe</button></div><div id="agent-setup"></div></section><section class="mcp-secondary"><button id="mcp-add2"><b>Connect remote MCP</b><small>OpenCrawl → another MCP server</small></button><button id="mcp-curl"><b>Import provider cURL</b><small>Parse endpoint + supported auth headers; never execute shell text</small></button></section><div class="mcp-doc-strip"><span>Need the model, not just the button?</span><a data-link href="/docs/sync">Connections & synchronization →</a><a data-link href="/docs/tool-mesh">Tool Mesh execution →</a><a data-link href="/docs/security#mcp-trust">MCP trust & security →</a></div>'+
       '<section class="connected-apps"><header><div><span>CONNECTED APPS</span><h2>Provider accounts</h2><p>Authorize GitHub, Gmail, Slack, Notion and other supported toolkits through hosted provider authentication. Active accounts become available to your Tool Mesh; expired accounts are never executed silently.</p></div><div class="connected-app-head-actions"><span>'+fmt(appAccounts.filter(x=>String(x.status||'').toUpperCase()==='ACTIVE').length)+' active accounts</span><button class="btn primary small" id="connect-app-catalog">+ Connect app</button></div></header><div class="connected-app-grid">'+connectedAppCards+'</div></section>'+
       '<section class="mcp-saved"><header><span>REMOTE MCP</span><h2>Saved MCP servers</h2><p>These are outbound MCP servers. Credential values are never rendered back. MCP servers you add yourself do not consume OpenCrawl wallet balance for their external execution.</p></header>'+rows+'</section>'+
       '<section class="ihx-connection-modes"><article><span>'+icon('shield')+'</span><div><small>INTERACTIVE CLIENTS</small><h3>OAuth MCP</h3><p>Browser consent, PKCE and token-based access for compatible clients.</p></div><a class="mcp-link" data-link href="/docs/oauth">Understand the OAuth flow →</a></article><article><span>'+icon('key')+'</span><div><small>AUTOMATION</small><h3>Scoped API keys</h3><p>Independent long-lived machine credentials for scripts, CI and services.</p></div><a class="mcp-link" data-link href="/docs/keys">Understand keys & scopes →</a><a data-link href="/dashboard/api-keys">Manage keys →</a></article></section>');
@@ -2020,7 +2048,7 @@ function openRunInspector(event) {
         return;
       }
       const list=catalogApps;
-      const w=panel('Connect an app','<div class="connected-catalog"><label>Search apps<input id="connected-catalog-search" placeholder="GitHub, Gmail, Slack, Notion…"></label><div id="connected-catalog-list"></div></div>');
+      const w=panel('Connect an app','<div class="connected-catalog"><div class="connected-catalog-intro"><span>APP DIRECTORY</span><b>Bring your existing tools into OpenCrawl</b><p>Choose a provider. OpenCrawl receives a connected-account reference; raw provider credentials stay server-side.</p></div><label>Search apps<input id="connected-catalog-search" type="search" autocomplete="off" placeholder="GitHub, Gmail, Slack, Notion…"></label><div class="connected-catalog-meta"><span>'+fmt(list.length)+' providers loaded</span><span>OAuth + managed auth</span></div><div id="connected-catalog-list"></div></div>');
       const input=$('#connected-catalog-search',w),box=$('#connected-catalog-list',w);
       const render=()=>{
         const q=String(input.value||'').trim().toLowerCase();
@@ -2029,7 +2057,7 @@ function openRunInspector(event) {
           const toolkit=String(item.toolkit||'').toLowerCase();
           const configured=appMeta.get(toolkit)||item;
           const existing=accountByToolkit[toolkit]||[];
-          return '<button type="button" class="connected-catalog-row" data-catalog-toolkit="'+esc(toolkit)+'"><span class="connected-app-mark">'+esc((item.name||toolkit||'?').slice(0,1).toUpperCase())+'</span><span><b>'+esc(item.name||toolkit)+'</b><small>'+esc(toolkit)+(item.auth_schemes?.length?' · '+esc(item.auth_schemes.join(' / ')):'')+'</small><p>'+esc(item.description||'Connect this toolkit to make its authorized tools available to your OpenCrawl account.')+'</p></span><em>'+ (existing.some(x=>String(x.status||'').toUpperCase()==='ACTIVE')?'Add account':'Connect') +' →</em></button>';
+          return '<button type="button" class="connected-catalog-row" data-catalog-toolkit="'+esc(toolkit)+'">'+connectedAppMark(configured)+'<span><b>'+esc(item.name||toolkit)+'</b><small>'+esc(toolkit)+(item.auth_schemes?.length?' · '+esc(item.auth_schemes.join(' / ')):'')+'</small><p>'+esc(item.description||'Connect this toolkit to make its authorized tools available to your OpenCrawl account.')+'</p></span><em><span class="connected-catalog-state">'+(existing.some(x=>String(x.status||'').toUpperCase()==='ACTIVE')?'CONNECTED':'AVAILABLE')+'</span>'+ (existing.some(x=>String(x.status||'').toUpperCase()==='ACTIVE')?'Add account':'Connect') +' →</em></button>';
         }).join(''):'<div class="mcp-empty"><b>No matching apps</b><p>Try another toolkit name.</p></div>';
         box.querySelectorAll('[data-catalog-toolkit]').forEach(row=>row.onclick=()=>{
           const toolkit=row.dataset.catalogToolkit;
