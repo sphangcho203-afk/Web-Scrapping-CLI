@@ -58,7 +58,6 @@ CANONICAL_PUBLIC_ORIGIN = "https://opencrawl.top"
 _CANONICAL_PRODUCTION_HOSTS = {
     "opencrawl.top",
     "www.opencrawl.top",
-    "web-scrapping-cli.vercel.app",
 }
 
 
