@@ -2058,12 +2058,13 @@ function openRunInspector(event) {
         toast('Connected-app provider is not configured on this deployment','error');
         return;
       }
-      const list=catalogApps;
-      const w=panel('Connect an app','<div class="connected-catalog"><div class="connected-catalog-intro"><span>APP DIRECTORY</span><b>Bring your existing tools into OpenCrawl</b><p>Choose a provider. OpenCrawl receives a connected-account reference; raw provider credentials stay server-side.</p></div><label>Search apps<input id="connected-catalog-search" type="search" autocomplete="off" placeholder="GitHub, Gmail, Slack, Notion…"></label><div class="connected-catalog-meta"><span>'+fmt(list.length)+' providers loaded</span><span>OAuth + managed auth</span></div><div id="connected-catalog-list"></div></div>');
-      const input=$('#connected-catalog-search',w),box=$('#connected-catalog-list',w);
+      let list=[...catalogApps];
+      let nextCursor=catalogData.next_cursor||null;
+      const w=panel('Connect an app','<div class="connected-catalog"><div class="connected-catalog-intro"><span>APP DIRECTORY</span><b>Bring your existing tools into OpenCrawl</b><p>Choose a provider. OpenCrawl receives a connected-account reference; raw provider credentials stay server-side.</p></div><label>Search apps<input id="connected-catalog-search" type="search" autocomplete="off" placeholder="GitHub, Gmail, Slack, Notion…"></label><div class="connected-catalog-meta"><span data-provider-count>'+fmt(list.length)+' providers loaded</span><span>OAuth + managed auth</span></div><div id="connected-catalog-list"></div><button class="btn quiet connected-catalog-more" id="connected-catalog-more" type="button">Load more providers</button></div>');
+      const input=$('#connected-catalog-search',w),box=$('#connected-catalog-list',w),more=$('#connected-catalog-more',w),count=$('[data-provider-count]',w);
       const render=()=>{
         const q=String(input.value||'').trim().toLowerCase();
-        const rows=list.filter(item=>!q||String(item.name||item.toolkit||'').toLowerCase().includes(q)||String(item.toolkit||'').toLowerCase().includes(q)).slice(0,60);
+        const rows=list.filter(item=>!q||String(item.name||item.toolkit||'').toLowerCase().includes(q)||String(item.toolkit||'').toLowerCase().includes(q)).slice(0,q?100:80);
         box.innerHTML=rows.length?rows.map(item=>{
           const toolkit=String(item.toolkit||'').toLowerCase();
           const configured=appMeta.get(toolkit)||item;
@@ -2085,7 +2086,34 @@ function openRunInspector(event) {
         });
       };
       input.oninput=render;
+      if(more)more.onclick=async()=>{
+        if(!nextCursor||more.dataset.loading==='1')return;
+        more.dataset.loading='1';
+        more.disabled=true;
+        more.textContent='Loading providers…';
+        try{
+          const page=await api('/api/integrations/catalog?limit=100&cursor='+encodeURIComponent(nextCursor));
+          const incoming=page.apps||[];
+          const seen=new Set(list.map(x=>String(x.toolkit||'').toLowerCase()));
+          incoming.forEach(item=>{
+            const key=String(item.toolkit||'').toLowerCase();
+            if(key&&!seen.has(key)){list.push(item);seen.add(key);}
+            const current=appMeta.get(key)||{};
+            appMeta.set(key,{...item,...current,logo:current.logo||item.logo,description:current.description||item.description});
+          });
+          nextCursor=page.next_cursor||null;
+          if(count)count.textContent=fmt(list.length)+' providers loaded';
+          render();
+        }catch(error){toast(error.message,'error')}
+        finally{
+          more.dataset.loading='0';
+          more.disabled=false;
+          more.textContent='Load more providers';
+          more.hidden=!nextCursor;
+        }
+      };
       render();
+      if(more)more.hidden=!nextCursor;
       input.focus();
     };
 
