@@ -119,5 +119,5 @@ def test_scheduler_route_and_oidc_workflow_contract() -> None:
     assert "*/5 * * * *" in workflow
     assert "ACTIONS_ID_TOKEN_REQUEST_URL" in workflow
     assert "refs/heads/main" in executor
-    assert "https://web-scrapping-cli.vercel.app/api/internal/monitors/tick" in workflow
-    assert "https://web-scrapping-cli.vercel.app/api/internal/system/health" in workflow
+    assert "https://opencrawl.top/api/internal/monitors/tick" in workflow
+    assert "https://opencrawl.top/api/internal/system/health" in workflow

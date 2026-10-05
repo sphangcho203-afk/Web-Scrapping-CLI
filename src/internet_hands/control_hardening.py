@@ -106,7 +106,11 @@ async def _send_payment_confirmation(payment: dict[str, Any]) -> None:
     )
     try:
         result = await send_mail(
-            to=user["email"], subject=subject, text=text, html=html_body
+            to=user["email"],
+            subject=subject,
+            text=text,
+            html=html_body,
+            sender_key="billing",
         )
     except MailError as exc:
         security_store.finish_email_event(event_id, status="failed", error=str(exc))
@@ -234,6 +238,7 @@ async def _send_reset_email(*, email: str, reset_url: str) -> None:
             to=email,
             subject="Reset your OpenCrawl password",
             text=f"Reset your OpenCrawl password: {reset_url}\nThis link expires in 30 minutes.",
+            sender_key="auth",
             html=(
                 "<p>You requested a password reset for OpenCrawl.</p>"
                 f"<p><a href=\"{html.escape(reset_url, quote=True)}\">Reset password</a></p>"

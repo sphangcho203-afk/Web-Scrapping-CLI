@@ -9,6 +9,7 @@ from fastapi import HTTPException
 
 from internet_hands import control_api, security_api, security_hardening
 from internet_hands.control_store import AuthIdentity, ControlStore
+from internet_hands.mailer import MailError
 
 
 class _Request:
@@ -183,7 +184,7 @@ async def test_mail_configuration_failure_is_logged_without_recipient(monkeypatc
     monkeypatch.setattr(security_api, "mail_provider", lambda: None)
 
     async def fail_mail(**_kwargs):
-        raise security_api.MailError("transactional email is not configured")
+        raise MailError("transactional email is not configured")
 
     monkeypatch.setattr(security_api, "send_mail", fail_mail)
 
@@ -200,6 +201,39 @@ async def test_mail_configuration_failure_is_logged_without_recipient(monkeypatc
     assert sent is False
     assert caplog.records[-1].failure_reason == "not_configured"
     assert caplog.records[-1].mail_provider == "none"
+    assert "private@example.test" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_unexpected_mail_failure_cannot_break_auth_flow(monkeypatch, caplog) -> None:
+    monkeypatch.setattr(
+        security_api.security,
+        "claim_email_event",
+        lambda **_kwargs: "evt_1",
+    )
+    monkeypatch.setattr(
+        security_api.security,
+        "finish_email_event",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(security_api, "mail_provider", lambda: None)
+
+    async def fail_mail(**_kwargs):
+        raise UnicodeEncodeError("ascii", "broken-🔒", 7, 8, "non-ascii")
+
+    monkeypatch.setattr(security_api, "send_mail", fail_mail)
+
+    with caplog.at_level("WARNING"):
+        sent = await security_api._deliver(
+            user_id="usr_1",
+            email="private@example.test",
+            event_type="login_notice",
+            subject="New sign-in",
+            text="New sign-in",
+            body_html="<p>New sign-in</p>",
+        )
+
+    assert sent is False
     assert "private@example.test" not in caplog.text
 
 

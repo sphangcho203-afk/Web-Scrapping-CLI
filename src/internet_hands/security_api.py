@@ -37,7 +37,7 @@ from .control_api import (
     store,
 )
 from .control_store import ControlError, random_token
-from .mailer import MailError, mail_provider, send_mail
+from .mailer import mail_provider, send_mail
 from .security_store import SecurityStore
 from .supabase_auth import SupabaseAuthError
 from .supabase_auth import admin_create_user as supabase_admin_create_user
@@ -69,9 +69,15 @@ def _mail_origin(request: Request) -> str:
     # Keep verification and security links on the deployment that issued the
     # challenge. Preview deployments must not silently jump to an older
     # production backend. Operators can explicitly pin a canonical origin.
-    configured = os.getenv("INTERNET_HANDS_PUBLIC_ORIGIN")
+    configured = os.getenv("OPENCRAWL_PUBLIC_ORIGIN") or os.getenv(
+        "INTERNET_HANDS_PUBLIC_ORIGIN"
+    )
     if configured:
-        return (configured if configured.startswith("https://") else f"https://{configured}").rstrip("/")
+        return (
+            configured
+            if configured.startswith(("http://", "https://"))
+            else f"https://{configured}"
+        ).rstrip("/")
     return _origin(request)
 
 
@@ -115,14 +121,22 @@ async def _deliver(
         event_id = None
     if dedupe_key and event_id is None:
         return True
+    sender_key = (
+        "auth"
+        if event_type in {"email_verification", "account_verified", "password_reset"}
+        else "security"
+    )
     try:
         result = await send_mail(
             to=email,
             subject=subject,
             text=text,
             html=_mail_shell(subject, body_html),
+            sender_key=sender_key,
         )
-    except MailError as exc:
+    except Exception as exc:  # noqa: BLE001
+        # Security/transactional email is a side effect. A provider, Vault, or
+        # transport failure must never turn a successful login into HTTP 500.
         if event_id:
             security.finish_email_event(event_id, status="failed", error=str(exc))
         message = str(exc).lower()

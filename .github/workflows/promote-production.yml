@@ -53,4 +53,4 @@ jobs:
         run: |
           set -euo pipefail
           curl --fail --silent --show-error --retry 3 --retry-all-errors \
-            https://web-scrapping-cli.vercel.app/ >/dev/null
+            https://opencrawl.top/ >/dev/null
