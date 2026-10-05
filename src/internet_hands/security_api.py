@@ -69,9 +69,15 @@ def _mail_origin(request: Request) -> str:
     # Keep verification and security links on the deployment that issued the
     # challenge. Preview deployments must not silently jump to an older
     # production backend. Operators can explicitly pin a canonical origin.
-    configured = os.getenv("INTERNET_HANDS_PUBLIC_ORIGIN")
+    configured = os.getenv("OPENCRAWL_PUBLIC_ORIGIN") or os.getenv(
+        "INTERNET_HANDS_PUBLIC_ORIGIN"
+    )
     if configured:
-        return (configured if configured.startswith("https://") else f"https://{configured}").rstrip("/")
+        return (
+            configured
+            if configured.startswith(("http://", "https://"))
+            else f"https://{configured}"
+        ).rstrip("/")
     return _origin(request)
 
 
