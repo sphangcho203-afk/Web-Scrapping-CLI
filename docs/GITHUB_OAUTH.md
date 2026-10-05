@@ -2,10 +2,10 @@
 
 Create a GitHub OAuth App for the OpenCrawl customer console.
 
-For the current Vercel production origin:
+For the canonical OpenCrawl production origin:
 
-- Homepage URL: `https://web-scrapping-cli.vercel.app/`
-- Authorization callback URL: `https://web-scrapping-cli.vercel.app/api/auth/github/callback`
+- Homepage URL: `https://opencrawl.top/`
+- Authorization callback URL: `https://opencrawl.top/api/auth/github/callback`
 
 Server environment:
 

@@ -30,7 +30,12 @@ def get_sandbox_manager() -> SandboxManager:
 
 
 def _transport_security() -> TransportSecuritySettings:
-    hosts = {"127.0.0.1", "localhost"}
+    hosts = {
+        "127.0.0.1",
+        "localhost",
+        "opencrawl.top",
+        "www.opencrawl.top",
+    }
     for env_name in (
         "VERCEL_URL",
         "VERCEL_PROJECT_PRODUCTION_URL",

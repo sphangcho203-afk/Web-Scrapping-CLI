@@ -1,14 +1,20 @@
 # OpenCrawl production rollout checklist
 
+Canonical production origin: `https://opencrawl.top`
+Permanent MCP endpoint: `https://opencrawl.top/mcp`
+GitHub OAuth callback: `https://opencrawl.top/api/auth/github/callback`
+Razorpay webhook: `https://opencrawl.top/api/webhooks/razorpay`
+
+
 - [ ] v0.6 CI green on Python 3.11, 3.12, and 3.13
 - [ ] Vercel preview deploys from `feat/v0.6-saas-control-plane`
 - [ ] `/` renders the website
 - [ ] `/api/status` reports control DB, GitHub OAuth, and Razorpay configuration
-- [ ] `/.well-known/oauth-protected-resource` returns MCP metadata
+- [ ] `https://opencrawl.top/.well-known/oauth-protected-resource` returns MCP metadata advertising `https://opencrawl.top/mcp`
 - [ ] `/.well-known/oauth-authorization-server` returns authorization/token endpoints
-- [ ] unauthenticated `/mcp` returns 401 with `WWW-Authenticate`
+- [ ] unauthenticated `https://opencrawl.top/mcp` returns 401 with `WWW-Authenticate`
 - [ ] email signup/login works
-- [ ] GitHub OAuth callback works at `/api/auth/github/callback`
+- [ ] GitHub OAuth App callback is set to `https://opencrawl.top/api/auth/github/callback` and sign-in completes
 - [ ] API key creation shows the secret exactly once
 - [ ] MCP authorization-code + PKCE flow exchanges an API key for short-lived bearer credentials
 - [ ] customer MCP calls are metered and visible in `/dashboard/usage`
