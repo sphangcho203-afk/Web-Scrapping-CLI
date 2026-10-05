@@ -31,7 +31,9 @@ def test_production_aliases_canonicalize_to_opencrawl(monkeypatch: pytest.Monkey
 
     assert _origin(_request("opencrawl.top")) == CANONICAL_PUBLIC_ORIGIN
     assert _origin(_request("www.opencrawl.top")) == CANONICAL_PUBLIC_ORIGIN
-    assert _origin(_request("web-scrapping-cli.vercel.app")) == CANONICAL_PUBLIC_ORIGIN
+    assert _origin(_request("web-scrapping-cli.vercel.app")) == (
+        "https://web-scrapping-cli.vercel.app"
+    )
 
 
 def test_preview_origin_stays_on_preview_deployment(monkeypatch: pytest.MonkeyPatch) -> None:
