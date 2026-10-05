@@ -80,7 +80,17 @@ const connectedAppMark = item => {
   const logo=safeProviderLogo(item?.logo);
   const alias=toolkitPlatformAlias(toolkit);
   const fallback=alias ? platformMark(alias,name) : `<span class="connected-app-initials" aria-hidden="true">${esc(toolkitInitials(name,toolkit))}</span>`;
-  return `<span class="connected-app-mark" data-toolkit="${esc(toolkit)}">${logo ? `<img src="${esc(logo)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span class="connected-app-logo-fallback" hidden>${fallback}</span>` : fallback}</span>`;
+  return `<span class="connected-app-mark" data-toolkit="${esc(toolkit)}">${logo ? `<img data-provider-logo src="${esc(logo)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer"><span class="connected-app-logo-fallback" hidden>${fallback}</span>` : fallback}</span>`;
+};
+const bindProviderLogoFallbacks = (root=document) => {
+  $('[data-provider-logo]',root).forEach(img => {
+    if(img.dataset.logoBound==='1')return;
+    img.dataset.logoBound='1';
+    const fallback=img.nextElementSibling;
+    const fail=()=>{img.hidden=true;if(fallback)fallback.hidden=false;};
+    img.addEventListener('error',fail,{once:true});
+    if(img.complete && !img.naturalWidth)fail();
+  });
 };
 
 
@@ -198,7 +208,8 @@ function go(path, replace = false) {
 }
 function brand() { return `<a class="brand oc-brand" data-link href="/" aria-label="OpenCrawl home"><img class="oc-brand-mark" src="/assets/opencrawl-crab.png" width="44" height="44" alt=""><span class="oc-wordmark"><b>Open<span>Crawl</span></b><small>PUBLIC WEB ENGINE</small></span></a>`; }
 function bindCommon() {
-  $$('[data-copy]').forEach(b => b.onclick = () => copyText(b.dataset.copy, b));
+  bindProviderLogoFallbacks();
+  $('[data-copy]').forEach(b => b.onclick = () => copyText(b.dataset.copy, b));
   const navToggle = $('[data-nav-toggle]');
   const mobileMenu = $('[data-mobile-menu]');
   if (navToggle && mobileMenu) {
@@ -2059,6 +2070,7 @@ function openRunInspector(event) {
           const existing=accountByToolkit[toolkit]||[];
           return '<button type="button" class="connected-catalog-row" data-catalog-toolkit="'+esc(toolkit)+'">'+connectedAppMark(configured)+'<span><b>'+esc(item.name||toolkit)+'</b><small>'+esc(toolkit)+(item.auth_schemes?.length?' · '+esc(item.auth_schemes.join(' / ')):'')+'</small><p>'+esc(item.description||'Connect this toolkit to make its authorized tools available to your OpenCrawl account.')+'</p></span><em><span class="connected-catalog-state">'+(existing.some(x=>String(x.status||'').toUpperCase()==='ACTIVE')?'CONNECTED':'AVAILABLE')+'</span>'+ (existing.some(x=>String(x.status||'').toUpperCase()==='ACTIVE')?'Add account':'Connect') +' →</em></button>';
         }).join(''):'<div class="mcp-empty"><b>No matching apps</b><p>Try another toolkit name.</p></div>';
+        bindProviderLogoFallbacks(box);
         box.querySelectorAll('[data-catalog-toolkit]').forEach(row=>row.onclick=()=>{
           const toolkit=row.dataset.catalogToolkit;
           const meta=appMeta.get(toolkit)||list.find(x=>String(x.toolkit||'').toLowerCase()===toolkit)||{toolkit,name:toolkit};
@@ -2084,8 +2096,10 @@ function openRunInspector(event) {
       try{configs=JSON.parse(button.dataset.authConfigs||'[]')}catch{}
       const options=configs.map(c=>'<option value="'+esc(c.id)+'">'+esc(c.name||c.id)+(c.auth_scheme?' · '+esc(c.auth_scheme):'')+'</option>').join('');
       const multi=button.dataset.allowMultiple==='true';
-      const body='<form id="connected-app-form" class="form-stack"><p class="mcp-note">OpenCrawl will create a short-lived hosted authorization link for <b>'+esc(name)+'</b>. After consent, the resulting account is attached only to your OpenCrawl user ID and becomes eligible for Tool Mesh calls.</p>'+(multi?'<div class="mcp-note"><b>Multiple-account mode</b><p>You already have an active '+esc(name)+' account. This flow intentionally adds another account, so give it a clear label; Tool Mesh execution will require explicit account selection when more than one account can satisfy a call.</p></div>':'')+'<label>Account label <input name="alias" maxlength="80" placeholder="Work, personal, bot account…"></label>'+(configs.length>1?'<label>Authentication configuration<select name="auth_config_id">'+options+'</select></label>':'')+'<button class="btn primary" type="submit">Continue to '+esc(name)+'</button></form>';
+      const meta=appMeta.get(String(toolkit||'').toLowerCase())||catalogApps.find(x=>String(x.toolkit||'').toLowerCase()===String(toolkit||'').toLowerCase())||{toolkit,name};
+      const body='<div class="connected-auth-hero">'+connectedAppMark(meta)+'<div><span>SECURE PROVIDER LINK</span><h3>'+esc(name)+'</h3><p>Authorize through the provider-hosted flow. OpenCrawl stores only the account reference needed for Tool Mesh routing.</p></div></div><form id="connected-app-form" class="form-stack"><p class="mcp-note">After consent, this account is attached only to your OpenCrawl user ID. Raw OAuth tokens are never rendered into this browser.</p>'+(multi?'<div class="mcp-note"><b>Multiple-account mode</b><p>You already have an active '+esc(name)+' account. Add a clear label so Tool Mesh routing can select the intended account explicitly.</p></div>':'')+'<label>Account label <input name="alias" maxlength="80" placeholder="Work, personal, bot account…"></label>'+(configs.length>1?'<label>Authentication configuration<select name="auth_config_id">'+options+'</select></label>':'')+'<button class="btn primary large" type="submit">Continue securely to '+esc(name)+' '+icon('arrow')+'</button></form>';
       const w=panel('Connect '+name,body);
+      bindProviderLogoFallbacks(w);
       const form=$('#connected-app-form',w);
       form.onsubmit=async e=>{
         e.preventDefault();
