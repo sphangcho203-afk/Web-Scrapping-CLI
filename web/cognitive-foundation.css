@@ -2763,3 +2763,64 @@ html.ih-overlay-open,html.ih-overlay-open body{overflow:hidden}
   .connected-app-card>header{grid-template-columns:44px minmax(0,1fr)}
   .connected-auth-hero{grid-template-columns:44px minmax(0,1fr);padding:14px}
 }
+
+
+/* Screenshot-driven mobile cleanup v1 */
+.connected-catalog-more{
+  width:100%;
+  min-height:44px;
+  border-style:dashed!important;
+}
+.connected-catalog-more[hidden]{display:none!important}
+@media(max-width:620px){
+  .reward-subhead{
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr)!important;
+    align-items:start!important;
+    gap:8px!important;
+    margin:34px 0 14px!important;
+  }
+  .reward-subhead>span{
+    min-width:0;
+    display:block;
+  }
+  .reward-subhead .overline{
+    display:block;
+    margin-bottom:7px;
+  }
+  .reward-subhead h2{
+    margin:0!important;
+    font-size:clamp(1.75rem,8vw,2.15rem)!important;
+    line-height:1.02!important;
+    letter-spacing:-.045em!important;
+  }
+  .reward-subhead>small{
+    display:block;
+    width:100%;
+    max-width:31rem;
+    margin:0!important;
+    color:var(--muted)!important;
+    font-size:11px!important;
+    line-height:1.55!important;
+  }
+  .reward-code-panel{
+    padding:18px!important;
+    gap:16px!important;
+  }
+  .reward-code-copy h2{
+    font-size:clamp(1.8rem,8vw,2.2rem)!important;
+    line-height:1.04!important;
+  }
+  .reward-code-copy p{
+    font-size:13px!important;
+    line-height:1.65!important;
+  }
+  #reward-code-form input{
+    min-height:48px;
+    font-size:16px;
+  }
+  #reward-code-form .btn{
+    min-height:52px;
+    font-size:15px;
+  }
+}
