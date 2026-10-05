@@ -24,10 +24,10 @@ All routes live on the same origin.
 | GitHub OAuth callback | `/api/auth/github/callback` |
 | Razorpay webhook | `/api/webhooks/razorpay` |
 
-With the current Vercel production alias the permanent MCP URL is intended to be:
+The canonical permanent MCP URL is:
 
 ```text
-https://web-scrapping-cli.vercel.app/mcp
+https://opencrawl.top/mcp
 ```
 
 A future custom domain can front the same app without changing the internal route layout.
@@ -53,7 +53,7 @@ GITHUB_CLIENT_SECRET=
 GitHub OAuth callback:
 
 ```text
-https://web-scrapping-cli.vercel.app/api/auth/github/callback
+https://opencrawl.top/api/auth/github/callback
 ```
 
 A personal access token is not a replacement for the OAuth application's client ID/secret.
@@ -69,7 +69,7 @@ RAZORPAY_WEBHOOK_SECRET=
 Webhook URL:
 
 ```text
-https://web-scrapping-cli.vercel.app/api/webhooks/razorpay
+https://opencrawl.top/api/webhooks/razorpay
 ```
 
 Fulfillment rules:
