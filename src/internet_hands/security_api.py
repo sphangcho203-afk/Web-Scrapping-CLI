@@ -115,12 +115,18 @@ async def _deliver(
         event_id = None
     if dedupe_key and event_id is None:
         return True
+    sender_key = (
+        "auth"
+        if event_type in {"email_verification", "account_verified", "password_reset"}
+        else "security"
+    )
     try:
         result = await send_mail(
             to=email,
             subject=subject,
             text=text,
             html=_mail_shell(subject, body_html),
+            sender_key=sender_key,
         )
     except MailError as exc:
         if event_id:

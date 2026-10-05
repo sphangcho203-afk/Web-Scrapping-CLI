@@ -132,6 +132,16 @@ CREATE TABLE IF NOT EXISTS ih_connections (
 );
 CREATE INDEX IF NOT EXISTS ih_connections_user_idx ON ih_connections(user_id, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS ih_platform_integrations (
+    key text PRIMARY KEY,
+    provider text NOT NULL,
+    config jsonb NOT NULL DEFAULT '{}'::jsonb,
+    secret_name text,
+    enabled boolean NOT NULL DEFAULT true,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS ih_usage_events (
     id text PRIMARY KEY,
     user_id text NOT NULL REFERENCES ih_users(id) ON DELETE CASCADE,
@@ -639,6 +649,91 @@ class ControlStore:
 
     def _new_id(self, prefix: str) -> str:
         return f"{prefix}_{uuid.uuid4().hex}"
+
+    def get_platform_integration(self, key: str) -> dict[str, Any] | None:
+        """Return one server-side platform integration without exposing secret material."""
+        normalized = key.strip().lower()
+        if not normalized:
+            return None
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT key,provider,config,secret_name,enabled,created_at,updated_at
+                FROM ih_platform_integrations
+                WHERE key=%s
+                """,
+                (normalized,),
+            )
+            row = cur.fetchone()
+        return dict(row) if row is not None else None
+
+    def upsert_platform_integration(
+        self,
+        *,
+        key: str,
+        provider: str,
+        config: dict[str, Any] | None = None,
+        secret_name: str | None = None,
+        enabled: bool = True,
+    ) -> dict[str, Any]:
+        """Persist non-secret integration config plus a reference to a secret vault entry."""
+        normalized_key = key.strip().lower()
+        normalized_provider = provider.strip().lower()
+        if not normalized_key or not normalized_provider:
+            raise ValueError("platform integration key and provider are required")
+        payload = dict(config or {})
+        secret_ref = (secret_name or "").strip() or None
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO ih_platform_integrations(
+                    key,provider,config,secret_name,enabled,updated_at
+                ) VALUES (%s,%s,%s::jsonb,%s,%s,now())
+                ON CONFLICT (key) DO UPDATE SET
+                    provider=EXCLUDED.provider,
+                    config=EXCLUDED.config,
+                    secret_name=EXCLUDED.secret_name,
+                    enabled=EXCLUDED.enabled,
+                    updated_at=now()
+                RETURNING key,provider,config,secret_name,enabled,created_at,updated_at
+                """,
+                (
+                    normalized_key,
+                    normalized_provider,
+                    json.dumps(payload),
+                    secret_ref,
+                    bool(enabled),
+                ),
+            )
+            row = cur.fetchone()
+            conn.commit()
+        assert row is not None
+        return dict(row)
+
+    def get_vault_secret(self, name: str) -> str | None:
+        """Load one secret from Supabase Vault for server-side runtime use only."""
+        normalized = name.strip()
+        if not normalized:
+            return None
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT decrypted_secret
+                FROM vault.decrypted_secrets
+                WHERE name=%s
+                ORDER BY updated_at DESC NULLS LAST, created_at DESC
+                LIMIT 1
+                """,
+                (normalized,),
+            )
+            row = cur.fetchone()
+        if row is None:
+            return None
+        value = row.get("decrypted_secret")
+        return str(value) if value is not None else None
 
     def create_user(self, *, email: str, password_hash: str, display_name: str | None) -> dict[str, Any]:
         self.ensure_schema()
