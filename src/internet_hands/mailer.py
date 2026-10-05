@@ -53,6 +53,16 @@ def _clean(value: Any) -> str | None:
     return normalized or None
 
 
+def _http_header_secret(value: Any) -> str | None:
+    """Return a credential only when it is safe to place in an HTTP header."""
+    normalized = _clean(value)
+    if not normalized or not normalized.isascii():
+        return None
+    if any(ord(char) < 33 or ord(char) == 127 for char in normalized):
+        return None
+    return normalized
+
+
 _VAULT_SECRET_CACHE: dict[str, tuple[float, str]] = {}
 
 
@@ -75,8 +85,8 @@ def _supabase_vault_secret(name: str) -> str | None:
         return cached[1]
 
     url = _clean(os.getenv("SUPABASE_URL"))
-    service_key = _clean(os.getenv("SUPABASE_SECRET_KEY")) or _clean(
-        os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    service_key = _http_header_secret(os.getenv("SUPABASE_SECRET_KEY")) or (
+        _http_header_secret(os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
     )
     if not url or not service_key:
         return None
@@ -92,7 +102,7 @@ def _supabase_vault_secret(name: str) -> str | None:
             json={"p_secret_name": normalized},
             timeout=5.0,
         )
-    except httpx.HTTPError:
+    except (httpx.HTTPError, UnicodeError, ValueError):
         return None
     if not response.is_success:
         return None

@@ -37,7 +37,7 @@ from .control_api import (
     store,
 )
 from .control_store import ControlError, random_token
-from .mailer import MailError, mail_provider, send_mail
+from .mailer import mail_provider, send_mail
 from .security_store import SecurityStore
 from .supabase_auth import SupabaseAuthError
 from .supabase_auth import admin_create_user as supabase_admin_create_user
@@ -134,7 +134,9 @@ async def _deliver(
             html=_mail_shell(subject, body_html),
             sender_key=sender_key,
         )
-    except MailError as exc:
+    except Exception as exc:  # noqa: BLE001
+        # Security/transactional email is a side effect. A provider, Vault, or
+        # transport failure must never turn a successful login into HTTP 500.
         if event_id:
             security.finish_email_event(event_id, status="failed", error=str(exc))
         message = str(exc).lower()

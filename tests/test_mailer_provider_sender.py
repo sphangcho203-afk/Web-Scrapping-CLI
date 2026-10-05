@@ -150,3 +150,38 @@ def test_supabase_vault_lookup_prefers_modern_secret_key(monkeypatch) -> None:
     assert captured["authorization"] == "Bearer modern-secret"
     assert captured["secret_name"] == "opencrawl_resend_api_key"
 
+
+def test_supabase_vault_lookup_falls_back_from_invalid_modern_key(monkeypatch) -> None:
+    captured: dict[str, str] = {}
+
+    class FakeResponse:
+        is_success = True
+
+        @staticmethod
+        def json():
+            return "vault-value"
+
+    def fake_post(url: str, *, headers, json, timeout: float):
+        captured["apikey"] = headers["apikey"]
+        captured["authorization"] = headers["Authorization"]
+        return FakeResponse()
+
+    mailer._VAULT_SECRET_CACHE.clear()
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_SECRET_KEY", "broken-credential-🔒")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "legacy-ascii-secret")
+    monkeypatch.setattr(mailer.httpx, "post", fake_post)
+
+    value = mailer._supabase_vault_secret("opencrawl_resend_api_key")
+
+    assert value == "vault-value"
+    assert captured["apikey"] == "legacy-ascii-secret"
+    assert captured["authorization"] == "Bearer legacy-ascii-secret"
+
+
+def test_http_header_secret_rejects_controls_and_unicode() -> None:
+    assert mailer._http_header_secret("valid_secret-123") == "valid_secret-123"
+    assert mailer._http_header_secret("bad secret") is None
+    assert mailer._http_header_secret("bad\nsecret") is None
+    assert mailer._http_header_secret("bad-🔒") is None
+
