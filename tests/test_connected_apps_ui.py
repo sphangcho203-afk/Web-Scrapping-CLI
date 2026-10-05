@@ -43,3 +43,15 @@ def test_client_setup_uses_canonical_mcp_endpoint_and_brand_marks() -> None:
     assert "platformMark('anthropic','Anthropic')" in APP
     assert "platformMark('mcp','MCP')" in APP
     assert ".agent-tab-mark" in CSS
+
+
+def test_browser_runtime_does_not_treat_query_selector_as_a_collection() -> None:
+    unsafe_patterns = [
+        "$('[data-provider-logo]',root).forEach",
+        "$('[data-copy]').forEach",
+        "$('.docs-group a').forEach",
+        "$('.docs-group').forEach",
+        "$('[data-cap-field]',fields).forEach",
+    ]
+    for pattern in unsafe_patterns:
+        assert pattern not in APP
