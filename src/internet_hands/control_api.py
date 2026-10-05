@@ -54,6 +54,12 @@ legacy_store = (
 SESSION_COOKIE = "ih_session"
 GITHUB_STATE_COOKIE = "ih_github_state"
 DEFAULT_SCOPES = ["mcp:read", "mcp:execute"]
+CANONICAL_PUBLIC_ORIGIN = "https://opencrawl.top"
+_CANONICAL_PRODUCTION_HOSTS = {
+    "opencrawl.top",
+    "www.opencrawl.top",
+    "web-scrapping-cli.vercel.app",
+}
 
 
 def _json_error(exc: ControlError) -> HTTPException:
@@ -111,8 +117,23 @@ def _require_verified(user: dict[str, Any]) -> dict[str, Any]:
 
 
 def _origin(request: Request) -> str:
+    configured = (
+        os.getenv("OPENCRAWL_PUBLIC_ORIGIN")
+        or os.getenv("INTERNET_HANDS_PUBLIC_ORIGIN")
+        or ""
+    ).strip()
+    if configured:
+        return (
+            configured
+            if configured.startswith(("http://", "https://"))
+            else f"https://{configured}"
+        ).rstrip("/")
+
     proto = request.headers.get("x-forwarded-proto") or request.url.scheme
-    host = request.headers.get("host") or request.url.netloc
+    host = (request.headers.get("host") or request.url.netloc).strip()
+    hostname = host.partition(":")[0].lower()
+    if hostname in _CANONICAL_PRODUCTION_HOSTS:
+        return CANONICAL_PUBLIC_ORIGIN
     return f"{proto}://{host}".rstrip("/")
 
 
