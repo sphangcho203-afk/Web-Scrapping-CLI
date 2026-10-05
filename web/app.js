@@ -1949,7 +1949,9 @@ function openRunInspector(event) {
     const appMeta=new Map(connectedApps.map(item=>[String(item.toolkit||'').toLowerCase(),item]));
     catalogApps.forEach(item=>{
       const key=String(item.toolkit||'').toLowerCase();
-      if(key&&!appMeta.has(key))appMeta.set(key,item);
+      if(!key)return;
+      const current=appMeta.get(key)||{};
+      appMeta.set(key,{...item,...current,logo:current.logo||item.logo,description:current.description||item.description});
     });
     const accountToolkits=[...new Set(appAccounts.map(x=>String(x.toolkit||'').toLowerCase()).filter(Boolean))];
     const accountApps=accountToolkits.map(toolkit=>appMeta.get(toolkit)||{toolkit,name:toolkit.replaceAll('_',' '),auth_configs:[],auth_schemes:[]});
