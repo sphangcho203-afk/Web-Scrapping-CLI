@@ -83,7 +83,7 @@ const connectedAppMark = item => {
   return `<span class="connected-app-mark" data-toolkit="${esc(toolkit)}">${logo ? `<img data-provider-logo src="${esc(logo)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer"><span class="connected-app-logo-fallback" hidden>${fallback}</span>` : fallback}</span>`;
 };
 const bindProviderLogoFallbacks = (root=document) => {
-  $('[data-provider-logo]',root).forEach(img => {
+  root.querySelectorAll('[data-provider-logo]').forEach(img => {
     if(img.dataset.logoBound==='1')return;
     img.dataset.logoBound='1';
     const fallback=img.nextElementSibling;
@@ -209,7 +209,7 @@ function go(path, replace = false) {
 function brand() { return `<a class="brand oc-brand" data-link href="/" aria-label="OpenCrawl home"><img class="oc-brand-mark" src="/assets/opencrawl-crab.png" width="44" height="44" alt=""><span class="oc-wordmark"><b>Open<span>Crawl</span></b><small>PUBLIC WEB ENGINE</small></span></a>`; }
 function bindCommon() {
   bindProviderLogoFallbacks();
-  $('[data-copy]').forEach(b => b.onclick = () => copyText(b.dataset.copy, b));
+  document.querySelectorAll('[data-copy]').forEach(b => b.onclick = () => copyText(b.dataset.copy, b));
   const navToggle = $('[data-nav-toggle]');
   const mobileMenu = $('[data-mobile-menu]');
   if (navToggle && mobileMenu) {
@@ -287,8 +287,8 @@ function renderDocs() {
   $('[data-docs-toggle]').onclick = () => $('[data-docs-sidebar]').classList.toggle('open');
   $('#docs-search').oninput = e => {
     const q=e.target.value.trim().toLowerCase();let visible=0;
-    $('.docs-group a').forEach(a=>{a.hidden=Boolean(q)&&!a.dataset.docSearch.includes(q);if(!a.hidden)visible++;});
-    $('.docs-group').forEach(g=>g.hidden=!$('a:not([hidden])',g).length);
+    document.querySelectorAll('.docs-group a').forEach(a=>{a.hidden=Boolean(q)&&!a.dataset.docSearch.includes(q);if(!a.hidden)visible++;});
+    document.querySelectorAll('.docs-group').forEach(g=>g.hidden=!g.querySelector('a:not([hidden])'));
     $('.docs-search-empty').hidden=visible!==0;
   };
   requestAnimationFrame(()=>{
@@ -1271,7 +1271,7 @@ async function dashCapabilities(){
     const schema=(spec&&spec.capability&&spec.capability.input_schema)||{};
     const properties=schema.properties||{};
     const args={};
-    $('[data-cap-field]',fields).forEach(function(control){
+    fields.querySelectorAll('[data-cap-field]').forEach(function(control){
       const name=control.dataset.capField,field=properties[name]||{},value=control.value;
       if(value==='')return;
       let parsed=value;
