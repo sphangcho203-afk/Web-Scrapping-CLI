@@ -9,6 +9,7 @@ from fastapi import HTTPException
 
 from internet_hands import control_api, security_api, security_hardening
 from internet_hands.control_store import AuthIdentity, ControlStore
+from internet_hands.mailer import MailError
 
 
 class _Request:
@@ -183,7 +184,7 @@ async def test_mail_configuration_failure_is_logged_without_recipient(monkeypatc
     monkeypatch.setattr(security_api, "mail_provider", lambda: None)
 
     async def fail_mail(**_kwargs):
-        raise security_api.MailError("transactional email is not configured")
+        raise MailError("transactional email is not configured")
 
     monkeypatch.setattr(security_api, "send_mail", fail_mail)
 
