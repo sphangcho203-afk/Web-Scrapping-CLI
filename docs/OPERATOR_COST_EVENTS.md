@@ -14,6 +14,12 @@ rate revision, estimation flag and timestamp. Monetary fields use PostgreSQL
 pinned valuations are immutable. See [PROVIDER_COST_RATES.md](PROVIDER_COST_RATES.md)
 for sourced imports, validity, historical valuation and migration contracts.
 
+Exact Exa response-dollar observations are now stored separately in
+`ih_provider_dollar_reports`. Their own subtotal and coverage distinguish valid,
+missing, malformed and unobserved reports without combining overlapping credit
+valuations. See [PROVIDER_DOLLAR_REPORTS.md](PROVIDER_DOLLAR_REPORTS.md). They remain
+unreconciled provider statements; total COGS stays unknown.
+
 ## Internal read interface
 
 `GET /api/internal/runs/{run_id}/economics?limit=100&offset=0` returns paged measured
@@ -33,10 +39,12 @@ have gaps or any recorded unit is unpriced. `provider_unit_valuation_state`
 distinguishes valued recorded units from missing measurements or valuations.
 `unpriced_reason_counts` exposes missing, out-of-window and unreviewed rates.
 
-Overall `cost_state` remains `unknown`, summary coverage is `provider_units_only`
-and total run COGS remains null. Native Playwright wall-clock duration is partially
-measured, with unknown cost; model, compute, storage, delivery and proxy dimensions
-remain uninstrumented. The canonical run's internal dollar cost fields remain
+Overall `cost_state` remains `unknown`, summary coverage is `partial`
+and total run COGS remains null. Native Playwright wall-clock duration, saved
+dataset JSONB UTF-8 payloads and webhook claims/intents/outcomes are partially
+measured, with unknown cost. Model, compute and proxy dimensions remain
+uninstrumented. See [RESOURCE_MEASUREMENTS.md](RESOURCE_MEASUREMENTS.md) for byte
+units, historical gaps and lifecycle contracts. The canonical run's internal dollar cost fields remain
 unfilled. Wallet burn is never silently treated as provider dollars.
 
 ## Evidence and remaining work
@@ -44,10 +52,13 @@ unfilled. Wallet burn is never silently treated as provider dollars.
 PostgreSQL tests cover measured/zero/unknown/invalid units, duplicate settlement,
 rollback, historical import, sourced rate precision/concurrency/immutability and
 operator authorization. The real customer run store excludes private valuations.
-Native browser meter tests cover successful and failed attempts. See the published
+Native browser meter tests cover successful and failed attempts. Resource tests
+cover rollback, concurrency, lease recovery, cleanup and privacy. See the published
 PR's exact-head checks for CI evidence. Production operator execution and actual
 provider invoice reconciliation remain unverified.
 
 Next: instrument remaining infrastructure/model units, reconcile invoices and
-adjustments, then build margin analytics, spend policies and routing safeguards.
+adjustments, then build margin analytics and routing safeguards. Optional account
+and key spend caps already use reservation-aware wallet accounting; see
+[SPEND_POLICIES.md](SPEND_POLICIES.md).
 A billed successful run is not yet evidence of positive margin.

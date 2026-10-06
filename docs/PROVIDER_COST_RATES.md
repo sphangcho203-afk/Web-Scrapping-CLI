@@ -9,6 +9,11 @@ source as-of timestamp and explicit validity window. These valuations are rate
 estimates; they do not establish reconciled invoice expense or complete run COGS.
 Wallet settlement, quote prices and reservation-time conversion remain unchanged.
 
+Exa's exact response-dollar statements have a separate immutable observation
+contract in [PROVIDER_DOLLAR_REPORTS.md](PROVIDER_DOLLAR_REPORTS.md). They are not
+rate revisions or invoice reconciliation, and rate estimates must not be added to
+overlapping reported dollars automatically.
+
 `ih_cost_rates` stores immutable, content-addressed revisions and an increasing
 version. Repeating the same normalized import returns the same revision. Revisions
 are serialized per provider/operation/unit. Among overlapping valid revisions,
@@ -87,7 +92,11 @@ more events remain. The returned subtotal describes that batch, not complete COG
   Settlement stores the accumulated measurement transactionally in
   `ih_run_cost_measurements`. This is partial browser coverage, with unknown USD
   value; it does not measure CPU, billed browser minutes or external backends.
-- Model, compute, storage, delivery and proxy remain `not_instrumented`.
+- Saved dataset JSONB UTF-8 payloads and webhook claim/intent/outcome journals
+  provide partial storage/delivery evidence with unknown USD value. See
+  [RESOURCE_MEASUREMENTS.md](RESOURCE_MEASUREMENTS.md) for units and historical gaps.
+  These are application payload observations, not physical storage or wire egress.
+- Model, compute and proxy remain `not_instrumented`.
 
 `unpriced_reason_counts` distinguishes `missing_rate`, `outside_validity_window`
 and `valuation_required`. A known subtotal can coexist with missing costs.
@@ -119,5 +128,6 @@ precision, bounded confirmation, validity boundaries, unknown quantities,
 immutability, additive reinstall, transaction rollback and operator authorization.
 Browser meter tests cover success and failure. Production authenticated operator
 execution and actual invoice reconciliation still require authorized credentials
-and sourced rates. Margin, spend-policy enforcement and cost-aware routing remain
-subsequent work.
+and sourced rates. Margin and cost-aware routing remain subsequent work. Optional
+reservation-aware account/key spending limits are documented in
+[SPEND_POLICIES.md](SPEND_POLICIES.md).
