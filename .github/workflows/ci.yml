@@ -62,4 +62,4 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e '.[dev]'
-      - run: pytest -q tests/test_datasets.py tests/test_dataset_webhooks.py tests/test_crawl_runs.py tests/test_crawl_resume.py tests/test_crawl_sitemaps.py tests/test_content_monitors.py tests/test_usage_ledger.py tests/test_execution_budget_storage.py tests/test_run_envelope.py tests/test_cost_events.py tests/test_cost_rates.py
+      - run: pytest -q tests/test_datasets.py tests/test_dataset_webhooks.py tests/test_crawl_runs.py tests/test_crawl_resume.py tests/test_crawl_sitemaps.py tests/test_content_monitors.py tests/test_usage_ledger.py tests/test_execution_budget_storage.py tests/test_run_envelope.py tests/test_cost_events.py tests/test_cost_rates.py tests/test_resource_measurements.py tests/test_provider_cost_reports.py tests/test_spend_policies.py

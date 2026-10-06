@@ -33,6 +33,7 @@ from .security_api import router as security_router
 from .security_hardening import router as security_hardening_router
 from .site_map_api import router as site_map_router
 from .smart_scrape_api import router as smart_scrape_router
+from .spend_policy_api import router as spend_policy_router
 from .structured_extract_api import router as structured_extract_router
 from .site import router as site_router
 from .system_health import router as system_health_router
@@ -78,6 +79,7 @@ app.include_router(usage_router)
 app.include_router(runs_router)
 app.include_router(crawl_run_router)
 app.include_router(cost_events_router)
+app.include_router(spend_policy_router)
 app.include_router(datasets_router)
 app.include_router(dataset_webhook_router)
 app.include_router(rewards_router)

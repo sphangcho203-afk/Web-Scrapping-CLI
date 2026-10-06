@@ -518,3 +518,59 @@ compute, storage, delivery and proxy remain uninstrumented; complete run COGS an
 margin remain unknown. Policies and cost-aware routing remain subsequent work.
 Production authenticated operator use and sourced invoice reconciliation remain
 **NOT VERIFIED**. Verification evidence must match the new published head.
+
+### Reservation-aware account and API-key spending limits
+
+**Implemented in code:** owner-managed optional per-run, UTC daily and monthly
+credit caps, with account and key policies both enforced by the shared reservation
+transaction; posted charges plus active holds consume headroom. Atomic denial
+creates no usage/job/wallet mutation. Accepted work keeps its original settlement,
+including after caps change; active legacy unknown holds fail closed for configured
+periods. Saved versions prevent conflicting edits; applied policies are recorded
+in accepted usage metadata. `/dashboard/spending` provides account/key controls,
+USD display, period usage, explicit saves, errors and reloads. See `SPEND_POLICIES.md`.
+
+**PARTIAL:** account/key hard stops are implemented, with no workspace/organization
+entity, warn-only behavior or notification thresholds. Wallet credit caps do not
+measure provider margin. Production authenticated saves and actual provider/worker
+denial remain **NOT VERIFIED**. Exact-head CI/preview evidence belongs in this
+tranche's published PR.
+
+### Saved payload and webhook attempt measurements
+
+**Implemented in code:** transactional immutable observations of dataset JSONB
+UTF-8 payloads; explicit surviving-history snapshot provenance; a durable journal
+of webhook claims, live-lease dispatch intents and first outcomes, including
+manual replay and unknown abandoned attempts. Operator coverage uses one database
+snapshot, exact byte totals and bounded aggregates. It retains evidence after
+dataset, endpoint or delivery-history cleanup and removes it on canonical
+account/run deletion. Customer APIs exclude the private measurements. See
+`RESOURCE_MEASUREMENTS.md` for units, lifecycle and rollback order.
+
+**PARTIAL:** these quantities are application payload observations. They do not
+measure physical storage, byte-hours, actual wire egress, compute or invoice
+expense. Storage/delivery now have partial coverage; model/compute/proxy remain
+uninstrumented. Complete COGS and margin remain unknown. The integrated local
+suite passed 908 tests with PostgreSQL and Chromium; exact-head CI/preview evidence
+belongs in the published dependent draft. Authenticated production operator use,
+signed external delivery and invoice reconciliation remain **NOT VERIFIED**.
+
+### Exact provider response-dollar observations
+
+**Implemented in code:** exact Exa search/contents cost response capture, explicit
+zero/missing/invalid amounts, stable private checkpoint identities and immutable
+settlement-time observations. Operator reports preserve a separate exact-dollar
+subtotal and expose call/report gaps plus overlap with credit valuations. Failed
+runs can retain observed provider expense without a wallet charge; rollback and
+concurrent/idempotent settlement preserve the existing accounting contract.
+Customer usage/wallet metadata excludes the new private observations. See
+`PROVIDER_DOLLAR_REPORTS.md` for source, precision, lifecycle and rollback contracts.
+
+**PARTIAL:** provider response statements are unreconciled. Only Exa search/contents
+emit dollar observations; legacy rounded counters, missing checkpoint work, failed
+HTTP responses and other provider expenses are not reconstructed. Reported dollar
+amounts and overlapping rate estimates are not automatically summed. Complete
+COGS and margin remain unknown. The integrated local suite passed 947 tests with
+PostgreSQL and Chromium, including 39 new cases. Authenticated production capture
+and provider invoice reconciliation remain **NOT VERIFIED**; published CI/preview
+evidence must match the new draft head.

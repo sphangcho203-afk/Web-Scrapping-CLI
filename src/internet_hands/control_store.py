@@ -686,6 +686,12 @@ class ControlStore:
                     cur.execute(COST_RATE_SCHEMA)
                     from .cost_measurements import SCHEMA as COST_MEASUREMENT_SCHEMA
                     cur.execute(COST_MEASUREMENT_SCHEMA)
+                    from .resource_measurements import SCHEMA as RESOURCE_MEASUREMENT_SCHEMA
+                    cur.execute(RESOURCE_MEASUREMENT_SCHEMA)
+                    from .provider_cost_reports import SCHEMA as PROVIDER_DOLLAR_SCHEMA
+                    cur.execute(PROVIDER_DOLLAR_SCHEMA)
+                    from .spend_policies import SCHEMA as SPEND_POLICY_SCHEMA
+                    cur.execute(SPEND_POLICY_SCHEMA)
                     for row in PLAN_ROWS:
                         cur.execute(
                             """
@@ -1604,6 +1610,11 @@ class ControlStore:
                         429,
                     )
 
+                from .spend_policies import enforce
+                cur.execute("SELECT clock_timestamp() AS admitted_at")
+                admitted_at = cur.fetchone()["admitted_at"]
+                spend_policies = enforce(cur, identity.user_id, identity.api_key_id, reserved, admitted_at)
+
                 total = int(wallet["monthly_credits"]) + int(wallet["purchased_credits"])
                 already_reserved = int(wallet["reserved_credits"])
                 available = total - already_reserved
@@ -1633,8 +1644,8 @@ class ControlStore:
                     """
                     INSERT INTO ih_usage_events(
                         id,user_id,api_key_id,request_id,tool_ref,capability,provider,status,
-                        credits_charged,input_bytes,metadata
-                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,'reserved',0,%s,%s::jsonb)
+                        credits_charged,input_bytes,metadata,created_at
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,'reserved',0,%s,%s::jsonb,%s)
                     """,
                     (
                         self._new_id("use"),
@@ -1651,7 +1662,8 @@ class ControlStore:
                                 "arguments_present": bool(arguments),
                                 "run": input_summary(arguments),
                                 "budget": {"max_charge_credits": options.get("max_charge_credits"),
-                                           "quote_revision": quote["quote_revision"]},
+                                           "quote_revision": quote["quote_revision"],
+                                           "spend_policies": spend_policies},
                                 "tool": tool_name,
                                 "plan": identity.plan_slug,
                                 "reservation": {
@@ -1668,6 +1680,7 @@ class ControlStore:
                                 },
                             }
                         ),
+                        admitted_at,
                     ),
                 )
             if transaction is None:
@@ -1717,8 +1730,12 @@ class ControlStore:
                     return 0
 
                 metadata = dict(event.get("metadata") or {})
+                provider_reports = []
                 if execution_usage is not None:
                     execution_usage = normalize_provider_units(execution_usage)
+                    # Checkpoint evidence is private; customer usage/ledger metadata
+                    # contains existing metering quantities, not dollar observations.
+                    provider_reports = execution_usage.pop('provider_cost_reports', [])
                     metadata["measured_usage"] = execution_usage
 
                 if event["status"] != "reserved":
@@ -1726,6 +1743,9 @@ class ControlStore:
                     # timeout handler, or late worker must never rewrite a settled or
                     # abandoned request after wallet/ledger state has been finalized.
                     return int(event["credits_charged"] or 0)
+
+                from .provider_cost_reports import persist_reports
+                persist_reports(cur, request_id, provider_reports)
 
                 provider_events = (execution_usage or {}).get("provider_events") or []
                 for item in provider_events:
