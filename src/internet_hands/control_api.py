@@ -892,6 +892,7 @@ async def _legacy_razorpay_webhook(request: Request):
 
 @router.get("/api/status")
 def public_status():
+    razorpay_status = _razorpay_status()
     return {
         "service": "OpenCrawl",
         "control_database": store.configured,
@@ -902,7 +903,12 @@ def public_status():
         ),
         "mcp": "/mcp",
         "oauth": True,
-        "billing": bool(_razorpay_status()["configured"]),
+        "billing": bool(razorpay_status["configured"]),
+        "billing_config": {
+            "credential_source": razorpay_status["credential_source"],
+            "webhook_configured": razorpay_status["webhook_configured"],
+            "webhook_source": razorpay_status["webhook_source"],
+        },
         "github_oauth": bool(os.getenv("GITHUB_CLIENT_ID") and os.getenv("GITHUB_CLIENT_SECRET")),
         "connected_apps": {
             "provider": "composio",
