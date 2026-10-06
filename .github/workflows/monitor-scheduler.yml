@@ -1,6 +1,9 @@
 name: Monitor scheduler
 
 on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/monitor-scheduler.yml"]
   schedule:
     - cron: "*/5 * * * *"
     - cron: "17 * * * *"
@@ -28,6 +31,7 @@ jobs:
             -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=internet-hands-monitor-scheduler")"
           TOKEN="$(python -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<<"${RESPONSE}")"
+          echo "::add-mask::${TOKEN}"
           echo "token=${TOKEN}" >> "${GITHUB_OUTPUT}"
 
       - name: Execute due monitors
@@ -36,7 +40,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error \
+          curl --fail-with-body --silent --show-error \
             --retry 2 --retry-all-errors --max-time 45 \
             -H "Authorization: Bearer ${OIDC_TOKEN}" \
             "https://opencrawl.top/api/internal/monitors/tick"
@@ -47,7 +51,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error \
+          curl --fail-with-body --silent --show-error \
             --retry 2 --retry-all-errors --max-time 60 \
             -H "Authorization: Bearer ${OIDC_TOKEN}" \
             "https://opencrawl.top/api/internal/system/health?strict=true"
@@ -59,7 +63,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error \
+          curl --fail-with-body --silent --show-error \
             --retry 2 --retry-all-errors --max-time 180 \
             -H "Authorization: Bearer ${OIDC_TOKEN}" \
             "https://opencrawl.top/api/internal/system/health?deep=true&strict=true"
@@ -86,7 +90,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error \
+          curl --fail-with-body --silent --show-error \
             --retry 2 --retry-all-errors --max-time 45 \
             -H "Authorization: Bearer ${OIDC_TOKEN}" \
             "https://opencrawl.top/api/internal/dataset-webhooks/tick"
@@ -113,7 +117,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error \
+          curl --fail-with-body --silent --show-error \
             --retry 2 --retry-all-errors --max-time 60 \
             -H "Authorization: Bearer ${OIDC_TOKEN}" \
             "https://opencrawl.top/api/internal/crawl-runs/tick"
@@ -140,7 +144,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error \
+          curl --fail-with-body --silent --show-error \
             --retry 2 --retry-all-errors --max-time 60 \
             -H "Authorization: Bearer ${OIDC_TOKEN}" \
             "https://opencrawl.top/api/internal/capability-runs/tick"
