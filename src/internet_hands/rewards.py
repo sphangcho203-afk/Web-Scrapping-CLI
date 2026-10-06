@@ -21,15 +21,15 @@ router = APIRouter()
 _REWARD_SCHEMA_READY = False
 _REWARD_SCHEMA_LOCK = threading.Lock()
 
-# Reward points are intentionally separate from the USD service wallet.
-# The threshold is expressed in raw metered work, before product wallet burn.
+# Reward points are intentionally separate from OpenCrawl usage credits.
+# The threshold is expressed in raw metered work, before the product credit-burn policy.
 DEFAULT_REWARD_UNITS_PER_POINT = 250
 
 REWARD_ROWS = (
     (
         "wallet-025",
-        "$0.25 wallet credit",
-        "Add $0.25 of rollover OpenCrawl balance to your wallet.",
+        "1,250 OpenCrawl usage credits",
+        "Add 1,250 non-transferable OpenCrawl service credits to your account.",
         100,
         "wallet_credit",
         1_250,
@@ -37,8 +37,8 @@ REWARD_ROWS = (
     ),
     (
         "wallet-100",
-        "$1 wallet credit",
-        "Add $1.00 of rollover OpenCrawl balance to your wallet.",
+        "5,000 OpenCrawl usage credits",
+        "Add 5,000 non-transferable OpenCrawl service credits to your account.",
         350,
         "wallet_credit",
         5_000,
@@ -46,8 +46,8 @@ REWARD_ROWS = (
     ),
     (
         "wallet-500",
-        "$5 wallet credit",
-        "Add $5.00 of rollover OpenCrawl balance to your wallet.",
+        "25,000 OpenCrawl usage credits",
+        "Add 25,000 non-transferable OpenCrawl service credits to your account.",
         1_500,
         "wallet_credit",
         25_000,

@@ -1,8 +1,8 @@
 # OpenCrawl Legal Policies
 
-**Policy version:** 2026-09-27
+**Policy version:** 2026-10-06
 **Effective:** 20 September 2026  
-**Last updated:** 27 September 2026
+**Last updated:** 6 October 2026
 
 This repository copy mirrors the policy set rendered by the hosted OpenCrawl Legal Center at `/legal`. The JavaScript policy source in `web/legal-content.js` is the browser-facing canonical data source for this version.
 
@@ -300,6 +300,7 @@ OpenCrawl currently supports Razorpay for payment processing where configured. T
 
 - Monthly plan credits refresh according to the plan period and do not accumulate unless the checkout or plan page expressly says otherwise.
 - Purchased credit-pack credits roll over until used while the relevant account and Service remain available, unless a product-specific term says otherwise.
+- OpenCrawl credits are closed-loop service units used only for OpenCrawl features. They are not stored money, a payment wallet, cryptocurrency, securities, or cash equivalents; they cannot be transferred between users or withdrawn as cash.
 - Promotional or complimentary credits may have separate limits and have no cash value.
 - Credits are deducted according to the operation performed and may reflect provider-heavy work, browser/sandbox execution, crawling, or other metered capability.
 

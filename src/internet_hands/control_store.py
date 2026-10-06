@@ -407,15 +407,16 @@ CREATE TABLE IF NOT EXISTS ih_tool_costs (
 """
 
 # Internal metering remains integer-based for exact reservations and settlement.
-# The product-facing wallet exposes these units as USD service balance.
+# This legacy conversion scale is used for provider-cost normalization only.
+# Customer-facing balances are OpenCrawl service credits, not stored monetary value.
 WALLET_UNITS_PER_USD = 5_000
 CUSTOM_TOPUP_MIN_USD_CENTS = 100
 CUSTOM_TOPUP_MAX_USD_CENTS = 50_000
 
 # OpenCrawl-supplied execution is deliberately more credit-sensitive than the raw
-# provider estimate. This keeps the wallet meaningful while every subscription
-# tier shares the same tool catalog. Operators can tune the multiplier without
-# changing provider-specific economics.
+# provider estimate. This keeps service-credit allocation meaningful while every
+# subscription tier shares the same tool catalog. Operators can tune the multiplier
+# without changing provider-specific economics.
 DEFAULT_CREDIT_BURN_MULTIPLIER = 3
 
 
@@ -428,7 +429,7 @@ def credit_burn_multiplier() -> int:
 
 
 def wallet_credits_for_raw(raw_credits: int) -> int:
-    """Convert raw metered work into product-facing wallet units."""
+    """Convert raw metered work into customer-facing service-credit units."""
     raw = max(0, int(raw_credits))
     return raw * credit_burn_multiplier()
 

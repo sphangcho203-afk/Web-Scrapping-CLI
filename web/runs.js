@@ -15,7 +15,7 @@ async function dashRuns() {
     const data = await api('/api/runs?limit=25&offset=' + offset);
     if (!current()) return;
     const rows = data.runs || [];
-    dashboardShell('runs', pageHead('EXECUTION', 'Runs', 'Trace collected data, progress and wallet charges in one place.',
+    dashboardShell('runs', pageHead('EXECUTION', 'Runs', 'Trace collected data, progress and usage-credit charges in one place.',
       '<a class="btn primary" data-link href="/dashboard/playground">Start a run</a>') +
       '<article class="card"><div class="table-wrap"><table><thead><tr><th>Capability</th><th>Execution</th><th>Reserved / charged</th><th>Created</th></tr></thead><tbody>' +
       rows.map(run => '<tr><td><a data-link href="' + link(run) + '">' + esc(run.capability_id || 'Execution') + '</a></td><td>' + esc(stateLabel(run)) +
