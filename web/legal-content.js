@@ -1,8 +1,8 @@
 /* OpenCrawl legal policy source. Data-only; web/app.js owns rendering. */
 window.IH_LEGAL_META = {
-  "version": "2026-09-27",
+  "version": "2026-10-06",
   "effective": "20 September 2026",
-  "updated": "27 September 2026",
+  "updated": "6 October 2026",
   "service": "OpenCrawl",
   "governingLaw": "India"
 };
