@@ -738,7 +738,13 @@ async def billing_create_order(request: Request):
             raise HTTPException(status_code=404, detail="credit pack not found")
         amount_paise = int(item["price_inr"]) * 100
         pack_slug = slug
-        payment_metadata["purchase_mode"] = "preset_credit_pack"
+        payment_metadata.update(
+            {
+                "purchase_mode": "preset_credit_pack",
+                "credits_snapshot": int(item["credits"]),
+                "price_inr_snapshot": int(item["price_inr"]),
+            }
+        )
     elif purpose == "subscription":
         item = next((x for x in store.list_plans() if x["slug"] == slug), None)
         if not item or int(item["monthly_price_inr"]) <= 0:
@@ -746,6 +752,13 @@ async def billing_create_order(request: Request):
         amount_paise = int(item["monthly_price_inr"]) * 100
         plan_slug = slug
         pack_slug = None
+        payment_metadata.update(
+            {
+                "purchase_mode": "subscription",
+                "included_credits_snapshot": int(item["included_credits"]),
+                "monthly_price_inr_snapshot": int(item["monthly_price_inr"]),
+            }
+        )
     else:
         raise HTTPException(status_code=400, detail="invalid purpose")
     try:
@@ -783,8 +796,7 @@ async def billing_create_order(request: Request):
     return {"order": order, "payment": row, "key_id": key_id}
 
 
-@router.post("/api/billing/verify")
-async def billing_verify(request: Request):
+async def _legacy_billing_verify(request: Request):
     user = _require_user(request)
     body = await request.json()
     order_id = str(body.get("razorpay_order_id") or "")
@@ -808,8 +820,7 @@ async def billing_verify(request: Request):
     return {"ok": True, "payment": result, "wallet": store.wallet_ledger(user["id"], 20)["wallet"]}
 
 
-@router.post("/api/webhooks/razorpay")
-async def razorpay_webhook(request: Request):
+async def _legacy_razorpay_webhook(request: Request):
     raw = await request.body()
     signature = request.headers.get("x-razorpay-signature", "")
     webhook_secret = os.getenv("RAZORPAY_WEBHOOK_SECRET")
