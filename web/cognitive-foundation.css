@@ -2860,6 +2860,8 @@ html.ih-overlay-open,html.ih-overlay-open body{overflow:hidden}
 }
 
 /* Product tracking workspace */
+.product-operational-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:24px 0}.product-operational-summary article{min-width:0;padding:16px;border:1px solid #ffffff20;border-radius:12px}.product-operational-summary b,.product-operational-summary small{display:block;overflow-wrap:anywhere}.product-operational-summary b{margin:8px 0;line-height:1.5}.product-email-panel{margin-top:28px;padding-top:24px;border-top:1px solid #ffffff20}.product-email-panel label{overflow-wrap:anywhere;min-width:0}.product-email-history article{padding:20px 0;border-top:1px solid #ffffff15}.product-email-history header{display:flex;gap:12px;justify-content:space-between;align-items:flex-start;flex-wrap:wrap}.product-email-history .badge{white-space:normal;overflow-wrap:anywhere}.product-history header{flex-wrap:wrap}
+@media(max-width:600px){.product-operational-summary{grid-template-columns:1fr}.product-email-panel .product-actions .btn{max-width:100%;white-space:normal}}
 .product-steps{display:flex;gap:24px;list-style:none;padding:20px 0;margin:0;color:var(--text-muted,#a6a9b6);flex-wrap:wrap}
 .product-steps b{color:#ef39df;margin-right:8px}.product-workspace{display:grid;grid-template-columns:minmax(0,2fr) minmax(240px,1fr);gap:20px;margin-bottom:24px}
 .product-workspace .card,.product-tracker-list{min-width:0;padding:24px}.product-create header,.product-tracker-list>header,.product-history header{display:flex;align-items:center;justify-content:space-between;gap:12px}

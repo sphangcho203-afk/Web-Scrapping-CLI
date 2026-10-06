@@ -96,6 +96,8 @@ def test_usage_vector_chart_interactions_ranges_and_export(frontend_url):
 
 def test_product_preview_tracking_and_payment_recovery_flow(frontend_url):
     calls, errors = [], []
+    preferences = {"enabled": False, "fields": ["price", "availability"]}
+    deliveries = []
     product = {"product_id": "offer1", "name": "Example <product>", "sku": "SKU1", "price": "99",
                "currency": "INR", "availability": "InStock", "source_url": "https://example.com/product",
                "captured_at": "2026-10-07T00:00:00Z"}
@@ -129,6 +131,25 @@ def test_product_preview_tracking_and_payment_recovery_flow(frontend_url):
                 data = {"monitor": tracker}
             elif path == "/api/monitors/mon_product":
                 data = tracker
+            elif path == "/api/monitors/mon_product/toggle":
+                tracker["enabled"] = body["enabled"]
+                data = tracker
+            elif path == "/api/monitors/mon_product/email-alerts":
+                if request.method == "PUT":
+                    assert body["confirm_email"] == body["enabled"]
+                    preferences.update(body)
+                data = {"preferences": preferences, "recipient": "owner@test.invalid", "email_verified": True,
+                        "credits_spent": 18, "checks": 3, "available": True}
+            elif path == "/api/monitors/mon_product/email-alerts/deliveries":
+                data = {"deliveries": deliveries}
+            elif path == "/api/monitors/mon_product/email-alerts/test":
+                assert preferences["enabled"] is True
+                deliveries.append({"id": "mail_test", "kind": "test", "status": "accepted", "attempts": 1,
+                    "created_at": "2026-10-07T00:00:00Z", "can_retry": False, "can_check": True})
+                data = {"deliveries": deliveries}
+            elif path == "/api/monitors/mon_product/email-alerts/deliveries/mail_test/check":
+                deliveries[0].update(status="delivered", can_check=False)
+                data = {"deliveries": deliveries}
             elif path == "/api/datasets/ds_product":
                 data = {"rows": [product]}
             elif path == "/api/public/plans":
@@ -167,6 +188,37 @@ def test_product_preview_tracking_and_payment_recovery_flow(frontend_url):
         page.get_by_label("I agree to recurring credit charges", exact=False).check()
         page.get_by_role("button", name="Enable tracking", exact=True).click()
         page.get_by_role("button", name="Pause tracking", exact=True).wait_for()
+        email_opt_in = page.get_by_label("Email me selected changes at", exact=False)
+        email_opt_in.wait_for()
+        assert email_opt_in.is_checked() is False
+        assert page.get_by_role("button", name="Send test email", exact=True).is_disabled()
+        assert not any(path.endswith("/test") for _, path, _, _ in calls)
+        assert "18" in page.locator("#product-operational-summary").inner_text()
+        page.locator('[name="email_price"]').uncheck()
+        page.locator('[name="email_availability"]').uncheck()
+        email_opt_in.check()
+        page.get_by_role("button", name="Save email preferences", exact=True).click()
+        page.get_by_text("Select at least one change to email.", exact=True).wait_for()
+        assert not any(method == "PUT" and path.endswith("/email-alerts") for method, path, _, _ in calls)
+        page.locator('[name="email_price"]').check()
+        page.get_by_role("button", name="Save email preferences", exact=True).click()
+        page.wait_for_function("!document.querySelector('#product-test-email').disabled")
+        saves = [body for method, path, body, _ in calls if method == "PUT" and path.endswith("/email-alerts")]
+        assert saves == [{"enabled": True, "fields": ["price"], "confirm_email": True}]
+        page.get_by_role("button", name="Send test email", exact=True).click()
+        page.locator(".product-email-history").get_by_text("Accepted · awaiting delivery", exact=True).wait_for()
+        assert page.locator(".product-email-history").get_by_text("Delivered to mail server", exact=True).count() == 0
+        page.get_by_role("button", name="Check delivery", exact=True).click()
+        page.locator(".product-email-history").get_by_text("Delivered to mail server", exact=True).wait_for()
+        assert len([entry for entry in calls if entry[1].endswith("/test")]) == 1
+        assert page.get_by_role("button", name="Check delivery", exact=True).count() == 0
+        page.get_by_role("button", name="Pause tracking", exact=True).click()
+        page.get_by_role("button", name="Resume tracking", exact=True).wait_for()
+        page.get_by_role("button", name="Send test email", exact=True).wait_for()
+        assert page.get_by_role("button", name="Send test email", exact=True).is_disabled()
+        page.get_by_label("Email me selected changes at", exact=False).uncheck()
+        page.get_by_role("button", name="Save email preferences", exact=True).click()
+        page.wait_for_function("!document.querySelector('[name=email_enabled]').checked && !document.querySelector('#product-email-form button[type=submit]').disabled")
         for width in (320, 390, 1366):
             page.set_viewport_size({"width": width, "height": 844})
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")

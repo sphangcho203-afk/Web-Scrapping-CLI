@@ -703,6 +703,8 @@ class ControlStore:
                     cur.execute(PROVIDER_DOLLAR_SCHEMA)
                     from .spend_policies import SCHEMA as SPEND_POLICY_SCHEMA
                     cur.execute(SPEND_POLICY_SCHEMA)
+                    from .monitor_email_store import SCHEMA as MONITOR_EMAIL_SCHEMA
+                    cur.execute(MONITOR_EMAIL_SCHEMA)
                     for row in PLAN_ROWS:
                         cur.execute(
                             """
@@ -2350,6 +2352,11 @@ class ControlStore:
                 (enabled, monitor_id, user_id),
             )
             changed = cur.rowcount > 0
+            if changed and not enabled:
+                cur.execute("""UPDATE ih_monitor_email_deliveries SET status='cancelled',lease_token=NULL,
+                    lease_until=NULL,last_error='Tracking paused before dispatch.',updated_at=now()
+                    WHERE monitor_id=%s AND (status IN ('pending','retry') OR
+                        (status='sending' AND send_started_at IS NULL))""", (monitor_id,))
             conn.commit()
             return changed
 
