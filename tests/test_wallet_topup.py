@@ -44,10 +44,11 @@ def test_custom_topup_bounds_are_explicit() -> None:
     assert CUSTOM_TOPUP_MAX_USD_CENTS == 50_000
 
 
-def test_browser_wallet_uses_manual_topup_and_server_order_currency() -> None:
+def test_browser_sells_usage_credit_packs_and_uses_server_order_currency() -> None:
     source = Path("web/app.js").read_text(encoding="utf-8")
-    assert 'id="custom-topup-form"' in source
-    assert "{amount_usd:input.value}" in source
+    assert 'id="custom-topup-form"' not in source
+    assert "USAGE CREDIT PACKS" in source
+    assert "Buy credits" in source
     assert "currency:r.order.currency||'INR'" in source
     assert "const walletMoney =" in source
-    assert "$$('[data-buy]').forEach" in source
+    assert "$('[data-buy]').forEach" in source
