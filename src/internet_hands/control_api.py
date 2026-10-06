@@ -332,15 +332,10 @@ def public_plans():
         return {
             "plans": store.list_plans(),
             "credit_packs": store.list_credit_packs(),
-            "display_currency": "USD",
-            "wallet_units_per_usd": WALLET_UNITS_PER_USD,
+            "display_currency": "INR",
+            "credit_purchase_mode": "preset_packs_only",
             "credit_burn_multiplier": credit_burn_multiplier(),
             "tool_access_model": "universal_credit_metered",
-            "custom_topup": {
-                "currency": "USD",
-                "min_usd_cents": CUSTOM_TOPUP_MIN_USD_CENTS,
-                "max_usd_cents": CUSTOM_TOPUP_MAX_USD_CENTS,
-            },
         }
     except ControlError as exc:
         raise _json_error(exc) from exc
@@ -744,7 +739,6 @@ def billing_status(request: Request):
         "webhook_configured": bool(os.getenv("RAZORPAY_WEBHOOK_SECRET")),
         "key_id": os.getenv("RAZORPAY_KEY_ID") if os.getenv("RAZORPAY_KEY_ID") else None,
         "display_currency": "INR",
-        "wallet_units_per_usd": WALLET_UNITS_PER_USD,
         "credit_purchase_mode": "preset_packs_only",
     }
 
