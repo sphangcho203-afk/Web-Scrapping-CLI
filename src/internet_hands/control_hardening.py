@@ -85,9 +85,9 @@ async def _send_payment_confirmation(payment: dict[str, Any]) -> None:
     if purpose == "subscription":
         item = f"OpenCrawl {payment.get('plan_slug') or ''} plan"
     elif payment.get("credit_pack_slug"):
-        item = f"OpenCrawl {payment.get('credit_pack_slug')} wallet pack"
+        item = f"OpenCrawl {payment.get('credit_pack_slug')} usage-credit pack"
     else:
-        item = "OpenCrawl custom wallet top-up"
+        item = "OpenCrawl custom usage-credit purchase"
     subject = "OpenCrawl payment confirmed"
     text = (
         f"Payment confirmed for {item}. Amount: {currency} {amount:.2f}. "
