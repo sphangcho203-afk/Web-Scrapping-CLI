@@ -62,7 +62,11 @@ const contracts = [
   const buttons = [{dataset: {copy: 'first'}}, {dataset: {copy: 'second'}}];
   let controls = [];
   let copied;
-  const dom = vm.createContext({$: () => null, $$: () => controls, copyText: value => {copied = value;}});
+  const logoBindings = source.slice(source.indexOf('const bindProviderLogoFallbacks ='), source.indexOf('function toast('));
+  const dom = vm.createContext({$: () => null,
+    document: {querySelectorAll: selector => selector === '[data-copy]' ? controls : []},
+    copyText: value => {copied = value;}});
+  vm.runInContext(logoBindings, dom);
   vm.runInContext(bindings, dom);
   dom.bindCommon();
   controls = buttons; dom.bindCommon();
