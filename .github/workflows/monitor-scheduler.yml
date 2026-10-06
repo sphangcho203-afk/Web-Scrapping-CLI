@@ -34,6 +34,20 @@ jobs:
           echo "::add-mask::${TOKEN}"
           echo "token=${TOKEN}" >> "${GITHUB_OUTPUT}"
 
+      - name: Inspect scheduler identity and validity window
+        env:
+          OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import base64, json, os, time
+          segment = os.environ["OIDC_TOKEN"].split(".")[1]
+          claims = json.loads(base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4)))
+          summary = {key: claims.get(key) for key in ("iss", "aud", "sub", "nbf", "exp")}
+          summary["runner_epoch"] = int(time.time())
+          print(json.dumps(summary))
+          PY
+
       - name: Execute due monitors
         env:
           OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
