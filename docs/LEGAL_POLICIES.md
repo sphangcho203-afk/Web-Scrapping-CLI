@@ -1,8 +1,8 @@
 # OpenCrawl Legal Policies
 
-**Policy version:** 2026-09-27
+**Policy version:** 2026-10-06
 **Effective:** 20 September 2026  
-**Last updated:** 27 September 2026
+**Last updated:** 6 October 2026
 
 This repository copy mirrors the policy set rendered by the hosted OpenCrawl Legal Center at `/legal`. The JavaScript policy source in `web/legal-content.js` is the browser-facing canonical data source for this version.
 
