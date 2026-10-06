@@ -510,7 +510,7 @@ def test_public_data_workspace_validates_executes_and_reports_partial_results(fr
         page.get_by_text("Partial evidence collected", exact=True).wait_for()
         assert len(calls) == 1 and calls[0]["arguments"]["max_pages"] == 5
         assert calls[0]["api_key_id"] == "key_fixture"
-        assert "$0.0016 charged" in page.locator("#public-data-output").inner_text()
+        assert "8 credits charged" in page.locator("#public-data-output").inner_text()
         assert page.get_by_role("link", name="Open source", exact=True).get_attribute("href") == "https://source.example/report"
         form.locator('[name="operation"]').select_option("extract")
         assert not page.locator("#public-data-research-fields").is_visible()
@@ -557,8 +557,8 @@ def test_rewards_redemption_delivers_wallet_prize(frontend_url):
                 },
                 "catalog": [{
                     "slug": "wallet-025",
-                    "name": "$0.25 wallet credit",
-                    "description": "Add rollover OpenCrawl balance to your wallet.",
+                    "name": "1,250 OpenCrawl usage credits",
+                    "description": "Add 1,250 OpenCrawl service credits to your account.",
                     "points_cost": 100,
                     "fulfillment_type": "wallet_credit",
                     "fulfillment_value": 1250,
@@ -567,7 +567,7 @@ def test_rewards_redemption_delivers_wallet_prize(frontend_url):
                 "ledger": [],
                 "earned_now": 0,
                 "wallet_units_per_usd": 5000,
-                "earning_rule": {"usd_spend_per_point": 0.05},
+                "earning_rule": {"wallet_units_per_point": 250},
             }
 
         def respond(route):
@@ -588,7 +588,7 @@ def test_rewards_redemption_delivers_wallet_prize(frontend_url):
                 redemption = {
                     "id": "rwd_fixture",
                     "reward_slug": "wallet-025",
-                    "reward_name": "$0.25 wallet credit",
+                    "reward_name": "1,250 OpenCrawl usage credits",
                     "points_spent": 100,
                     "status": "fulfilled",
                     "fulfillment_type": "wallet_credit",
@@ -613,7 +613,7 @@ def test_rewards_redemption_delivers_wallet_prize(frontend_url):
         page.locator(".ih-route-rewards").wait_for()
         assert page.get_by_text("120", exact=True).count() >= 1
         page.get_by_role("button", name="Redeem prize").click()
-        page.get_by_text("Prize redeemed and delivered to your wallet").wait_for()
+        page.get_by_text("Prize redeemed and added to your usage credits").wait_for()
         page.get_by_text("20", exact=True).first.wait_for()
         assert page.get_by_text("$0.25 wallet credit", exact=True).count() >= 1
         assert state["purchased"] == 1750
@@ -653,7 +653,7 @@ def test_community_reward_code_redemption(frontend_url):
                 "ledger": [],
                 "earned_now": 0,
                 "wallet_units_per_usd": 5000,
-                "earning_rule": {"usd_spend_per_point": 0.05},
+                "earning_rule": {"wallet_units_per_point": 250},
             }
 
         def respond(route):
