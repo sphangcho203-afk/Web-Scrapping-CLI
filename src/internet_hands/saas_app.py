@@ -36,6 +36,7 @@ from .site_map_api import router as site_map_router
 from .smart_scrape_api import router as smart_scrape_router
 from .spend_policy_api import router as spend_policy_router
 from .structured_extract_api import router as structured_extract_router
+from .product_tracker_api import router as product_tracker_router
 from .site import router as site_router
 from .system_health import router as system_health_router
 from .usage_api import router as usage_router
@@ -91,6 +92,7 @@ app.include_router(public_data_router)
 app.include_router(site_map_router)
 app.include_router(smart_scrape_router)
 app.include_router(structured_extract_router)
+app.include_router(product_tracker_router)
 app.include_router(game_router)
 app.include_router(intelligence_router)
 app.include_router(site_router)

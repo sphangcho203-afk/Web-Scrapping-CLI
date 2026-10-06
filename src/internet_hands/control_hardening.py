@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import html
 import json
+import re
 from typing import Any
 
 import httpx
@@ -174,6 +175,8 @@ async def billing_verify_captured_only(request: Request):
 @router.post("/api/webhooks/razorpay")
 async def razorpay_webhook_captured_only(request: Request):
     raw = await request.body()
+    if len(raw) > 512_000:
+        raise HTTPException(413, detail="webhook payload is too large")
     signature = request.headers.get("x-razorpay-signature", "")
     webhook_secret, _ = _razorpay_secret("RAZORPAY_WEBHOOK_SECRET")
     if not webhook_secret:
@@ -184,14 +187,23 @@ async def razorpay_webhook_captured_only(request: Request):
     payload_hash = hashlib.sha256(raw).hexdigest()
     try:
         event = json.loads(raw)
-    except json.JSONDecodeError:
+    except (ValueError, UnicodeDecodeError):
         raise HTTPException(status_code=400, detail="invalid JSON") from None
+    if not isinstance(event, dict):
+        raise HTTPException(400, detail="expected a webhook object")
 
     event_type = str(event.get("event") or "unknown")
     payload = event.get("payload") or {}
-    payment_entity = ((payload.get("payment") or {}).get("entity") or {}) if isinstance(payload, dict) else {}
-    order_entity = ((payload.get("order") or {}).get("entity") or {}) if isinstance(payload, dict) else {}
+    def entity(name):
+        wrapper = payload.get(name) if isinstance(payload, dict) else None
+        value = wrapper.get("entity") if isinstance(wrapper, dict) else None
+        return value if isinstance(value, dict) else {}
+    payment_entity = entity("payment")
+    order_entity = entity("order")
     event_id = str(event.get("id") or payment_entity.get("id") or order_entity.get("id") or payload_hash)
+    # Different lifecycle events may share the same payment ID. Invalid signatures
+    # must also never occupy the identity of a subsequent valid delivery.
+    event_id = hashlib.sha256(json.dumps([event_type, event_id, valid]).encode()).hexdigest()
 
     inserted = store.record_webhook(
         provider="razorpay",
@@ -203,8 +215,8 @@ async def razorpay_webhook_captured_only(request: Request):
     )
     if not valid:
         raise HTTPException(status_code=400, detail="invalid webhook signature")
-    if not inserted:
-        return {"ok": True, "duplicate": True}
+    # A received journal entry is not proof of fulfillment. Retry the work;
+    # finalize_payment locks the order and credits it at most once.
 
     order_id = str(payment_entity.get("order_id") or order_entity.get("id") or "")
     payment_id = str(payment_entity.get("id") or "")
@@ -212,16 +224,25 @@ async def razorpay_webhook_captured_only(request: Request):
     if event_type == "payment.failed":
         if order_id and store.get_payment_by_order(order_id):
             store.mark_payment_failed(order_id=order_id, payment_id=payment_id or None)
+        store.finish_webhook_event(event_id, "processed")
         return {"ok": True, "fulfilled": False, "payment_failed": True}
 
     if event_type not in {"payment.captured", "order.paid"}:
+        store.finish_webhook_event(event_id, "ignored")
         return {"ok": True, "fulfilled": False}
 
     if not order_id:
+        store.finish_webhook_event(event_id, "unmatched")
         return {"ok": True, "fulfilled": False}
     order = store.get_payment_by_order(order_id)
     if not order:
-        return {"ok": True, "fulfilled": False}
+        # Order creation can commit after a very fast capture callback arrives.
+        # Leave this delivery retryable instead of permanently acknowledging it.
+        raise HTTPException(503, detail="OpenCrawl order is not available yet; retry delivery")
+    if order["status"] in {"captured", "paid"}:
+        store.finish_webhook_event(event_id, "fulfilled")
+        await _send_payment_confirmation(order)
+        return {"ok": True, "fulfilled": True, "duplicate": not inserted}
 
     key_id, key_secret, _ = _razorpay_config()
     payment: dict[str, Any] | None = None
@@ -232,7 +253,7 @@ async def razorpay_webhook_captured_only(request: Request):
             payment = await _captured_payment_for_order(client, order_id)
 
     if not payment:
-        return {"ok": True, "fulfilled": False, "reason": "no captured payment found"}
+        raise HTTPException(503, detail="captured payment lookup is temporarily unavailable; retry delivery")
 
     _validate_payment_against_order(payment, order)
     result = store.finalize_payment(
@@ -240,8 +261,36 @@ async def razorpay_webhook_captured_only(request: Request):
         payment_id=str(payment["id"]),
         status="captured",
     )
+    store.finish_webhook_event(event_id, "fulfilled")
     await _send_payment_confirmation(result)
     return {"ok": True, "fulfilled": True}
+
+
+@router.post("/api/billing/payments/{order_id}/reconcile")
+async def reconcile_payment(request: Request, order_id: str):
+    """Recover an owned purchase after a lost checkout response or webhook."""
+    user = _require_user(request)
+    if not re.fullmatch(r"order_[A-Za-z0-9]{1,100}", order_id):
+        raise HTTPException(404, detail="payment order not found")
+    order = store.get_payment_by_order(order_id)
+    if not order or order["user_id"] != user["id"]:
+        raise HTTPException(404, detail="payment order not found")
+    if order["status"] in {"paid", "captured"}:
+        return {"ok": True, "fulfilled": True, "payment": order}
+    try:
+        key_id, key_secret, _ = _razorpay_config()
+    except ControlError as exc:
+        raise _json_error(exc) from exc
+    async with httpx.AsyncClient(timeout=20.0, auth=(key_id, key_secret)) as client:
+        payment = await _captured_payment_for_order(client, order_id)
+    if not payment:
+        return {"ok": True, "fulfilled": False, "payment": order,
+                "message": "No captured payment was found. If you paid, check again shortly."}
+    _validate_payment_against_order(payment, order)
+    result = store.finalize_payment(order_id=order_id, payment_id=str(payment["id"]), status="captured")
+    await _send_payment_confirmation(result)
+    return {"ok": True, "fulfilled": True, "payment": result,
+            "wallet": store.wallet_ledger(user["id"], 20)["wallet"]}
 
 
 async def _send_reset_email(*, email: str, reset_url: str) -> None:

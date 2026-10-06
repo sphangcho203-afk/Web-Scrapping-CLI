@@ -274,6 +274,8 @@ async function hydrateOptionalSession() {
   } catch {}
 }
 function clearTransientUi() {
+  clearTimeout(state.productRunTimer);
+  state.productController?.abort();
   clearTimeout(state.crawlRunTimer);
   clearTimeout(state.extractRunTimer);
   document.querySelectorAll('.modal-backdrop').forEach(el=>el.remove());
@@ -1654,7 +1656,7 @@ async function dashStructuredExtract(){
   };
 }
 
-async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,capabilities:dashCapabilities,scrape:dashSmartScrape,map:dashSiteMap,extract:dashStructuredExtract,datasets:dashDatasets,'crawl-runs':dashCrawlRuns,runs:dashRuns,spending:dashSpending,games:dashGames,repositories:dashRepositories,data:dashPublicData,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,rewards:dashRewards,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
+async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,capabilities:dashCapabilities,scrape:dashSmartScrape,map:dashSiteMap,extract:dashStructuredExtract,datasets:dashDatasets,'crawl-runs':dashCrawlRuns,runs:dashRuns,spending:dashSpending,products:dashProductTracker,games:dashGames,repositories:dashRepositories,data:dashPublicData,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,rewards:dashRewards,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
 async function renderRoute(){clearTransientUi();window.scrollTo(0,0);const p=location.pathname;try{if(p==='/'||p==='/pricing'||p==='/status'||p.startsWith('/docs')||p.startsWith('/legal')||LEGAL_ALIASES[p])await hydrateOptionalSession();if(p.startsWith('/dashboard'))return await renderDashboard();if(p==='/verify-email')return await renderVerify();if(p==='/login')return renderAuth('login');if(p==='/signup')return renderAuth('signup');if(p==='/forgot-password')return renderRecovery();if(p==='/reset-password')return renderRecovery(true);if(p.startsWith('/legal')||LEGAL_ALIASES[p])return renderLegal();if(p.startsWith('/docs'))return renderDocs();if(p==='/pricing')return await renderPricing();if(p==='/status')return await renderStatus();return await renderHome();}catch(error){console.error(error);if(error.status===401)return go('/login',true);app.innerHTML=`<main class="fatal"><div>${brand()}<span class="eyebrow">REQUEST FAILED</span><h1>The control plane did not answer cleanly.</h1><p>${esc(error.message)}</p><button class="btn primary" onclick="location.reload()">Try again</button></div></main>`;}}
 document.addEventListener('click',e=>{
   if(e.defaultPrevented)return;
@@ -2675,6 +2677,23 @@ function openRunInspector(event) {
       <section class="ihx-plan-grid">${(p.plans||[]).map(plan=>`<article class="${plan.slug==='pro'?'featured':''}"><header><span>${esc(plan.name)}</span>${plan.slug==='pro'?'<em>RECOMMENDED</em>':''}</header><div class="ihx-plan-price">${money(plan.monthly_price_inr)}<small>/month</small></div><p>${fmt(plan.included_credits)} monthly usage credits</p><ul><li>${icon('check')} ${fmt(plan.rpm_limit)} requests / minute</li><li>${icon('check')} ${fmt(plan.api_key_limit)} API keys</li><li>${icon('check')} ${fmt(plan.monitor_limit)} monitors</li><li>${icon('check')} All tools & providers</li><li>${icon('check')} Browser + sandbox included</li></ul>${plan.slug==='free'?'<span class="ihx-current-label">Base tier</span>':`<button class="btn ${plan.slug==='pro'?'primary':''}" data-plan="${plan.slug}">Choose ${esc(plan.name)}</button>`}</article>`).join('')}</section>
       <section class="ihx-payment-panel"><header><div><span>PAYMENTS</span><h2>Captured purchase history</h2></div><small>${icon('shield')} server verified</small></header>${payments.length?`<div class="ihx-payment-table"><div class="ihx-payment-head"><span>CREATED</span><span>PURPOSE</span><span>AMOUNT</span><span>STATUS</span><span>REFERENCE</span></div>${payments.map(x=>`<div><span>${esc(when(x.created_at))}</span><span>${esc(x.purpose)}</span><b>${paymentMoney(x.amount_paise,x.currency)}</b><span class="ihx-state ${['paid','captured'].includes(x.status)?'on':'idle'}">${dot(['paid','captured'].includes(x.status)?'ok':'warn')} ${esc(x.status)}</span><code>${esc(x.order_id||'—')}</code></div>`).join('')}</div>`:empty('wallet','No purchases yet','Captured payments will appear here after server verification.')}</section>`);
     $$('[data-plan]').forEach(b=>b.addEventListener('click',()=>startCheckout('subscription',b.dataset.plan,b)));
+    const pending = payments.filter(payment => !['paid','captured'].includes(payment.status));
+    if (pending.length) {
+      const panel = document.createElement('section'); panel.className = 'payment-recovery';
+      panel.innerHTML = '<h2>Payment recovery</h2><p>If you paid but credits have not appeared, check the existing order. This does not create a purchase or charge you again.</p>' + pending.map(payment => '<article><span><b>' + paymentMoney(payment.amount_paise,payment.currency) + '</b><br><code>' + esc(payment.order_id) + '</code></span><button class="btn small" data-reconcile-order="' + esc(payment.order_id) + '">Check payment</button></article>').join('') + '<p data-payment-recovery-status role="status"></p>';
+      $('.ihx-payment-panel').append(panel);
+      $$('[data-reconcile-order]',panel).forEach(button => button.onclick = async () => {
+        if (!busy(button,true,'Checking…')) return;
+        try {
+          const checked = await api('/api/billing/payments/' + encodeURIComponent(button.dataset.reconcileOrder) + '/reconcile',{method:'POST'});
+          if (location.pathname !== '/dashboard/billing' || !panel.isConnected) return;
+          $('[data-payment-recovery-status]',panel).textContent = checked.fulfilled ? 'Payment fulfilled. Your credits or plan are active.' : checked.message;
+          if (checked.fulfilled) { button.textContent = 'Fulfilled'; button.disabled = true; }
+          else busy(button,false);
+        } catch(error) { if (panel.isConnected) { $('[data-payment-recovery-status]',panel).textContent = error.message; busy(button,false); } }
+      });
+    }
+
   };
 
   dashSettings = async function dashSettingsV3() {
@@ -2734,6 +2753,7 @@ function openRunInspector(event) {
       ['scrape','api','Smart Scrape'],
       ['map','search','Site Map'],
       ['extract','docs','Structured Extract'],
+      ['products','monitor','Price Tracker'],
       ['datasets','docs','Datasets'],
       ['runs','activity','Runs'],
       ['crawl-runs','activity','Background crawls'],

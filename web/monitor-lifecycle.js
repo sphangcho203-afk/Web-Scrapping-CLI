@@ -11,7 +11,7 @@
 
   async function monitorForm(monitor = null, template = '') {
     const type = monitor?.type || template || 'web';
-    const types = monitor?.type === 'gaming' ? ['web','api','mcp','content','gaming'] : ['web','api','mcp','content'];
+    const types = monitor?.type === 'product' ? ['product'] : monitor?.type === 'gaming' ? ['web','api','mcp','content','gaming'] : ['web','api','mcp','content'];
     let keys = [];
     try { keys = ((await api('/api/api-keys')).keys || []).filter(key => !key.revoked_at && (!key.expires_at || new Date(key.expires_at) > new Date())); }
     catch(error) { toast(error.message, 'error'); return; }
@@ -20,6 +20,7 @@
       web: ['https://example.com', 'Public page to check over HTTP'],
       api: ['https://api.example.com/health', 'Public API health endpoint'],
       mcp: ['https://example.com/mcp', 'Public MCP endpoint to check over HTTP'],
+      product: ['https://shop.example/product', 'Compare published product price and availability. Missing offers keep the last good baseline.'],
       content: ['https://example.com/pricing', 'Compare readable page text and title. Baselines and changes are saved as datasets.'],
       gaming: ['provider-specific identity', 'Legacy gaming monitors cannot run on the current HTTP executor. Switch to an HTTP type to resume checks.']
     };
@@ -28,7 +29,8 @@
         <label>Name<input required name="name" maxlength="120" value="${esc(monitor?.name || '')}" placeholder="Production health"></label>
         <div class="field-pair"><label>Type<select name="type">${types.map(x => `<option value="${x}" ${x===type?'selected':''}>${x.toUpperCase()}</option>`).join('')}</select></label><label>Interval<select name="interval_minutes">${[15,60,360,1440].map(x => `<option value="${x}" ${Number(monitor?.interval_minutes || 60)===x?'selected':''}>${schedule(x)}</option>`).join('')}</select></label></div>
         <label>Target<input required name="target" type="${type === 'gaming' ? 'text' : 'url'}" maxlength="2000" value="${esc(monitor?.target || '')}" placeholder="${targetHint[type]?.[0] || targetHint.web[0]}" aria-describedby="monitor-target-hint"><small id="monitor-target-hint">${targetHint[type]?.[1] || targetHint.web[1]}</small></label>
-        <div id="monitor-content-billing" ${type === 'content' ? '' : 'hidden'}><label>Billing API key<select name="api_key_id" ${type === 'content' ? 'required' : 'disabled'}><option value="">Select an API key</option>${keys.map(key => `<option value="${esc(key.id)}" ${key.id === monitor?.config?.api_key_id ? 'selected' : ''}>${esc(key.name)} · ${esc(key.prefix)}…</option>`).join('')}</select></label><p>Each successful comparison uses your wallet, including unchanged checks. Failed or unreadable checks are not charged. Checks compare up to 50 KB of server-rendered text; JavaScript is not run.</p>${!keys.length ? '<a data-link href="/dashboard/api-keys">Create an API key</a>' : ''}</div>
+        <div id="monitor-content-billing" ${['content','product'].includes(type) ? '' : 'hidden'}><label>Billing API key<select name="api_key_id" ${['content','product'].includes(type) ? 'required' : 'disabled'}><option value="">Select an API key</option>${keys.map(key => `<option value="${esc(key.id)}" ${key.id === monitor?.config?.api_key_id ? 'selected' : ''}>${esc(key.name)} · ${esc(key.prefix)}…</option>`).join('')}</select></label><p>Each successful comparison uses usage credits, including unchanged checks. Failed or unreadable checks are not charged. ${type === 'product' ? 'Checks compare published Product / Offer fields.' : 'Checks compare up to 50 KB of server-rendered text.'} JavaScript is not run.</p>${!keys.length ? '<a data-link href="/dashboard/api-keys">Create an API key</a>' : ''}</div>
+        ${type === 'product' ? `<label>Maximum credits per check<input name="product_maximum" type="number" min="0" max="1000000000" step="1" required value="${Number(monitor?.config?.max_charge_credits || 0)}"></label><p>Watching ${esc((monitor?.config?.fields || []).join(' and '))}. Successful checks spend credits, including unchanged checks.</p>` : ''}
         <div id="monitor-preflight-state" class="notice" role="status" aria-live="polite">Target and schedule are validated before anything is saved.</div>
         <button class="btn primary large" type="submit">${monitor ? 'Validate and save' : 'Validate and create'}</button>
       </form>`);
@@ -39,17 +41,18 @@
       target.placeholder = hint[0];
       $('#monitor-target-hint', wrap).textContent = hint[1];
       target.setCustomValidity('');
-      $('#monitor-content-billing', wrap).hidden = selected !== 'content';
-      form.elements.api_key_id.disabled = selected !== 'content';
-      form.elements.api_key_id.required = selected === 'content';
+      $('#monitor-content-billing', wrap).hidden = !['content','product'].includes(selected);
+      form.elements.api_key_id.disabled = !['content','product'].includes(selected);
+      form.elements.api_key_id.required = ['content','product'].includes(selected);
     };
     $('#monitor-lifecycle-form', wrap).onsubmit = async e => {
       e.preventDefault();
       const button = $('button[type=submit]', e.currentTarget);
       const body = Object.fromEntries(new FormData(e.currentTarget));
       body.interval_minutes = Number(body.interval_minutes);
-      body.config = body.type === 'content' ? {api_key_id:body.api_key_id} : monitor?.type === 'content' ? {} : (monitor?.config || {});
+      body.config = body.type === 'product' ? {...monitor.config,api_key_id:body.api_key_id,max_charge_credits:Number(body.product_maximum)} : body.type === 'content' ? {api_key_id:body.api_key_id} : monitor?.type === 'content' ? {} : (monitor?.config || {});
       delete body.api_key_id;
+      delete body.product_maximum;
       if (!busy(button, true, 'Validating…')) return;
       const controller = new AbortController();
       wrap.onClose = () => controller.abort();

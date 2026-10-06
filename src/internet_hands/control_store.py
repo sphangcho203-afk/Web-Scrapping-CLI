@@ -2313,10 +2313,11 @@ class ControlStore:
         target: str,
         interval_minutes: int,
         config: dict[str, Any],
+        transaction=None,
     ) -> dict[str, Any]:
         self.ensure_schema()
         account = self.account_snapshot(user_id)
-        with self._connect() as conn:
+        with (self._connect() if transaction is None else nullcontext(transaction)) as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT id FROM ih_users WHERE id=%s FOR UPDATE", (user_id,))
                 cur.execute("SELECT count(*) AS n FROM ih_monitors WHERE user_id=%s", (user_id,))
@@ -2326,7 +2327,7 @@ class ControlStore:
                 cur.execute(
                     """
                     INSERT INTO ih_monitors(id,user_id,name,type,target,interval_minutes,next_check_at,config)
-                    VALUES (%s,%s,%s,%s,%s,%s,CASE WHEN %s='content' THEN now()
+                    VALUES (%s,%s,%s,%s,%s,%s,CASE WHEN %s IN ('content','product') THEN now()
                         ELSE now()+(%s || ' minutes')::interval END,%s::jsonb)
                     RETURNING *
                     """,
@@ -2336,7 +2337,8 @@ class ControlStore:
                     ),
                 )
                 row = cur.fetchone()
-            conn.commit()
+            if transaction is None:
+                conn.commit()
             assert row is not None
             return dict(row)
 
@@ -2703,6 +2705,11 @@ class ControlStore:
                 (user_id, max(1, min(limit, 500))),
             )
             return [dict(r) for r in cur.fetchall()]
+
+    def finish_webhook_event(self, event_id: str, status: str) -> None:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE ih_webhook_events SET status=%s,processed_at=now() WHERE provider='razorpay' AND event_id=%s",
+                        (status, event_id))
 
     def password_reset_user(self, token_hash: str) -> dict[str, Any] | None:
         """Resolve a still-valid compatibility reset without consuming it."""

@@ -87,6 +87,7 @@ async def crawl(
     discover_sitemaps: bool = False,
     max_bytes_per_page: int = 2_000_000,
     include_content: bool = False,
+    include_products: bool = False,
     max_content_bytes_per_page: int = 50_000,
     max_content_bytes: int = 750_000,
     on_progress: Callable[[CrawlResult], Awaitable[None]] | None = None,
@@ -107,6 +108,8 @@ async def crawl(
         raise ValueError("max_bytes_per_page must be between 32000 and 8000000")
     if not isinstance(include_content, bool):
         raise TypeError("include_content must be a boolean")
+    if not isinstance(include_products, bool):
+        raise TypeError("include_products must be a boolean")
     if not isinstance(discover_sitemaps, bool):
         raise TypeError("discover_sitemaps must be a boolean")
     if type(max_content_bytes_per_page) is not int or type(max_content_bytes) is not int:
@@ -131,6 +134,8 @@ async def crawl(
     # Keep hashes for existing link-only checkpoints compatible.
     if discover_sitemaps:
         controls["discover_sitemaps"] = True
+    if include_products:
+        controls["include_products"] = True
     config_hash = hashlib.sha256(json.dumps(controls, sort_keys=True).encode()).hexdigest()
     if len(seed_url.encode()) > MAX_URL_BYTES:
         raise ValueError("Checkpoint URLs exceed their byte budget.")
@@ -320,6 +325,15 @@ async def crawl(
                 content_type=result.content_type,
                 elapsed_ms=result.elapsed_ms,
             )
+            if include_products:
+                from .product_data import extract_products
+                page.captured_at = result.captured_at
+                if 200 <= result.status_code < 300 and result.body_text:
+                    page.products, page.product_error = extract_products(result.body_text, result.final_url)
+                    for product in page.products:
+                        product["captured_at"] = result.captured_at.isoformat()
+                else:
+                    page.product_error = "product_page_unavailable"
             if include_content:
                 page.captured_at = result.captured_at
                 content_type = (result.content_type or "").lower()

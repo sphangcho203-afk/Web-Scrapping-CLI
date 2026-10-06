@@ -111,13 +111,14 @@ class RunStore:
             cur.execute("SELECT * FROM ih_crawl_runs WHERE id=%s", (run_id,))
             return public_run(cur.fetchone())
 
-    def claim(self) -> dict | None:
+    def claim(self, run_id: str | None = None) -> dict | None:
         """One fenced lease; a dead process is retried once, then terminated."""
         self.control.ensure_schema()
         with self.control._connect() as conn, conn.cursor() as cur:
             cur.execute("""SELECT *,expires_at<=now() AS expired FROM ih_crawl_runs
-                WHERE status='queued' OR (status='running' AND lease_until<=now())
-                ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1""")
+                WHERE (status='queued' OR (status='running' AND lease_until<=now()))
+                  AND (%s::text IS NULL OR id=%s)
+                ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1""", (run_id, run_id))
             row = cur.fetchone()
             if not row:
                 return None
@@ -179,10 +180,19 @@ class RunStore:
         if status == "completed" and not successful:
             status, error_code = "failed", "no_successful_pages"
         usage = {**usage, "completed": successful}
-        if status == "completed" or result.get("pages"):
+        product_run = bool(row["arguments"].get("include_products"))
+        if product_run:
+            products = pages[0].get("products") or [] if len(pages) == 1 else []
+            if status == "completed" and not products:
+                status, error_code = "failed", (pages[0].get("product_error") if pages else None) or "product_price_unavailable"
+            usage["completed"] = status == "completed" and bool(products)
+            result = {**result, "records": products}
+        if status == "completed" or (result.get("pages") and not product_run):
             try:
-                saved = DatasetStore(self.control).save(row["user_id"], row["request_id"], "crawl",
-                    {**result, "run_status": status}, row["arguments"]["url"], transaction=conn)
+                saved_output = ({key: value for key, value in result.items() if key != "pages"}
+                                if product_run else result)
+                saved = DatasetStore(self.control).save(row["user_id"], row["request_id"], "product" if product_run else "crawl",
+                    {**saved_output, "run_status": status}, row["arguments"]["url"], transaction=conn)
                 dataset_id = saved["id"]
             except ControlError as exc:
                 if exc.code != "dataset_too_large":

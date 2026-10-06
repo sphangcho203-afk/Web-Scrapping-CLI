@@ -2858,3 +2858,16 @@ html.ih-overlay-open,html.ih-overlay-open body{overflow:hidden}
     font-size:15px;
   }
 }
+
+/* Product tracking workspace */
+.product-steps{display:flex;gap:24px;list-style:none;padding:20px 0;margin:0;color:var(--text-muted,#a6a9b6);flex-wrap:wrap}
+.product-steps b{color:#ef39df;margin-right:8px}.product-workspace{display:grid;grid-template-columns:minmax(0,2fr) minmax(240px,1fr);gap:20px;margin-bottom:24px}
+.product-workspace .card,.product-tracker-list{min-width:0;padding:24px}.product-create header,.product-tracker-list>header,.product-history header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.product-explainer p,.product-run-summary p{color:var(--text-muted,#a6a9b6);line-height:1.7}.product-create small,.product-trackers small{display:block;overflow-wrap:anywhere}
+.product-cost-review{margin-top:24px;padding:20px;border:1px solid #ef39df66;border-radius:14px}.product-actions{display:flex;gap:12px;flex-wrap:wrap;margin:20px 0}
+.product-check{display:flex!important;align-items:flex-start;gap:10px;line-height:1.6}.product-check input{width:auto!important;flex:none;margin-top:5px}
+.product-create fieldset{border:1px solid #ffffff20;border-radius:10px;padding:16px}.product-create table{width:100%}.product-create td{vertical-align:top;overflow-wrap:anywhere}
+.product-create td small{margin-top:6px;font-size:11px;color:#a6a9b6;max-width:280px}.product-create p{overflow-wrap:anywhere}.product-create #product-track-form{margin-top:28px;padding-top:24px;border-top:1px solid #ffffff20}
+.product-trackers article{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:16px;align-items:center;padding:18px 0;border-top:1px solid #ffffff15}.product-history{padding:16px 0;border-top:1px solid #ffffff15}.product-history ul{padding-left:20px;line-height:1.8}
+.payment-recovery{margin-top:20px;padding:20px;border:1px solid #ffffff20;border-radius:12px}.payment-recovery article{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0}.payment-recovery code{overflow-wrap:anywhere}
+@media(max-width:800px){.product-workspace{grid-template-columns:1fr}.product-steps{gap:12px;font-size:12px}.product-trackers article{grid-template-columns:minmax(0,1fr) auto}.product-workspace .card,.product-tracker-list{padding:18px}.product-create .field-pair{grid-template-columns:1fr}.payment-recovery article{align-items:flex-start;flex-direction:column}}

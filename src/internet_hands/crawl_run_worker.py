@@ -14,8 +14,8 @@ class RunCancelled(Exception):
     pass
 
 
-async def dispatch_run(runs: RunStore) -> dict:
-    job = await asyncio.to_thread(runs.claim)
+async def dispatch_run(runs: RunStore, run_id: str | None = None) -> dict:
+    job = await asyncio.to_thread(runs.claim, run_id) if run_id else await asyncio.to_thread(runs.claim)
     if job is None:
         return {"processed": 0}
     if job.get("recovered_terminal"):

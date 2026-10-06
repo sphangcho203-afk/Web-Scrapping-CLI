@@ -123,7 +123,7 @@ def _claim_due_monitors(limit: int = MAX_BATCH) -> list[dict[str, Any]]:
                 SELECT id
                 FROM ih_monitors
                 WHERE enabled = true
-                  AND type <> 'content'
+                  AND type NOT IN ('content','product')
                   AND (next_check_at IS NULL OR next_check_at <= now())
                 ORDER BY next_check_at NULLS FIRST, created_at
                 FOR UPDATE SKIP LOCKED

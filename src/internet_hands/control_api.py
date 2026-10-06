@@ -670,7 +670,7 @@ async def create_monitor(request: Request):
     try:
         from .monitor_lifecycle import validate_monitor_spec
         spec = validate_monitor_spec(body)
-        if spec["type"] == "content":
+        if spec["type"] in {"content", "product"}:
             from .content_monitors import content_identity
             content_identity(store, user["id"], spec["config"])
         return store.create_monitor(
