@@ -743,13 +743,9 @@ def billing_status(request: Request):
         "configured": bool(os.getenv("RAZORPAY_KEY_ID") and os.getenv("RAZORPAY_KEY_SECRET")),
         "webhook_configured": bool(os.getenv("RAZORPAY_WEBHOOK_SECRET")),
         "key_id": os.getenv("RAZORPAY_KEY_ID") if os.getenv("RAZORPAY_KEY_ID") else None,
-        "display_currency": "USD",
+        "display_currency": "INR",
         "wallet_units_per_usd": WALLET_UNITS_PER_USD,
-        "custom_topup": {
-            "currency": "USD",
-            "min_usd_cents": CUSTOM_TOPUP_MIN_USD_CENTS,
-            "max_usd_cents": CUSTOM_TOPUP_MAX_USD_CENTS,
-        },
+        "credit_purchase_mode": "preset_packs_only",
     }
 
 
@@ -769,29 +765,14 @@ async def billing_create_order(request: Request):
     payment_metadata: dict[str, Any] = {}
     if purpose == "credits":
         plan_slug = None
-        if slug:
-            item = next((x for x in store.list_credit_packs() if x["slug"] == slug), None)
-            if not item:
-                raise HTTPException(status_code=404, detail="credit pack not found")
-            amount_paise = int(item["price_inr"]) * 100
-            pack_slug = slug
-            payment_metadata["topup_mode"] = "preset"
-        else:
-            try:
-                usd_cents = _parse_custom_topup_cents(body.get("amount_usd"))
-            except ControlError as exc:
-                raise _json_error(exc) from exc
-            amount_paise = usd_cents
-            currency = "USD"
-            pack_slug = None
-            payment_metadata.update(
-                {
-                    "topup_mode": "custom",
-                    "wallet_usd_cents": usd_cents,
-                    "wallet_units": usd_cents * WALLET_UNITS_PER_USD // 100,
-                    "wallet_units_per_usd": WALLET_UNITS_PER_USD,
-                }
-            )
+        if not slug:
+            raise HTTPException(status_code=400, detail="select an OpenCrawl usage-credit pack")
+        item = next((x for x in store.list_credit_packs() if x["slug"] == slug), None)
+        if not item:
+            raise HTTPException(status_code=404, detail="credit pack not found")
+        amount_paise = int(item["price_inr"]) * 100
+        pack_slug = slug
+        payment_metadata["purchase_mode"] = "preset_credit_pack"
     elif purpose == "subscription":
         item = next((x for x in store.list_plans() if x["slug"] == slug), None)
         if not item or int(item["monthly_price_inr"]) <= 0:
@@ -816,17 +797,12 @@ async def billing_create_order(request: Request):
                 "notes": {
                     "ih_user_id": user["id"],
                     "purpose": purpose,
-                    "slug": slug or "custom-usd",
+                    "slug": slug,
                 },
             },
         )
     if not response.is_success:
-        detail = (
-            "Razorpay could not create this USD top-up. International payments may need to be enabled."
-            if currency == "USD"
-            else "Razorpay order creation failed"
-        )
-        raise HTTPException(status_code=502, detail=detail)
+        raise HTTPException(status_code=502, detail="Razorpay order creation failed")
     order = response.json()
     row = store.create_payment(
         user_id=user["id"],
