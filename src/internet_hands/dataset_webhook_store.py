@@ -115,6 +115,23 @@ class WebhookStore:
             RETURNING d.*,e.url,e.secret_enc""", (MAX_ATTEMPTS, max(1, min(limit, MAX_BATCH)), token))
             return [dict(row) for row in cur.fetchall()]
 
+    def begin_attempt(self, event: dict[str, Any]) -> bool:
+        """Persist one send intent while owning a live lease; false forbids sending."""
+        with self.control._connect() as conn, conn.cursor() as cur:
+            # Use the same delivery -> journal lock order as claim and finish.
+            cur.execute("""SELECT id FROM ih_dataset_webhook_deliveries
+                WHERE id=%s AND status='delivering' AND lease_token=%s
+                FOR UPDATE""", (event['id'], event['lease_token']))
+            if not cur.fetchone():
+                return False
+            cur.execute("""UPDATE ih_webhook_attempt_measurements SET dispatch_intent_at=clock_timestamp()
+                WHERE delivery_id=%s AND lease_token=%s AND dispatch_intent_at IS NULL
+                  AND outcome_recorded_at IS NULL AND EXISTS (
+                    SELECT 1 FROM ih_dataset_webhook_deliveries d
+                    WHERE d.id=%s AND d.lease_until>clock_timestamp())""",
+                        (event['id'], event['lease_token'], event['id']))
+            return cur.rowcount == 1
+
     def finish(self, event: dict[str, Any], *, http_status: int | None, error: str | None,
                permanent: bool = False) -> None:
         delivered = http_status is not None and 200 <= http_status < 300
@@ -125,3 +142,9 @@ class WebhookStore:
                 next_attempt_at=now()+(%s * interval '1 second'),lease_token=NULL,lease_until=NULL,updated_at=now()
                 WHERE id=%s AND status='delivering' AND lease_token=%s""",
                         (status, http_status, None if delivered else error, delay, event["id"], event["lease_token"]))
+            # An expired worker may report its own real outcome, but cannot change
+            # the active outbox lease. First recorded evidence is retained.
+            cur.execute("""UPDATE ih_webhook_attempt_measurements
+                SET outcome_recorded_at=clock_timestamp(),http_status=%s,outcome=%s
+                WHERE delivery_id=%s AND lease_token=%s AND outcome_recorded_at IS NULL""",
+                        (http_status, status, event['id'], event['lease_token']))

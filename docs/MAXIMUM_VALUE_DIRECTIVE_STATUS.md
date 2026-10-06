@@ -482,5 +482,95 @@ claims; the claim now works against PostgreSQL.
 **NOT VERIFIED:** authenticated production provider execution and billing,
 scheduler and signed delivery. CI/deployment evidence for this continuation belongs
 to its exact published head; prior green checks apply only to the prior head.
-Operator COGS, automations and Live Dataset lineage have no producers yet. Internal
-cost columns and future parent fields stay empty rather than manufacturing values.
+Complete operator COGS, automations and Live Dataset lineage remain incomplete.
+Canonical internal cost columns and future parent fields stay empty rather than
+manufacturing values.
+
+### Wave 2 foundation — measured provider cost events
+
+A separate dependent tranche now records trustworthy provider-reported units in
+`ih_cost_events`, linked to the canonical run and uniquely identified by their
+source usage event. Settlement rollback/idempotency applies to these facts as well.
+An operator-authenticated internal read endpoint exposes measured units and
+explicitly unknown valuations. Decimal amounts retain precision. See
+`OPERATOR_COST_EVENTS.md`.
+
+**PARTIAL:** this is the required internal cost interface, not a finished margin
+engine. Reconciled invoices, browser/model/compute/storage costs, full coverage,
+spend policies and cost-aware routing remain. Total COGS and margin are not
+fabricated. Production operator execution and invoice reconciliation remain
+**NOT VERIFIED**.
+
+### Sourced provider-rate revisions and coverage
+
+**Implemented in code:** immutable sourced provider-credit rates with exact decimal
+prices, as-of dates and exclusive validity ends; version/revision pinning;
+operator-only import/list and bounded historical valuation (preview by default);
+unknown/stale/unreviewed valuation reasons; missing quantity/provider/operation
+coverage; transactional native Playwright wall-clock measurement on success and
+failure. Revisions never reprice existing pinned facts. No guessed prices are
+seeded and customer wallet/quote pricing remains unchanged. See
+`PROVIDER_COST_RATES.md` for contracts and rollback compatibility.
+
+**PARTIAL:** provider valuations are rate estimates, not invoice reconciliation.
+Native browser duration is partial measurement with unknown USD value. Model,
+compute, storage, delivery and proxy remain uninstrumented; complete run COGS and
+margin remain unknown. Policies and cost-aware routing remain subsequent work.
+Production authenticated operator use and sourced invoice reconciliation remain
+**NOT VERIFIED**. Verification evidence must match the new published head.
+
+### Reservation-aware account and API-key spending limits
+
+**Implemented in code:** owner-managed optional per-run, UTC daily and monthly
+credit caps, with account and key policies both enforced by the shared reservation
+transaction; posted charges plus active holds consume headroom. Atomic denial
+creates no usage/job/wallet mutation. Accepted work keeps its original settlement,
+including after caps change; active legacy unknown holds fail closed for configured
+periods. Saved versions prevent conflicting edits; applied policies are recorded
+in accepted usage metadata. `/dashboard/spending` provides account/key controls,
+USD display, period usage, explicit saves, errors and reloads. See `SPEND_POLICIES.md`.
+
+**PARTIAL:** account/key hard stops are implemented, with no workspace/organization
+entity, warn-only behavior or notification thresholds. Wallet credit caps do not
+measure provider margin. Production authenticated saves and actual provider/worker
+denial remain **NOT VERIFIED**. Exact-head CI/preview evidence belongs in this
+tranche's published PR.
+
+### Saved payload and webhook attempt measurements
+
+**Implemented in code:** transactional immutable observations of dataset JSONB
+UTF-8 payloads; explicit surviving-history snapshot provenance; a durable journal
+of webhook claims, live-lease dispatch intents and first outcomes, including
+manual replay and unknown abandoned attempts. Operator coverage uses one database
+snapshot, exact byte totals and bounded aggregates. It retains evidence after
+dataset, endpoint or delivery-history cleanup and removes it on canonical
+account/run deletion. Customer APIs exclude the private measurements. See
+`RESOURCE_MEASUREMENTS.md` for units, lifecycle and rollback order.
+
+**PARTIAL:** these quantities are application payload observations. They do not
+measure physical storage, byte-hours, actual wire egress, compute or invoice
+expense. Storage/delivery now have partial coverage; model/compute/proxy remain
+uninstrumented. Complete COGS and margin remain unknown. The integrated local
+suite passed 908 tests with PostgreSQL and Chromium; exact-head CI/preview evidence
+belongs in the published dependent draft. Authenticated production operator use,
+signed external delivery and invoice reconciliation remain **NOT VERIFIED**.
+
+### Exact provider response-dollar observations
+
+**Implemented in code:** exact Exa search/contents cost response capture, explicit
+zero/missing/invalid amounts, stable private checkpoint identities and immutable
+settlement-time observations. Operator reports preserve a separate exact-dollar
+subtotal and expose call/report gaps plus overlap with credit valuations. Failed
+runs can retain observed provider expense without a wallet charge; rollback and
+concurrent/idempotent settlement preserve the existing accounting contract.
+Customer usage/wallet metadata excludes the new private observations. See
+`PROVIDER_DOLLAR_REPORTS.md` for source, precision, lifecycle and rollback contracts.
+
+**PARTIAL:** provider response statements are unreconciled. Only Exa search/contents
+emit dollar observations; legacy rounded counters, missing checkpoint work, failed
+HTTP responses and other provider expenses are not reconstructed. Reported dollar
+amounts and overlapping rate estimates are not automatically summed. Complete
+COGS and margin remain unknown. The integrated local suite passed 947 tests with
+PostgreSQL and Chromium, including 39 new cases. Authenticated production capture
+and provider invoice reconciliation remain **NOT VERIFIED**; published CI/preview
+evidence must match the new draft head.
