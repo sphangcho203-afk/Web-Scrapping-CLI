@@ -718,15 +718,14 @@ _RAZORPAY_VAULT_NAMES: dict[str, tuple[str, ...]] = {
 
 
 def _razorpay_secret(name: str) -> tuple[str | None, str]:
-    """Resolve Razorpay credentials from Vault only where live billing is allowed."""
+    """Resolve Razorpay credentials exclusively from Supabase Vault."""
     if not _razorpay_runtime_allowed():
         return None, "disabled_on_preview"
     for vault_name in _RAZORPAY_VAULT_NAMES.get(name, (name,)):
         value = supabase_vault_secret(vault_name)
         if value:
             return value, "supabase_vault"
-    env_value = (os.getenv(name) or "").strip()
-    return (env_value or None), ("environment" if env_value else "missing")
+    return None, "missing"
 
 
 def _razorpay_config() -> tuple[str, str, str | None]:
