@@ -5,7 +5,9 @@ import json
 import httpx
 import pytest
 from fastapi import HTTPException
+from starlette.requests import Request
 
+from internet_hands import connected_apps_api
 from internet_hands.connected_apps_api import (
     ComposioConnectionService,
     _public_connection,
@@ -371,6 +373,199 @@ async def test_toolkit_catalog_returns_safe_connectable_metadata() -> None:
         "next_cursor": "cursor-2",
     }
     assert "never-public" not in json.dumps(result)
+
+
+@pytest.mark.asyncio
+async def test_toolkit_catalog_preserves_nested_metadata_for_pages_and_search() -> None:
+    # Composio v3.1 GET /toolkits returns logo/description inside each item's meta.
+    providers = {
+        "google_maps": ("Google Maps", "Maps and place tools"),
+        "docusign": ("DocuSign", "Electronic signature tools"),
+        "custom_crm": ("Custom CRM", "Tools outside the bundled brand registry"),
+    }
+    calls: list[tuple[str | None, str | None]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/v3.1/toolkits"
+        assert request.url.params.get("limit") == "25"
+        search, cursor = request.url.params.get("search"), request.url.params.get("cursor")
+        calls.append((search, cursor))
+        if search:
+            assert search == "DocuSign"
+            slug, next_cursor = "docusign", None
+        elif cursor:
+            assert cursor == "catalog-page-2"
+            slug, next_cursor = "custom_crm", None
+        else:
+            slug, next_cursor = "google_maps", "catalog-page-2"
+        name, description = providers[slug]
+        return httpx.Response(
+            200,
+            json={
+                "items": [{
+                    "slug": slug,
+                    "name": name,
+                    "auth_schemes": ["oauth2", "api_key"],
+                    "type": "custom" if slug == "custom_crm" else "native",
+                    "meta": {
+                        "logo": f"https://assets.composio.dev/logos/{slug}.png",
+                        "description": description,
+                        "categories": [{"id": "productivity", "name": "Productivity"}],
+                        "internal_secret": "never-public",
+                    },
+                    "credentials": {"access_token": "never-public"},
+                }],
+                "next_cursor": next_cursor,
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        service = ComposioConnectionService(
+            api_key="key", base_url="https://composio.test/api/v3.1", client=client,
+        )
+        first = await service.toolkits(limit=25)
+        second = await service.toolkits(limit=25, cursor=first["next_cursor"])
+        searched = await service.toolkits(search="DocuSign", limit=25, cursor="search-page-2")
+
+    assert calls == [(None, None), (None, "catalog-page-2"), ("DocuSign", "search-page-2")]
+    for result, slug in [(first, "google_maps"), (second, "custom_crm"), (searched, "docusign")]:
+        row = result["apps"][0]
+        assert row["toolkit"] == slug
+        assert row["name"] == providers[slug][0]
+        assert row["description"] == providers[slug][1]
+        assert row["logo"] == f"https://assets.composio.dev/logos/{slug}.png"
+        assert row["auth_schemes"] == ["OAUTH2", "API_KEY"]
+        assert "never-public" not in json.dumps(result)
+    assert second["next_cursor"] is None
+    assert searched["next_cursor"] is None
+
+
+@pytest.mark.asyncio
+async def test_catalog_metadata_keeps_flattened_compatibility_and_ignores_invalid_meta() -> None:
+    malformed_meta = [None, [], "not an object", 1, True]
+    rows = [
+        {
+            "slug": f"legacy_{index}",
+            "meta": meta,
+            "logo": "https://cdn.example/legacy.svg",
+            "description": "Legacy description",
+        }
+        for index, meta in enumerate(malformed_meta)
+    ]
+    rows.extend([
+        {
+            "slug": "nested_wins",
+            "logo": "https://cdn.example/old.svg",
+            "description": "Old description",
+            "meta": {
+                "logo": "https://cdn.example/current.svg",
+                "description": "Current description" + "x" * 400,
+            },
+        },
+        {
+            "slug": "invalid_fields",
+            "logo": "https://cdn.example/fallback.svg",
+            "description": "Fallback description",
+            "meta": {"logo": {"url": "https://cdn.example/invalid.svg"}, "description": []},
+        },
+        {"slug": "missing", "meta": {"logo": None, "description": None}},
+    ])
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"items": rows})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await ComposioConnectionService(api_key="key", client=client).toolkits()
+
+    apps = {row["toolkit"]: row for row in result["apps"]}
+    for index in range(len(malformed_meta)):
+        assert apps[f"legacy_{index}"]["logo"] == "https://cdn.example/legacy.svg"
+        assert apps[f"legacy_{index}"]["description"] == "Legacy description"
+    assert apps["nested_wins"]["logo"] == "https://cdn.example/current.svg"
+    assert apps["nested_wins"]["description"].startswith("Current description")
+    assert len(apps["nested_wins"]["description"]) == 320
+    assert apps["invalid_fields"]["logo"] == "https://cdn.example/fallback.svg"
+    assert apps["invalid_fields"]["description"] == "Fallback description"
+    assert apps["missing"]["logo"] is None
+    assert apps["missing"]["description"] is None
+
+
+@pytest.mark.asyncio
+async def test_catalog_logos_are_https_strings_without_embedded_credentials() -> None:
+    invalid_logos = [
+        None, False, 123, {"url": "https://cdn.example/logo.svg"}, ["https://cdn.example/logo.svg"],
+        "", "not a URL", "/logo.svg", "//cdn.example/logo.svg", "http://cdn.example/logo.svg",
+        "javascript:alert(1)", "data:image/svg+xml,<svg></svg>",
+        "https://user:password@cdn.example/logo.svg", "https://user@cdn.example/logo.svg",
+        "https://:password@cdn.example/logo.svg", "https:///logo.svg",
+    ]
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"items": [
+                {"slug": f"unsafe_{index}", "meta": {"logo": value}}
+                for index, value in enumerate(invalid_logos)
+            ] + [
+                {"slug": "safe", "meta": {"logo": " https://cdn.example/logo.svg "}},
+                {"slug": "safe_fallback", "meta": {"logo": "javascript:alert(1)"},
+                 "logo": "https://cdn.example/fallback.svg"},
+            ]},
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await ComposioConnectionService(api_key="key", client=client).toolkits()
+
+    apps = {row["toolkit"]: row for row in result["apps"]}
+    assert all(apps[f"unsafe_{index}"]["logo"] is None for index in range(len(invalid_logos)))
+    assert apps["safe"]["logo"] == "https://cdn.example/logo.svg"
+    assert apps["safe_fallback"]["logo"] == "https://cdn.example/fallback.svg"
+
+
+@pytest.mark.asyncio
+async def test_saved_apps_normalize_flat_and_nested_toolkit_logos_without_leaking_secrets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    configs = [_auth_config("ac_maps", "google_maps"), _auth_config("ac_docu", "docusign")]
+    configs[0]["toolkit"]["name"] = "Google Maps"
+    configs[1]["toolkit"] = {
+        "slug": "docusign",
+        "name": "DocuSign",
+        "meta": {"logo": "https://cdn.example/docusign.svg", "description": "Sign documents"},
+    }
+    missing = _auth_config("ac_custom_first", "custom_crm")
+    missing["toolkit"]["logo"] = None
+    later = _auth_config("ac_custom_second", "custom_crm")
+    later["toolkit"]["logo"] = {"url": "https://cdn.example/invalid.svg"}
+    later["toolkit"]["meta"] = {"logo": "https://cdn.example/custom-crm.svg"}
+    unsafe = _auth_config("ac_unsafe", "unsafe_app")
+    unsafe["toolkit"]["logo"] = "http://cdn.example/insecure.svg"
+    configs.extend([missing, later, unsafe])
+    for config in configs:
+        config["credentials"] = {"access_token": "must-never-leak"}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/auth_configs"):
+            return httpx.Response(200, json={"items": configs})
+        if request.url.path.endswith("/connected_accounts"):
+            return httpx.Response(200, json={"items": [_connection("ca_maps", "google_maps", "u1")]})
+        raise AssertionError(str(request.url))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        service = ComposioConnectionService(api_key="key", client=client)
+        monkeypatch.setattr(connected_apps_api, "ComposioConnectionService", lambda: service)
+        monkeypatch.setattr(connected_apps_api, "_require_user", lambda request: {"id": "u1"})
+        result = await connected_apps_api.integration_apps(Request({"type": "http"}))
+
+    apps = {row["toolkit"]: row for row in result["apps"]}
+    assert apps["google_maps"]["logo"] == "https://cdn.example/google_maps.svg"
+    assert apps["google_maps"]["active_accounts"] == 1
+    assert apps["docusign"]["logo"] == "https://cdn.example/docusign.svg"
+    assert apps["docusign"]["description"] == "Sign documents"
+    assert apps["custom_crm"]["logo"] == "https://cdn.example/custom-crm.svg"
+    assert apps["custom_crm"]["auth_config_count"] == 2
+    assert apps["unsafe_app"]["logo"] is None
+    assert "must-never-leak" not in json.dumps(result)
 
 
 @pytest.mark.asyncio

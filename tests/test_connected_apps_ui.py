@@ -112,6 +112,8 @@ const screenshotProviders = {
   googlecalendar: 'Google Calendar', notion: 'Notion', googlesheets: 'Google Sheets',
   slack: 'Slack', supabase: 'Supabase', outlook: 'Outlook',
   perplexityai: 'Perplexity AI', discordbot: 'Discord', youtube: 'YouTube',
+  google_maps: 'Google Maps', docusign: 'DocuSign', shopify: 'Shopify',
+  linkedin: 'LinkedIn', one_drive: 'OneDrive',
 };
 for (const [toolkit, name] of Object.entries(screenshotProviders)) {
   const brand = providerBrand(toolkit);

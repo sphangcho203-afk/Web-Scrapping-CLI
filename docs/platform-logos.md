@@ -1,6 +1,10 @@
 # Bundled platform marks
 
-The connections UI uses vetted inline SVG marks, shared by the app directory, saved accounts, provider authorization dialogs, and AI client tabs. Unknown providers can use their HTTPS catalog image; failed images fall back to a neutral app symbol, never initials. No user credentials enter the asset pipeline.
+The connections UI uses vetted inline SVG marks, shared by the app directory, saved accounts, provider authorization dialogs, and AI client tabs. Providers outside the bundled set use their HTTPS catalog image; failed images fall back to a neutral app symbol, never initials. No user credentials enter the asset pipeline.
+
+Composio v3.1 catalog responses place `logo` and `description` inside each toolkit's `meta` object. The API normalizes those fields for every page and search response, retaining support for older top-level fields. Saved auth-config toolkits also support either metadata shape. Remote images and the full-color DocuSign mark use a light logo tile so original black details remain visible on the dark interface. The directory renders every loaded provider, including subsequent pages.
+
+Schema reference: https://docs.composio.dev/reference/api-reference/toolkits/getToolkits
 
 Brand names and marks belong to their respective owners. SVG sources are the pinned Iconify collections below (their metadata lists the originating projects and licenses), plus Composio's own logo endpoint.
 
@@ -12,6 +16,8 @@ Brand names and marks belong to their respective owners. SVG sources are the pin
 | --- | --- |
 | Gmail | `@iconify-json/logos@1.2.15:google-gmail-2020` |
 | Google Calendar | `@iconify-json/logos@1.2.15:google-calendar-2020` |
+| Google Maps | `@iconify-json/logos@1.2.15:google-maps` |
+| DocuSign | `https://logos.composio.dev/api/docusign` |
 | Google Sheets | `@iconify-json/simple-icons@1.2.99:googlesheets` |
 | Google Drive | `@iconify-json/logos@1.2.15:google-drive` |
 | Google Docs | `@iconify-json/simple-icons@1.2.99:googledocs` |
