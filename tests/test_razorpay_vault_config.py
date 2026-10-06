@@ -31,14 +31,14 @@ def test_razorpay_secret_supports_prefixed_vault_alias(monkeypatch) -> None:
     assert source == "supabase_vault"
 
 
-def test_razorpay_secret_falls_back_to_environment(monkeypatch) -> None:
-    monkeypatch.setenv("RAZORPAY_WEBHOOK_SECRET", "env-webhook-secret")
+def test_razorpay_secret_never_falls_back_to_environment(monkeypatch) -> None:
+    monkeypatch.setenv("RAZORPAY_WEBHOOK_SECRET", "old-env-webhook-secret")
     monkeypatch.setattr(control_api, "supabase_vault_secret", lambda name: None)
 
     value, source = control_api._razorpay_secret("RAZORPAY_WEBHOOK_SECRET")
 
-    assert value == "env-webhook-secret"
-    assert source == "environment"
+    assert value is None
+    assert source == "missing"
 
 
 def test_razorpay_status_reports_vault_without_exposing_secret(monkeypatch) -> None:
