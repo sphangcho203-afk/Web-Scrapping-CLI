@@ -11,11 +11,6 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = v => String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 const fmt = v => new Intl.NumberFormat('en-IN').format(Number(v || 0));
 const money = v => `₹${fmt(v)}`;
-const DEFAULT_CREDITS_UNITS_PER_USD = 5000;
-const walletScale = source => {
-  const value = Number(source?.wallet_units_per_usd || state.plans?.wallet_units_per_usd || DEFAULT_CREDITS_UNITS_PER_USD);
-  return Number.isFinite(value) && value > 0 ? value : DEFAULT_CREDITS_UNITS_PER_USD;
-};
 const walletMoney = units => `${fmt(units)} credits`;
 const paymentMoney = (minor, currency='INR') => {
   const code=String(currency||'INR').toUpperCase();
@@ -190,7 +185,7 @@ function publicShell(content) {
   app.innerHTML = `<header class="site-header"><nav class="site-nav container">${brand()}<div class="nav-links"><a data-link href="/docs">Docs</a><a data-link href="/pricing">Pricing</a><a data-link href="/status">Status</a><a href="https://github.com/sphangcho203-afk/Web-Scrapping-CLI" target="_blank" rel="noreferrer">GitHub</a></div><div class="nav-actions">${desktopActions}</div><button class="icon-btn nav-toggle" data-nav-toggle aria-label="Open navigation">${icon('menu')}</button></nav><div class="mobile-menu" data-mobile-menu><a data-link href="/docs">Documentation</a><a data-link href="/pricing">Pricing</a><a data-link href="/status">Status</a>${mobileActions}</div></header>${content}<footer class="footer"><div class="container footer-grid"><div>${brand()}<p>Infrastructure for agents that need the live internet.</p></div><div><b>Product</b><a data-link href="/docs/mcp">MCP gateway</a><a data-link href="/docs/monitoring">Monitoring</a><a data-link href="/pricing">Pricing</a></div><div><b>Resources</b><a data-link href="/docs/quickstart">Quickstart</a><a data-link href="/status">Status</a></div><div>© ${new Date().getFullYear()} OpenCrawl<br>Explicit. Scoped. Auditable.</div></div></footer>`;
   bindCommon();
 }
-async function getPlans() { if (state.plans) return state.plans; try { state.plans = await api('/api/public/plans'); } catch { state.plans = {plans:[],credit_packs:[],wallet_units_per_usd:DEFAULT_CREDITS_UNITS_PER_USD}; } return state.plans; }
+async function getPlans() { if (state.plans) return state.plans; try { state.plans = await api('/api/public/plans'); } catch { state.plans = {plans:[],credit_packs:[]}; } return state.plans; }
 
 function gatewayVisual() { return `<div class="gateway-visual"><span class="visual-label">ROUTING FABRIC</span><div class="agent-node"><i></i>AGENT</div><div class="route a"></div><div class="core-node"><img src="/assets/opencrawl-crab.png" width="52" height="52" alt=""><b>OPENCRAWL</b><small>Policy · route · meter</small></div><div class="route b"></div><div class="mesh-nodes"><span>Browser</span><span>Web data</span><span>APIs</span><span>Remote MCP</span><span>Monitors</span><span>Sandbox</span></div></div>`; }
 function feature(kicker, title, body) { return `<article class="feature-card"><span>${kicker}</span><h3>${title}</h3><p>${body}</p><a data-link href="/docs/capabilities">Explore ${icon('arrow')}</a></article>`; }
@@ -463,7 +458,7 @@ async function dashRewards(){
   const a=d.account||{},wallet=d.wallet||{},catalog=d.catalog||[],redemptions=d.redemptions||[],codeRedemptions=d.code_redemptions||[],ledger=d.ledger||[],rule=d.earning_rule||{};
   const points=Number(a.points||0);
   const walletAvailable=Math.max(0,Number(wallet.monthly_credits||0)+Number(wallet.purchased_credits||0)-Number(wallet.reserved_credits||0));
-  const spendPerPoint=Number(rule.usd_spend_per_point||0);
+  const creditsPerPoint=Number(rule.wallet_units_per_point||0);
   dashboardShell('rewards',
     pageHead(
       'REWARDS',
@@ -474,7 +469,7 @@ async function dashRewards(){
     '<section class="reward-summary">'+
       '<article class="reward-balance-card"><span>AVAILABLE POINTS</span><b>'+fmt(points)+'</b><small>'+fmt(a.lifetime_earned||0)+' earned · '+fmt(a.lifetime_redeemed||0)+' redeemed</small></article>'+
       '<article><span>USAGE CREDITS</span><b>'+fmt(walletAvailable)+'</b><small>'+fmt(wallet.purchased_credits||0)+' purchased credits</small><a data-link href="/dashboard/wallet">Open credits '+icon('arrow')+'</a></article>'+
-      '<article><span>EARNING RATE</span><b>1 point</b><small>per '+(spendPerPoint?paymentMoney(Math.round(spendPerPoint*100),'USD'):'metered spend')+' of OpenCrawl usage</small></article>'+
+      '<article><span>EARNING RATE</span><b>1 point</b><small>per '+(creditsPerPoint?fmt(creditsPerPoint)+' usage credits':'metered usage')+'</small></article>'+
     '</section>'+
     (d.earned_now?'<div class="reward-earned-banner">'+icon('gift')+' <b>+'+fmt(d.earned_now)+' points earned</b><span>Your latest metered usage has been converted into rewards.</span></div>':'')+
     '<section class="reward-code-panel">'+
@@ -568,7 +563,7 @@ async function startCheckout(purpose,slug,trigger,extra={}){
   try{
     const r=await api('/api/billing/create-order',{method:'POST',body:{purpose,slug,...extra}});
     if(!window.Razorpay)await new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://checkout.razorpay.com/v1/checkout.js';s.onload=ok;s.onerror=()=>no(new Error('Checkout could not load. Please try again.'));document.head.appendChild(s);});
-    new Razorpay({key:r.key_id,order_id:r.order.id,amount:r.order.amount,currency:r.order.currency||'INR',name:'OpenCrawl',description:purpose==='credits'?(extra.amount_usd?'Custom OpenCrawl usage-credit purchase':'OpenCrawl usage-credit pack'):'Plan',theme:{color:'#5de1e6'},handler:async response=>{toast('Verifying payment with the server…');try{await api('/api/billing/verify',{method:'POST',body:response});toast('Payment verified','success');state.me=null;go(`/dashboard/${purpose==='credits'?'wallet':'billing'}`);}catch(error){toast(error.message,'error');}}}).open();
+    new Razorpay({key:r.key_id,order_id:r.order.id,amount:r.order.amount,currency:r.order.currency||'INR',name:'OpenCrawl',description:purpose==='credits'?'OpenCrawl usage-credit pack':'OpenCrawl plan',theme:{color:'#5de1e6'},handler:async response=>{toast('Verifying payment with the server…');try{await api('/api/billing/verify',{method:'POST',body:response});toast('Payment verified','success');state.me=null;go(`/dashboard/${purpose==='credits'?'wallet':'billing'}`);}catch(error){toast(error.message,'error');}}}).open();
   }catch(error){toast(error.message,'error');}
   finally{if(trigger?.isConnected)busy(trigger,false);}
 }
