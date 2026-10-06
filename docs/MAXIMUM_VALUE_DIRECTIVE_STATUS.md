@@ -554,3 +554,23 @@ uninstrumented. Complete COGS and margin remain unknown. The integrated local
 suite passed 908 tests with PostgreSQL and Chromium; exact-head CI/preview evidence
 belongs in the published dependent draft. Authenticated production operator use,
 signed external delivery and invoice reconciliation remain **NOT VERIFIED**.
+
+### Exact provider response-dollar observations
+
+**Implemented in code:** exact Exa search/contents cost response capture, explicit
+zero/missing/invalid amounts, stable private checkpoint identities and immutable
+settlement-time observations. Operator reports preserve a separate exact-dollar
+subtotal and expose call/report gaps plus overlap with credit valuations. Failed
+runs can retain observed provider expense without a wallet charge; rollback and
+concurrent/idempotent settlement preserve the existing accounting contract.
+Customer usage/wallet metadata excludes the new private observations. See
+`PROVIDER_DOLLAR_REPORTS.md` for source, precision, lifecycle and rollback contracts.
+
+**PARTIAL:** provider response statements are unreconciled. Only Exa search/contents
+emit dollar observations; legacy rounded counters, missing checkpoint work, failed
+HTTP responses and other provider expenses are not reconstructed. Reported dollar
+amounts and overlapping rate estimates are not automatically summed. Complete
+COGS and margin remain unknown. The integrated local suite passed 947 tests with
+PostgreSQL and Chromium, including 39 new cases. Authenticated production capture
+and provider invoice reconciliation remain **NOT VERIFIED**; published CI/preview
+evidence must match the new draft head.

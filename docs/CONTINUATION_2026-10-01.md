@@ -147,3 +147,33 @@ verification were fixed; the final full run includes both checks. Published
 exact-head CI and preview evidence belongs in this dependent draft PR.
 Authenticated production execution, signed external delivery and invoice
 reconciliation remain unverified.
+
+## Provider-reported dollar continuation
+
+Refreshed the unchanged draft stack through #52 at `5ad04f6` and continued on
+`codex/provider-dollar-reports-20261001`. Exa's existing `costDollars.total` now
+produces exact response observations for search/contents before float decoding or
+rounded wallet counters. Valid zero is distinct from missing/invalid totals;
+nonfinite cost fields cannot break otherwise usable JSON output.
+
+Stable observation IDs survive private worker checkpoints and persist in
+`ih_provider_dollar_reports` inside settlement. Duplicate/concurrent settlement
+and replay preserve one fact; conflicts and charge failures roll back. An overall
+failed run can retain observed provider cost despite a zero customer charge.
+Operator economics adds a paged report collection, all-observation subtotal,
+missing/malformed/unobserved-call coverage and explicit overlap with credit events.
+Reports remain unreconciled and separate from sourced credit-rate estimates;
+total COGS and margin remain unknown. Customer usage/wallet metadata excludes the
+private observations, while existing raw provider response shapes remain compatible.
+
+`PROVIDER_DOLLAR_REPORTS.md` documents units, source provenance, exact-decimal bounds,
+checkpoint/terminal semantics, partial coverage, privacy, lifecycle and additive
+rollout/rollback. Legacy rounded counters are not converted into historical reports.
+No new prices or wallet-pricing policy are introduced.
+
+Final integrated local verification passed 947 tests with PostgreSQL 16 and
+Chromium, including 39 new dollar-report cases. The focused provider/resource/cost
+set passed 106 tests. Ruff, compile, JavaScript syntax and whitespace checks passed.
+Exact-head CI/preview evidence belongs in this dependent draft PR. No paid provider
+call was made during tests. Authenticated production capture, invoice reconciliation,
+full infrastructure costing and complete margin analysis remain unverified.
