@@ -64,6 +64,8 @@ class CrawlPage(BaseModel):
     captured_at: datetime | None = None
     content_truncated: bool = False
     content_error: str | None = None
+    products: list[dict[str, Any]] = Field(default_factory=list)
+    product_error: str | None = None
 
 
 class CrawlResult(BaseModel):

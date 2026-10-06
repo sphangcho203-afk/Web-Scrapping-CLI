@@ -24,6 +24,13 @@ def content_arguments(target: str) -> dict:
             "preserve_query": True, "max_content_bytes_per_page": 50_000, "max_content_bytes": 50_000}
 
 
+def product_arguments(target: str, maximum=None) -> dict:
+    arguments = {**content_arguments(target), "include_content": False, "include_products": True}
+    if maximum is not None:
+        arguments["max_charge_credits"] = maximum
+    return arguments
+
+
 def queue_due_content_checks(control, limit: int = 1) -> dict:
     """Claim a schedule slot and reserve its durable job in the same transaction."""
     from .crawl_runs import RunStore
@@ -31,7 +38,7 @@ def queue_due_content_checks(control, limit: int = 1) -> dict:
     queued, blocked = 0, 0
     with control._connect() as conn, conn.cursor() as cur:
         cur.execute("""SELECT m.* FROM ih_monitors m
-            WHERE m.type='content' AND m.enabled=true
+            WHERE m.type IN ('content','product') AND m.enabled=true
               AND (m.next_check_at IS NULL OR m.next_check_at<=now())
               AND NOT EXISTS (SELECT 1 FROM ih_crawl_runs r WHERE r.monitor_id=m.id AND r.status IN ('queued','running'))
             ORDER BY m.next_check_at NULLS FIRST,m.created_at
@@ -42,8 +49,10 @@ def queue_due_content_checks(control, limit: int = 1) -> dict:
                 # Savepoint guarantees even a failed reservation leaves no half-job.
                 with conn.transaction():
                     identity = content_identity(control, monitor["user_id"], monitor["config"])
+                    arguments = (product_arguments(monitor["target"], monitor["config"]["max_charge_credits"])
+                                 if monitor["type"] == "product" else content_arguments(monitor["target"]))
                     RunStore(control).create(identity, "monitor:" + uuid.uuid4().hex,
-                        content_arguments(monitor["target"]), transaction=conn, monitor=monitor)
+                        arguments, transaction=conn, monitor=monitor)
                 queued += 1
                 status = "queued"
             except ControlError as exc:
@@ -60,7 +69,7 @@ def content_job_error(control, cur, job: dict) -> str | None:
     # A job can outlive a deleted or edited monitor, but cannot publish its output.
     cur.execute("SELECT * FROM ih_monitors WHERE id=%s AND user_id=%s FOR UPDATE", (job["monitor_id"], job["user_id"]))
     monitor = cur.fetchone()
-    if not monitor or monitor["type"] != "content" or monitor["content_version"] != job["monitor_version"]:
+    if not monitor or monitor["type"] not in {"content", "product"} or monitor["content_version"] != job["monitor_version"]:
         return "monitor_superseded"
     if not monitor["enabled"]:
         return "monitor_paused"
@@ -82,28 +91,44 @@ def finish_content_check(runs, cur, conn, job, status, result, usage, error_code
     stale = content_job_error(control, cur, job)
     cur.execute("SELECT * FROM ih_monitors WHERE id=%s AND user_id=%s", (job["monitor_id"], job["user_id"]))
     monitor = cur.fetchone()
+    product_check = bool(job["arguments"].get("include_products"))
     pages = result.get("pages") or []
     page = pages[0] if len(pages) == 1 else {}
     readable = (status == "completed" and 200 <= (page.get("status_code") or 0) < 300
                 and not page.get("error") and not page.get("content_error") and bool(page.get("text"))
                 and not page.get("content_truncated"))
+    if product_check:
+        readable = status == "completed" and bool(page.get("products")) and not page.get("product_error")
     dataset_id, diff = None, None
     outcome = "failed"
     if stale or status == "cancelled":
         status, error_code, outcome = "cancelled", stale or error_code, "cancelled"
     elif not readable:
-        status, error_code = "failed", error_code or "content_unavailable"
+        status, error_code = "failed", error_code or (page.get("product_error") if product_check else None) or "content_unavailable"
     else:
-        digest = _fingerprint(page)
+        from .product_data import product_changes, product_fingerprint
+        digest = (product_fingerprint(page["products"], monitor["config"]["fields"])
+                  if product_check else _fingerprint(page))
         outcome = "baseline" if not monitor["baseline_hash"] else "unchanged" if digest == monitor["baseline_hash"] else "changed"
         if outcome != "unchanged":
+            changes = None
+            if product_check:
+                cur.execute("SELECT rows FROM ih_datasets WHERE id=%s AND user_id=%s",
+                            (monitor["baseline_dataset_id"], job["user_id"]))
+                previous = cur.fetchone()
+                changes = (product_changes(previous["rows"], page["products"], monitor["config"]["fields"])
+                           if previous else None)
+            output = ({"records": page["products"], "source_urls": [page["url"]], "changes": changes}
+                      if product_check else result)
             # No dataset and no dataset.saved webhook for an unchanged check.
-            saved = DatasetStore(control).save(job["user_id"], job["request_id"], "crawl",
-                {**result, "monitor_id": job["monitor_id"], "monitor_status": outcome},
+            saved = DatasetStore(control).save(job["user_id"], job["request_id"], "product" if product_check else "crawl",
+                {**output, "monitor_id": job["monitor_id"], "monitor_status": outcome},
                 f'{monitor["name"]}: {outcome}', transaction=conn)
             dataset_id = saved["id"]
             diff = {"previous_dataset_id": monitor["baseline_dataset_id"], "current_dataset_id": dataset_id,
                     "previous_hash": monitor["baseline_hash"], "current_hash": digest}
+            if product_check:
+                diff["changes"] = changes
             cur.execute("UPDATE ih_monitors SET baseline_hash=%s,baseline_dataset_id=%s WHERE id=%s",
                         (digest, dataset_id, job["monitor_id"]))
     usage = {**usage, "completed": readable and not stale and status == "completed"}
@@ -115,6 +140,9 @@ def finish_content_check(runs, cur, conn, job, status, result, usage, error_code
     if monitor:
         summaries = {"baseline": "Readable content baseline saved.", "unchanged": "No readable content change detected.",
                      "changed": "Readable content changed; new capture saved."}
+        if product_check:
+            summaries = {"baseline": "Product price baseline saved.", "unchanged": "Tracked product fields are unchanged.",
+                         "changed": "Tracked product fields changed; new snapshot saved."}
         cur.execute("""INSERT INTO ih_monitor_runs
             (id,monitor_id,status,latency_ms,http_status,summary,diff,credits_charged,crawl_run_id,dataset_id)
             VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s)""",

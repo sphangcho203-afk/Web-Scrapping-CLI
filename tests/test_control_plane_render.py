@@ -94,6 +94,89 @@ def test_usage_vector_chart_interactions_ranges_and_export(frontend_url):
         browser.close()
 
 
+def test_product_preview_tracking_and_payment_recovery_flow(frontend_url):
+    calls, errors = [], []
+    product = {"product_id": "offer1", "name": "Example <product>", "sku": "SKU1", "price": "99",
+               "currency": "INR", "availability": "InStock", "source_url": "https://example.com/product",
+               "captured_at": "2026-10-07T00:00:00Z"}
+    run = {"id": "run_product", "status": "completed", "credits_reserved": 12, "credits_charged": 6,
+           "dataset_id": "ds_product"}
+    tracker = {"id": "mon_product", "type": "product", "name": "Example product", "target": "https://example.com/product",
+               "enabled": True, "last_status": "baseline", "config": {"fields": ["price", "availability"], "max_charge_credits": 12},
+               "baseline_dataset_id": "ds_product", "next_check_at": "2026-10-08T00:00:00Z", "runs": []}
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        page.on("pageerror", lambda error: errors.append(str(error)))
+
+        def respond(route):
+            request = route.request
+            path = urlsplit(request.url).path
+            body = request.post_data_json if request.post_data else None
+            calls.append((request.method, path, body, request.headers))
+            if path == "/api/auth/me":
+                data = {"user": {"id": "owner", "email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            elif path == "/api/api-keys":
+                data = {"keys": [{"id": "key_product", "name": "Tracking", "scopes": ["mcp:execute"]}]}
+            elif path == "/api/monitors":
+                data = {"monitors": []}
+            elif path == "/api/product-tracker/quote":
+                data = {"quote": {"credits": 12, "quote_revision": "a" * 64, "available_credits": 100, "affordable": True}}
+            elif path in {"/api/product-tracker/runs", "/api/product-tracker/runs/run_product"}:
+                data = {"run": run, "products": [product]}
+            elif path == "/api/product-trackers":
+                assert body["confirm_recurring"] is True
+                data = {"monitor": tracker}
+            elif path == "/api/monitors/mon_product":
+                data = tracker
+            elif path == "/api/datasets/ds_product":
+                data = {"rows": [product]}
+            elif path == "/api/public/plans":
+                data = {"plans": [], "credit_packs": []}
+            elif path == "/api/billing/status":
+                data = {"configured": True}
+            elif path == "/api/billing/payments":
+                data = {"payments": [{"order_id": "order_pending", "status": "created", "currency": "INR", "amount_paise": 9900, "purpose": "credits"}]}
+            elif path == "/api/billing/payments/order_pending/reconcile":
+                data = {"ok": True, "fulfilled": True}
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/products")
+        page.get_by_label("Product page URL").fill("https://example.com/product")
+        page.get_by_role("button", name="Review preview cost", exact=True).click()
+        page.get_by_role("button", name="Confirm & collect preview", exact=True).wait_for()
+        assert not any(path == "/api/product-tracker/runs" for _, path, _, _ in calls)
+        # Changing the source invalidates the old quote.
+        page.get_by_label("Product page URL").fill("https://example.com/product2")
+        assert page.get_by_role("button", name="Confirm & collect preview", exact=True).count() == 0
+        page.get_by_role("button", name="Review preview cost", exact=True).click()
+        page.get_by_role("button", name="Confirm & collect preview", exact=True).click()
+        page.get_by_role("heading", name="Enable recurring tracking").wait_for()
+        assert page.get_by_text("Example <product>", exact=True).first.is_visible()
+        executions = [entry for entry in calls if entry[1] == "/api/product-tracker/runs"]
+        assert len(executions) == 1
+        assert executions[0][2]["quote_revision"] == "a" * 64
+        assert executions[0][2]["max_charge_credits"] == 12
+        assert executions[0][3]["idempotency-key"].startswith("product:")
+        assert "6 credits reservation released" in page.locator("#product-result").inner_text()
+        page.get_by_role("button", name="Enable tracking", exact=True).click()
+        assert not any(path == "/api/product-trackers" for _, path, _, _ in calls)
+        page.get_by_label("I agree to recurring credit charges", exact=False).check()
+        page.get_by_role("button", name="Enable tracking", exact=True).click()
+        page.get_by_role("button", name="Pause tracking", exact=True).wait_for()
+        for width in (320, 390, 1366):
+            page.set_viewport_size({"width": width, "height": 844})
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        page.goto(frontend_url + "/dashboard/billing")
+        page.get_by_role("button", name="Check payment", exact=True).click()
+        page.get_by_text("Payment fulfilled. Your credits or plan are active.", exact=True).wait_for()
+        assert not errors, errors
+        browser.close()
+
+
 
 def test_playground_cost_review_requires_confirmation_and_requotes_changed_inputs(frontend_url):
     quotes, executions = [], []

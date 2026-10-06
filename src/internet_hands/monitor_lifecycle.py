@@ -11,7 +11,7 @@ from .control_store import ControlError, ControlStore
 
 router = APIRouter()
 store = ControlStore()
-MONITOR_TYPES = {"web", "api", "mcp", "gaming", "content"}
+MONITOR_TYPES = {"web", "api", "mcp", "gaming", "content", "product"}
 EDITABLE_FIELDS = {"name", "type", "target", "interval_minutes", "config"}
 
 
@@ -30,7 +30,7 @@ def validate_monitor_spec(payload: dict[str, Any], *, partial: bool = False) -> 
     if not partial or "type" in payload:
         monitor_type = str(payload.get("type") or "web").strip().lower()
         if monitor_type not in MONITOR_TYPES:
-            raise ValueError("monitor type must be web, api, mcp, gaming, or content")
+            raise ValueError("monitor type must be web, api, mcp, gaming, content, or product")
         normalized["type"] = monitor_type
     else:
         monitor_type = None
@@ -42,7 +42,7 @@ def validate_monitor_spec(payload: dict[str, Any], *, partial: bool = False) -> 
         if len(target) > 2000:
             raise ValueError("monitor target is too long")
         effective_type = monitor_type or str(payload.get("current_type") or "")
-        if effective_type in {"web", "api", "mcp", "content"}:
+        if effective_type in {"web", "api", "mcp", "content", "product"}:
             parsed = urlparse(target)
             if parsed.scheme not in {"http", "https"} or not parsed.netloc:
                 raise ValueError(f"{effective_type} monitor target must be an http(s) URL")
@@ -74,6 +74,22 @@ def validate_monitor_spec(payload: dict[str, Any], *, partial: bool = False) -> 
             raise ValueError("content monitor config supports only api_key_id")
         normalized["config"] = {"api_key_id": key.strip()}
 
+    if (monitor_type or payload.get("current_type")) == "product" and (not partial or "config" in payload):
+        from .product_data import TRACK_FIELDS
+        config = normalized.get("config", {})
+        key = config.get("api_key_id")
+        fields = config.get("fields")
+        maximum = config.get("max_charge_credits")
+        if not isinstance(key, str) or not key.strip() or len(key) > 120:
+            raise ValueError("product monitors require an API key for billing")
+        if not isinstance(fields, list) or not fields or any(not isinstance(f, str) or f not in TRACK_FIELDS for f in fields):
+            raise ValueError("select price and/or availability to track")
+        if type(maximum) is not int or not 0 <= maximum <= 1_000_000_000:
+            raise ValueError("maximum check charge must be whole usage credits")
+        if set(config) - {"api_key_id", "fields", "max_charge_credits", "preview_run_id"}:
+            raise ValueError("unsupported product monitor config")
+        normalized["config"] = {**config, "api_key_id": key.strip(), "fields": sorted(set(fields))}
+
     if partial and not normalized:
         raise ValueError("no editable monitor fields supplied")
     return normalized
@@ -92,7 +108,7 @@ async def validate_monitor(request: Request):
     body = await request.json()
     try:
         spec = validate_monitor_spec(body)
-        if spec["type"] == "content":
+        if spec["type"] in {"content", "product"}:
             from .content_monitors import content_identity
             content_identity(store, user["id"], spec["config"])
         return {"valid": True, "monitor": spec}
@@ -121,11 +137,11 @@ async def update_monitor(request: Request, monitor_id: str):
                 raise HTTPException(status_code=404, detail="monitor not found")
             merged = {key: requested.get(key, current.get(key)) for key in EDITABLE_FIELDS}
             validated = validate_monitor_spec(merged)
-            if validated["type"] == "content":
+            if validated["type"] in {"content", "product"}:
                 from .content_monitors import content_identity
                 content_identity(store, user["id"], validated["config"])
             fields = {key: validated[key] for key in requested}
-            reset_baseline = (current["type"] == "content" or validated["type"] == "content") and any(
+            reset_baseline = (current["type"] in {"content", "product"} or validated["type"] in {"content", "product"}) and any(
                 current.get(key) != fields[key] for key in {"target", "type", "config"} & fields.keys())
             assignments: list[str] = []
             values: list[Any] = []
