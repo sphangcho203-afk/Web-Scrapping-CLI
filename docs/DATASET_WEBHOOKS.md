@@ -76,6 +76,14 @@ Retry resets the attempt counter while preserving the event ID and body. Deliver
 
 Delivery records expire 30 days after creation and are pruned by the dispatcher, including paused/failed backlog. Their datasets retain the existing dataset lifecycle. No notification storage history is guaranteed if scheduler ticks stop. This implementation adds no webhook delivery charge; the original collection is metered as before. It delivers saved Playground completion events, not monitor changes or asynchronous job progress.
 
+Operators also have a private per-attempt measurement journal that follows the
+canonical run lifecycle. It preserves payload-byte observations and unknown
+outcomes after delivery history expires or an endpoint/dataset is removed. It
+contains no notification body or receiver credentials. See
+[RESOURCE_MEASUREMENTS.md](RESOURCE_MEASUREMENTS.md) for the distinction between
+claims, dispatch intents and actual observed HTTP outcomes. Customer history and
+retry behavior above remain the account's delivery interface.
+
 ## Deployment and verification
 
 The additive `ih_dataset_webhook_endpoints` and `ih_dataset_webhook_deliveries` tables use the existing control database. Secret storage reuses `INTERNET_HANDS_ENCRYPTION_KEY`; setup reports unavailable if this deployment lacks a valid key. Keep the encryption key stable. Deploy backend, browser bundle and scheduler workflow together. The dispatcher accepts the existing scheduler OIDC identity or configured `CRON_SECRET`, not ordinary account API keys.

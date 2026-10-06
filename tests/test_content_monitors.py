@@ -314,3 +314,26 @@ async def test_failed_synchronous_playground_crawl_releases_actual_wallet(conten
         cur.execute("SELECT monthly_credits,reserved_credits FROM ih_wallets WHERE user_id=%s", (owner,))
         wallet = cur.fetchone()
         assert wallet["monthly_credits"] == 10000 and wallet["reserved_credits"] == 0
+
+
+@pytest.mark.parametrize('scope',['account','key'])
+async def test_spend_policy_blocks_monitor_without_a_job_or_charge_and_recovers(content_monitor,scope):
+    from internet_hands.spend_policies import SpendPolicyStore
+    control,owner,monitor,key,_=content_monitor
+    policies=SpendPolicyStore(control)
+    target='account' if scope=='account' else key['id']
+    body={'single_run_limit_credits':None,'daily_limit_credits':0,'monthly_limit_credits':None,'expected_version':0}
+    policies.put(owner,target,body)
+    due(control,monitor)
+    assert queue(control)=={'queued':0,'blocked':1}
+    blocked=control.get_monitor(owner,monitor['id'])
+    assert blocked['last_status']=='blocked' and blocked['runs'][0]['summary']=='spend_policy_exceeded'
+    assert (await dispatch_run(RunStore(control)))['processed']==0
+    with control._connect() as conn, conn.cursor() as cur:
+        cur.execute('SELECT count(*) AS n FROM ih_usage_events WHERE user_id=%s',(owner,))
+        assert cur.fetchone()['n']==0
+        cur.execute('SELECT reserved_credits FROM ih_wallets WHERE user_id=%s',(owner,))
+        assert cur.fetchone()['reserved_credits']==0
+    policies.put(owner,target,{**body,'daily_limit_credits':None,'expected_version':1})
+    await check(control,monitor)
+    assert control.get_monitor(owner,monitor['id'])['last_status']=='baseline'

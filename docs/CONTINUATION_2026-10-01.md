@@ -68,8 +68,112 @@ No promotion or branch pruning occurred. Detailed checkpoint events, quote-only
 identity and populated workflow/live Dataset parentage remain subsequent work.
 Unbilled HTTP health probes remain monitor history.
 
-Provider invoice rates, full infrastructure measurement, spend-policy controls,
+Reconciled provider invoices, full infrastructure measurement, spend-policy controls,
 margin dashboards and cost-aware routing remain. Overall run COGS stays unknown;
 wallet burn and reported provider credits are not converted to imaginary dollars.
-Next work should capture versioned valuation sources and measurement coverage,
-then add economics guardrails before recurring workflows multiply unknown costs.
+Next work should extend measurement and economics guardrails before recurring
+workflows multiply unknown costs.
+
+## Sourced rate and coverage continuation
+
+The dependent `codex/versioned-provider-rates-20261001` tranche adds immutable
+content-addressed provider-credit rates, sourced/as-of validity, pinned decimal
+estimates and an operator-only historical valuation flow that previews by default.
+Existing valuations are never repriced. Unknown quantity/provider/operation gaps
+block provider totals; unpriced reasons expose missing and stale rate contracts.
+Native Playwright wall-clock measurement includes failed attempts and persists
+inside settlement. Customer credit settlement and quote conversion do not change.
+
+`PROVIDER_COST_RATES.md` records architecture, API examples, additive migration and
+rollback compatibility. PostgreSQL coverage includes concurrency, exact precision,
+validity boundaries, immutability, malformed quantities, operator authorization,
+bounded preview/confirmation and schema reinstall. The integrated local suite
+passed 858 tests with PostgreSQL and Chromium; Ruff, compile and whitespace checks
+also passed. Published exact-head CI/preview evidence belongs in this tranche's PR.
+
+No actual rate is seeded without its source. These estimates do not establish
+reconciled invoice cost, full browser/compute/model/infrastructure coverage or
+positive margin. Production authenticated operator execution remains unverified.
+
+## Account/key spend-policy continuation
+
+Refreshed the unchanged draft stack through #50 at `5826e82` and continued on
+`codex/spend-policies-20261001`. Additive owner/key policy rows enforce optional
+per-run/day/month caps at wallet reservation, using posted charges plus active
+holds. No cap is imposed by default. Saved versions prevent lost updates; accepted
+requests preserve applied policy provenance and original billing. Quotes remain
+price-compatible and eligibility is checked at admission.
+
+The `/dashboard/spending` page manages account and owned key limits, with USD
+display, usage/headroom, explicit saves and conflict/retry states. API keys cannot
+raise limits; foreign keys cannot be inspected. Monitor scheduler denial records
+blocked history without a charge or job and recovers when limits permit a later
+check. `SPEND_POLICIES.md` documents architecture, admission-period UTC semantics,
+owned APIs, additive migration, rollback and remaining scope. Exact-head
+verification evidence belongs in the dependent PR; production authenticated
+execution remains unverified.
+
+Final integrated local verification passed 885 tests with PostgreSQL 16 and
+Chromium. Ruff, Python compile, JavaScript syntax and whitespace checks passed.
+The initial full-suite concurrency-order regression was corrected without
+changing the existing test or its contract; the final run includes that check.
+
+## Dataset payload and webhook measurement continuation
+
+Refreshed the unchanged stack through #51 at `0bcc0cc` and verified every ancestry
+edge from main through #45/#47/#48/#49/#50/#51. Continued on
+`codex/resource-measurements-20261001`; all upstream work remains draft.
+
+New insert-time dataset observations measure stored columns/rows/output JSONB
+UTF-8 payload volume, including separately stored rows and original output.
+Surviving historical datasets get an explicitly marked current snapshot. A private
+webhook attempt journal records each claimed lease, one live-lease dispatch intent
+and the first outcome. It preserves unknown crash/persistence gaps and separate
+manual retries even when the outbox attempt counter resets. Late outcomes cannot
+overwrite a newer delivery lease. The operator report aggregates this evidence
+from one repeatable-read snapshot without exposing payloads or fencing tokens.
+
+`RESOURCE_MEASUREMENTS.md` documents exact units, coverage, migrations, retention
+and rollback order. Storage/delivery evidence survives output/history cleanup;
+canonical account/run deletion removes it. Physical storage, retention duration,
+wire egress and USD costs remain unmeasured. Complete COGS and margin remain
+unknown; model/compute/proxy coverage is still absent. No customer charge changed.
+
+Final local verification passed 908 tests with PostgreSQL 16 and Chromium,
+including 23 new resource cases. The focused resource/webhook/provider-cost set
+passed 75 tests. Ruff, Python compile, JavaScript syntax and whitespace checks also
+passed. Test activity polling and fixture collection-order issues found during
+verification were fixed; the final full run includes both checks. Published
+exact-head CI and preview evidence belongs in this dependent draft PR.
+Authenticated production execution, signed external delivery and invoice
+reconciliation remain unverified.
+
+## Provider-reported dollar continuation
+
+Refreshed the unchanged draft stack through #52 at `5ad04f6` and continued on
+`codex/provider-dollar-reports-20261001`. Exa's existing `costDollars.total` now
+produces exact response observations for search/contents before float decoding or
+rounded wallet counters. Valid zero is distinct from missing/invalid totals;
+nonfinite cost fields cannot break otherwise usable JSON output.
+
+Stable observation IDs survive private worker checkpoints and persist in
+`ih_provider_dollar_reports` inside settlement. Duplicate/concurrent settlement
+and replay preserve one fact; conflicts and charge failures roll back. An overall
+failed run can retain observed provider cost despite a zero customer charge.
+Operator economics adds a paged report collection, all-observation subtotal,
+missing/malformed/unobserved-call coverage and explicit overlap with credit events.
+Reports remain unreconciled and separate from sourced credit-rate estimates;
+total COGS and margin remain unknown. Customer usage/wallet metadata excludes the
+private observations, while existing raw provider response shapes remain compatible.
+
+`PROVIDER_DOLLAR_REPORTS.md` documents units, source provenance, exact-decimal bounds,
+checkpoint/terminal semantics, partial coverage, privacy, lifecycle and additive
+rollout/rollback. Legacy rounded counters are not converted into historical reports.
+No new prices or wallet-pricing policy are introduced.
+
+Final integrated local verification passed 947 tests with PostgreSQL 16 and
+Chromium, including 39 new dollar-report cases. The focused provider/resource/cost
+set passed 106 tests. Ruff, compile, JavaScript syntax and whitespace checks passed.
+Exact-head CI/preview evidence belongs in this dependent draft PR. No paid provider
+call was made during tests. Authenticated production capture, invoice reconciliation,
+full infrastructure costing and complete margin analysis remain unverified.
