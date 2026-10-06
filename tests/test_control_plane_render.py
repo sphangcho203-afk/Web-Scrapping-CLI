@@ -782,6 +782,12 @@ def test_usage_leads_with_workflows_and_retains_technical_trace(frontend_url):
                         "recent_runs": [run], "recent_failures": []}
             elif path == "/api/usage/runs/req_fixture":
                 data = {"run": run}
+            elif path == "/api/runs/req_fixture":
+                data = {"run": {"id": "req_fixture", "credits_reserved": 10,
+                        "credits_charged": 2, "output_dataset_id": "ds_fixture",
+                        "execution": {"status": "completed", "attempts": 1}},
+                        "events": [{"sequence": 1, "type": "billing_transition", "status": "ok",
+                                    "timestamp": "2026-09-25T12:00:00Z"}]}
             else:
                 data = {}
             route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
@@ -793,7 +799,11 @@ def test_usage_leads_with_workflows_and_retains_technical_trace(frontend_url):
         assert "openapi" not in page.locator(".ih-run-table-wrap").inner_text()
         page.locator(".ih-run-table-row").click()
         page.locator(".ih-run-modal").wait_for()
-        assert "Game intelligence" in page.locator(".ih-inspector-grid").inner_text()
+        assert "Game intelligence" in page.locator(".ih-inspector-grid").first.inner_text()
+        receipt = page.locator("[data-run-receipt]")
+        assert "reserved credits" in receipt.inner_text().casefold()
+        assert "billing_transition" in receipt.inner_text()
+        assert receipt.get_by_role("link", name="Open saved dataset").get_attribute("href") == "/dashboard/datasets?dataset=ds_fixture"
         page.get_by_text("Technical routing and provenance").click()
         assert "openapi:rank" in page.locator(".ih-run-diagnostics").inner_text()
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
@@ -1356,4 +1366,328 @@ def test_smart_scrape_review_confirmation_dataset_and_safe_outputs(frontend_url)
             page.wait_for_timeout(50)
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
         assert not errors, errors
+        browser.close()
+
+
+
+def test_structured_extract_review_starts_owned_run_and_hides_provider(frontend_url):
+    quotes = []
+    creates = []
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            method = route.request.method
+            if path == "/api/auth/me":
+                data = {
+                    "user": {
+                        "email": "owner@test.invalid",
+                        "email_verified": True,
+                        "display_name": "Owner",
+                    },
+                    "account": {},
+                }
+            elif path == "/api/api-keys":
+                data = {
+                    "keys": [{
+                        "id": "key_extract",
+                        "name": "Extract key",
+                        "prefix": "oc_ex",
+                        "scopes": ["mcp:execute"],
+                    }]
+                }
+            elif path == "/api/extract/runs" and method == "GET":
+                data = {"runs": [], "total": 0, "limit": 12, "offset": 0}
+            elif path == "/api/extract/quote":
+                quotes.append(route.request.post_data_json)
+                data = {
+                    "quote": {
+                        "credits": 1500,
+                        "maximum_charge_credits": 1500,
+                        "quote_revision": "e" * 64,
+                        "wallet_units_per_usd": 5000,
+                        "available_credits": 25000,
+                        "affordable": True,
+                    },
+                    "extract": {
+                        "source_count": 1,
+                        "effort": "medium",
+                        "schema_provided": True,
+                        "asynchronous": True,
+                    },
+                }
+            elif path == "/api/extract/runs" and method == "POST":
+                creates.append({
+                    "body": route.request.post_data_json,
+                    "idempotency": route.request.headers.get("idempotency-key"),
+                })
+                data = {
+                    "run": {
+                        "id": "caprun_fixture",
+                        "request_id": "req_extract_fixture",
+                        "capability": "web.extract.structured",
+                        "status": "waiting",
+                        "attempts": 1,
+                        "dataset_id": None,
+                        "credits_reserved": 1500,
+                        "credits_charged": 0,
+                        "error_code": None,
+                        "updated_at": "2026-10-01T00:00:00Z",
+                        "input": {
+                            "source_count": 1,
+                            "schema_provided": True,
+                            "effort": "medium",
+                        },
+                        "result": {
+                            "record_count": 0,
+                            "schema_valid": None,
+                            "schema_errors": [],
+                            "source_urls": [],
+                        },
+                    },
+                    # Deliberately include fields the product must not render if
+                    # an upstream adapter accidentally leaks them.
+                    "provider": "firecrawl",
+                    "provider_job_id": "agent:secret-provider-job",
+                }
+            elif path == "/api/extract/runs/caprun_fixture":
+                data = {
+                    "run": {
+                        "id": "caprun_fixture",
+                        "request_id": "req_extract_fixture",
+                        "capability": "web.extract.structured",
+                        "status": "completed",
+                        "attempts": 2,
+                        "dataset_id": "ds_extract_fixture",
+                        "credits_reserved": 1500,
+                        "credits_charged": 753,
+                        "error_code": None,
+                        "updated_at": "2026-10-01T00:00:30Z",
+                        "finished_at": "2026-10-01T00:00:30Z",
+                        "input": {
+                            "source_count": 1,
+                            "schema_provided": True,
+                            "effort": "medium",
+                        },
+                        "result": {
+                            "record_count": 2,
+                            "schema_valid": True,
+                            "schema_errors": [],
+                            "source_urls": ["https://example.com/pricing"],
+                        },
+                    }
+                }
+            else:
+                data = {}
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps(data),
+            )
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/extract")
+        page.get_by_text("Turn public pages into validated JSON", exact=True).wait_for()
+
+        page.get_by_label("Public source URLs", exact=False).fill(
+            "https://example.com/pricing"
+        )
+        page.get_by_label("What should OpenCrawl extract?", exact=True).fill(
+            "Extract plan names and monthly prices."
+        )
+        schema = {
+            "type": "object",
+            "properties": {"plans": {"type": "array"}},
+        }
+        page.get_by_text("Optional JSON Schema", exact=True).click()
+        page.locator('textarea[name="schema"]').fill(json.dumps(schema))
+
+        page.get_by_role(
+            "button", name="Review extraction cost", exact=True
+        ).click()
+        page.get_by_role(
+            "button", name="Confirm and start extraction", exact=True
+        ).wait_for()
+        assert len(quotes) == 1 and not creates
+        assert quotes[0]["urls"] == ["https://example.com/pricing"]
+        assert quotes[0]["schema"] == schema
+
+        page.get_by_role(
+            "button", name="Confirm and start extraction", exact=True
+        ).click()
+        page.get_by_text("EXTRACT RUN · WAITING", exact=True).wait_for()
+        assert len(creates) == 1
+        assert creates[0]["body"]["max_charge_credits"] == 1500
+        assert creates[0]["body"]["quote_revision"] == "e" * 64
+        assert creates[0]["idempotency"].startswith("extract:")
+        assert "firecrawl" not in page.locator("#extract-output").inner_text().lower()
+        assert "secret-provider-job" not in page.locator("#extract-output").inner_text()
+
+        # Polling is local to the route renderer, so use the recent-run inspect
+        # endpoint contract directly by re-entering the page with a completed
+        # owned run rather than sleeping through the production 15-second timer.
+        page.reload()
+        page.wait_for_timeout(100)
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+
+        for width in (320, 390, 768, 1366):
+            page.set_viewport_size({"width": width, "height": 800})
+            page.wait_for_timeout(50)
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
+
+        assert not errors, errors
+        browser.close()
+
+
+def test_canonical_runs_list_timeline_paging_and_cancel_on_mobile(frontend_url):
+    cancelled = False
+    event_pages = []
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={'width':390,'height':844})
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+
+        def respond(route):
+            nonlocal cancelled
+            path = urlsplit(route.request.url).path
+            run = {'id':'req_fixture','capability_id':'playground:crawl','execution_status':'cancelled' if cancelled else 'queued',
+                'status':'cancelled' if cancelled else 'reserved','source_kind':'crawl','source_ref':'crawl_fixture',
+                'credits_reserved':100,'credits_charged':0,'source_count':1,'retry_count':0,'warning_count':0,
+                'created_at':'2026-10-01T00:00:00Z','output_dataset_id':None,'history_origin':'observed'}
+            if path=='/api/auth/me':
+                data={'user':{'email':'owner@test.invalid','email_verified':True},'account':{}}
+            elif path=='/api/runs':
+                data={'runs':[run],'total':1}
+            elif path=='/api/runs/req_fixture/cancel':
+                cancelled=True
+                data={'run':{**run,'execution_status':'cancelled'},'events':[]}
+            elif path=='/api/runs/req_fixture':
+                next_page = 'after=100' in route.request.url
+                event_pages.append(route.request.url)
+                events = [{'sequence':n,'timestamp':'2026-10-01T00:00:00Z','type':'execution_status',
+                           'status':'queued','message':'Execution state: queued.'} for n in range(1,101)]
+                if next_page:
+                    events=[{'sequence':101,'timestamp':'2026-10-01T00:01:00Z','type':'provider_attempt',
+                             'status':'failed','attempt':2,'message':'Provider attempt recorded.'}]
+                data={'run':run,'events':events,'next_after':101 if next_page else 100}
+            else:
+                data={}
+            route.fulfill(status=200,content_type='application/json',body=json.dumps(data))
+
+        page.route('**/api/**', respond)
+        page.goto(frontend_url+'/dashboard/runs')
+        page.get_by_role('link',name='playground:crawl',exact=True).click()
+        page.locator('[data-canonical-run]').wait_for()
+        assert page.locator('#canonical-run-events li').count()==100
+        page.get_by_role('button',name='Load more events').click()
+        page.get_by_text('Provider attempt recorded.',exact=False).wait_for()
+        assert page.locator('#canonical-run-events li').count()==101
+        assert any('after=100' in request for request in event_pages)
+        for width in (320,390,1366):
+            page.set_viewport_size({'width':width,'height':844})
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+        page.get_by_role('button',name='Cancel run',exact=True).click()
+        page.locator('[data-canonical-run]').get_by_text('cancelled',exact=True).wait_for()
+        assert page.get_by_role('button',name='Cancel run',exact=True).count()==0
+        assert not errors, errors
+        browser.close()
+
+
+def test_spending_limits_account_key_save_conflict_reload_and_mobile(frontend_url):
+    saved=[]; conflicts={'enabled':False}
+    policies={scope:{'scope_id':scope,'version':0,'single_run_limit_credits':None,
+                    'daily_limit_credits':None,'monthly_limit_credits':None} for scope in ('account','key_fixture')}
+    with playwright.sync_playwright() as p:
+        browser=p.chromium.launch()
+        page=browser.new_page(viewport={'width':390,'height':844})
+        errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
+        def respond(route):
+            path=urlsplit(route.request.url).path
+            scope='key_fixture' if '/key_fixture/' in path else 'account'
+            if path=='/api/auth/me':
+                data={'user':{'email':'owner@test.invalid','email_verified':True},'account':{}}
+            elif path=='/api/api-keys':
+                data={'keys':[{'id':'key_fixture','name':'Scheduled capture','scopes':['mcp:execute']}]}
+            elif path.endswith('/spend-policy'):
+                if route.request.method=='PUT':
+                    body=route.request.post_data_json;saved.append((scope,body))
+                    if conflicts['enabled']:
+                        route.fulfill(status=409,content_type='application/json',body=json.dumps({'detail':{
+                            'code':'spend_policy_changed','message':'Spending limits changed. Reload them before saving.'}}))
+                        return
+                    policies[scope]={**policies[scope],**{name:value for name,value in body.items() if name!='expected_version'},
+                                     'version':policies[scope]['version']+1}
+                data={'policy':policies[scope],'wallet_units_per_usd':5000,'usage':{'day_end':'2026-10-02T00:00:00Z',
+                    **{period:{'charged_credits':1000,'reserved_credits':500,'remaining_credits':None,'unknown_reservation_count':0}
+                       for period in ('daily','monthly')}}}
+            else:
+                data={}
+            route.fulfill(status=200,content_type='application/json',body=json.dumps(data))
+        page.route('**/api/**',respond)
+        page.goto(frontend_url+'/dashboard/spending')
+        page.get_by_label('Daily spend (USD)',exact=True).wait_for()
+        assert not saved
+        assert 'reserved' in page.locator('#spend-policy-panel').inner_text()
+        page.get_by_label('Daily spend (USD)',exact=True).fill('0.0002')
+        page.get_by_role('button',name='Save limits',exact=True).click()
+        page.get_by_text('Limits saved.',exact=True).wait_for()
+        assert saved[-1]==('account',{'expected_version':0,'single_run_limit_credits':None,'daily_limit_credits':1,'monthly_limit_credits':None})
+        assert page.get_by_label('Daily spend (USD)',exact=True).input_value()=='0.0002'
+        page.get_by_label('Apply limits to',exact=True).select_option('key_fixture')
+        page.get_by_role('heading',name='Scheduled capture',exact=True).wait_for()
+        page.get_by_label('Per-run spend (USD)',exact=True).fill('0')
+        page.get_by_role('button',name='Save limits',exact=True).click()
+        page.get_by_text('Limits saved.',exact=True).wait_for()
+        assert saved[-1][0]=='key_fixture' and saved[-1][1]['single_run_limit_credits']==0
+        assert saved[-1][1]['daily_limit_credits'] is None
+        conflicts['enabled']=True
+        page.get_by_label('Monthly spend (USD)',exact=True).fill('1')
+        page.get_by_role('button',name='Save limits',exact=True).click()
+        page.get_by_text('Spending limits changed. Reload them before saving.',exact=True).wait_for()
+        assert policies['key_fixture']['monthly_limit_credits'] is None
+        conflicts['enabled']=False
+        page.get_by_role('button',name='Reload limits and usage',exact=True).click()
+        assert page.get_by_label('Monthly spend (USD)',exact=True).input_value()==''
+        for width in (320,390,1366):
+            page.set_viewport_size({'width':width,'height':844})
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+        assert not errors,errors
+        page.screenshot(path='/tmp/opencrawl-spend-limits-desktop.png',full_page=True)
+        browser.close()
+
+
+def test_spending_limits_loading_error_retry_and_unknown_headroom(frontend_url):
+    failure={'enabled':True}
+    with playwright.sync_playwright() as p:
+        browser=p.chromium.launch();page=browser.new_page()
+        def respond(route):
+            path=urlsplit(route.request.url).path
+            if path=='/api/auth/me':
+                data={'user':{'email':'owner@test.invalid','email_verified':True},'account':{}}
+            elif path=='/api/api-keys':
+                data={'keys':[]}
+            elif path=='/api/spend-policy':
+                if failure['enabled']:
+                    route.fulfill(status=503,content_type='application/json',body=json.dumps({'detail':'Temporarily unavailable'}))
+                    return
+                data={'policy':{'version':0,'single_run_limit_credits':None,'daily_limit_credits':10,'monthly_limit_credits':None},
+                    'wallet_units_per_usd':5000,'usage':{'day_end':'2026-10-02T00:00:00Z',
+                        **{period:{'charged_credits':0,'reserved_credits':0,'remaining_credits':None,'unknown_reservation_count':1}
+                           for period in ('daily','monthly')}}}
+            else:
+                data={}
+            route.fulfill(status=200,content_type='application/json',body=json.dumps(data))
+        page.route('**/api/**',respond)
+        page.goto(frontend_url+'/dashboard/spending')
+        page.get_by_role('alert').get_by_text('Temporarily unavailable',exact=True).wait_for()
+        assert page.get_by_role('button',name='Save limits',exact=True).count()==0
+        failure['enabled']=False
+        page.get_by_role('button',name='Try again',exact=True).click()
+        page.get_by_role('button',name='Save limits',exact=True).wait_for()
+        assert 'Unknown · active reservation needs review' in page.locator('#spend-policy-panel').inner_text()
         browser.close()

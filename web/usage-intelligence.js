@@ -113,6 +113,10 @@
     try {
       const payload = await api(`/api/usage/runs/${encodeURIComponent(requestId)}`);
       const event = payload.run || summary;
+      let receipt = null;
+      try { receipt = await api(`/api/runs/${encodeURIComponent(requestId)}`); } catch (_) { /* Older deployments still expose the usage inspector. */ }
+      const canonical = receipt?.run;
+      const timeline = receipt?.events || [];
       const rows = metadataRows(event.metadata);
       const wrap = modal(`<div class="ih-run-modal">
         <div class="modal-head"><span><span class="overline">RUN DETAIL</span><h2>${esc(runLabel(event))}</h2></span><button data-close aria-label="Close">×</button></div>
@@ -124,6 +128,7 @@
           <div><small>Created</small><b>${esc(when(event.created_at))}</b></div><div><small>Credential</small><b>${esc(event.api_key_name ? `${event.api_key_name} · ${event.api_key_prefix||''}…` : 'Session / system')}</b></div>
         </div>
         <div class="ih-inspector-section"><span>REQUEST REFERENCE</span><div class="ih-code-line"><code>${esc(event.request_id||'—')}</code><button class="btn small" data-copy="${esc(event.request_id)}">${icon('copy')} Copy ID</button></div></div>
+        <div class="ih-inspector-section" data-run-receipt><span>CANONICAL RECEIPT</span>${canonical ? `<div class="ih-inspector-grid"><div><small>Reserved credits</small><b>${fmt(canonical.credits_reserved)}</b></div><div><small>Charged credits</small><b>${fmt(canonical.credits_charged)}</b></div><div><small>Execution state</small><b>${esc(canonical.execution?.status || 'No specialized job')}</b></div><div><small>Attempts</small><b>${canonical.execution?.attempts == null ? 'Not recorded' : fmt(canonical.execution.attempts)}</b></div></div>${canonical.execution?.cancel_requested ? '<p>Cancellation requested; the worker has not yet confirmed completion.</p>' : ''}${canonical.output_dataset_id ? `<a class="btn small" data-link href="/dashboard/datasets?dataset=${encodeURIComponent(canonical.output_dataset_id)}">Open saved dataset</a>` : '<p>No saved dataset linked.</p>'}<h3>Recorded run transitions</h3>${timeline.length ? `<ol>${timeline.map(item => `<li><b>${esc(item.status)}</b> · ${esc(when(item.timestamp))} · ${esc(item.type)}</li>`).join('')}</ol>` : '<p>Historical receipt: no recorded timeline events.</p>'}` : '<p>Canonical receipt unavailable. Existing usage details remain available.</p>'}</div>
         <details class="ih-run-diagnostics"><summary>Technical routing and provenance</summary><div><span>Execution reference</span><code>${esc(event.tool_ref||'—')}</code><span>Adapter</span><code>${esc(event.provider||'—')}</code>${event.capability?`<span>Capability ID</span><code>${esc(event.capability)}</code>`:''}</div>${rows.length?`<section><h3>RUN METADATA</h3><div class="ih-run-metadata">${rows.map(([key,value])=>`<div><small>${esc(key)}</small><code>${esc(value)}</code></div>`).join('')}</div></section>`:''}</details>
       </div>`, true);
       bindCommon();

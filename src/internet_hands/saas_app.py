@@ -13,6 +13,7 @@ from .control_api import router as control_router
 from .connected_apps_api import router as connected_apps_router
 from .control_hardening import router as hardening_router
 from .crawl_run_api import router as crawl_run_router
+from .cost_events_api import router as cost_events_router
 from .datasets_api import router as datasets_router
 from .dataset_webhook_api import router as dataset_webhook_router
 from .control_migration import run_requested_control_plane_migration
@@ -32,9 +33,12 @@ from .security_api import router as security_router
 from .security_hardening import router as security_hardening_router
 from .site_map_api import router as site_map_router
 from .smart_scrape_api import router as smart_scrape_router
+from .spend_policy_api import router as spend_policy_router
+from .structured_extract_api import router as structured_extract_router
 from .site import router as site_router
 from .system_health import router as system_health_router
 from .usage_api import router as usage_router
+from .runs_api import router as runs_router
 
 
 logger = logging.getLogger(__name__)
@@ -72,7 +76,10 @@ app.include_router(system_health_router)
 app.include_router(control_router)
 app.include_router(connected_apps_router)
 app.include_router(usage_router)
+app.include_router(runs_router)
 app.include_router(crawl_run_router)
+app.include_router(cost_events_router)
+app.include_router(spend_policy_router)
 app.include_router(datasets_router)
 app.include_router(dataset_webhook_router)
 app.include_router(rewards_router)
@@ -81,6 +88,7 @@ app.include_router(repository_router)
 app.include_router(public_data_router)
 app.include_router(site_map_router)
 app.include_router(smart_scrape_router)
+app.include_router(structured_extract_router)
 app.include_router(game_router)
 app.include_router(intelligence_router)
 app.include_router(site_router)
