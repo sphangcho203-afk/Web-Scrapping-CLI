@@ -7,7 +7,6 @@ import json
 import os
 import secrets
 from datetime import UTC, datetime
-from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -25,8 +24,6 @@ from .auth import (
     verify_pkce,
 )
 from .control_store import (
-    CUSTOM_TOPUP_MAX_USD_CENTS,
-    CUSTOM_TOPUP_MIN_USD_CENTS,
     WALLET_UNITS_PER_USD,
     ControlError,
     ControlStore,
@@ -695,30 +692,6 @@ async def toggle_monitor(request: Request, monitor_id: str):
     if not store.toggle_monitor(user["id"], monitor_id, enabled):
         raise HTTPException(status_code=404, detail="monitor not found")
     return {"ok": True, "enabled": enabled}
-
-
-def _parse_custom_topup_cents(value: Any) -> int:
-    try:
-        amount = Decimal(str(value))
-    except (InvalidOperation, ValueError):
-        raise ControlError("invalid_topup_amount", "enter a valid USD top-up amount", 400) from None
-    if not amount.is_finite() or amount <= 0:
-        raise ControlError("invalid_topup_amount", "enter a valid USD top-up amount", 400)
-    cents = amount * 100
-    if cents != cents.to_integral_value():
-        raise ControlError("invalid_topup_amount", "USD top-ups support at most two decimal places", 400)
-    value_cents = int(cents)
-    if value_cents < CUSTOM_TOPUP_MIN_USD_CENTS or value_cents > CUSTOM_TOPUP_MAX_USD_CENTS:
-        raise ControlError(
-            "topup_amount_out_of_range",
-            (
-                f"custom top-up must be between "
-                f"${CUSTOM_TOPUP_MIN_USD_CENTS / 100:.2f} and "
-                f"${CUSTOM_TOPUP_MAX_USD_CENTS / 100:.2f}"
-            ),
-            400,
-        )
-    return value_cents
 
 
 def _razorpay_config() -> tuple[str, str, str | None]:
