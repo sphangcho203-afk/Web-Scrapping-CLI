@@ -694,6 +694,19 @@ async def toggle_monitor(request: Request, monitor_id: str):
     return {"ok": True, "enabled": enabled}
 
 
+def _razorpay_runtime_allowed() -> bool:
+    """Keep live merchant credentials off Vercel preview deployments by default."""
+    vercel_env = (os.getenv("VERCEL_ENV") or "").strip().lower()
+    if vercel_env != "preview":
+        return True
+    return (os.getenv("OPENCRAWL_ALLOW_PREVIEW_BILLING") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 _RAZORPAY_VAULT_NAMES: dict[str, tuple[str, ...]] = {
     "RAZORPAY_KEY_ID": ("RAZORPAY_KEY_ID", "opencrawl_razorpay_key_id"),
     "RAZORPAY_KEY_SECRET": ("RAZORPAY_KEY_SECRET", "opencrawl_razorpay_key_secret"),
@@ -705,7 +718,9 @@ _RAZORPAY_VAULT_NAMES: dict[str, tuple[str, ...]] = {
 
 
 def _razorpay_secret(name: str) -> tuple[str | None, str]:
-    """Resolve Razorpay credentials from Supabase Vault first, then env fallback."""
+    """Resolve Razorpay credentials from Vault only where live billing is allowed."""
+    if not _razorpay_runtime_allowed():
+        return None, "disabled_on_preview"
     for vault_name in _RAZORPAY_VAULT_NAMES.get(name, (name,)):
         value = supabase_vault_secret(vault_name)
         if value:
@@ -715,6 +730,12 @@ def _razorpay_secret(name: str) -> tuple[str | None, str]:
 
 
 def _razorpay_config() -> tuple[str, str, str | None]:
+    if not _razorpay_runtime_allowed():
+        raise ControlError(
+            "billing_preview_disabled",
+            "live billing is disabled on preview deployments; use https://opencrawl.top",
+            403,
+        )
     key_id, _ = _razorpay_secret("RAZORPAY_KEY_ID")
     key_secret, _ = _razorpay_secret("RAZORPAY_KEY_SECRET")
     webhook_secret, _ = _razorpay_secret("RAZORPAY_WEBHOOK_SECRET")
@@ -737,6 +758,7 @@ def _razorpay_status() -> dict[str, Any]:
         "key_id": key_id,
         "credential_source": source,
         "webhook_source": webhook_source,
+        "runtime_allowed": _razorpay_runtime_allowed(),
     }
 
 

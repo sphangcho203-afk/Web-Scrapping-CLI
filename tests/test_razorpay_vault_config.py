@@ -82,3 +82,36 @@ def test_razorpay_config_reads_all_three_vault_backed_values(monkeypatch) -> Non
         "live-secret",
         "webhook-secret",
     )
+
+
+def test_preview_disables_live_billing_and_does_not_touch_vault(monkeypatch) -> None:
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    monkeypatch.delenv("OPENCRAWL_ALLOW_PREVIEW_BILLING", raising=False)
+    touched = {"vault": False}
+
+    def fake_vault(name: str):
+        touched["vault"] = True
+        return "should-not-be-read"
+
+    monkeypatch.setattr(control_api, "supabase_vault_secret", fake_vault)
+
+    value, source = control_api._razorpay_secret("RAZORPAY_KEY_ID")
+
+    assert value is None
+    assert source == "disabled_on_preview"
+    assert touched["vault"] is False
+
+
+def test_preview_billing_can_be_explicitly_enabled_for_controlled_testing(monkeypatch) -> None:
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    monkeypatch.setenv("OPENCRAWL_ALLOW_PREVIEW_BILLING", "true")
+    monkeypatch.setattr(
+        control_api,
+        "supabase_vault_secret",
+        lambda name: "vault-key" if name == "RAZORPAY_KEY_ID" else None,
+    )
+
+    value, source = control_api._razorpay_secret("RAZORPAY_KEY_ID")
+
+    assert value == "vault-key"
+    assert source == "supabase_vault"
