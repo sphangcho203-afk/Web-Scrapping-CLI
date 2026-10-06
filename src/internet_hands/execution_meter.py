@@ -4,12 +4,15 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
 
+from .provider_cost_reports import normalize_reports
+
 
 @dataclass(slots=True)
 class ExecutionUsage:
     counters: dict[str, int] = field(default_factory=dict)
     provider_calls: dict[str, int] = field(default_factory=dict)
     provider_events: list[dict[str, Any]] = field(default_factory=list)
+    provider_cost_reports: list[dict[str, Any]] = field(default_factory=list)
 
     def add(self, name: str, amount: int = 1) -> None:
         amount = int(amount)
@@ -61,11 +64,14 @@ class ExecutionUsage:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "counters": dict(sorted(self.counters.items())),
             "provider_calls": dict(sorted(self.provider_calls.items())),
             "provider_events": list(self.provider_events),
         }
+        if self.provider_cost_reports:
+            result['provider_cost_reports'] = [dict(item) for item in self.provider_cost_reports]
+        return result
 
 
 _current_usage: ContextVar[ExecutionUsage | None] = ContextVar(
@@ -82,6 +88,7 @@ def start_execution_meter(initial: dict[str, Any] | None = None):
         for name, value in (initial.get("provider_calls") or {}).items():
             usage.add_provider_call(name, value)
         usage.provider_events = [dict(event) for event in initial.get("provider_events") or []]
+        usage.provider_cost_reports = normalize_reports(initial.get('provider_cost_reports'))
     return _current_usage.set(usage)
 
 
@@ -99,6 +106,12 @@ def record_provider_call(provider: str, amount: int = 1) -> None:
     usage = _current_usage.get()
     if usage is not None:
         usage.add_provider_call(provider, amount)
+
+
+def record_provider_cost_report(report: dict[str, Any]) -> None:
+    usage = _current_usage.get()
+    if usage is not None:
+        usage.provider_cost_reports.extend(normalize_reports([report]))
 
 
 def record_provider_outcome(

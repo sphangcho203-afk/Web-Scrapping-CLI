@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import math
 import os
 import re
 from typing import Any
 
 import httpx
 
-from .execution_meter import record_usage
+from .execution_meter import record_provider_cost_report, record_usage
 from .policy import validate_public_http_url
+from .provider_cost_reports import exa_report, response_decimal
 from .tool_mesh import ToolDescriptor
 
 
@@ -118,6 +120,9 @@ class _JsonPostProvider:
                     json=payload,
                 )
                 response.raise_for_status()
+        return self._decode_response(response, path)
+
+    def _decode_response(self, response: httpx.Response, path: str) -> dict[str, Any]:
         data = response.json()
         if not isinstance(data, dict):
             raise TypeError(f"{self.name} returned a non-object response")
@@ -350,6 +355,19 @@ class ExaToolProvider(_JsonPostProvider):
     name = "exa"
     base_url = "https://api.exa.ai"
 
+    def _decode_response(self, response: httpx.Response, path: str) -> dict[str, Any]:
+        data = super()._decode_response(response, path)
+        # Read the original JSON decimal token before the public result's float
+        # or legacy wallet counter can round it. Keep the result shape compatible.
+        exact = response.json(parse_float=response_decimal)
+        record_provider_cost_report(exa_report(path.lstrip('/'), exact.get('costDollars')))
+        costs = data.get('costDollars')
+        if isinstance(costs, dict) and type(costs.get('total')) is float and not math.isfinite(costs['total']):
+            # Unknown costs stay JSON-serializable instead of failing an otherwise
+            # usable response during wallet-counter or protocol serialization.
+            data = {**data, 'costDollars': {**costs, 'total': None}}
+        return data
+
     def __init__(
         self,
         api_key: str | None = None,
@@ -480,8 +498,13 @@ class ExaToolProvider(_JsonPostProvider):
         )
         costs = data.get("costDollars")
         total = costs.get("total") if isinstance(costs, dict) else None
-        if isinstance(total, (int, float)) and not isinstance(total, bool):
-            record_usage("exa_cost_microusd", max(0, round(float(total) * 1_000_000)))
+        if type(total) in (int, float) and total >= 0:
+            try:
+                scaled = float(total) * 1_000_000
+                if math.isfinite(scaled):
+                    record_usage("exa_cost_microusd", round(scaled))
+            except OverflowError:
+                pass  # Malformed cost telemetry cannot invalidate collected output.
         return {
             "status": "completed",
             "data": data,

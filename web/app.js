@@ -1297,7 +1297,7 @@ async function dashStructuredExtract(){
   };
 }
 
-async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,scrape:dashSmartScrape,map:dashSiteMap,extract:dashStructuredExtract,datasets:dashDatasets,'crawl-runs':dashCrawlRuns,games:dashGames,repositories:dashRepositories,data:dashPublicData,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,rewards:dashRewards,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
+async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,scrape:dashSmartScrape,map:dashSiteMap,extract:dashStructuredExtract,datasets:dashDatasets,'crawl-runs':dashCrawlRuns,runs:dashRuns,spending:dashSpending,games:dashGames,repositories:dashRepositories,data:dashPublicData,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,rewards:dashRewards,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
 async function renderRoute(){clearTransientUi();window.scrollTo(0,0);const p=location.pathname;try{if(p==='/'||p==='/pricing'||p==='/status'||p.startsWith('/docs')||p.startsWith('/legal')||LEGAL_ALIASES[p])await hydrateOptionalSession();if(p.startsWith('/dashboard'))return await renderDashboard();if(p==='/verify-email')return await renderVerify();if(p==='/login')return renderAuth('login');if(p==='/signup')return renderAuth('signup');if(p==='/forgot-password')return renderRecovery();if(p==='/reset-password')return renderRecovery(true);if(p.startsWith('/legal')||LEGAL_ALIASES[p])return renderLegal();if(p.startsWith('/docs'))return renderDocs();if(p==='/pricing')return await renderPricing();if(p==='/status')return await renderStatus();return await renderHome();}catch(error){console.error(error);if(error.status===401)return go('/login',true);app.innerHTML=`<main class="fatal"><div>${brand()}<span class="eyebrow">REQUEST FAILED</span><h1>The control plane did not answer cleanly.</h1><p>${esc(error.message)}</p><button class="btn primary" onclick="location.reload()">Try again</button></div></main>`;}}
 document.addEventListener('click',e=>{
   if(e.defaultPrevented)return;
@@ -2345,6 +2345,7 @@ function openRunInspector(event) {
       ['map','search','Site Map'],
       ['extract','docs','Structured Extract'],
       ['datasets','docs','Datasets'],
+      ['runs','activity','Runs'],
       ['crawl-runs','activity','Background crawls'],
       ['data','search','Public data'],
       ['games','activity','Game Intelligence'],
@@ -2360,6 +2361,7 @@ function openRunInspector(event) {
     ]],
     ['Manage', [
       ['wallet','wallet','Wallet'],
+      ['spending','wallet','Spending limits'],
       ['rewards','gift','Rewards'],
       ['billing','billing','Billing & Plans'],
       ['settings','settings','Settings & Security']
@@ -2620,3 +2622,78 @@ function openRunInspector(event) {
   // Initial render happens once, after every canonical renderer and shell is installed.
   renderRoute();
 })();
+
+/* Account and key spending controls share server reservation enforcement. */
+let spendPolicyView = 0;
+async function dashSpending() {
+  const view = ++spendPolicyView;
+  const requestedKey = new URL(location.href).searchParams.get('key');
+  const current = () => view === spendPolicyView && location.pathname === '/dashboard/spending';
+  dashboardShell('spending', pageHead('SPENDING', 'Spending limits', 'Control the maximum wallet spend across your account and individual API keys.') +
+    '<article class="card" id="spend-policy-panel" aria-live="polite"><p>Loading spending limits…</p></article>');
+  const panel = $('#spend-policy-panel');
+  const load = async () => {
+    panel.innerHTML = '<p>Loading spending limits…</p>';
+    try {
+      const keys = (await api('/api/api-keys')).keys || [];
+      const key = requestedKey ? keys.find(item => item.id === requestedKey) : null;
+      if (requestedKey && !key) throw new Error('API key not found for this account.');
+      const endpoint = key ? '/api/api-keys/' + encodeURIComponent(key.id) + '/spend-policy' : '/api/spend-policy';
+      const data = await api(endpoint);
+      if (!current()) return;
+      const policy = data.policy, usage = data.usage;
+      const scale = Number(data.wallet_units_per_usd);
+      if (!policy || !usage || !Number.isSafeInteger(policy.version) || !Number.isInteger(scale) || scale <= 0)
+        throw new Error('The spending limits are unavailable. Reload to try again.');
+      const label = name => ({single_run_limit_credits:'Per-run spend (USD)', daily_limit_credits:'Daily spend (USD)', monthly_limit_credits:'Monthly spend (USD)'})[name];
+      const fields = ['single_run_limit_credits','daily_limit_credits','monthly_limit_credits'];
+      const amount = value => walletMoney(value,data);
+      panel.innerHTML = '<div class="form-stack"><label for="spend-scope">Apply limits to</label><select id="spend-scope"><option value="">Whole account</option>' +
+        keys.map(item => '<option value="' + esc(item.id) + '" ' + (item.id === requestedKey ? 'selected' : '') + '>' + esc(item.name) + (item.revoked_at ? ' · revoked' : '') + '</option>').join('') +
+        '</select></div><h3>' + esc(key ? key.name : 'Whole account') + '</h3>' +
+        '<p>Blank means no limit. Zero stops new paid work. Account limits also apply to every API key. These limits never raise your available wallet balance.</p>' +
+        '<form id="spend-policy-form" class="form-stack"><div class="search-advanced-grid">' +
+        fields.map(name => '<label>' + label(name) + '<input name="' + name + '" type="number" min="0" max="' + (1000000000 / scale) + '" step="' + (1 / scale) + '" placeholder="No limit" value="' + (policy[name] == null ? '' : policy[name] / scale) + '"></label>').join('') +
+        '</div><p>Daily and monthly periods reset at midnight UTC. Reservations use headroom immediately; settlement releases unused credit. Accepted runs keep their original reservation.</p>' +
+        '<button class="btn primary" type="submit">Save limits</button><p id="spend-policy-status" role="status"></p></form>' +
+        '<h3>Current period usage</h3><div class="ih-inspector-grid">' +
+        ['daily','monthly'].map(period => {
+          const row = usage[period];
+          const remaining = row.unknown_reservation_count ? 'Unknown · active reservation needs review' : row.remaining_credits == null ? 'No limit' : amount(row.remaining_credits);
+          return '<div><small>' + (period === 'daily' ? 'Today · UTC' : 'This month · UTC') + '</small><b>' + amount(row.charged_credits) + ' charged</b><p>' + amount(row.reserved_credits) + ' reserved</p><p>Remaining: ' + esc(remaining) + '</p></div>';
+        }).join('') + '</div><p>Next daily reset: ' + esc(new Date(usage.day_end).toUTCString()) + '</p>' +
+        '<button class="btn" id="spend-policy-reload">Reload limits and usage</button>';
+      $('#spend-scope').onchange = event => go('/dashboard/spending' + (event.target.value ? '?key=' + encodeURIComponent(event.target.value) : ''));
+      $('#spend-policy-reload').onclick = load;
+      const form = $('#spend-policy-form'), status = $('#spend-policy-status');
+      form.onsubmit = async event => {
+        event.preventDefault();
+        const body = {expected_version:policy.version};
+        for (const name of fields) {
+          const raw = form.elements[name].value;
+          const value = Number(raw) * scale;
+          if (raw !== '' && (!Number.isFinite(value) || value < 0 || value > 1000000000 || Math.abs(value - Math.round(value)) > 0.000001)) {
+            status.textContent = 'Choose a limit in whole wallet credits.';
+            return;
+          }
+          body[name] = raw === '' ? null : Math.round(value);
+        }
+        const button = form.querySelector('button[type="submit"]');
+        busy(button,true,'Saving…'); status.textContent = '';
+        try {
+          await api(endpoint,{method:'PUT',body});
+          if (!current()) return;
+          await load();
+          if (current() && $('#spend-policy-status')) $('#spend-policy-status').textContent = 'Limits saved.';
+        } catch (error) {
+          if (current()) status.textContent = error.message;
+        } finally { if (button.isConnected) busy(button,false); }
+      };
+    } catch (error) {
+      if (!current()) return;
+      panel.innerHTML = '<p role="alert">' + esc(error.message) + '</p><button class="btn" id="spend-policy-retry">Try again</button>';
+      $('#spend-policy-retry').onclick = load;
+    }
+  };
+  await load();
+}

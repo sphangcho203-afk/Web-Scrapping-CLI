@@ -266,7 +266,7 @@ class CapabilityRunStore:
                 """
                 SELECT *,expires_at<=now() AS expired
                 FROM ih_capability_runs
-                WHERE (%s IS NULL OR id=%s)
+                WHERE (%s::text IS NULL OR id=%s)
                   AND (
                     status='queued'
                     OR (status='waiting' AND next_poll_at<=now())
