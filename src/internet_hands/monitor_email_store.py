@@ -266,8 +266,8 @@ class MonitorEmailStore:
         with self.control._connect() as conn, conn.cursor() as cur:
             cur.execute("""UPDATE ih_monitor_email_deliveries SET status=%s,provider_id=%s,last_error=%s,
                 may_have_sent=(may_have_sent OR %s),next_attempt_at=now()+(%s * interval '1 second'),
-                accepted_at=CASE WHEN %s IS NOT NULL THEN now() ELSE accepted_at END,
-                next_receipt_at=CASE WHEN %s IS NOT NULL THEN now() ELSE NULL END,
+                accepted_at=CASE WHEN %s::text IS NOT NULL THEN now() ELSE accepted_at END,
+                next_receipt_at=CASE WHEN %s::text IS NOT NULL THEN now() ELSE NULL END,
                 lease_token=NULL,lease_until=NULL,updated_at=now()
                 WHERE id=%s AND status='sending' AND lease_token=%s""",
                 (status, message_id, error, uncertain, delay, message_id, message_id, event["id"], event["lease_token"]))

@@ -156,14 +156,15 @@ async def test_existing_purchase_preview_scheduled_change_email_and_failed_credi
     with control._connect() as conn, conn.cursor() as cur:
         cur.execute("UPDATE ih_users SET email_verified=true WHERE id=%s", (owner,))
         cur.execute("DELETE FROM ih_monitors WHERE id=%s", (fixture_monitor["id"],))
+        cur.execute("UPDATE ih_wallets SET monthly_credits=0 WHERE user_id=%s", (owner,))
     monkeypatch.setattr(product_tracker_api, "store", control)
     runs = RunStore(control)
     preview = runs.create(control.api_key_identity_for_user(owner, key["id"]), "journey-preview", product_arguments("https://example.com/pricing"))
     await dispatch_run(runs, preview["id"])
     assert product_tracker_api.product_run(owner, preview["id"])["products"][0]["price"] == "99"
-    before = control.account_snapshot(owner)["monthly_credits"]
+    before = control.account_snapshot(owner)["purchased_credits"]
     monitor = product_tracker_api.start_tracking(owner, {"run_id": preview["id"], "name": "Purchased-credit tracker", "confirm_recurring": True})
-    assert control.account_snapshot(owner)["monthly_credits"] == before
+    assert control.account_snapshot(owner)["purchased_credits"] == before
     emails = MonitorEmailStore(control)
     assert emails.settings(owner, monitor["id"])["preferences"]["enabled"] is False
     opt_in(emails, owner, monitor, ["availability"])
@@ -188,17 +189,17 @@ async def test_existing_purchase_preview_scheduled_change_email_and_failed_credi
     capture["text"] = html("79", "OutOfStock", extra="Only a banner changed")
     await scheduled_check(control, monitor)
     capture["text"] = "Missing published offer"
-    before_failed = control.account_snapshot(owner)["monthly_credits"]
+    before_failed = control.account_snapshot(owner)["purchased_credits"]
     await scheduled_check(control, monitor)
     final = control.get_monitor(owner, monitor["id"])
     assert final["runs"][0]["status"] == "failed" and final["runs"][0]["credits_charged"] == 0
-    assert control.account_snapshot(owner)["monthly_credits"] == before_failed
+    assert control.account_snapshot(owner)["purchased_credits"] == before_failed
     assert len(emails.history(owner, monitor["id"])["deliveries"]) == 1
     with control._connect() as conn, conn.cursor() as cur:
         cur.execute("SELECT reserved_credits,purchased_credits,monthly_credits FROM ih_wallets WHERE user_id=%s", (owner,))
         wallet = cur.fetchone()
-        assert wallet["reserved_credits"] == 0 and wallet["purchased_credits"] == 5000
-        assert 10000-wallet["monthly_credits"] == runs.get(owner, preview["id"])["credits_charged"]+sum(r["credits_charged"] for r in final["runs"])
+        assert wallet["reserved_credits"] == 0 and wallet["monthly_credits"] == 0
+        assert 5000-wallet["purchased_credits"] == runs.get(owner, preview["id"])["credits_charged"]+sum(r["credits_charged"] for r in final["runs"])
 
 
 async def test_send_recovery_reuses_payload_key_and_never_resends_accepted(email_monitor, mail_transport, monkeypatch):
