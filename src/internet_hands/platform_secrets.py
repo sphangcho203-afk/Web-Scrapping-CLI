@@ -6,7 +6,6 @@ from typing import Any
 
 import httpx
 
-
 _VAULT_SECRET_CACHE: dict[str, tuple[float, str]] = {}
 
 
