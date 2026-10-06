@@ -514,7 +514,7 @@ def test_public_data_workspace_validates_executes_and_reports_partial_results(fr
         assert page.get_by_role("link", name="Open source", exact=True).get_attribute("href") == "https://source.example/report"
         form.locator('[name="operation"]').select_option("extract")
         assert not page.locator("#public-data-research-fields").is_visible()
-        assert "$0.0010" in page.locator("#public-data-budget").inner_text()
+        assert "Reserve up to 5 credits" in page.locator("#public-data-budget").inner_text()
         form.locator('[name="operation"]').select_option("search")
         assert not page.locator("#public-data-urls-field").is_visible()
         form.locator('[name="search_query"]').fill("agent research")
@@ -615,7 +615,7 @@ def test_rewards_redemption_delivers_wallet_prize(frontend_url):
         page.get_by_role("button", name="Redeem prize").click()
         page.get_by_text("Prize redeemed and added to your usage credits").wait_for()
         page.get_by_text("20", exact=True).first.wait_for()
-        assert page.get_by_text("$0.25 wallet credit", exact=True).count() >= 1
+        assert page.get_by_text("1,250 OpenCrawl usage credits", exact=True).count() >= 1
         assert state["purchased"] == 1750
         assert state["points"] == 20
         assert not errors, errors
