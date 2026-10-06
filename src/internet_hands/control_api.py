@@ -24,7 +24,6 @@ from .auth import (
     verify_pkce,
 )
 from .control_store import (
-    WALLET_UNITS_PER_USD,
     ControlError,
     ControlStore,
     credit_burn_multiplier,
