@@ -143,12 +143,16 @@ def finish_content_check(runs, cur, conn, job, status, result, usage, error_code
         if product_check:
             summaries = {"baseline": "Product price baseline saved.", "unchanged": "Tracked product fields are unchanged.",
                          "changed": "Tracked product fields changed; new snapshot saved."}
+        monitor_run_id = "mrun_" + uuid.uuid4().hex
         cur.execute("""INSERT INTO ih_monitor_runs
             (id,monitor_id,status,latency_ms,http_status,summary,diff,credits_charged,crawl_run_id,dataset_id)
             VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s)""",
-            ("mrun_" + uuid.uuid4().hex, job["monitor_id"], outcome, int(result.get("duration_ms") or 0),
+            (monitor_run_id, job["monitor_id"], outcome, int(result.get("duration_ms") or 0),
              page.get("status_code"), summaries.get(outcome, error_code or "content_unavailable"),
              json.dumps(diff) if diff else None, credits, job["id"], dataset_id))
+        if product_check and outcome == "changed":
+            from .monitor_email_store import enqueue_change_email
+            enqueue_change_email(cur, monitor, monitor_run_id, dataset_id, diff.get("changes"), page["products"])
         # Superseded output may appear in history, but cannot change the new config's state.
         if monitor["content_version"] == job["monitor_version"]:
             cur.execute("UPDATE ih_monitors SET last_status=%s,last_checked_at=now(),updated_at=now() WHERE id=%s",
