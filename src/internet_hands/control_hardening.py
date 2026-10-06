@@ -101,7 +101,7 @@ async def _send_payment_confirmation(payment: dict[str, Any]) -> None:
         f"<p>Your purchase of <strong>{html.escape(item)}</strong> has been confirmed.</p>"
         f"<p><strong>Amount:</strong> {html.escape(amount_label)}<br><strong>Order:</strong> {html.escape(order_id)}<br>"
         f"<strong>Payment:</strong> {html.escape(payment_id)}</p>"
-        "<p style='color:#8aa0aa'>Your wallet balance or plan entitlement is already active in the dashboard.</p>"
+        "<p style='color:#8aa0aa'>Your OpenCrawl usage credits or plan entitlement are already active in the dashboard.</p>"
         "</div></body></html>"
     )
     try:
