@@ -10,7 +10,14 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 
 from .auth import hash_password, sha256_text
-from .control_api import _json_error, _origin, _razorpay_config, _razorpay_secret, _require_user, store
+from .control_api import (
+    _json_error,
+    _origin,
+    _razorpay_config,
+    _razorpay_secret,
+    _require_user,
+    store,
+)
 from .control_store import ControlError, random_token
 from .mailer import MailError, send_mail
 from .security_store import SecurityStore
