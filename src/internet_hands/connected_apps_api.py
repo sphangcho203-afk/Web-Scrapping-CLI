@@ -22,6 +22,36 @@ def _toolkit_slug(value: Any) -> str:
     return slug
 
 
+def _provider_logo(value: Any) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    logo = value.strip()
+    try:
+        url = httpx.URL(logo)
+    except httpx.InvalidURL:
+        return None
+    if url.scheme != "https" or not url.host or url.userinfo:
+        return None
+    return logo
+
+
+def _toolkit_metadata(item: dict[str, Any]) -> dict[str, str | None]:
+    # Catalog toolkits use meta; auth-config toolkits and older responses flatten it.
+    meta = item.get("meta") if isinstance(item.get("meta"), dict) else {}
+    description = next(
+        (
+            value.strip()[:320]
+            for value in (meta.get("description"), item.get("description"))
+            if isinstance(value, str) and value.strip()
+        ),
+        None,
+    )
+    return {
+        "description": description,
+        "logo": _provider_logo(meta.get("logo")) or _provider_logo(item.get("logo")),
+    }
+
+
 def _configured_auth_map() -> dict[str, str]:
     raw = (os.getenv("OPENCRAWL_COMPOSIO_AUTH_CONFIGS") or "").strip()
     if not raw:
@@ -144,8 +174,7 @@ class ComposioConnectionService:
                 {
                     "toolkit": slug,
                     "name": str(item.get("name") or item.get("display_name") or slug.replace("_", " ").title()),
-                    "description": str(item.get("description") or "")[:320] or None,
-                    "logo": item.get("logo"),
+                    **_toolkit_metadata(item),
                     "auth_schemes": [
                         str(value).upper()
                         for value in (item.get("auth_schemes") or [])
@@ -450,6 +479,7 @@ async def integration_apps(request: Request):
         slug = str(toolkit.get("slug") or "").lower()
         if not slug or not _TOOLKIT_RE.fullmatch(slug):
             continue
+        metadata = _toolkit_metadata(toolkit)
         entry = by_toolkit.setdefault(
             slug,
             {
@@ -459,7 +489,7 @@ async def integration_apps(request: Request):
                     or item.get("name")
                     or slug.replace("_", " ").title()
                 ),
-                "logo": toolkit.get("logo"),
+                **metadata,
                 "auth_schemes": [],
                 "auth_configs": [],
                 "auth_config_count": 0,
@@ -467,6 +497,9 @@ async def integration_apps(request: Request):
                 "active_accounts": 0,
             },
         )
+        for field, value in metadata.items():
+            if not entry.get(field) and value:
+                entry[field] = value
         entry["auth_config_count"] += 1
         scheme = str(item.get("auth_scheme") or "")
         if scheme and scheme not in entry["auth_schemes"]:

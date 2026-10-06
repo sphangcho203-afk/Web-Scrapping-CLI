@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 
 from .control_api import _require_user, store
 from .control_store import ControlError
@@ -12,10 +12,12 @@ router = APIRouter()
 @router.get("/api/usage/intelligence")
 def usage_intelligence(
     request: Request,
+    response: Response,
     window: str = Query("30d"),
     recent_limit: int = Query(12, ge=1, le=50),
 ):
     user = _require_user(request)
+    response.headers["Cache-Control"] = "no-store"
     try:
         return UsageIntelligence(store).snapshot(user["id"], window=window, recent_limit=recent_limit)
     except ValueError as exc:

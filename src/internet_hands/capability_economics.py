@@ -449,6 +449,12 @@ def estimate_call(
         # based on credits reported by providers and never exceeds this quote.
         search_budget = 2 if operation in {"search", "research", "auto"} and args.get("query") else 0
         recovery_budget = 3 if operation in {"research", "auto"} and args.get("query") else 0
+        if "paid_recovery" in args:
+            # Discovery-only search is capped at ten results: two upstream units.
+            # Evidence recovery is capped at three basic single-page requests.
+            paid_search = 2 * FIRECRAWL_CREDITS_PER_UNIT if search_budget and args["paid_recovery"] else 0
+            recovery_budget = recovery_budget * FIRECRAWL_CREDITS_PER_UNIT if args["paid_recovery"] else 0
+            search_budget += paid_search
         reserved = rule.base_credits + search_budget + recovery_budget
         return CostEstimate(
             allowed=True, plan=plan.slug, tool_name=tool_name,
@@ -715,7 +721,7 @@ def estimate_call(
                 units = len(urls) if isinstance(urls, list) else 0
                 if not 1 <= units <= 20:
                     reason = "batch fetch requires 1 to 20 URLs"
-            elif operation in {"fetch", "map", "search", "context"}:
+            elif operation in {"fetch", "scrape", "map", "search", "context"}:
                 units = 1
             else:
                 reason, units = "unknown native web operation", 0
@@ -1164,16 +1170,21 @@ def settle_measured_cost(
         provider_calls = {}
 
     if tool_name.startswith("playground:"):
-        # Provider credits are a policy mapping of one internal credit per
-        # reported external credit. Unknown/missing provider usage is recorded
-        # separately and never guessed into a customer charge.
+        # Legacy calls retain their old mapping. Explicit recovery maps measured
+        # upstream units (or disclosed basic-operation units) to router policy.
         reported = 0
         for item in usage.get("provider_usage") or []:
             if not isinstance(item, dict):
                 continue
             value = item.get("credits_used")
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
-                reported += max(0, int(value))
+            explicit_policy = "paid_recovery" in args and item.get("provider") == "firecrawl"
+            if value is None and explicit_policy and item.get("status") == "ok":
+                value = item.get("policy_work_units")
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
+                units = max(0, math.ceil(value) if explicit_policy else int(value))
+                if explicit_policy:
+                    units *= FIRECRAWL_CREDITS_PER_UNIT
+                reported += units
         return min(reserved, (1 if usage.get("completed") else 0) + reported)
 
     if tool_name in {"repo:search", "repo:inspect"}:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import time
 from typing import Any
 
 from .adapters import AdapterError, capture_with_backend
@@ -114,8 +115,12 @@ async def resilient_public_fetch(
 
     async def capture_playwright() -> FetchResult:
         record_usage("intelligence_browser_renders")
-        rendered = await render_page(url, timeout_ms=int(timeout_seconds * 1000))
-        return _browser_fetch(rendered)
+        started = time.monotonic()
+        try:
+            rendered = await render_page(url, timeout_ms=int(timeout_seconds * 1000))
+            return _browser_fetch(rendered)
+        finally:
+            record_usage("intelligence_browser_elapsed_ms", round((time.monotonic()-started)*1000))
 
     async def capture_external(name: str) -> FetchResult:
         if os.getenv("OPENCRAWL_EXTERNAL_BACKENDS_ENABLED", "").strip().lower() not in {

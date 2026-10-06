@@ -37,7 +37,7 @@ def test_run_detail_is_user_scoped_and_exposes_trace_fields() -> None:
 
 def test_usage_snapshot_exposes_daily_series_and_status_breakdown() -> None:
     source = (ROOT / "src/internet_hands/usage_intelligence.py").read_text(encoding="utf-8")
-    assert "date_trunc('day',created_at)::date AS bucket" in source
+    assert "created_at AT TIME ZONE 'UTC'" in source
     assert 'by_status = breakdown("status")' in source
     assert '"series": series' in source
     assert '"status": by_status' in source
@@ -53,10 +53,10 @@ def test_usage_ui_supports_deep_linked_run_detail() -> None:
 
 def test_usage_ui_renders_server_backed_trend_and_status_intelligence() -> None:
     source = (ROOT / "web/usage-intelligence.js").read_text(encoding="utf-8")
-    assert "const trend = rows =>" in source
+    assert "const trend = data =>" in source
     assert "Usage over time" in source
-    assert "Request volume trend" in source
-    assert "Credit burn trend" in source
+    assert "data-usage-chart" in source
+    assert "Credit spend" in source
     assert "data.series||[]" in source
-    assert "breakdown('By status',b.status||[])" in source
+    assert "breakdown('By status',b.status||[],t.requests)" in source
     assert "Nothing is fabricated" in source

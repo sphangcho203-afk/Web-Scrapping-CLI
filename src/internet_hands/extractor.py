@@ -121,6 +121,31 @@ def extract_document(result: FetchResult) -> ExtractedDocument:
     )
 
 
+def extract_markdown(result: FetchResult) -> str:
+    """Return bounded clean Markdown when Trafilatura is available, with safe text fallback."""
+    body = result.body_text or ""
+    content_type = (result.content_type or "").lower()
+    if not body:
+        return ""
+    if "html" not in content_type and "<html" not in body[:1000].lower():
+        return _clean(body)
+
+    module = _load_trafilatura()
+    if module is not None:
+        try:
+            markdown = module.extract(
+                body,
+                output_format="markdown",
+                include_links=True,
+                include_formatting=True,
+            )
+            if markdown:
+                return str(markdown).strip()
+        except (AttributeError, TypeError, ValueError):
+            pass
+    return extract_document(result).text
+
+
 def _load_trafilatura():
     try:
         return __import__("trafilatura")

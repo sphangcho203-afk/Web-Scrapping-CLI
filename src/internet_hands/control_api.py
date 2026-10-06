@@ -666,21 +666,21 @@ def monitor(request: Request, monitor_id: str):
 async def create_monitor(request: Request):
     user = _require_verified(_require_user(request))
     body = await request.json()
-    monitor_type = str(body.get("type") or "web")
-    if monitor_type not in {"web", "api", "mcp", "gaming"}:
-        raise HTTPException(status_code=400, detail="invalid monitor type")
-    interval = max(5, min(int(body.get("interval_minutes") or 60), 10080))
     try:
+        from .monitor_lifecycle import validate_monitor_spec
+        spec = validate_monitor_spec(body)
+        if spec["type"] == "content":
+            from .content_monitors import content_identity
+            content_identity(store, user["id"], spec["config"])
         return store.create_monitor(
             user_id=user["id"],
-            name=str(body.get("name") or "Monitor")[:120],
-            monitor_type=monitor_type,
-            target=str(body.get("target") or "")[:2000],
-            interval_minutes=interval,
-            config=body.get("config") if isinstance(body.get("config"), dict) else {},
+            name=spec["name"], monitor_type=spec["type"], target=spec["target"],
+            interval_minutes=spec["interval_minutes"], config=spec["config"],
         )
     except ControlError as exc:
         raise _json_error(exc) from exc
+    except ValueError as exc:
+        raise HTTPException(422, detail={"code": "invalid_monitor", "message": str(exc)}) from exc
 
 
 @router.post("/api/monitors/{monitor_id}/toggle")

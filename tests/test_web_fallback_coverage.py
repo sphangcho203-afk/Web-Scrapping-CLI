@@ -7,6 +7,8 @@ def test_core_web_capabilities_have_independent_native_fallbacks() -> None:
     capabilities = {item.id: item for item in build_firecrawl_capabilities()}
     expected = {
         "web.fetch.page": "nativeweb:fetch",
+        "web.scrape.smart": "nativeweb:scrape",
+        "web.scrape.http": "nativeweb:scrape",
         "web.search.live": "nativeweb:search",
         "web.map.site": "nativeweb:map",
         "web.crawl.site": "nativeweb:crawl",

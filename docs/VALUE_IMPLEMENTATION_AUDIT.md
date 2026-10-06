@@ -1,0 +1,88 @@
+# OpenCrawl value implementation — first tranche
+
+Audit baseline: `56ca429af5913c5a7895073a0b806733fb4ede9e`, 29 September 2026 UTC. This is a focused execution/storage audit, not a claim that every authentication, billing and production flow has been revalidated.
+
+## Observed flow
+
+| Capability | UI | Endpoint | Execution | Accounting | Prior output persistence |
+|---|---|---|---|---|---|
+| Search | Playground | POST /api/playground/run | Brave discovery with configured fallback | reserve_tool_call → finish_usage | Returned only |
+| Research | Playground deep toggle | Same endpoint, operation research | Search → bounded evidence → extractive synthesis → crawl | Existing measured settlement | Returned only |
+| Crawl | Playground URL mode | Same endpoint, operation crawl | Policy/robots → bounded native crawl | Existing measured settlement | Page metadata returned only |
+| Run history | Runs | /api/usage/intelligence and /api/usage/runs/{id} | UsageIntelligence | Stored usage events | Cost/log metadata, not collection output |
+| Monitors | Monitors | /api/monitors and lifecycle routes | Scheduler/executor modules | Existing monitor accounting | Monitor run records |
+| Rewards | Rewards | rewards router | Server-side redemption | Wallet/points ledger | Existing redemption records |
+
+The product already has substantial primitives. Its architecture document still describes early v0.2 layers while the actual SaaS app registers v0.7 control, security, usage, reward, provider and monitor modules. Replacing this substrate would discard useful work.
+
+The chosen gap was durable output: Playground requests produced collected records but no account-owned dataset. The new path is UI → same authenticated execution → existing wallet reservation → collection → DatasetStore → ih_datasets → existing settlement → result plus saved-output link. This change does not introduce a second billing system.
+
+## Research evidence and priority
+
+Sources inspected through current web search:
+
+- Apify documents run-associated datasets, tables, exports and API access: https://docs.apify.com/storage and https://docs.apify.com/storage/dataset
+- Firecrawl presents composable search/scrape/interact for research, RAG, competitive intelligence and price monitoring: https://www.firecrawl.dev/
+- Firecrawl monitoring covers pages, sites and queries: https://www.firecrawl.dev/monitor
+- Developer request for finished-crawl delivery without polling: https://github.com/firecrawl/firecrawl/issues/488 (historical evidence, not a current unresolved-status claim).
+- Zyte documents structured extraction for products/job postings and browser versus HTTP extraction sources: https://docs.zyte.com/zyte-api/usage/reference.html
+- Tavily offers live search and extraction setup: https://docs.tavily.com/documentation/quickstart
+- Browserless documents browser extraction: https://docs.browserless.io/browserql/use-cases/scrape-and-extract-data
+
+These establish competitor capability patterns; they do not prove OpenCrawl customers' willingness to pay. Priority and revenue potential below are qualitative engineering hypotheses. A full market survey across every provider and an aggregate user-demand loop remain outstanding.
+
+| Capability | User problem / target | Frequency | Complexity / marginal cost | Credits | Revenue hypothesis / differentiation | Status / priority |
+|---|---|---|---|---|---|---|
+| Saved datasets / exports | Developers need reusable outputs after a run | Every useful collection | Low–medium; bounded DB storage | Existing collection charge; reads no extra charge | Improves adoption and saves repeated collection; source records plus run cost | Implemented first |
+| Full crawl content | RAG developers need text rather than status metadata | Per crawl | Medium; normalization/storage | Meter fetched pages and bytes | Necessary for docs-to-RAG recipes | Next core gap |
+| Webhook delivery | Automation users avoid polling/manual downloads | Every scheduled run | Medium; durable retry/signature/egress controls | Transparent delivery cost if added | Repeat usage and workflow integration | Next retention wave |
+| Monitor dataset appends | Pricing/job/news users need history | Hourly–weekly | Medium; dedupe and storage lifecycle | Existing monitored collection plus explicit storage policy | Retention and historical value | Planned, not advertised as shipped |
+| Schema extraction | Ecommerce/jobs users need normalized fields | Batch/recurring | Medium–high; optional model/provider costs | Reserve by bounded inputs; settle actual usage | Commercial outputs with provenance | Existing tool paths require deeper audit before unification |
+| Browser recipes | Authorized interactive collection | Task-dependent | High; browser/session cost | Higher compute charge | High-value tasks, existing browser substrate | Existing paths; not changed |
+
+## Implemented
+
+- Additive dataset schema with owned usage-request linkage and request uniqueness.
+- Automatic Playground output save; empty and partial results retained.
+- List/detail/filter/pagination, rename/delete, JSON/JSONL/CSV export APIs.
+- Session and scoped API-key access; account isolation; safe CSV and headers.
+- Desktop/sidebar and mobile More navigation; saved-result links; dataset controls.
+- Public console docs and detailed API guide.
+
+## Limits and remaining mandate
+
+No production DB credentials were needed for development. Tests use an isolated database and provider fixtures. Production authentication/provider execution, previews and promotion require their own verification. This tranche does not fulfill the full attached multi-wave directive: complete market research, whole-product audit, asynchronous runs/cancellation, extraction unification, monitor delivery and automation composition remain future work. No placeholder routes for those capabilities were introduced.
+
+## Readable crawl content follow-up
+
+Playground URL crawls now include bounded readable text and provenance in saved page rows. Text is extracted from the existing HTTP capture, with explicit per-page and aggregate UTF-8 limits and failure/truncation fields. The console exposes expandable text, and JSONL exports can feed a RAG chunker. See [CRAWL_CONTENT.md](CRAWL_CONTENT.md) for the current contract. JavaScript rendering, automated embeddings, webhook delivery and asynchronous jobs remain future work. The tables above describe the original audit baseline.
+
+## Signed dataset delivery follow-up
+
+Saved Playground outputs now enqueue account-owned completion events transactionally when an endpoint is enabled. The existing scheduler dispatches signed HTTPS notifications with bounded attempts, lease recovery, safe public-IP connections and explicit delivery history. Datasets contains endpoint, pause, secret rotation and retry controls. Real PostgreSQL verification is part of CI. See [DATASET_WEBHOOKS.md](DATASET_WEBHOOKS.md) for the current contract. Monitor dataset history, schema extraction, recipes and durable collection jobs remain future work.
+
+
+## Durable collection follow-up
+
+Bounded URL crawls now have an owned background job API and dashboard with idempotent submission, transactional reservations, fenced worker recovery, persisted batch progress, cooperative cancellation and atomic dataset/webhook/billing completion. See [DURABLE_CRAWL_RUNS.md](DURABLE_CRAWL_RUNS.md). Recovery restarts a bounded crawl once; resumable per-page frontiers, asynchronous search/research and actual content-change monitor delivery remain follow-up architecture. Production promotion still requires the authenticated deployed flow.
+
+
+## Resumable frontier follow-up
+
+New background crawl checkpoints now persist an ordered owned frontier atomically with captured pages and measured usage. A replacement process resumes pending requests, preserves committed captures and carries original budgets. Legacy capture-only jobs retain seed-restart compatibility. In-flight uncommitted batches can repeat; URL frontier capacity is bounded and reported explicitly. Large multi-tick collection, asynchronous search/research and content-change monitor delivery remain follow-up work.
+
+## Content-monitor follow-up
+
+Owned content monitors now queue metered one-page checks through the durable crawler, persist baseline/unchanged/changed history and save datasets plus signed notifications only for baselines and changes. Configuration versions, ownership/key checks and worker leases fence stale output. The console exposes billing-key selection, check progress, charges and capture links. Canonical apex/`www` redirects now consult destination robots rules; all-failed crawls report failure and release their completion charge. See [CONTENT_MONITORS.md](CONTENT_MONITORS.md) for limits and the deployed verification gate. Field/schema extraction, rendered-page monitoring, multi-tick crawling and recipe composition remain follow-up work.
+
+## Crawl-discovery follow-up
+
+Opt-in sitemap discovery now reaches unlinked pages through robots hints, conventional sitemap URLs and bounded indexes. Playground, background jobs and native tools share the control. All modes bound the URL frontier, asynchronous I/O respects the original time budget, and progress/saved output report discovery counts and limits. Existing link-only checkpoints remain compatible; recovered sitemap jobs reuse their committed frontier. See [CRAWL_DISCOVERY.md](CRAWL_DISCOVERY.md). Standalone site mapping, compressed sitemaps, schema extraction, rendered crawling and multi-tick collection remain follow-up work.
+
+## Usage analytics follow-up
+
+Overview and Usage now expose ledger-backed responsive vector charts, shareable metric/window controls, keyboard/touch bucket inspection, exact tables and CSV. UTC series include quiet and partial buckets; pending outcomes no longer reduce completed-request success, and missing latency stays null. All ledger aggregates use one bounded repeatable-read snapshot; operation and status remainders reconcile request shares. Refresh errors preserve and label stale data. See [USAGE_ANALYTICS.md](USAGE_ANALYTICS.md). Comparison periods, per-key filters and historical wallet balances remain follow-up work.
+
+## Execution budget follow-up
+
+Playground now maps normalized inputs to a read-only cost review and explicit confirmation, then enforces the reviewed revision and spending ceiling before execution. Background jobs preserve reservation-time pricing across workers. Paid search/evidence recovery is explicit, bounded and priced using the main router's basic-work policy; PDF fan-out is excluded. Reservations remain pending in usage analytics, and background receipts distinguish original reservation, posted charge and release. See [EXECUTION_BUDGETS.md](EXECUTION_BUDGETS.md). Provider invoices/native compute, promotional credit economics, comparison periods and per-key budgets remain follow-up work; no profitability guarantee is implied.
