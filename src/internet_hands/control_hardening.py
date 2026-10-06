@@ -200,10 +200,17 @@ async def razorpay_webhook_captured_only(request: Request):
     if not inserted:
         return {"ok": True, "duplicate": True}
 
+    order_id = str(payment_entity.get("order_id") or order_entity.get("id") or "")
+    payment_id = str(payment_entity.get("id") or "")
+
+    if event_type == "payment.failed":
+        if order_id and store.get_payment_by_order(order_id):
+            store.mark_payment_failed(order_id=order_id, payment_id=payment_id or None)
+        return {"ok": True, "fulfilled": False, "payment_failed": True}
+
     if event_type not in {"payment.captured", "order.paid"}:
         return {"ok": True, "fulfilled": False}
 
-    order_id = str(payment_entity.get("order_id") or order_entity.get("id") or "")
     if not order_id:
         return {"ok": True, "fulfilled": False}
     order = store.get_payment_by_order(order_id)
@@ -213,7 +220,6 @@ async def razorpay_webhook_captured_only(request: Request):
     key_id, key_secret, _ = _razorpay_config()
     payment: dict[str, Any] | None = None
     async with httpx.AsyncClient(timeout=20.0, auth=(key_id, key_secret)) as client:
-        payment_id = str(payment_entity.get("id") or "")
         if payment_id:
             payment = await _fetch_razorpay_payment(client, payment_id)
         if not payment or payment.get("status") != "captured":

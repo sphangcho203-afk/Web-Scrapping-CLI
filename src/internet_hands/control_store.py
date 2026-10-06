@@ -2482,6 +2482,23 @@ class ControlStore:
             row = cur.fetchone()
             return dict(row) if row else None
 
+    def mark_payment_failed(self, *, order_id: str, payment_id: str | None = None) -> dict[str, Any] | None:
+        """Record a failed attempt without allowing a late failure to overwrite fulfillment."""
+        self.ensure_schema()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE ih_payments
+                SET payment_id=COALESCE(%s,payment_id),status='failed'
+                WHERE order_id=%s AND status NOT IN ('paid','captured')
+                RETURNING *
+                """,
+                (payment_id or None, order_id),
+            )
+            row = cur.fetchone()
+            conn.commit()
+            return dict(row) if row else None
+
     def finalize_payment(self, *, order_id: str, payment_id: str, status: str = "captured") -> dict[str, Any]:
         self.ensure_schema()
         with self._connect() as conn:
@@ -2493,45 +2510,50 @@ class ControlStore:
                 if payment["status"] in {"paid", "captured"}:
                     return dict(payment)
                 user_id = payment["user_id"]
+                metadata = dict(payment.get("metadata") or {})
+                payment_currency = str(payment.get("currency") or "INR").upper()
+                payment_amount_minor = int(payment.get("amount_paise") or 0)
+
                 if payment["purpose"] == "credits":
-                    metadata = dict(payment.get("metadata") or {})
-                    pack_slug = payment.get("credit_pack_slug")
-                    if pack_slug:
+                    pack_slug = str(payment.get("credit_pack_slug") or "")
+                    if not pack_slug:
+                        raise ControlError(
+                            "invalid_credit_purchase",
+                            "usage-credit purchases must reference a preset credit pack",
+                            409,
+                        )
+
+                    credits = int(metadata.get("credits_snapshot") or 0)
+                    price_inr = int(metadata.get("price_inr_snapshot") or 0)
+                    entitlement_source = "order_snapshot"
+                    if credits <= 0:
+                        # Compatibility only for orders created before entitlement snapshots shipped.
                         cur.execute(
-                            "SELECT credits FROM ih_credit_packs WHERE slug=%s AND active=true",
+                            "SELECT credits FROM ih_credit_packs WHERE slug=%s",
                             (pack_slug,),
                         )
                         pack = cur.fetchone()
                         if not pack:
                             raise ControlError("credit_pack_not_found", "credit pack not found", 404)
                         credits = int(pack["credits"])
-                        topup_mode = "preset"
-                    else:
-                        credits = int(metadata.get("wallet_units") or 0)
-                        usd_cents = int(metadata.get("wallet_usd_cents") or 0)
-                        if credits <= 0 or usd_cents <= 0:
+                        entitlement_source = "legacy_catalog_fallback"
+                    if price_inr <= 0:
+                        if payment_amount_minor <= 0 or payment_amount_minor % 100:
                             raise ControlError(
-                                "invalid_custom_topup",
-                                "custom wallet top-up metadata is invalid",
+                                "credit_pack_amount_invalid",
+                                "credit-pack order amount is invalid",
                                 409,
                             )
-                        if (
-                            str(payment.get("currency") or "").upper() != "USD"
-                            or int(payment.get("amount_paise") or 0) != usd_cents
-                        ):
-                            raise ControlError(
-                                "wallet_payment_mismatch",
-                                "custom wallet top-up does not match the captured payment amount",
-                                409,
-                            )
-                        expected_units = usd_cents * WALLET_UNITS_PER_USD // 100
-                        if credits != expected_units:
-                            raise ControlError(
-                                "wallet_amount_mismatch",
-                                "custom wallet top-up amount does not match the configured denomination",
-                                409,
-                            )
-                        topup_mode = "custom"
+                        price_inr = payment_amount_minor // 100
+                    if credits <= 0:
+                        raise ControlError("credit_pack_invalid", "credit pack contains no credits", 409)
+                    if payment_currency != "INR" or payment_amount_minor != price_inr * 100:
+                        raise ControlError(
+                            "credit_pack_payment_mismatch",
+                            "credit-pack entitlement does not match the captured order amount",
+                            409,
+                        )
+
                     cur.execute(
                         "UPDATE ih_wallets SET purchased_credits=purchased_credits+%s,updated_at=now() WHERE user_id=%s",
                         (credits, user_id),
@@ -2550,24 +2572,45 @@ class ControlStore:
                             order_id,
                             json.dumps(
                                 {
-                                    "display_currency": "USD",
-                                    "wallet_units_per_usd": WALLET_UNITS_PER_USD,
-                                    "topup_mode": topup_mode,
-                                    "payment_currency": str(payment.get("currency") or "INR"),
-                                    "payment_amount_minor": int(payment.get("amount_paise") or 0),
-                                    "wallet_usd_cents": int(metadata.get("wallet_usd_cents") or 0)
-                                    if topup_mode == "custom"
-                                    else None,
+                                    "display_currency": payment_currency,
+                                    "purchase_mode": "preset_credit_pack",
+                                    "credit_pack_slug": pack_slug,
+                                    "credit_pack_credits": credits,
+                                    "entitlement_source": entitlement_source,
+                                    "payment_currency": payment_currency,
+                                    "payment_amount_minor": payment_amount_minor,
                                 }
                             ),
                         ),
                     )
                 elif payment["purpose"] == "subscription":
-                    plan_slug = payment["plan_slug"]
-                    cur.execute("SELECT included_credits FROM ih_plans WHERE slug=%s", (plan_slug,))
-                    plan = cur.fetchone()
-                    if not plan:
+                    plan_slug = str(payment.get("plan_slug") or "")
+                    if not plan_slug:
                         raise ControlError("plan_not_found", "plan not found", 404)
+
+                    credits = int(metadata.get("included_credits_snapshot") or 0)
+                    price_inr = int(metadata.get("monthly_price_inr_snapshot") or 0)
+                    if credits <= 0 or price_inr <= 0:
+                        cur.execute(
+                            "SELECT included_credits,monthly_price_inr FROM ih_plans WHERE slug=%s",
+                            (plan_slug,),
+                        )
+                        plan = cur.fetchone()
+                        if not plan:
+                            raise ControlError("plan_not_found", "plan not found", 404)
+                        if credits <= 0:
+                            credits = int(plan["included_credits"])
+                        if price_inr <= 0:
+                            price_inr = int(plan["monthly_price_inr"])
+                    if credits <= 0:
+                        raise ControlError("plan_invalid", "plan contains no included credits", 409)
+                    if payment_currency != "INR" or payment_amount_minor != price_inr * 100:
+                        raise ControlError(
+                            "plan_payment_mismatch",
+                            "plan entitlement does not match the captured order amount",
+                            409,
+                        )
+
                     cur.execute(
                         "UPDATE ih_subscriptions SET status='replaced',updated_at=now() WHERE user_id=%s AND status='active'",
                         (user_id,),
@@ -2581,18 +2624,37 @@ class ControlStore:
                         """,
                         (self._new_id("sub"), user_id, plan_slug, now, now + timedelta(days=30)),
                     )
-                    credits = int(plan["included_credits"])
                     cur.execute(
                         "UPDATE ih_wallets SET monthly_credits=%s,updated_at=now() WHERE user_id=%s",
                         (credits, user_id),
                     )
                     cur.execute(
                         """
-                        INSERT INTO ih_credit_ledger(id,user_id,amount,bucket,kind,source,reference_id)
-                        VALUES (%s,%s,%s,'monthly','grant','subscription',%s)
+                        INSERT INTO ih_credit_ledger(
+                            id,user_id,amount,bucket,kind,source,reference_id,metadata
+                        )
+                        VALUES (%s,%s,%s,'monthly','grant','subscription',%s,%s::jsonb)
                         """,
-                        (self._new_id("led"), user_id, credits, order_id),
+                        (
+                            self._new_id("led"),
+                            user_id,
+                            credits,
+                            order_id,
+                            json.dumps(
+                                {
+                                    "display_currency": payment_currency,
+                                    "purchase_mode": "subscription",
+                                    "plan_slug": plan_slug,
+                                    "included_credits": credits,
+                                    "payment_currency": payment_currency,
+                                    "payment_amount_minor": payment_amount_minor,
+                                }
+                            ),
+                        ),
                     )
+                else:
+                    raise ControlError("invalid_payment_purpose", "unsupported payment purpose", 409)
+
                 cur.execute(
                     """
                     UPDATE ih_payments SET payment_id=%s,status=%s,paid_at=now() WHERE id=%s RETURNING *
