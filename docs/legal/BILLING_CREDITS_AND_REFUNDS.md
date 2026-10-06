@@ -1,8 +1,8 @@
 # Billing, Credits & Refund Policy
 
-**Policy version:** 2026-09-27
+**Policy version:** 2026-10-06
 **Effective date:** 20 September 2026  
-**Last updated:** 27 September 2026
+**Last updated:** 6 October 2026
 
 How plans, credits, payment verification, renewals, cancellations, taxes, and refund requests work.
 
