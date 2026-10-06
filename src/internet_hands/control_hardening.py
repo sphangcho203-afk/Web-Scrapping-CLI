@@ -4,14 +4,20 @@ import hashlib
 import hmac
 import html
 import json
-import os
 from typing import Any
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 
 from .auth import hash_password, sha256_text
-from .control_api import _json_error, _origin, _razorpay_config, _require_user, store
+from .control_api import (
+    _json_error,
+    _origin,
+    _razorpay_config,
+    _razorpay_secret,
+    _require_user,
+    store,
+)
 from .control_store import ControlError, random_token
 from .mailer import MailError, send_mail
 from .security_store import SecurityStore
@@ -169,7 +175,7 @@ async def billing_verify_captured_only(request: Request):
 async def razorpay_webhook_captured_only(request: Request):
     raw = await request.body()
     signature = request.headers.get("x-razorpay-signature", "")
-    webhook_secret = os.getenv("RAZORPAY_WEBHOOK_SECRET")
+    webhook_secret, _ = _razorpay_secret("RAZORPAY_WEBHOOK_SECRET")
     if not webhook_secret:
         raise HTTPException(status_code=503, detail="Razorpay webhook secret is not configured")
 

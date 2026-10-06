@@ -30,6 +30,7 @@ from .control_store import (
     random_token,
 )
 from .mailer import mail_provider, resend_configured, smtp_configured
+from .platform_secrets import supabase_vault_secret
 from .policy import validate_public_http_url
 from .remote_mcp_provider import (
     AUTH_TYPES,
@@ -693,23 +694,59 @@ async def toggle_monitor(request: Request, monitor_id: str):
     return {"ok": True, "enabled": enabled}
 
 
+_RAZORPAY_VAULT_NAMES: dict[str, tuple[str, ...]] = {
+    "RAZORPAY_KEY_ID": ("RAZORPAY_KEY_ID", "opencrawl_razorpay_key_id"),
+    "RAZORPAY_KEY_SECRET": ("RAZORPAY_KEY_SECRET", "opencrawl_razorpay_key_secret"),
+    "RAZORPAY_WEBHOOK_SECRET": (
+        "RAZORPAY_WEBHOOK_SECRET",
+        "opencrawl_razorpay_webhook_secret",
+    ),
+}
+
+
+def _razorpay_secret(name: str) -> tuple[str | None, str]:
+    """Resolve Razorpay credentials from Supabase Vault first, then env fallback."""
+    for vault_name in _RAZORPAY_VAULT_NAMES.get(name, (name,)):
+        value = supabase_vault_secret(vault_name)
+        if value:
+            return value, "supabase_vault"
+    env_value = (os.getenv(name) or "").strip()
+    return (env_value or None), ("environment" if env_value else "missing")
+
+
 def _razorpay_config() -> tuple[str, str, str | None]:
-    key_id = os.getenv("RAZORPAY_KEY_ID")
-    key_secret = os.getenv("RAZORPAY_KEY_SECRET")
-    webhook_secret = os.getenv("RAZORPAY_WEBHOOK_SECRET")
+    key_id, _ = _razorpay_secret("RAZORPAY_KEY_ID")
+    key_secret, _ = _razorpay_secret("RAZORPAY_KEY_SECRET")
+    webhook_secret, _ = _razorpay_secret("RAZORPAY_WEBHOOK_SECRET")
     if not key_id or not key_secret:
         raise ControlError("billing_not_configured", "Razorpay billing is not configured", 503)
     return key_id, key_secret, webhook_secret
 
 
+def _razorpay_status() -> dict[str, Any]:
+    key_id, key_id_source = _razorpay_secret("RAZORPAY_KEY_ID")
+    key_secret, key_secret_source = _razorpay_secret("RAZORPAY_KEY_SECRET")
+    webhook_secret, webhook_source = _razorpay_secret("RAZORPAY_WEBHOOK_SECRET")
+    sources = {key_id_source, key_secret_source}
+    source = "supabase_vault" if sources == {"supabase_vault"} else (
+        "environment" if "missing" not in sources else "missing"
+    )
+    return {
+        "configured": bool(key_id and key_secret),
+        "webhook_configured": bool(webhook_secret),
+        "key_id": key_id,
+        "credential_source": source,
+        "webhook_source": webhook_source,
+    }
+
+
 @router.get("/api/billing/status")
 def billing_status(request: Request):
     _require_user(request)
+    status = _razorpay_status()
     return {
         "provider": "razorpay",
-        "configured": bool(os.getenv("RAZORPAY_KEY_ID") and os.getenv("RAZORPAY_KEY_SECRET")),
-        "webhook_configured": bool(os.getenv("RAZORPAY_WEBHOOK_SECRET")),
-        "key_id": os.getenv("RAZORPAY_KEY_ID") if os.getenv("RAZORPAY_KEY_ID") else None,
+        **status,
         "display_currency": "INR",
         "credit_purchase_mode": "preset_packs_only",
     }
@@ -855,6 +892,7 @@ async def _legacy_razorpay_webhook(request: Request):
 
 @router.get("/api/status")
 def public_status():
+    razorpay_status = _razorpay_status()
     return {
         "service": "OpenCrawl",
         "control_database": store.configured,
@@ -865,7 +903,12 @@ def public_status():
         ),
         "mcp": "/mcp",
         "oauth": True,
-        "billing": bool(os.getenv("RAZORPAY_KEY_ID") and os.getenv("RAZORPAY_KEY_SECRET")),
+        "billing": bool(razorpay_status["configured"]),
+        "billing_config": {
+            "credential_source": razorpay_status["credential_source"],
+            "webhook_configured": razorpay_status["webhook_configured"],
+            "webhook_source": razorpay_status["webhook_source"],
+        },
         "github_oauth": bool(os.getenv("GITHUB_CLIENT_ID") and os.getenv("GITHUB_CLIENT_SECRET")),
         "connected_apps": {
             "provider": "composio",
