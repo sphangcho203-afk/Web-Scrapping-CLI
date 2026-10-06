@@ -1524,7 +1524,7 @@ function openRunInspector(event) {
               '<label><input id="ihp-subdomains" type="checkbox"> Include subdomains</label>'+
               '<label><input id="ihp-queryparams" type="checkbox"> Preserve query params</label>'+
             '</div>'+
-            '<p class="search-security">'+icon('shield')+' Public targets only · robots respected · SSRF protected · <span data-available-credits aria-live="polite">'+esc(walletMoney(available))+'</span> credits available</p>'+
+            '<p class="search-security">'+icon('shield')+' Public targets only · robots respected · SSRF protected · <span data-available-credits aria-live="polite">'+esc(walletMoney(available))+'</span> available</p>'+
           '</details>'+
         '</form>'+
       '</section>'+
