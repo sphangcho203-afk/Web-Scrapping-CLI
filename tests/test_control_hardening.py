@@ -65,3 +65,17 @@ def test_mismatched_amount_is_rejected() -> None:
             },
             _order(),
         )
+
+
+def test_mismatched_currency_is_rejected() -> None:
+    with pytest.raises(HTTPException, match="currency"):
+        _validate_payment_against_order(
+            {
+                "id": "pay_123",
+                "status": "captured",
+                "order_id": "order_123",
+                "amount": 49900,
+                "currency": "USD",
+            },
+            _order(),
+        )
