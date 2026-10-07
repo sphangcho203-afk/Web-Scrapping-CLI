@@ -237,3 +237,68 @@ def test_dataset_row_model_accepts_generic_capability_records():
     rows = result_rows({"records": [{"url": "https://example.com"}, {"value": "second"}]})
     assert [row["record_type"] for row in rows] == ["records", "records"]
     assert rows[0]["url"] == "https://example.com"
+
+
+def test_owned_availability_is_unmetered_and_hides_route_inventory(monkeypatch):
+    from internet_hands.auth import current_auth
+
+    http, store, registry = client(monkeypatch)
+    original = registry.resolve
+    identities = []
+
+    async def inspect(capability_id):
+        identities.append(current_auth.get().user_id)
+        return await original(capability_id)
+
+    monkeypatch.setattr(registry, "resolve", inspect)
+    response = http.get("/api/capabilities/web.map.site/availability")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json() == {"capability": "web.map.site", "available": True,
+                               "available_routes": 1, "setup": [], "credits_reserved": 0}
+    assert "hidden" not in response.text
+    assert identities == ["owner"]
+    assert store.reserved == store.finished == []
+    assert current_auth.get() is None
+    assert http.get("/api/capabilities/missing/availability").status_code == 404
+
+
+def test_unavailable_workbench_shows_reason_before_quote_or_reservation(monkeypatch):
+    from internet_hands.auth import current_auth
+    from internet_hands.capability_availability import availability_failure
+
+    http, store, registry = client(monkeypatch)
+    identities = []
+
+    async def unavailable(capability_id):
+        identities.append(current_auth.get().user_id)
+        return {"resolved": [availability_failure("connection_required")]}
+
+    monkeypatch.setattr(registry, "resolve", unavailable)
+    detail = http.get("/api/capabilities/web.map.site")
+    assert detail.status_code == 200
+    assert detail.headers["cache-control"] == "no-store"
+    assert detail.json()["availability"]["interactive_ready"] is False
+    assert detail.json()["availability"]["reason_codes"] == ["connection_required"]
+    assert "Connect an authorized account" in detail.text
+    for action in ("quote", "run"):
+        response = http.post("/api/capabilities/web.map.site/" + action, json={
+            "api_key_id": "key_one", "arguments": {"url": "https://example.com"},
+        })
+        assert response.status_code == 409
+        assert "Connect an authorized account" in response.text
+    assert identities == ["owner", "owner", "owner"]
+    assert store.reserved == store.finished == []
+    assert current_auth.get() is None
+
+
+def test_availability_inspects_connected_pack_without_enabling_workbench(monkeypatch):
+    http, store, registry = client(monkeypatch)
+    registry.capabilities["automation.workflow"] = replace(
+        registry.capabilities["web.map.site"], id="automation.workflow", pack="connected", read_only=False,
+    )
+    response = http.get("/api/capabilities/automation.workflow/availability")
+    assert response.status_code == 200
+    assert response.json()["available"] is True
+    assert http.get("/api/capabilities/automation.workflow").status_code == 404
+    assert store.reserved == []

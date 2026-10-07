@@ -5,6 +5,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from .capability_availability import availability_exception, availability_failure
 from .provider_reliability import provider_reliability
 from .tool_mesh import ToolMesh
 
@@ -93,46 +94,82 @@ class CapabilityRegistry:
             ]
         }
 
-    async def resolve(self, capability_id: str) -> dict[str, Any]:
+    async def resolve(
+        self, capability_id: str, *, arguments: dict[str, Any] | None = None,
+        provider_preference: str | None = None,
+    ) -> dict[str, Any]:
+        """Inspect routes without executing, with one bounded discovery deadline."""
         capability = self._get(capability_id)
-        statuses = await self.mesh.provider_status()
+        deadline = time.monotonic() + 8.0
+        try:
+            statuses = await asyncio.wait_for(self.mesh.provider_status(), timeout=8.0)
+            discovery_failure = None
+        except Exception as exc:  # noqa: BLE001 - provider discovery boundary
+            statuses = {}
+            discovery_failure = availability_exception(exc)
         resolved: list[dict[str, Any]] = []
         for candidate in sorted(capability.candidates, key=lambda item: item.priority):
             status = statuses.get(candidate.provider, {})
             reliability = provider_reliability.routing_state(candidate.provider)
-            if not status.get("searchable") and not status.get("executable"):
-                resolved.append(
-                    {
-                        "candidate": candidate.to_dict(),
-                        "available": False,
-                        "reason": "provider unavailable",
-                        "reliability": reliability,
-                    }
-                )
-                continue
-            try:
-                ref = await self._resolve_candidate(candidate)
-                descriptor = await self.mesh.describe(ref)
-                resolved.append(
-                    {
-                        "candidate": candidate.to_dict(),
-                        "available": bool(status.get("executable", True))
-                        and (descriptor.get("metadata") or {}).get("configured", True) is not False,
-                        "ref": ref,
-                        "tool": descriptor,
-                        "reliability": reliability,
-                    }
-                )
-            except Exception as exc:  # noqa: BLE001 - third-party provider boundary
-                resolved.append(
-                    {
-                        "candidate": candidate.to_dict(),
-                        "available": False,
-                        "reason": str(exc),
-                        "reliability": reliability,
-                    }
-                )
+            row: dict[str, Any] = {
+                "candidate": candidate.to_dict(), "reliability": reliability,
+                "preview_available": False,
+            }
+            if arguments is not None and not self._candidate_matches(arguments, candidate):
+                row.update(availability_failure("conditions_not_matched"))
+            elif discovery_failure:
+                row.update(discovery_failure)
+            elif status.get("error"):
+                row.update(availability_failure("timeout" if status.get("error_class") == "timeout" else "temporarily_unavailable"))
+            elif not status.get("searchable") and not status.get("executable"):
+                row.update(availability_failure("not_configured"))
+            else:
+                try:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError()
+                    async def inspect(candidate=candidate):
+                        ref = await self._resolve_candidate(candidate)
+                        return ref, await self.mesh.describe(ref)
+                    ref, descriptor = await asyncio.wait_for(inspect(), timeout=remaining)
+                    row.update({"ref": ref, "tool": descriptor, "preview_available": True})
+                    if capability.read_only and descriptor.get("side_effecting"):
+                        row["preview_available"] = False
+                        row.update(availability_failure("read_only_mismatch"))
+                    elif (not status.get("executable")
+                          or status.get("tool_availability", {}).get(ref, True) is False
+                          or (descriptor.get("metadata") or {}).get("configured", True) is False):
+                        row.update(availability_failure("not_configured"))
+                    elif (capability.read_only and reliability["circuit_open"]
+                          and candidate.provider != provider_preference):
+                        row.update(availability_failure("temporarily_unavailable"))
+                    else:
+                        row.update({"available": True, "reason_code": None, "reason": None})
+                except Exception as exc:  # noqa: BLE001 - provider inspection boundary
+                    row.update(availability_exception(exc))
+            resolved.append(row)
         return {"capability": capability.to_dict(), "resolved": resolved}
+
+    async def preflight(
+        self, capability_id: str, arguments: dict[str, Any], *,
+        provider_preference: str | None = None, allow_side_effects: bool = False,
+        dry_run: bool = False,
+    ) -> None:
+        """Fail before wallet reservation; execution still checks the route again."""
+        from .control_store import ControlError
+
+        capability = self._get(capability_id)
+        if not capability.read_only and not dry_run and not allow_side_effects:
+            raise ControlError("side_effects_not_allowed", "This operation requires allow_side_effects=true or dry_run=true.", 409)
+        result = await self.resolve(capability_id, arguments=arguments,
+                                    provider_preference=provider_preference)
+        rows = result["resolved"]
+        if any(row["available"] or (dry_run and row["preview_available"]) for row in rows):
+            return
+        # Conditional non-matches should not obscure the setup reason for the matching route.
+        matching = [row for row in rows if row.get("reason_code") != "conditions_not_matched"]
+        failure = (matching or rows or [availability_failure("conditions_not_matched")])[0]
+        raise ControlError("capability_unavailable", failure["reason"], 409)
 
     async def execute(
         self,
@@ -342,7 +379,7 @@ class CapabilityRegistry:
                         "provider": candidate.provider,
                         "ref": candidate.ref,
                         "status": "preflight_failed",
-                        "error": str(exc),
+                        "error": availability_exception(exc)["reason"],
                     }
                 )
                 continue
@@ -359,7 +396,7 @@ class CapabilityRegistry:
                 continue
 
             configured = (descriptor.get("metadata") or {}).get("configured", True)
-            if configured is False and not dry_run:
+            if (configured is False or provider_status.get("tool_availability", {}).get(ref, True) is False) and not dry_run:
                 attempts.append(
                     {
                         "provider": candidate.provider,
