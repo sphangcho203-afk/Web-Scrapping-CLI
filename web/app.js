@@ -804,14 +804,14 @@ async function dashGames(){
     if(toolRunning)return;
     const currentPanel=++panelRun;
     const panel=$('#game-tool-panel',detail),cap=(game.capabilities||[]).find(c=>c.id===capability);
-    panel.innerHTML=`<section class="game-tool-runner"><header><div><span class="game-agent-mark" aria-hidden="true">👾</span><span class="overline">OPENCRAWL / OPERATIONS</span><h3>${esc(cap?.name||capability)}</h3><p>Checking current read-only operations and required inputs…</p></div><button type="button" class="game-tool-close" aria-label="Close tool">×</button></header><div id="game-tool-options"></div></section>`;
+    panel.innerHTML=`<section class="game-tool-runner"><header><div><span class="game-agent-mark" aria-hidden="true">👾</span><span class="overline">OPENCRAWL / OPERATIONS</span><h3>${esc(cap?.name||capability)}</h3><p>Inspect read-only operations and required inputs before reviewing cost.</p></div><button type="button" class="game-tool-close" aria-label="Close tool">×</button></header><div id="game-tool-options"></div></section>`;
     panel.querySelector('.game-tool-close').onclick=()=>{panelRun++;panel.replaceChildren();};
     panel.scrollIntoView({behavior:'smooth',block:'nearest'});
     try{
       const response=await api('/api/games/'+encodeURIComponent(game.game_id)+'/tools/'+encodeURIComponent(capability));
       if(currentPanel!==panelRun||!panel.isConnected)return;
       const tools=response.tools||[],box=$('#game-tool-options',panel);
-      if(!tools.length){box.innerHTML='<div class="notice warning"><b>Operation unavailable</b>'+(response.reasons||['No read-only operation is available right now.']).slice(0,3).map(reason=>'<p>'+esc(reason)+'</p>').join('')+'<p>No credits were reserved. Check availability again after setup is complete.</p></div>';return;}
+      if(!tools.length){box.innerHTML='<div class="notice warning"><b>Operation unavailable</b>'+(response.reasons||['No read-only operation is available right now.']).slice(0,3).map(reason=>'<p>'+esc(reason)+'</p>').join('')+'<p>No credits were reserved. Check availability again after setup is complete.</p></div>';panel.scrollIntoView({behavior:'smooth',block:'nearest'});return;}
       box.innerHTML=`<label>Choose an operation<select id="game-operation">${tools.map((tool,index)=>`<option value="${index}">${esc(tool.name)}</option>`).join('')}</select></label><div id="game-operation-form"></div>`;
       const selector=$('#game-operation',box);
       function renderOperation(){
