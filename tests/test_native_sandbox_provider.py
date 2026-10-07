@@ -11,17 +11,23 @@ class FakeManager:
     def __init__(self) -> None:
         self.deleted: list[str] = []
         self.started: list[tuple[str, str]] = []
+        self.created: list[str] = []
+        self.exit_code: int | None = 0
+        self.shell_error: Exception | None = None
 
     async def create(self, name: str, **_kwargs: Any) -> dict[str, Any]:
+        self.created.append(name)
         return {"name": name, "session_id": "sbx_test"}
 
     async def shell(self, session_id: str, script: str, **_kwargs: Any) -> dict[str, Any]:
         assert session_id == "sbx_test"
         assert script == "printf ok"
+        if self.shell_error:
+            raise self.shell_error
         return {
             "session_id": session_id,
             "command_id": "cmd_1",
-            "exit_code": 0,
+            "exit_code": self.exit_code,
             "stdout": "ok",
             "stderr": "",
             "events": [],
@@ -94,3 +100,44 @@ async def test_native_sandbox_descriptor_is_side_effecting() -> None:
     descriptor = await NativeSandboxToolProvider(FakeManager()).describe("exec")
     assert descriptor.side_effecting is True
     assert descriptor.metadata["configured"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("timeout", [0, 121, 600, "60", True])
+async def test_foreground_timeout_rejected_before_provisioning(timeout) -> None:
+    manager = FakeManager()
+    with pytest.raises(ValueError, match="timeout_seconds"):
+        await NativeSandboxToolProvider(manager).execute(
+            "exec", {"command": "printf ok", "timeout_seconds": timeout}
+        )
+    assert manager.created == []
+
+
+@pytest.mark.asyncio
+async def test_background_accepts_600_second_timeout() -> None:
+    manager = FakeManager()
+    result = await NativeSandboxToolProvider(manager).execute(
+        "exec", {"command": "sleep 1", "timeout_seconds": 600, "background": True}
+    )
+    assert result["status"] == "running"
+    assert len(manager.created) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("exit_code", [7, None])
+async def test_nonzero_or_unknown_exit_is_failed_and_cleaned_up(exit_code: int | None) -> None:
+    manager = FakeManager()
+    manager.exit_code = exit_code
+    result = await NativeSandboxToolProvider(manager).execute("exec", {"command": "printf ok"})
+    assert result["status"] == "failed"
+    assert result["error"]
+    assert manager.deleted == manager.created
+
+
+@pytest.mark.asyncio
+async def test_command_stream_error_still_cleans_up() -> None:
+    manager = FakeManager()
+    manager.shell_error = RuntimeError("stream interrupted")
+    with pytest.raises(RuntimeError, match="stream interrupted"):
+        await NativeSandboxToolProvider(manager).execute("exec", {"command": "printf ok"})
+    assert manager.deleted == manager.created

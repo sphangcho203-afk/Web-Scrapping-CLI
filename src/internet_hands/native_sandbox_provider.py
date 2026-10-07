@@ -82,6 +82,10 @@ class NativeSandboxToolProvider:
                     "restart": {"type": "boolean"},
                 },
                 "additionalProperties": False,
+                "allOf": [{
+                    "if": {"properties": {"background": {"const": True}}, "required": ["background"]},
+                    "else": {"properties": {"timeout_seconds": {"maximum": 120}}},
+                }],
             },
             output_schema={},
             tags=["code", "shell", "sandbox", "fallback", "native"],
@@ -108,11 +112,11 @@ class NativeSandboxToolProvider:
         if bool(arguments.get("restart", False)):
             raise ValueError("restart is unsupported by the native sandbox fallback")
 
-        timeout = max(
-            1,
-            min(int(arguments.get("timeout_seconds", timeout_seconds)), 600),
-        )
+        timeout = arguments.get("timeout_seconds", timeout_seconds)
         background = bool(arguments.get("background", False))
+        maximum = 600 if background else 120
+        if type(timeout) is not int or not 1 <= timeout <= maximum:
+            raise ValueError(f"timeout_seconds must be an integer between 1 and {maximum}")
         manager = self._manager_or_raise()
         sandbox_name = f"ih-code-{uuid.uuid4().hex[:12]}"
         created = await manager.create(
@@ -152,11 +156,11 @@ class NativeSandboxToolProvider:
                 timeout_ms=timeout * 1000,
             )
             return {
-                "status": "completed" if result.get("exit_code") in (0, None) else "failed",
+                "status": "completed" if result.get("exit_code") == 0 else "failed",
                 "data": result,
                 "error": (
                     None
-                    if result.get("exit_code") in (0, None)
+                    if result.get("exit_code") == 0
                     else f"command exited with code {result.get('exit_code')}"
                 ),
                 "metadata": {"provider": "vercel-sandbox", "ephemeral": True},

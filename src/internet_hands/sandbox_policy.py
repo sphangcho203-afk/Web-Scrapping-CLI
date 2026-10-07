@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from fractions import Fraction
 
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
 _PACKAGE_RE = re.compile(r"^[A-Za-z0-9_.+@/:=-]{1,160}$")
+_LIFETIME_RE = re.compile(r"^([0-9]+(?:\.[0-9]+)?)(ms|s|m|h)$")
 
 PUBLIC_NETWORK_DENY_CIDRS = [
     "0.0.0.0/8",
@@ -17,9 +19,6 @@ PUBLIC_NETWORK_DENY_CIDRS = [
     "192.168.0.0/16",
     "224.0.0.0/4",
     "240.0.0.0/4",
-    "::1/128",
-    "fc00::/7",
-    "fe80::/10",
 ]
 
 
@@ -89,7 +88,19 @@ def validate_packages(packages: list[str]) -> list[str]:
 
 
 def public_network_policy() -> dict[str, object]:
+    # Grant only IPv4; the REST API rejects IPv6 CIDRs. Unlisted egress stays denied.
     return {
-        "mode": "allow-all",
-        "deniedCIDRs": list(PUBLIC_NETWORK_DENY_CIDRS),
+        "subnets": {"allow": ["0.0.0.0/0"], "deny": list(PUBLIC_NETWORK_DENY_CIDRS)},
     }
+
+
+def sandbox_lifetime_ms(timeout: str) -> int:
+    """Translate the public duration contract into the REST API's milliseconds."""
+    match = _LIFETIME_RE.fullmatch(timeout) if isinstance(timeout, str) and len(timeout) <= 32 else None
+    if match is None:
+        raise ValueError("sandbox lifetime must be a duration such as 5m, 30s, or 1h")
+    amount, unit = match.groups()
+    milliseconds = Fraction(amount) * {"ms": 1, "s": 1000, "m": 60_000, "h": 3_600_000}[unit]
+    if milliseconds.denominator != 1 or not 1 <= milliseconds <= 86_400_000:
+        raise ValueError("sandbox lifetime must be whole milliseconds between 1 ms and 24 hours")
+    return int(milliseconds)

@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from internet_hands.sandbox_models import SandboxSpec
-from internet_hands.vercel_sandbox import VercelSandboxProvider
+from internet_hands.vercel_sandbox import VercelSandboxError, VercelSandboxProvider
 
 
 def _provider(handler) -> tuple[VercelSandboxProvider, httpx.AsyncClient]:
@@ -55,7 +55,9 @@ async def test_create_uses_network_boundary_and_published_ports() -> None:
     assert isinstance(body, dict)
     assert body["projectId"] == "prj_test"
     assert body["ports"] == [3000]
-    assert "127.0.0.0/8" in body["networkPolicy"]["deniedCIDRs"]
+    assert body["timeout"] == 1_800_000
+    assert body["networkPolicy"]["subnets"]["allow"] == ["0.0.0.0/0"]
+    assert "127.0.0.0/8" in body["networkPolicy"]["subnets"]["deny"]
     assert ref.session_id == "sbx_create"
     assert ref.routes[0]["url"] == "https://workbench.example"
 
@@ -153,7 +155,7 @@ async def test_stop_delete_and_fork_lifecycle_endpoints() -> None:
     try:
         stopped = await provider.stop("sbx_test")
         deleted = await provider.delete("workbench")
-        forked = await provider.fork("workbench", "copy", ports=[3000], vcpus=2)
+        forked = await provider.fork("workbench", "copy", ports=[3000], vcpus=2, timeout="1.5m")
     finally:
         await client.aclose()
 
@@ -165,3 +167,74 @@ async def test_stop_delete_and_fork_lifecycle_endpoints() -> None:
     assert seen[2][0:2] == ("POST", "/v2/sandboxes/workbench/fork")
     assert seen[2][2] is not None
     assert seen[2][2]["ports"] == [3000]
+    assert seen[2][2]["timeout"] == 90_000
+    assert seen[2][2]["networkPolicy"]["subnets"]["allow"] == ["0.0.0.0/0"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("timeout", ["0m", "-1s", "25h", "1", "0.5ms", "NaNm", 300000])
+async def test_invalid_lifetimes_fail_before_create_or_fork(timeout) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        pytest.fail("invalid lifetime must not provision compute")
+
+    provider, client = _provider(handler)
+    try:
+        with pytest.raises(ValueError, match="sandbox lifetime"):
+            await provider.create(SandboxSpec(name="invalid", timeout=timeout))
+        with pytest.raises(ValueError, match="sandbox lifetime"):
+            await provider.fork("source", "invalid", timeout=timeout)
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("exit_code", [0, 7])
+async def test_foreground_stream_preserves_chunks_and_real_exit_code(exit_code: int) -> None:
+    # Frames follow the live REST command stream, including its initial null exit code.
+    frames = [
+        {"command": {"id": "cmd_test", "exitCode": None}},
+        {"data": "stderr-", "stream": "stderr"},
+        {"data": "opencrawl-", "stream": "stdout"},
+        {"data": "sandbox-ok\n", "stream": "stdout"},
+        {"data": "ok\n", "stream": "stderr"},
+        {"command": {"id": "cmd_test", "exitCode": exit_code, "durationMs": 8}},
+    ]
+    provider, client = _provider(lambda request: httpx.Response(
+        200, content="\n".join(json.dumps(frame) for frame in frames)
+    ))
+    try:
+        result = await provider.exec("sbx_test", "/bin/sh", ["-lc", "printf ok"])
+    finally:
+        await client.aclose()
+    assert result.stdout == "opencrawl-sandbox-ok\n"
+    assert result.stderr == "stderr-ok\n"
+    assert result.exit_code == exit_code
+    assert result.command_id == "cmd_test"
+
+
+@pytest.mark.asyncio
+async def test_silent_success_does_not_return_control_frames_as_stdout() -> None:
+    provider, client = _provider(lambda request: httpx.Response(
+        200, json={"command": {"id": "cmd_test", "exitCode": 0}}
+    ))
+    try:
+        result = await provider.exec("sbx_test", "true")
+    finally:
+        await client.aclose()
+    assert result.stdout == result.stderr == ""
+    assert result.exit_code == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", [
+    b'{"command":{"id":"cmd_test","exitCode":null}}\n',
+    b'{"stream":"stdout","data":"partial"}\n',
+    b"", b"invalid-json\n",
+])
+async def test_incomplete_or_malformed_stream_cannot_claim_success(body: bytes) -> None:
+    provider, client = _provider(lambda request: httpx.Response(200, content=body))
+    try:
+        with pytest.raises(VercelSandboxError, match="command stream"):
+            await provider.exec("sbx_test", "true")
+    finally:
+        await client.aclose()

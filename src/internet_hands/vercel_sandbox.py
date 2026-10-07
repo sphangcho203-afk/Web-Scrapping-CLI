@@ -11,7 +11,7 @@ from urllib.parse import quote
 import httpx
 
 from .sandbox_models import CommandResult, SandboxRef, SandboxSpec
-from .sandbox_policy import public_network_policy
+from .sandbox_policy import public_network_policy, sandbox_lifetime_ms
 from .vercel_runtime_auth import sandbox_auth_token
 
 
@@ -158,7 +158,7 @@ class VercelSandboxProvider:
             "name": spec.name,
             "projectId": self.project_id,
             "resources": {"vcpus": spec.vcpus, "memory": spec.memory_mb},
-            "timeout": spec.timeout,
+            "timeout": sandbox_lifetime_ms(spec.timeout),
             "persistent": spec.persistent,
             "ports": spec.ports,
             "env": spec.env,
@@ -221,7 +221,6 @@ class VercelSandboxProvider:
         timeout_s = max(120, timeout_ms / 1000 + 15)
         client = self._client or httpx.AsyncClient(timeout=timeout_s)
         events: list[dict[str, Any]] = []
-        raw_lines: list[str] = []
         try:
             async with client.stream(
                 "POST",
@@ -238,11 +237,10 @@ class VercelSandboxProvider:
                 async for line in response.aiter_lines():
                     if not line:
                         continue
-                    raw_lines.append(line)
                     try:
                         item = json.loads(line)
-                    except json.JSONDecodeError:
-                        item = {"data": line}
+                    except json.JSONDecodeError as exc:
+                        raise VercelSandboxError("Vercel Sandbox command stream is malformed") from exc
                     if isinstance(item, dict):
                         events.append(item)
         finally:
@@ -265,15 +263,16 @@ class VercelSandboxProvider:
                     stderr_parts.append(text)
                 elif "stdout" in stream or "log" in stream:
                     stdout_parts.append(text)
-        if not stdout_parts and not stderr_parts and raw_lines:
-            stdout_parts = raw_lines
-        return self._command_result(
+        result = self._command_result(
             session_id,
             command_obj,
-            stdout="\n".join(stdout_parts),
-            stderr="\n".join(stderr_parts),
+            stdout="".join(stdout_parts),
+            stderr="".join(stderr_parts),
             events=events,
         )
+        if result.exit_code is None:
+            raise VercelSandboxError("Vercel Sandbox command stream ended without an exit code")
+        return result
 
     async def exec(
         self,
@@ -525,7 +524,7 @@ class VercelSandboxProvider:
         if ports is not None:
             payload["ports"] = ports
         if timeout is not None:
-            payload["timeout"] = timeout
+            payload["timeout"] = sandbox_lifetime_ms(timeout)
         if vcpus is not None or memory_mb is not None:
             resources: dict[str, int] = {}
             if vcpus is not None:
