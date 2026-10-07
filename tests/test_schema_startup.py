@@ -67,13 +67,13 @@ def test_independent_cold_stores_initialize_concurrently(isolated_schema):
         stores = [ControlStore(isolated_schema) for _ in range(8)]
         start = threading.Barrier(len(stores))
 
-        def initialize(store):
-            start.wait(timeout=5)
+        def initialize(store, barrier):
+            barrier.wait(timeout=5)
             store.ensure_schema()
             return store._schema_ready
 
         with ThreadPoolExecutor(max_workers=len(stores)) as executor:
-            futures = [executor.submit(initialize, store) for store in stores]
+            futures = [executor.submit(initialize, store, start) for store in stores]
             assert all(future.result(timeout=30) for future in futures)
     with stores[0]._connect() as connection:
         assert connection.execute("SELECT count(*) AS n FROM ih_plans").fetchone()["n"] > 0
