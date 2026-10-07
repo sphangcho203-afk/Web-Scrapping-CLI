@@ -28,6 +28,7 @@ from .monitor_lifecycle import router as monitor_lifecycle_router
 from .monitor_email_api import router as monitor_email_router
 from .oauth_compat import router as oauth_compat_router
 from .playground_api import router as playground_router
+from .sandbox_api import router as sandbox_router
 from .public_data_api import router as public_data_router
 from .repository_api import router as repository_router
 from .rewards import router as rewards_router
@@ -92,6 +93,7 @@ app.include_router(datasets_router)
 app.include_router(dataset_webhook_router)
 app.include_router(rewards_router)
 app.include_router(playground_router)
+app.include_router(sandbox_router)
 app.include_router(repository_router)
 app.include_router(public_data_router)
 app.include_router(site_map_router)

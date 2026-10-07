@@ -238,3 +238,13 @@ async def test_incomplete_or_malformed_stream_cannot_claim_success(body: bytes) 
             await provider.exec("sbx_test", "true")
     finally:
         await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_command_stream_is_bounded_before_buffering_large_output() -> None:
+    provider, client = _provider(lambda request: httpx.Response(200, content=b"x" * 4_000_001))
+    try:
+        with pytest.raises(VercelSandboxError, match="exceeded 4 MB"):
+            await provider.exec("sbx_test", "yes")
+    finally:
+        await client.aclose()

@@ -29,6 +29,12 @@ The MCP transport is mounted at `/mcp/` and is protected by the same `INTERNET_H
 
 ## Cloud-computer tools
 
+### Dashboard runner
+
+`/dashboard/sandbox` runs short foreground shell commands using an existing owned execution key. The page requires a current credit quote, a maximum charge, and an explicit Run action. Cookie requests require a verified account and matching Origin; bearer/API-key requests retain their execution scopes. Commands are limited to 15 seconds to leave time for provisioning, cleanup and settlement within the interactive request. No background execution, environment injection, persistent filesystem or published ports are exposed by this page.
+
+The result shows stdout, stderr, exit code, cleanup status, the request ID and settled credits from the existing ledger. A nonzero exit is a failed execution and can still incur compute charges. Failed deletion triggers a stop attempt; `stopped` means compute stopped while a named record remains. A settlement error is reported as unconfirmed and directs users to Runs before retrying. The provider command stream is limited to 4 MB before buffering; inline tool output remains capped by the manager and mesh.
+
 ### Lifecycle
 
 - `sandbox_create` creates a named isolated computer with CPU, memory, TTL, persistence, and optional public ports.

@@ -1656,7 +1656,7 @@ async function dashStructuredExtract(){
   };
 }
 
-async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,playground:dashPlayground,capabilities:dashCapabilities,scrape:dashSmartScrape,map:dashSiteMap,extract:dashStructuredExtract,datasets:dashDatasets,'crawl-runs':dashCrawlRuns,runs:dashRuns,spending:dashSpending,products:dashProductTracker,games:dashGames,repositories:dashRepositories,data:dashPublicData,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,rewards:dashRewards,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
+async function renderDashboard(){if(!await ensureMe())return;const slug=location.pathname.split('/')[2]||'overview';const routes={overview:dashOverview,sandbox:dashSandbox,playground:dashPlayground,capabilities:dashCapabilities,scrape:dashSmartScrape,map:dashSiteMap,extract:dashStructuredExtract,datasets:dashDatasets,'crawl-runs':dashCrawlRuns,runs:dashRuns,spending:dashSpending,products:dashProductTracker,games:dashGames,repositories:dashRepositories,data:dashPublicData,usage:dashUsage,'api-keys':dashKeys,monitors:dashMonitors,integrations:dashIntegrations,connections:dashIntegrations,mcp:dashIntegrations,wallet:dashWallet,rewards:dashRewards,billing:dashBilling,settings:dashSettings};return (routes[slug]||dashOverview)();}
 async function renderRoute(){clearTransientUi();window.scrollTo(0,0);const p=location.pathname;try{if(p==='/'||p==='/pricing'||p==='/status'||p.startsWith('/docs')||p.startsWith('/legal')||LEGAL_ALIASES[p])await hydrateOptionalSession();if(p.startsWith('/dashboard'))return await renderDashboard();if(p==='/verify-email')return await renderVerify();if(p==='/login')return renderAuth('login');if(p==='/signup')return renderAuth('signup');if(p==='/forgot-password')return renderRecovery();if(p==='/reset-password')return renderRecovery(true);if(p.startsWith('/legal')||LEGAL_ALIASES[p])return renderLegal();if(p.startsWith('/docs'))return renderDocs();if(p==='/pricing')return await renderPricing();if(p==='/status')return await renderStatus();return await renderHome();}catch(error){console.error(error);if(error.status===401)return go('/login',true);app.innerHTML=`<main class="fatal"><div>${brand()}<span class="eyebrow">REQUEST FAILED</span><h1>The control plane did not answer cleanly.</h1><p>${esc(error.message)}</p><button class="btn primary" onclick="location.reload()">Try again</button></div></main>`;}}
 document.addEventListener('click',e=>{
   if(e.defaultPrevented)return;
@@ -2750,6 +2750,7 @@ function openRunInspector(event) {
       ['overview','terminal','Overview'],
       ['playground','activity','Playground'],
       ['capabilities','terminal','Web Tools'],
+      ['sandbox','terminal','Sandbox'],
       ['scrape','api','Smart Scrape'],
       ['map','search','Site Map'],
       ['extract','docs','Structured Extract'],

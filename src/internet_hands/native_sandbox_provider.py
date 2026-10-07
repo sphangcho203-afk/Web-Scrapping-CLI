@@ -149,6 +149,9 @@ class NativeSandboxToolProvider:
                 },
             }
 
+        cleanup: dict[str, Any] = {
+            "status": "pending", "sandbox_name": sandbox_name, "session_id": session_id,
+        }
         try:
             result = await manager.shell(
                 session_id,
@@ -163,15 +166,22 @@ class NativeSandboxToolProvider:
                     if result.get("exit_code") == 0
                     else f"command exited with code {result.get('exit_code')}"
                 ),
-                "metadata": {"provider": "vercel-sandbox", "ephemeral": True},
+                "metadata": {"provider": "vercel-sandbox", "ephemeral": True, "cleanup": cleanup},
             }
         finally:
             try:
                 await manager.delete(sandbox_name)
+                cleanup["status"] = "deleted"
             except Exception as exc:  # noqa: BLE001 - best-effort cleanup boundary
                 # Command outcome is more important than cleanup telemetry. The sandbox
                 # timeout remains a hard upper bound if deletion is temporarily unavailable.
                 logger.warning("native sandbox cleanup failed for %s: %s", sandbox_name, exc)
+                cleanup["status"] = "failed"
+                try:
+                    await manager.stop(session_id)
+                    cleanup["status"] = "stopped"
+                except Exception:  # lifetime remains bounded
+                    logger.exception("native sandbox stop failed for %s", sandbox_name)
 
     async def job_status(self, job_id: str, *, wait_seconds: int = 0) -> dict[str, Any]:
         del job_id, wait_seconds
