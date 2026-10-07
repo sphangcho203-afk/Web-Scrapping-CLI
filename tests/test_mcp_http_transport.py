@@ -117,6 +117,41 @@ async def test_real_sdk_handshake_catalog_and_call(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["failed", "cancelled", "raised", "completed"])
+async def test_sdk_tool_failure_is_not_recorded_as_http_success(monkeypatch, outcome):
+    server = MCPServer("failure-accounting-test")
+
+    @server.tool()
+    async def command() -> dict[str, Any]:
+        """Return a normalized command result or an SDK tool error."""
+        if outcome == "raised":
+            raise ValueError("command failed")
+        return {"status": outcome, "data": {"exit_code": 0 if outcome == "completed" else 7}}
+
+    raw = server.streamable_http_app(streamable_http_path="/", stateless_http=True,
+        json_response=True, transport_security=_transport_security())
+    store = _Store()
+    monkeypatch.delenv("INTERNET_HANDS_API_KEY", raising=False)
+    monkeypatch.setattr("internet_hands.mcp_gateway.authenticate_secret", lambda *_: _identity())
+    app = FastAPI()
+    app.add_middleware(MCPPathMiddleware)
+    app.mount("/mcp", MCPGatewayASGI(raw, store=store))
+    headers = {"Authorization": "Bearer local-test-only", "Accept": "application/json, text/event-stream"}
+    async with server.session_manager.run(), httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://opencrawl.top", trust_env=False,
+    ) as client:
+        response = await client.post("/mcp", headers=headers, json={
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "command", "arguments": {}},
+        })
+    assert response.status_code == 200
+    assert len(store.reservations) == len(store.settlements) == 1
+    expected = "ok" if outcome == "completed" else "cancelled" if outcome == "cancelled" else "error"
+    assert store.settlements[0]["status"] == expected
+    assert store.settlements[0]["execution_usage"]["completed"] is (outcome == "completed")
+
+
+@pytest.mark.asyncio
 async def test_listen_get_still_challenges_unauthenticated_client(monkeypatch: pytest.MonkeyPatch) -> None:
     async def unexpected(*_: Any) -> None:
         raise AssertionError("unauthenticated request reached the SDK")
