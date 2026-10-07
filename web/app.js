@@ -804,7 +804,7 @@ async function dashGames(){
     if(toolRunning)return;
     const currentPanel=++panelRun;
     const panel=$('#game-tool-panel',detail),cap=(game.capabilities||[]).find(c=>c.id===capability);
-    panel.innerHTML=`<section class="game-tool-runner"><header><div><span class="game-agent-mark" aria-hidden="true">👾</span><span class="overline">OPENCRAWL / OPERATIONS</span><h3>${esc(cap?.name||capability)}</h3><p>Checking current read-only operations and required inputs…</p></div><button type="button" class="game-tool-close" aria-label="Close tool">×</button></header><div id="game-tool-options"></div></section>`;
+    panel.innerHTML=`<section class="game-tool-runner"><header><div><span class="game-agent-mark" aria-hidden="true">👾</span><span class="overline">OPENCRAWL / OPERATIONS</span><h3>${esc(cap?.name||capability)}</h3><p>Inspect read-only operations and required inputs before reviewing cost.</p></div><button type="button" class="game-tool-close" aria-label="Close tool">×</button></header><div id="game-tool-options"></div></section>`;
     panel.querySelector('.game-tool-close').onclick=()=>{panelRun++;panel.replaceChildren();};
     panel.scrollIntoView({behavior:'smooth',block:'nearest'});
     try{
