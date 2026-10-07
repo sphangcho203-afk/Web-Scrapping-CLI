@@ -137,59 +137,60 @@ async def verify(*, execute=False, failures=False, max_total_credits=0):
                 "reserved": int(response.headers["x-credits-reserved"])})
 
     try:
-        async with httpx2.AsyncClient(auth=oauth, timeout=60,
-            event_hooks={"response": [response_hook]}) as client:
-            async with streamable_http_client(ORIGIN + "/mcp", http_client=client) as streams:
-                async with ClientSession(*streams) as session:
-                    initialized = await session.initialize()
-                    tools = await session.list_tools()
-                    names = {tool.name for tool in tools.tools}
-                    required = {"mesh_execute", "account_wallet"}
-                    if not required.issubset(names):
-                        raise RuntimeError("Required tools are missing from the live catalog.")
-                    execute_tool = next(tool for tool in tools.tools if tool.name == "mesh_execute")
-                    if not {"max_charge_credits", "quote_revision"}.issubset(execute_tool.input_schema.get("properties", {})):
-                        raise RuntimeError("Live MCP schema does not expose spending controls.")
-                    print(json.dumps({"oauth": "authorized", "protocol": initialized.protocol_version,
-                        "tools": len(names), "spending_controls": True}), flush=True)
-                    if not execute:
-                        return
-                    ceiling_used = 0
-                    for name, command, timeout, expected in CASES if failures else CASES[:1]:
-                        quoted = await client.post(ORIGIN + "/api/sandbox/quote", json={
-                            "command": command, "timeout_seconds": timeout})
-                        quoted.raise_for_status()
-                        quote = quoted.json()["quote"]
-                        maximum = int(quote["maximum_charge_credits"])
-                        if maximum <= 0 or not quote["affordable"] or not quote["allowed"] or ceiling_used + maximum > max_total_credits:
-                            raise RuntimeError("Quote exceeds the total spending limit or execution is unavailable.")
-                        ceiling_used += maximum
-                        before = len(receipts)
-                        # This call is never retried. Uncertain results must be reconciled in Runs.
-                        result = _data(await session.call_tool("mesh_execute", {
-                            "ref": "nativesandbox:exec", "arguments": {"command": command,
-                                "timeout_seconds": timeout, "background": False},
-                            "max_charge_credits": maximum, "quote_revision": quote["quote_revision"]}))
-                        new_receipts = receipts[before:]
-                        if len(new_receipts) != 1:
-                            raise RuntimeError("Unexpected execution receipt count. Check Runs before retrying.")
-                        receipt = new_receipts[0]
-                        print(json.dumps({"case": name, **receipt, "status": result.get("status")}), flush=True)
-                        if result.get("status") != expected:
-                            raise RuntimeError("Unexpected command outcome. Check the recorded run.")
-                        cleanup = (result.get("metadata") or {}).get("cleanup", {}).get("status")
-                        if expected == "completed" and cleanup != "deleted":
-                            raise RuntimeError("Sandbox deletion was not confirmed.")
-                        wallet = None
-                        for attempt in range(5):
-                            wallet = _data(await session.call_tool("account_wallet", {"limit": 100}))
-                            if any(row.get("reference_id") == receipt["request_id"] for row in wallet.get("ledger", [])):
-                                break
-                            if attempt < 4:
-                                await asyncio.sleep(1)
-                        charged = verify_receipt(wallet, receipt["request_id"], maximum)
-                        print(json.dumps({"case": name, "settled_credits": charged,
-                            "cleanup": cleanup or "not reported; inspect provider/run"}), flush=True)
+        async with (
+            httpx2.AsyncClient(auth=oauth, timeout=60, event_hooks={"response": [response_hook]}) as client,
+            streamable_http_client(ORIGIN + "/mcp", http_client=client) as streams,
+            ClientSession(*streams) as session,
+        ):
+            initialized = await session.initialize()
+            tools = await session.list_tools()
+            names = {tool.name for tool in tools.tools}
+            required = {"mesh_execute", "account_wallet"}
+            if not required.issubset(names):
+                raise RuntimeError("Required tools are missing from the live catalog.")
+            execute_tool = next(tool for tool in tools.tools if tool.name == "mesh_execute")
+            if not {"max_charge_credits", "quote_revision"}.issubset(execute_tool.input_schema.get("properties", {})):
+                raise RuntimeError("Live MCP schema does not expose spending controls.")
+            print(json.dumps({"oauth": "authorized", "protocol": initialized.protocol_version,
+                "tools": len(names), "spending_controls": True}), flush=True)
+            if not execute:
+                return
+            ceiling_used = 0
+            for name, command, timeout, expected in CASES if failures else CASES[:1]:
+                quoted = await client.post(ORIGIN + "/api/sandbox/quote", json={
+                    "command": command, "timeout_seconds": timeout})
+                quoted.raise_for_status()
+                quote = quoted.json()["quote"]
+                maximum = int(quote["maximum_charge_credits"])
+                if maximum <= 0 or not quote["affordable"] or not quote["allowed"] or ceiling_used + maximum > max_total_credits:
+                    raise RuntimeError("Quote exceeds the total spending limit or execution is unavailable.")
+                ceiling_used += maximum
+                before = len(receipts)
+                # This call is never retried. Uncertain results must be reconciled in Runs.
+                result = _data(await session.call_tool("mesh_execute", {
+                    "ref": "nativesandbox:exec", "arguments": {"command": command,
+                        "timeout_seconds": timeout, "background": False},
+                    "max_charge_credits": maximum, "quote_revision": quote["quote_revision"]}))
+                new_receipts = receipts[before:]
+                if len(new_receipts) != 1:
+                    raise RuntimeError("Unexpected execution receipt count. Check Runs before retrying.")
+                receipt = new_receipts[0]
+                print(json.dumps({"case": name, **receipt, "status": result.get("status")}), flush=True)
+                if result.get("status") != expected:
+                    raise RuntimeError("Unexpected command outcome. Check the recorded run.")
+                cleanup = (result.get("metadata") or {}).get("cleanup", {}).get("status")
+                if expected == "completed" and cleanup != "deleted":
+                    raise RuntimeError("Sandbox deletion was not confirmed.")
+                wallet = None
+                for attempt in range(5):
+                    wallet = _data(await session.call_tool("account_wallet", {"limit": 100}))
+                    if any(row.get("reference_id") == receipt["request_id"] for row in wallet.get("ledger", [])):
+                        break
+                    if attempt < 4:
+                        await asyncio.sleep(1)
+                charged = verify_receipt(wallet, receipt["request_id"], maximum)
+                print(json.dumps({"case": name, "settled_credits": charged,
+                    "cleanup": cleanup or "not reported; inspect provider/run"}), flush=True)
     finally:
         authorization.close()
         storage.tokens = storage.client_info = None

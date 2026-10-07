@@ -139,26 +139,28 @@ async def test_official_oauth_client_quote_capped_call_failure_cleanup_and_singl
         client_metadata=OAuthClientMetadata(client_name="Isolated verifier test",
             redirect_uris=["http://127.0.0.1:12345/callback"], scope="mcp:read mcp:execute",
             token_endpoint_auth_method="none"), redirect_handler=authorize, callback_handler=receive_callback)
-    async with server.session_manager.run(), httpx2.AsyncClient(auth=oauth,
-        transport=httpx2.ASGITransport(app=app), trust_env=False) as client:
-        async with streamable_http_client("https://opencrawl.top/mcp", http_client=client) as streams:
-            async with ClientSession(*streams) as session:
-                await session.initialize()
-                assert storage.tokens and len(store.tokens) == 1 and not store.codes
-                catalog = await session.list_tools()
-                properties = catalog.tools[0].input_schema["properties"]
-                assert {"max_charge_credits", "quote_revision"}.issubset(properties)
-                assert store.reserved == manager.created == []
-                quote_response = await client.post("https://opencrawl.top/api/sandbox/quote",
-                    json={"command": command, "timeout_seconds": 1})
-                assert quote_response.status_code == 200
-                quote = quote_response.json()["quote"]
-                args = {"ref": "nativesandbox:exec", "arguments": {"command": command,
-                    "timeout_seconds": 1, "background": False}, "max_charge_credits": quote["credits"],
-                    "quote_revision": quote["quote_revision"]}
-                result = await session.call_tool("mesh_execute", args)
-                assert not result.is_error
-                assert result.structured_content["status"] == expected
+    async with (
+        server.session_manager.run(),
+        httpx2.AsyncClient(auth=oauth, transport=httpx2.ASGITransport(app=app), trust_env=False) as client,
+        streamable_http_client("https://opencrawl.top/mcp", http_client=client) as streams,
+        ClientSession(*streams) as session,
+    ):
+        await session.initialize()
+        assert storage.tokens and len(store.tokens) == 1 and not store.codes
+        catalog = await session.list_tools()
+        properties = catalog.tools[0].input_schema["properties"]
+        assert {"max_charge_credits", "quote_revision"}.issubset(properties)
+        assert store.reserved == manager.created == []
+        quote_response = await client.post("https://opencrawl.top/api/sandbox/quote",
+            json={"command": command, "timeout_seconds": 1})
+        assert quote_response.status_code == 200
+        quote = quote_response.json()["quote"]
+        args = {"ref": "nativesandbox:exec", "arguments": {"command": command,
+            "timeout_seconds": 1, "background": False}, "max_charge_credits": quote["credits"],
+            "quote_revision": quote["quote_revision"]}
+        result = await session.call_tool("mesh_execute", args)
+        assert not result.is_error
+        assert result.structured_content["status"] == expected
     assert len(store.reserved) == len(store.finished) == len(manager.created) == len(manager.deleted) == 1
     assert store.finished[0]["status"] == ("ok" if expected == "completed" else "error")
     assert store.finished[0]["execution_usage"]["completed"] is (expected == "completed")
