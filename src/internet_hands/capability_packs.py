@@ -524,6 +524,7 @@ def _apify_capabilities() -> list[Capability]:
             description="Search Google and return structured organic/paid/search metadata.",
             pack="web",
             tags=("web", "search", "google", "serp"),
+            read_only=False,
             candidates=(
                 CapabilityCandidate(
                     provider="apify",
@@ -540,6 +541,7 @@ def _apify_capabilities() -> list[Capability]:
             ),
             pack="web",
             tags=("web", "fetch", "markdown", "browser"),
+            read_only=False,
             candidates=(
                 CapabilityCandidate(
                     provider="apify",
@@ -554,6 +556,7 @@ def _apify_capabilities() -> list[Capability]:
             description="Search the web, fetch top pages, and return clean content for an agent.",
             pack="web",
             tags=("web", "research", "rag", "search"),
+            read_only=False,
             candidates=(
                 CapabilityCandidate(
                     provider="apify",
@@ -568,6 +571,7 @@ def _apify_capabilities() -> list[Capability]:
             description="Extract public Instagram posts, reels, profiles, hashtags, and comments.",
             pack="social",
             tags=("social", "instagram", "posts", "profiles", "reels"),
+            read_only=False,
             candidates=(
                 CapabilityCandidate(
                     provider="apify",
@@ -582,6 +586,7 @@ def _apify_capabilities() -> list[Capability]:
             description="Extract public TikTok videos, profiles, hashtags, and search results.",
             pack="social",
             tags=("social", "tiktok", "videos", "profiles", "hashtags"),
+            read_only=False,
             candidates=(
                 CapabilityCandidate(
                     provider="apify",
@@ -596,6 +601,7 @@ def _apify_capabilities() -> list[Capability]:
             description="Search and extract public X/Twitter posts, profiles, lists, and threads.",
             pack="social",
             tags=("social", "x", "twitter", "posts", "profiles"),
+            read_only=False,
             candidates=(
                 CapabilityCandidate(
                     provider="apify",
@@ -610,6 +616,7 @@ def _apify_capabilities() -> list[Capability]:
             description="Search public LinkedIn job listings and retrieve structured job details.",
             pack="jobs",
             tags=("jobs", "linkedin", "companies", "career"),
+            read_only=False,
             candidates=(
                 CapabilityCandidate(
                     provider="apify",
@@ -621,9 +628,10 @@ def _apify_capabilities() -> list[Capability]:
         Capability(
             id="ads.meta.library",
             name="Meta Ads Library research",
-            description="Collect public Facebook/Meta Ads Library records for research.",
+            description="Start a paid Apify run to collect public Facebook/Meta Ads Library records.",
             pack="ads",
             tags=("ads", "facebook", "meta", "marketing"),
+            read_only=False,
             candidates=(
                 CapabilityCandidate(
                     provider="apify",

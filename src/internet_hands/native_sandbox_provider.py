@@ -7,6 +7,7 @@ from typing import Any
 
 from .sandbox_manager import SandboxManager
 from .tool_mesh import ToolDescriptor
+from .vercel_runtime_auth import sandbox_auth_token
 from .vercel_sandbox import VercelSandboxProvider
 
 logger = logging.getLogger(__name__)
@@ -23,11 +24,7 @@ class NativeSandboxToolProvider:
     def _configured(self) -> bool:
         if self._manager is not None:
             return True
-        token = (
-            os.getenv("VERCEL_OIDC_TOKEN")
-            or os.getenv("INTERNET_HANDS_VERCEL_TOKEN")
-            or os.getenv("VERCEL_TOKEN")
-        )
+        token = sandbox_auth_token()
         project_id = (
             os.getenv("INTERNET_HANDS_SANDBOX_PROJECT_ID")
             or os.getenv("VERCEL_PROJECT_ID")
@@ -38,6 +35,10 @@ class NativeSandboxToolProvider:
         if self._manager is not None:
             return self._manager
         return SandboxManager(VercelSandboxProvider())
+
+    def status_cache_key(self) -> bool:
+        # Credential presence varies by request, including on a warm function.
+        return self._configured()
 
     async def status(self) -> dict[str, Any]:
         configured = self._configured()

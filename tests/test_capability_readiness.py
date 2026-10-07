@@ -106,6 +106,38 @@ async def test_write_preflight_requires_explicit_consent():
     await reg.preflight("game.setup", {}, allow_side_effects=True)
 
 
+async def test_ads_actor_requires_consent_and_reports_real_configuration():
+    from internet_hands.capability_packs import build_default_capabilities
+    from internet_hands.tool_providers import ApifyToolProvider
+
+    calls = []
+
+    def handler(request):
+        calls.append(request.method)
+        assert request.method == "GET"
+        return httpx.Response(200, json={"data": {
+            "username": "curious_coder", "name": "facebook-ads-library-scraper",
+        }})
+
+    cap = next(c for c in build_default_capabilities() if c.id == "ads.meta.library")
+    assert cap.read_only is False
+    actor_caps = [c for c in build_default_capabilities()
+                  if all(route.provider == "apify" for route in c.candidates)]
+    assert len(actor_caps) == 8
+    assert all(not c.read_only for c in actor_caps)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        reg = CapabilityRegistry(ToolMesh([ApifyToolProvider(token="configured", client=client)]), [cap])
+        with pytest.raises(ControlError, match="allow_side_effects"):
+            await reg.preflight(cap.id, {})
+        assert calls == []
+        await reg.preflight(cap.id, {}, allow_side_effects=True)
+        assert calls == ["GET"]
+        missing = CapabilityRegistry(ToolMesh([ApifyToolProvider(token="", client=client)]), [cap])
+        row = (await missing.resolve(cap.id))["resolved"][0]
+        assert row["available"] is False
+        assert row["reason_code"] == "not_configured"
+
+
 class Wallet:
     def __init__(self):
         self.reservations = []
