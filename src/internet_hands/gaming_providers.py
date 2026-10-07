@@ -641,13 +641,18 @@ class SupercellProvider(ManifestHttpProvider):
 
     async def _auth_secret(self, name: str) -> str:
         vault_names = {
-            "BRAWL_STARS_AUTHORIZATION": "BRAWL_STARS_API_KEY",
-            "CLASH_OF_CLANS_AUTHORIZATION": "CLASH_OF_CLANS_API_KEY",
-            "CLASH_ROYALE_AUTHORIZATION": "CLASH_ROYALE_API_KEY",
+            "BRAWL_STARS_AUTHORIZATION": ("BRAWL_STARS_API_KEY", "BRAWL_STAR_API_KEY"),
+            "CLASH_OF_CLANS_AUTHORIZATION": ("CLASH_OF_CLANS_API_KEY", "CLASH_OF_CLANSH_API_KEY"),
+            "CLASH_ROYALE_AUTHORIZATION": ("CLASH_ROYALE_API_KEY",),
         }
         if name not in vault_names:
             return await super()._auth_secret(name)
-        value = await asyncio.to_thread(supabase_vault_secret, vault_names[name])
+        selector = name.removesuffix("_AUTHORIZATION") + "_VAULT_SECRET_NAME"
+        vault_name = os.getenv(selector, vault_names[name][0]).strip()
+        # Select only this game's documented names; never resolve another integration's key.
+        if vault_name not in vault_names[name]:
+            return ""
+        value = await asyncio.to_thread(supabase_vault_secret, vault_name)
         if value is not None:
             # An invalid Vault value must not silently select an older environment key.
             return _supercell_authorization(value)
