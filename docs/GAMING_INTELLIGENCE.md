@@ -199,6 +199,9 @@ Capabilities:
 - brawler reference catalog
 
 Set `BRAWL_STARS_AUTHORIZATION` to `Bearer <developer-token>`.
+Alternatively save `BRAWL_STARS_API_KEY` in Supabase Vault. For a key
+allowlisting the community proxy IP, set `BRAWL_STARS_USE_COMMUNITY_PROXY=true`
+and redeploy to route through `https://bsproxy.royaleapi.dev/v1`.
 
 ### Clash of Clans
 
@@ -211,6 +214,28 @@ Capabilities:
 
 Set `CLASH_OF_CLANS_AUTHORIZATION` to `Bearer <developer-token>`.
 
+For production Vault configuration, save the developer token as
+`CLASH_OF_CLANS_API_KEY` in the existing OpenCrawl Supabase Vault. This value
+takes precedence over the environment header. A raw token or complete Bearer
+header is accepted; malformed values remain unavailable. The credential is
+resolved through the existing service-role-only RPC, off the async event loop,
+and is never included in discovery or results. Vault changes use its existing
+60-second positive cache.
+
+For a key allowlisting RoyaleAPI's community proxy IP `45.79.218.79`, set
+`CLASH_OF_CLANS_USE_COMMUNITY_PROXY=true` on the server and redeploy. CoC requests
+then use `https://cocproxy.royaleapi.dev/v1`; otherwise the official endpoint
+remains the default. Both player and league-history tools use the selected
+transport. No arbitrary caller-supplied URL or credential is accepted and no
+fallback sends the token to another host after an upstream failure. Proxy
+requests pass the token through the community-operated service, whose
+availability and the upstream API's rate limits still apply. This configuration
+is independently selected for each game.
+
+Proxy setup reference: <https://docs.royaleapi.com/proxy>.
+Successful credential discovery means configured, not an authenticated live
+health check; verify a real player lookup after setup.
+
 ### Clash Royale
 
 Provider: official Clash Royale API.
@@ -222,6 +247,11 @@ Capabilities:
 - upcoming chest cycle
 
 Set `CLASH_ROYALE_AUTHORIZATION` to `Bearer <developer-token>`.
+Alternatively save `CLASH_ROYALE_API_KEY` in Supabase Vault. For a key
+allowlisting the community proxy IP, set `CLASH_ROYALE_USE_COMMUNITY_PROXY=true`
+and redeploy to route through `https://proxy.royaleapi.dev/v1`. All three
+Supercell providers share the Vault precedence, token normalization and safe
+discovery behavior described in the Clash of Clans section.
 
 ## Provider refs
 
