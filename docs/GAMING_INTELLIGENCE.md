@@ -236,6 +236,19 @@ Proxy setup reference: <https://docs.royaleapi.com/proxy>.
 Successful credential discovery means configured, not an authenticated live
 health check; verify a real player lookup after setup.
 
+Existing Vault entries can keep their names by explicitly selecting one of the
+supported names on the server, then redeploying:
+
+| Server setting | Supported Vault names (first is the default) |
+|---|---|
+| `BRAWL_STARS_VAULT_SECRET_NAME` | `BRAWL_STARS_API_KEY`, `BRAWL_STAR_API_KEY` |
+| `CLASH_OF_CLANS_VAULT_SECRET_NAME` | `CLASH_OF_CLANS_API_KEY`, `CLASH_OF_CLANSH_API_KEY` |
+| `CLASH_ROYALE_VAULT_SECRET_NAME` | `CLASH_ROYALE_API_KEY` |
+
+These settings contain secret names, not token values. Unsupported names remain
+unavailable and never read another game's or integration's credential. Each
+lookup resolves just the selected secret rather than trying multiple names.
+
 ### Clash Royale
 
 Provider: official Clash Royale API.

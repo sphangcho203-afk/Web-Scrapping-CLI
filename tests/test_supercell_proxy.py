@@ -152,3 +152,57 @@ async def test_proxy_still_rejects_private_dns_results(
     )
     with pytest.raises(policy.PolicyError, match="non-public"):
         await build_provider().execute("player", {"player_tag": "#P0LY"})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prefix,build_provider,vault_name", [
+    ("BRAWL_STARS", build_brawlstars_provider, "BRAWL_STAR_API_KEY"),
+    ("CLASH_OF_CLANS", build_clashofclans_provider, "CLASH_OF_CLANSH_API_KEY"),
+])
+async def test_explicit_existing_vault_names_work_for_discovery_and_execution(
+    monkeypatch: pytest.MonkeyPatch, prefix, build_provider, vault_name,
+) -> None:
+    monkeypatch.setenv(prefix + "_VAULT_SECRET_NAME", vault_name)
+    seen: list[str] = []
+
+    def vault(name: str) -> str:
+        seen.append(name)
+        assert name == vault_name
+        return "existing-token"
+
+    monkeypatch.setattr(gaming_providers, "supabase_vault_secret", vault)
+    provider = build_provider()
+    assert (await provider.status())["configured"] is True
+    assert (await provider.describe("player")).metadata["configured"] is True
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["authorization"] == "Bearer existing-token"
+        return httpx.Response(200, json={"tag": "#P0LY"})
+
+    provider.validate_urls = False
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider.client = client
+        result = await provider.execute("player", {"player_tag": "#P0LY"})
+    assert result["data"]["tag"] == "#P0LY"
+    assert seen == [vault_name] * 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wrong_name", ["RAZORPAY_KEY_SECRET", "CLASH_ROYALE_API_KEY", ""])
+async def test_vault_name_selector_cannot_use_another_integrations_credential(
+    game_config, monkeypatch: pytest.MonkeyPatch, wrong_name: str,
+) -> None:
+    prefix, build_provider, _, _ = game_config
+    if wrong_name == prefix + "_API_KEY":
+        wrong_name = "BRAWL_STARS_API_KEY"
+    monkeypatch.setenv(prefix + "_VAULT_SECRET_NAME", wrong_name)
+    monkeypatch.setenv(prefix + "_AUTHORIZATION", "Bearer older-token")
+
+    def forbidden_vault(name: str) -> str:
+        raise AssertionError("Invalid selector must not read any Vault credential")
+
+    monkeypatch.setattr(gaming_providers, "supabase_vault_secret", forbidden_vault)
+    provider = build_provider()
+    assert (await provider.status())["configured"] is False
+    with pytest.raises(RuntimeError, match=prefix + "_AUTHORIZATION is required"):
+        await provider.execute("player", {"player_tag": "#P0LY"})
