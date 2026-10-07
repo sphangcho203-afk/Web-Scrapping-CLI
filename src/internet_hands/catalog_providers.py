@@ -69,12 +69,22 @@ class ManifestHttpProvider:
         self.max_response_bytes = max_response_bytes
         self.validate_urls = validate_urls
 
+    async def _auth_secret(self, name: str) -> str:
+        return os.getenv(name, "").strip()
+
+    async def _availability(self, tools: list[HttpToolSpec]) -> dict[str, bool]:
+        credentials = {
+            name: bool(await self._auth_secret(name))
+            for name in {tool.auth_env for tool in tools if tool.auth_env}
+        }
+        return {
+            tool.tool_id: not tool.auth_env or credentials[tool.auth_env]
+            for tool in tools
+        }
+
     async def status(self) -> dict[str, Any]:
-        executable = sum(
-            1
-            for tool in self.tools.values()
-            if not tool.auth_env or bool(os.getenv(tool.auth_env, "").strip())
-        )
+        availability = await self._availability(list(self.tools.values()))
+        executable = sum(availability.values())
         return {
             "configured": executable > 0,
             "searchable": True,
@@ -83,12 +93,12 @@ class ManifestHttpProvider:
             "tool_count": len(self.tools),
             "configured_tools": executable,
             "tool_availability": {
-                self.name + ":" + tool.tool_id: not tool.auth_env or bool(os.getenv(tool.auth_env, "").strip())
+                self.name + ":" + tool.tool_id: availability[tool.tool_id]
                 for tool in self.tools.values()
             },
         }
 
-    def _descriptor(self, tool: HttpToolSpec) -> ToolDescriptor:
+    def _descriptor(self, tool: HttpToolSpec, *, configured: bool) -> ToolDescriptor:
         return ToolDescriptor(
             ref=f"{self.name}:{tool.tool_id}",
             provider=self.name,
@@ -105,7 +115,7 @@ class ManifestHttpProvider:
                 "base_url": tool.base_url,
                 "path": tool.path,
                 **tool.metadata,
-                "configured": not tool.auth_env or bool(os.getenv(tool.auth_env, "").strip()),
+                "configured": configured,
             },
         )
 
@@ -124,14 +134,19 @@ class ManifestHttpProvider:
             if score or not words:
                 ranked.append((score, tool))
         ranked.sort(key=lambda row: (-row[0], row[1].tool_id))
-        return [self._descriptor(tool) for _, tool in ranked[: max(1, min(limit, 50))]]
+        selected = [tool for _, tool in ranked[: max(1, min(limit, 50))]]
+        availability = await self._availability(selected)
+        return [
+            self._descriptor(tool, configured=availability[tool.tool_id]) for tool in selected
+        ]
 
     async def describe(self, tool_id: str) -> ToolDescriptor:
         try:
             tool = self.tools[tool_id]
         except KeyError as exc:
             raise ValueError(f"unknown {self.name} tool: {tool_id}") from exc
-        return self._descriptor(tool)
+        availability = await self._availability([tool])
+        return self._descriptor(tool, configured=availability[tool.tool_id])
 
     async def execute(
         self,
@@ -176,7 +191,7 @@ class ManifestHttpProvider:
                 headers[name] = str(value)
 
         if tool.auth_env:
-            secret = os.getenv(tool.auth_env, "").strip()
+            secret = await self._auth_secret(tool.auth_env)
             if not secret:
                 raise RuntimeError(f"{tool.auth_env} is required for {self.name}:{tool_id}")
             headers[tool.auth_header or "Authorization"] = secret

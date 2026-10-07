@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import os
+
 from .catalog_providers import HttpToolSpec, ManifestHttpProvider
+from .platform_secrets import supabase_vault_secret
 
 
 def _path(name: str, description: str = "", *, required: bool = True) -> dict[str, object]:
@@ -576,7 +580,7 @@ def _supercell_auth(env_name: str) -> dict[str, object]:
 
 
 def build_brawlstars_provider() -> ManifestHttpProvider:
-    base = "https://api.brawlstars.com/v1"
+    base = _supercell_base("BRAWL_STARS", "https://api.brawlstars.com/v1", "https://bsproxy.royaleapi.dev/v1")
     auth = _supercell_auth("BRAWL_STARS_AUTHORIZATION")
     tools = [
         HttpToolSpec(
@@ -616,11 +620,47 @@ def build_brawlstars_provider() -> ManifestHttpProvider:
             **auth,
         ),
     ]
-    return ManifestHttpProvider("brawlstars", tools)
+    return SupercellProvider("brawlstars", tools)
+
+
+def _supercell_authorization(value: str | None) -> str:
+    normalized = (value or "").strip()
+    if normalized.lower() == "bearer":
+        return ""
+    if normalized.lower().startswith("bearer "):
+        normalized = normalized[7:]
+    if not normalized or not normalized.isascii() or any(
+        char.isspace() or ord(char) < 33 or ord(char) == 127 for char in normalized
+    ):
+        return ""
+    return "Bearer " + normalized
+
+
+class SupercellProvider(ManifestHttpProvider):
+    """Read-only Supercell calls with server-only Vault keys and opt-in proxy routing."""
+
+    async def _auth_secret(self, name: str) -> str:
+        vault_names = {
+            "BRAWL_STARS_AUTHORIZATION": "BRAWL_STARS_API_KEY",
+            "CLASH_OF_CLANS_AUTHORIZATION": "CLASH_OF_CLANS_API_KEY",
+            "CLASH_ROYALE_AUTHORIZATION": "CLASH_ROYALE_API_KEY",
+        }
+        if name not in vault_names:
+            return await super()._auth_secret(name)
+        value = await asyncio.to_thread(supabase_vault_secret, vault_names[name])
+        if value is not None:
+            # An invalid Vault value must not silently select an older environment key.
+            return _supercell_authorization(value)
+        return _supercell_authorization(os.getenv(name))
+
+
+def _supercell_base(prefix: str, official_url: str, proxy_url: str) -> str:
+    use_proxy = os.getenv(prefix + "_USE_COMMUNITY_PROXY", "").strip().lower() == "true"
+    return proxy_url if use_proxy else official_url
 
 
 def build_clashofclans_provider() -> ManifestHttpProvider:
-    base = "https://api.clashofclans.com/v1"
+    base = _supercell_base("CLASH_OF_CLANS", "https://api.clashofclans.com/v1", "https://cocproxy.royaleapi.dev/v1")
     auth = _supercell_auth("CLASH_OF_CLANS_AUTHORIZATION")
     tools = [
         HttpToolSpec(
@@ -648,11 +688,11 @@ def build_clashofclans_provider() -> ManifestHttpProvider:
             **auth,
         ),
     ]
-    return ManifestHttpProvider("clashofclans", tools)
+    return SupercellProvider("clashofclans", tools)
 
 
 def build_clashroyale_provider() -> ManifestHttpProvider:
-    base = "https://api.clashroyale.com/v1"
+    base = _supercell_base("CLASH_ROYALE", "https://api.clashroyale.com/v1", "https://proxy.royaleapi.dev/v1")
     auth = _supercell_auth("CLASH_ROYALE_AUTHORIZATION")
     tools = [
         HttpToolSpec(
@@ -692,7 +732,7 @@ def build_clashroyale_provider() -> ManifestHttpProvider:
             **auth,
         ),
     ]
-    return ManifestHttpProvider("clashroyale", tools)
+    return SupercellProvider("clashroyale", tools)
 
 
 def build_gaming_providers() -> list[ManifestHttpProvider]:

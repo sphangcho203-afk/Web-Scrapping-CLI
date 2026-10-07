@@ -40,9 +40,9 @@ or share private connected accounts.
 | --- | --- |
 | `ads.meta.library` | Configure the existing Apify route with `APIFY_TOKEN` and confirm access to its registered actor. |
 | `automation.workflow`, `automation.workflow.status` | Register and sync the custom N8N toolkit in the Composio project used by OpenCrawl. Confirm the exact execution/status slugs and an active connection belonging to the OpenCrawl caller. The configured REST bridge returned 404 for the current slugs. |
-| `brawlstars.brawlers.reference`, `brawlstars.matches.recent`, `brawlstars.player.profile` | Configure `BRAWL_STARS_AUTHORIZATION` with the complete official API Authorization header value. |
-| `clashofclans.player.profile`, `clashofclans.rank.history` | Configure `CLASH_OF_CLANS_AUTHORIZATION` with the complete official API Authorization header value. |
-| `clashroyale.matches.recent`, `clashroyale.player.profile`, `clashroyale.progression.chests` | Configure `CLASH_ROYALE_AUTHORIZATION` with the complete official API Authorization header value. |
+| `brawlstars.brawlers.reference`, `brawlstars.matches.recent`, `brawlstars.player.profile` | Save `BRAWL_STARS_API_KEY` in Supabase Vault (preferred) or configure `BRAWL_STARS_AUTHORIZATION`. For a community-proxy-IP key, enable `BRAWL_STARS_USE_COMMUNITY_PROXY=true`. |
+| `clashofclans.player.profile`, `clashofclans.rank.history` | Save `CLASH_OF_CLANS_API_KEY` in Supabase Vault (preferred) or configure `CLASH_OF_CLANS_AUTHORIZATION`. For a community-proxy-IP key, enable `CLASH_OF_CLANS_USE_COMMUNITY_PROXY=true`; see `GAMING_INTELLIGENCE.md`. |
+| `clashroyale.matches.recent`, `clashroyale.player.profile`, `clashroyale.progression.chests` | Save `CLASH_ROYALE_API_KEY` in Supabase Vault (preferred) or configure `CLASH_ROYALE_AUTHORIZATION`. For a community-proxy-IP key, enable `CLASH_ROYALE_USE_COMMUNITY_PROXY=true`. |
 | `code.execute` | Connect the registered Higgsfield execution tool for the caller, or configure the existing isolated Vercel Sandbox route with its supported token and project ID. Do not fall back to executing on the application host. |
 
 Presence of a key does not prove its validity or upstream access. After setup, use
