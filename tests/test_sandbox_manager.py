@@ -6,7 +6,11 @@ import pytest
 
 from internet_hands.sandbox_manager import SandboxManager
 from internet_hands.sandbox_models import CommandResult, SandboxRef, SandboxSpec
-from internet_hands.sandbox_policy import PUBLIC_NETWORK_DENY_CIDRS, public_network_policy
+from internet_hands.sandbox_policy import (
+    PUBLIC_NETWORK_DENY_CIDRS,
+    public_network_policy,
+    sandbox_lifetime_ms,
+)
 
 
 class FakeProvider:
@@ -324,7 +328,22 @@ async def test_lifecycle_stop_delete_and_fork() -> None:
 
 def test_default_network_policy_blocks_private_and_metadata_ranges() -> None:
     policy = public_network_policy()
-    assert policy["mode"] == "allow-all"
+    assert set(policy) == {"subnets"}
+    assert policy["subnets"]["allow"] == ["0.0.0.0/0"]
+    assert all(":" not in cidr for cidr in policy["subnets"]["deny"])
     assert "127.0.0.0/8" in PUBLIC_NETWORK_DENY_CIDRS
     assert "169.254.0.0/16" in PUBLIC_NETWORK_DENY_CIDRS
-    assert "10.0.0.0/8" in policy["deniedCIDRs"]
+    assert "10.0.0.0/8" in policy["subnets"]["deny"]
+
+
+@pytest.mark.parametrize(("duration", "expected"), [
+    ("1ms", 1), ("30s", 30_000), ("5m", 300_000), ("1h", 3_600_000),
+    ("24h", 86_400_000), ("0.001s", 1), ("1.5m", 90_000),
+])
+def test_lifetime_units_and_exact_millisecond_conversion(duration: str, expected: int) -> None:
+    assert sandbox_lifetime_ms(duration) == expected
+
+
+def test_fractional_milliseconds_are_not_rounded_into_valid_lifetimes() -> None:
+    with pytest.raises(ValueError, match="whole milliseconds"):
+        sandbox_lifetime_ms("1.00000000000000000000000001s")

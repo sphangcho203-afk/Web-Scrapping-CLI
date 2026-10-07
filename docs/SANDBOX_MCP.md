@@ -143,13 +143,15 @@ Team id is optional and resolves from `INTERNET_HANDS_SANDBOX_TEAM_ID` then `VER
 
 ## Network boundary
 
-Sandboxes are created with public internet available but private/internal destinations denied at the provider network layer. The default deny list includes loopback, RFC1918, carrier-grade NAT, link-local/cloud metadata, multicast/reserved IPv4, IPv6 loopback, ULA, and IPv6 link-local ranges.
+Sandboxes use a custom provider network policy that grants IPv4 egress and denies loopback, RFC1918, carrier-grade NAT, link-local/cloud metadata, and multicast/reserved IPv4 ranges. IPv6 egress is not granted. The REST API rejects IPv6 deny CIDRs, so the policy restricts the allow list to IPv4 instead of using a wildcard grant.
 
 This allows public package registries, public Git hosts, and public websites while preventing the sandbox from becoming a route into the control plane, local machine, VPC, or cloud metadata service.
 
 ## Resource policy
 
 Default manager limits:
+
+Sandbox lifetimes use duration strings such as `5m`, `30s`, or `1h`. Create and fork convert these to integer milliseconds for the REST API and reject invalid durations before provisioning. The application ceiling is 24 hours; the Vercel account's plan may impose a lower limit. Foreground commands require a final exit code; interrupted streams are errors, and stdout/stderr chunks retain their original contents.
 
 - foreground command timeout: 120 seconds maximum
 - detached/background timeout: 1 hour maximum
