@@ -69,6 +69,7 @@ def _validate_registered_client(client_id: str, redirect_uri: str) -> None:
 
 
 @router.get("/.well-known/oauth-protected-resource")
+@router.get("/.well-known/oauth-protected-resource/mcp")
 def protected_resource_metadata(request: Request) -> dict[str, Any]:
     origin = _origin(request)
     return {

@@ -6,16 +6,36 @@ from typing import Any
 
 import httpx
 import pytest
+from fastapi import FastAPI
 from mcp.server import MCPServer
 
+from internet_hands import saas_app
 from internet_hands.auth import current_auth
 from internet_hands.control_store import AuthIdentity
+from internet_hands.mcp_customer import MCPPathMiddleware
 from internet_hands.mcp_gateway import MCPGatewayASGI
 from internet_hands.mcp_server import _transport_security
 
 
 def _identity() -> AuthIdentity:
     return AuthIdentity("usr_test", "key_test", ["mcp:read", "mcp:execute"], "free", 10, "api_key")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("endpoint", ["/mcp", "/mcp/"])
+@pytest.mark.parametrize("method", ["GET", "POST"])
+async def test_production_routes_challenge_directly_without_redirect(
+    monkeypatch: pytest.MonkeyPatch, endpoint: str, method: str,
+) -> None:
+    monkeypatch.delenv("INTERNET_HANDS_API_KEY", raising=False)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=saas_app.app),
+        base_url="https://opencrawl.top", trust_env=False,
+    ) as client:
+        response = await client.request(method, endpoint)
+    assert response.status_code == 401
+    assert "location" not in response.headers
+    assert 'resource_metadata="https://opencrawl.top/.well-known/oauth-protected-resource"' in response.headers["www-authenticate"]
 
 
 class _Store:
@@ -33,8 +53,9 @@ class _Store:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("protocol", ["2025-03-26", "2025-11-25"])
+@pytest.mark.parametrize("endpoint", ["/mcp", "/mcp/"])
 async def test_real_sdk_handshake_catalog_and_call(
-    monkeypatch: pytest.MonkeyPatch, protocol: str,
+    monkeypatch: pytest.MonkeyPatch, protocol: str, endpoint: str,
 ) -> None:
     server = MCPServer("transport-test")
 
@@ -52,7 +73,9 @@ async def test_real_sdk_handshake_catalog_and_call(
     store = _Store()
     monkeypatch.delenv("INTERNET_HANDS_API_KEY", raising=False)
     monkeypatch.setattr("internet_hands.mcp_gateway.authenticate_secret", lambda *_: _identity())
-    app = MCPGatewayASGI(raw, store=store)  # type: ignore[arg-type]
+    app = FastAPI()
+    app.add_middleware(MCPPathMiddleware)
+    app.mount("/mcp", MCPGatewayASGI(raw, store=store))  # type: ignore[arg-type]
     headers = {
         "Authorization": "Bearer local-test-only",
         "Accept": "application/json, text/event-stream",
@@ -61,7 +84,7 @@ async def test_real_sdk_handshake_catalog_and_call(
     async with server.session_manager.run(), httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="https://opencrawl.top", trust_env=False,
     ) as client:
-        initialized = await asyncio.wait_for(client.post("/", headers=headers, json={
+        initialized = await asyncio.wait_for(client.post(endpoint, headers=headers, json={
             "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
                 "protocolVersion": protocol, "capabilities": {},
                 "clientInfo": {"name": "test-client", "version": "1"},
@@ -70,17 +93,17 @@ async def test_real_sdk_handshake_catalog_and_call(
         assert initialized.status_code == 200
         assert initialized.json()["result"]["protocolVersion"] == protocol
         assert "mcp-session-id" not in initialized.headers
-        notified = await client.post("/", headers=headers, json={
+        notified = await client.post(endpoint, headers=headers, json={
             "jsonrpc": "2.0", "method": "notifications/initialized",
         })
         assert notified.status_code == 202
-        catalog = await asyncio.wait_for(client.post("/", headers=headers, json={
+        catalog = await asyncio.wait_for(client.post(endpoint, headers=headers, json={
             "jsonrpc": "2.0", "id": 2, "method": "tools/list",
         }), timeout=2)
         assert catalog.status_code == 200
         assert [tool["name"] for tool in catalog.json()["result"]["tools"]] == ["caller"]
         assert not store.reservations
-        called = await asyncio.wait_for(client.post("/", headers=headers, json={
+        called = await asyncio.wait_for(client.post(endpoint, headers=headers, json={
             "jsonrpc": "2.0", "id": 3, "method": "tools/call",
             "params": {"name": "caller", "arguments": {}},
         }), timeout=2)
@@ -88,7 +111,7 @@ async def test_real_sdk_handshake_catalog_and_call(
         assert called.json()["result"]["structuredContent"] == {"user_id": "usr_test"}
         assert len(store.reservations) == len(store.settlements) == 1
         assert store.settlements[0]["status"] == "ok"
-        rejected = await asyncio.wait_for(client.get("/", headers=headers), timeout=1)
+        rejected = await asyncio.wait_for(client.get(endpoint, headers=headers), timeout=1)
         assert rejected.status_code == 405
         assert rejected.headers["allow"] == "POST"
 

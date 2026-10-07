@@ -146,3 +146,17 @@ async def test_chatgpt_oauth_with_scoped_key_and_refresh(
         assert refreshed.status_code == 200
         assert refreshed.json()["access_token"] != tokens["access_token"]
         assert refreshed.json()["scope"] == tokens["scope"]
+
+
+@pytest.mark.asyncio
+async def test_path_specific_resource_metadata_matches_root_document() -> None:
+    app = FastAPI()
+    app.include_router(oauth_compat.router)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://opencrawl.top", trust_env=False,
+    ) as client:
+        root = await client.get("/.well-known/oauth-protected-resource")
+        specific = await client.get("/.well-known/oauth-protected-resource/mcp")
+    assert root.status_code == specific.status_code == 200
+    assert root.json() == specific.json()
+    assert specific.json()["resource"] == "https://opencrawl.top/mcp"
