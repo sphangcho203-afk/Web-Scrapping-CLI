@@ -198,3 +198,36 @@ sandbox_snapshot(session_id)
 ## CI
 
 Unit tests use fake providers and mocked HTTP transports. CI never creates Vercel sandboxes and therefore cannot consume sandbox runtime or require Vercel credentials. The test matrix validates supported Python versions 3.11, 3.12, and 3.13, and syntax-checks the embedded browser runtime with Node when it is available on the runner.
+# Verify the hosted MCP client path
+
+From an installed checkout, run `python -m internet_hands.mcp_verify`. This uses the official
+MCP client for OAuth discovery, public-client registration, PKCE, initialization and tool
+discovery at `https://opencrawl.top/mcp`. Approve the connection in the browser on the same
+computer as the verifier; enter an existing execution key only on opencrawl.top. The loopback
+callback cannot be completed from a browser on a different computer. Tokens and client
+credentials stay in memory; callback codes and API keys are not printed or saved.
+
+Discovery mode submits no Sandbox command. To explicitly spend up to 36 credits on the
+fixed stdout/stderr smoke command:
+
+```sh
+python -m internet_hands.mcp_verify --execute --max-total-credits 36
+```
+
+For the success, deliberate exit 7, and one-second timeout cases, use
+`--execute --failures --max-total-credits 108`. The verifier obtains a fresh authenticated
+HTTP quote per case, then performs execution through MCP `tools/call`, not the dashboard
+run endpoint. A more expensive quote stops the test before the next command. Failed commands
+can still incur charges for work performed. No execution is automatically retried.
+Each request ID is printed for reconciliation in Runs. The wallet check permits a charge
+split between monthly and purchased buckets, rejects duplicate bucket charges, checks the
+settlement amount against the reviewed cap, and stops if settlement cannot be confirmed.
+Timeout results may omit cleanup telemetry; inspect that run/provider before repeating it.
+
+MCP `mesh_execute` accepts `max_charge_credits` and `quote_revision` as top-level arguments.
+Do not put these fields inside provider `arguments` or `options`. For nativesandbox:exec,
+the quote inputs are the same command, timeout_seconds and background=false used by the
+Sandbox quote endpoint. Do not add extra execution defaults after quoting: the revision is
+bound to the submitted arguments. Failed MCP tool results and JSON-RPC errors are recorded
+as failed even when their HTTP response is 200. Already-running or queued results do not
+claim completed execution in measured usage.

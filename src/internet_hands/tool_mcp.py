@@ -214,8 +214,15 @@ async def mesh_execute(
     timeout_seconds: int = 60,
     options: dict[str, Any] | None = None,
     dry_run: bool = False,
+    max_charge_credits: int | None = None,
+    quote_revision: str | None = None,
 ) -> dict[str, Any]:
-    """Execute one normalized external tool; use dry_run to inspect the resolved call first."""
+    """Execute a tool. Set max_charge_credits and a reviewed quote_revision at the top level.
+
+    The authenticated MCP gateway checks these billing controls before provisioning.
+    Use dry_run to inspect the resolved call first.
+    """
+    del max_charge_credits, quote_revision  # Enforced by the authenticated gateway, never sent to providers.
     return await get_tool_mesh().execute(
         ref,
         arguments,

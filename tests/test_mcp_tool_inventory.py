@@ -86,3 +86,7 @@ async def test_runtime_mcp_server_lists_all_56_callable_tools_with_schemas() -> 
     assert len(tools) == 56
     assert all(isinstance(tool.input_schema, dict) for tool in tools)
     assert all(tool.name and tool.description for tool in tools)
+    execute = next(tool for tool in tools if tool.name == "mesh_execute")
+    properties = execute.input_schema["properties"]
+    assert "max_charge_credits" in properties
+    assert "quote_revision" in properties

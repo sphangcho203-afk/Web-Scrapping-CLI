@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 import pytest
@@ -72,6 +73,38 @@ class _FakeStore:
 
     def finish_usage(self, request_id: str, **kwargs: Any) -> None:
         self.finished.append({"request_id": request_id, **kwargs})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("result,expected", [
+    ({"error": {"code": -32602, "message": "Invalid params"}}, "error"),
+    ({"result": {"isError": True, "content": []}}, "error"),
+    ({"result": {"structuredContent": {"status": "failed"}}}, "error"),
+    ({"result": {"structuredContent": {"status": "cancelled"}}}, "cancelled"),
+    ({"result": {"structuredContent": {"status": ["unexpected"]}}}, "ok"),
+])
+async def test_chunked_mcp_result_is_forwarded_unchanged_and_settled_once(monkeypatch, result, expected):
+    from internet_hands.auth import current_auth
+
+    body = json.dumps({"jsonrpc": "2.0", "id": 1, **result}).encode()
+
+    async def inner(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        for i in range(0, len(body), 7):
+            await send({"type": "http.response.body", "body": body[i:i + 7],
+                "more_body": i + 7 < len(body)})
+
+    monkeypatch.delenv("INTERNET_HANDS_API_KEY", raising=False)
+    monkeypatch.setattr("internet_hands.mcp_gateway.authenticate_secret", lambda *_: _gateway_identity())
+    store = _FakeStore()
+    status, headers, forwarded = await _request(MCPGatewayASGI(inner, store=store),
+        headers=[(b"authorization", b"Bearer local-test-only")],
+        body=b'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mesh_execute","arguments":{}}}')
+    assert status == 200 and forwarded == body
+    assert headers["x-request-id"] == store.finished[0]["request_id"]
+    assert len(store.charged) == len(store.finished) == 1
+    assert store.finished[0]["status"] == expected
+    assert current_auth.get() is None
 
 
 @pytest.mark.asyncio

@@ -25,6 +25,36 @@ from .execution_meter import (
 )
 
 logger = logging.getLogger(__name__)
+_MAX_RESULT_INSPECTION_BYTES = 2_000_000
+
+
+def _tool_outcome(body: bytes) -> tuple[str | None, bool | None]:
+    """Inspect MCP results without treating HTTP 200 as command success."""
+    try:
+        payload = json.loads(body)
+    except (ValueError, UnicodeDecodeError):
+        return None, None
+    if not isinstance(payload, dict) or payload.get("jsonrpc") != "2.0":
+        return None, None
+    if "error" in payload:
+        return "error", False
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        return None, None
+    if result.get("isError") is True:
+        return "error", False
+    structured = result.get("structuredContent")
+    if isinstance(structured, dict):
+        status = structured.get("status")
+        if not isinstance(status, str):
+            status = None
+        if status in {"cancelled", "canceled"}:
+            return "cancelled", False
+        if status in {"failed", "error", "timed_out", "timeout"} or structured.get("error"):
+            return "error", False
+        if status in {"queued", "running", "waiting", "accepted", "dry_run"}:
+            return "ok", False
+    return "ok", True
 
 
 async def preflight_semantic_call(tool_name: str, arguments: dict[str, Any] | None) -> None:
@@ -220,9 +250,12 @@ class MCPGatewayASGI:
 
         status_code = 200
         output_bytes = 0
+        result_body = bytearray()
+        result_complete = False
+        result_overflow = False
 
         async def metered_send(message: dict[str, Any]) -> None:
-            nonlocal status_code, output_bytes
+            nonlocal status_code, output_bytes, result_complete, result_overflow
             if message.get("type") == "http.response.start":
                 status_code = int(message.get("status", 200))
                 headers_out = list(message.get("headers") or [])
@@ -234,7 +267,15 @@ class MCPGatewayASGI:
                 message = dict(message)
                 message["headers"] = headers_out
             elif message.get("type") == "http.response.body":
-                output_bytes += len(message.get("body", b""))
+                chunk = message.get("body", b"")
+                output_bytes += len(chunk)
+                if identity and tool_name and not result_overflow:
+                    if len(result_body) + len(chunk) <= _MAX_RESULT_INSPECTION_BYTES:
+                        result_body.extend(chunk)
+                    else:
+                        result_body.clear()
+                        result_overflow = True
+                result_complete = not message.get("more_body", False)
             await send(message)
 
         terminal_status = "ok"
@@ -247,13 +288,22 @@ class MCPGatewayASGI:
             terminal_status = "error"
             raise
         finally:
+            completed = None
+            if terminal_status == "ok" and result_complete and not result_overflow:
+                outcome, completed = _tool_outcome(bytes(result_body))
+                if outcome is not None:
+                    terminal_status = outcome
             if status_code >= 400 and terminal_status == "ok":
                 terminal_status = "error"
+            if terminal_status != "ok":
+                completed = False
             if identity and tool_name:
                 elapsed = int((time.monotonic() - started) * 1000)
                 usage = execution_usage_snapshot() if meter_token is not None else {}
                 if usage:
                     usage["elapsed_ms"] = elapsed
+                if completed is not None:
+                    usage["completed"] = completed
 
                 actual_credits: int | None = None
                 if credits_reserved is not None:
