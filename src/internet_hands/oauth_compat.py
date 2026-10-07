@@ -9,7 +9,7 @@ import time
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from .control_api import (
     _origin,
@@ -136,7 +136,7 @@ async def oauth_register(request: Request) -> dict[str, Any]:
     }
 
 
-@router.get("/oauth/authorize")
+@router.get("/oauth/authorize", response_class=HTMLResponse)
 def oauth_authorize_checked(
     request: Request,
     client_id: str,
@@ -146,9 +146,9 @@ def oauth_authorize_checked(
     code_challenge_method: str = "S256",
     state: str = "",
     scope: str = "mcp:read mcp:execute offline_access",
-):
+) -> HTMLResponse:
     _validate_registered_client(client_id, redirect_uri)
-    return oauth_authorize_page(
+    page = oauth_authorize_page(
         request,
         client_id=client_id,
         redirect_uri=redirect_uri,
@@ -158,6 +158,7 @@ def oauth_authorize_checked(
         state=state,
         scope=scope,
     )
+    return HTMLResponse(page, headers={"Cache-Control": "no-store"})
 
 
 @router.post("/oauth/authorize")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -7,7 +8,7 @@ import httpx
 import pytest
 from fastapi import FastAPI, HTTPException
 
-from internet_hands import control_api, oauth_compat
+from internet_hands import control_api, oauth_compat, saas_app
 from internet_hands.auth import pkce_s256, sha256_text
 from internet_hands.control_store import AuthIdentity
 from internet_hands.oauth_compat import (
@@ -92,44 +93,78 @@ class _OAuthStore:
         return None
 
 
+class _ConsentForm(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.method = ""
+        self.fields: dict[str, str] = {}
+        self.password_field = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attributes = dict(attrs)
+        if tag == "form":
+            self.method = attributes.get("method") or ""
+        if tag == "input" and attributes.get("name"):
+            self.fields[str(attributes["name"])] = attributes.get("value") or ""
+            if attributes["name"] == "api_key":
+                self.password_field = attributes.get("type") == "password"
+
+
 @pytest.mark.asyncio
+@pytest.mark.parametrize("client_name, redirect", [
+    ("ChatGPT", "https://chatgpt.com/connector_platform_oauth_redirect"),
+    ("Grok", "https://grok.com/connectors-oauth-exchange-code/"),
+])
 @pytest.mark.parametrize("scope, expected", [
     ("mcp:read mcp:execute offline_access", 302),
     ("mcp:read account:read offline_access", 403),
 ])
-async def test_chatgpt_oauth_with_scoped_key_and_refresh(
-    monkeypatch: pytest.MonkeyPatch, scope: str, expected: int,
+async def test_mcp_oauth_consent_with_scoped_key_and_refresh(
+    monkeypatch: pytest.MonkeyPatch, client_name: str, redirect: str, scope: str, expected: int,
 ) -> None:
     monkeypatch.setenv("INTERNET_HANDS_OAUTH_SIGNING_SECRET", "unit-test-oauth-secret")
     store = _OAuthStore()
     monkeypatch.setattr(control_api, "store", store)
     identity = AuthIdentity("usr_test", "key_test", ["mcp:read", "mcp:execute"], "free", 10, "api_key")
     monkeypatch.setattr(control_api, "authenticate_secret", lambda *_: identity)
-    app = FastAPI()
-    app.include_router(oauth_compat.router)
-    app.include_router(control_api.router)
-    redirect = "https://chatgpt.com/connector_platform_oauth_redirect"
+    monkeypatch.setattr(control_api, "_session_user", lambda _: None)
     verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="https://opencrawl.top", trust_env=False,
+        transport=httpx.ASGITransport(app=saas_app.app),
+        base_url="https://opencrawl.top", trust_env=False,
     ) as client:
         registered = await client.post("/oauth/register", json={
-            "client_name": "ChatGPT", "redirect_uris": [redirect],
+            "client_name": client_name, "redirect_uris": [redirect],
             "token_endpoint_auth_method": "none",
         })
         assert registered.status_code == 200
         client_id = registered.json()["client_id"]
-        response = await client.post("/oauth/authorize", data={
+        parameters = {
             "client_id": client_id, "redirect_uri": redirect, "response_type": "code",
             "code_challenge": pkce_s256(verifier), "code_challenge_method": "S256",
-            "state": "state-test", "scope": scope, "api_key": "local-test-only",
+            "state": "state-test & <script>", "scope": scope,
+        }
+        consent = await client.get("/oauth/authorize", params=parameters)
+        assert consent.status_code == 200
+        assert consent.headers["content-type"] == "text/html; charset=utf-8"
+        assert consent.headers["cache-control"] == "no-store"
+        assert consent.text.startswith("<!doctype html>")
+        assert "<title>Authorize OpenCrawl</title>" in consent.text
+        assert "<script>" not in consent.text
+        form = _ConsentForm()
+        form.feed(consent.text)
+        assert form.method == "post" and form.password_field
+        assert form.fields == {**parameters, "api_key": ""}
+        assert not store.codes and not store.tokens
+        response = await client.post("/oauth/authorize", data={
+            **form.fields, "api_key": "local-test-only",
         })
         assert response.status_code == expected
         if expected == 403:
             assert not store.codes and not store.tokens
             return
         query = parse_qs(urlparse(response.headers["location"]).query)
-        assert query["state"] == ["state-test"]
+        assert query["state"] == [parameters["state"]]
         assert query["iss"] == ["https://opencrawl.top"]
         exchanged = await client.post("/oauth/token", data={
             "grant_type": "authorization_code", "client_id": client_id,
@@ -146,6 +181,54 @@ async def test_chatgpt_oauth_with_scoped_key_and_refresh(
         assert refreshed.status_code == 200
         assert refreshed.json()["access_token"] != tokens["access_token"]
         assert refreshed.json()["scope"] == tokens["scope"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("signed_in", [False, True])
+async def test_consent_page_renders_account_hint_safely(
+    monkeypatch: pytest.MonkeyPatch, signed_in: bool,
+) -> None:
+    monkeypatch.setenv("INTERNET_HANDS_OAUTH_SIGNING_SECRET", "unit-test-oauth-secret")
+    user = {"email": "owner+<script>@example.com"} if signed_in else None
+    monkeypatch.setattr(control_api, "_session_user", lambda _: user)
+    redirect = "https://grok.com/connectors-oauth-exchange-code/"
+    client_id = _client_id({"redirect_uris": [redirect]})
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=saas_app.app),
+        base_url="https://opencrawl.top", trust_env=False,
+    ) as client:
+        response = await client.get("/oauth/authorize", params={
+            "client_id": client_id, "redirect_uri": redirect,
+            "code_challenge": pkce_s256("local-test-verifier"),
+        })
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "text/html; charset=utf-8"
+    assert ("Signed in as" in response.text) is signed_in
+    assert "<script>" not in response.text
+    if signed_in:
+        assert "owner+&lt;script&gt;@example.com" in response.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid", ["client_id", "redirect_uri", "response_type", "code_challenge"])
+async def test_invalid_authorization_request_never_renders_consent(
+    monkeypatch: pytest.MonkeyPatch, invalid: str,
+) -> None:
+    monkeypatch.setenv("INTERNET_HANDS_OAUTH_SIGNING_SECRET", "unit-test-oauth-secret")
+    redirect = "https://grok.com/connectors-oauth-exchange-code/"
+    parameters = {
+        "client_id": _client_id({"redirect_uris": [redirect]}), "redirect_uri": redirect,
+        "response_type": "code", "code_challenge": pkce_s256("local-test-verifier"),
+    }
+    parameters[invalid] = "" if invalid == "code_challenge" else "invalid"
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=saas_app.app),
+        base_url="https://opencrawl.top", trust_env=False,
+    ) as client:
+        response = await client.get("/oauth/authorize", params=parameters)
+    assert response.status_code == 400
+    assert response.headers["content-type"] == "application/json"
+    assert "Allow connection" not in response.text
 
 
 @pytest.mark.asyncio
