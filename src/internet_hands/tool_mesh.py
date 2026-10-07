@@ -174,6 +174,7 @@ class ToolMesh:
         )
         self._provider_status_cache: dict[str, dict[str, Any]] | None = None
         self._provider_status_cache_at = 0.0
+        self._provider_status_cache_key: tuple[Any, ...] | None = None
         self._provider_status_lock = asyncio.Lock()
         self._provider_semaphores = {
             name: asyncio.Semaphore(self._provider_concurrency_limit(name))
@@ -279,11 +280,17 @@ class ToolMesh:
         }
 
     async def provider_status(self, *, force: bool = False) -> dict[str, Any]:
+        cache_key = tuple(
+            (name, provider.status_cache_key())
+            for name, provider in self.providers.items()
+            if callable(getattr(provider, "status_cache_key", None))
+        )
         now = time.monotonic()
         if (
             not force
             and self.provider_status_cache_seconds > 0
             and self._provider_status_cache is not None
+            and self._provider_status_cache_key == cache_key
             and now - self._provider_status_cache_at < self.provider_status_cache_seconds
         ):
             return {
@@ -297,6 +304,7 @@ class ToolMesh:
                 not force
                 and self.provider_status_cache_seconds > 0
                 and self._provider_status_cache is not None
+                and self._provider_status_cache_key == cache_key
                 and now - self._provider_status_cache_at < self.provider_status_cache_seconds
             ):
                 return {
@@ -340,6 +348,7 @@ class ToolMesh:
                 for name, value in result.items()
             }
             self._provider_status_cache_at = time.monotonic()
+            self._provider_status_cache_key = cache_key
             return result
 
     async def search(

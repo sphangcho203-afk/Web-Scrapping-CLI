@@ -42,6 +42,7 @@ from .site import router as site_router
 from .system_health import router as system_health_router
 from .usage_api import router as usage_router
 from .runs_api import router as runs_router
+from .vercel_runtime_auth import VercelRuntimeAuthMiddleware
 
 
 logger = logging.getLogger(__name__)
@@ -70,6 +71,7 @@ app = FastAPI(
 
 # Security and hardened compatibility overrides are registered first so they take precedence.
 app.add_middleware(MCPPathMiddleware)
+app.add_middleware(VercelRuntimeAuthMiddleware)
 app.include_router(oauth_compat_router)
 app.include_router(security_hardening_router)
 app.include_router(security_router)

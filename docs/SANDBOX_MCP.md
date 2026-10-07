@@ -120,7 +120,19 @@ For downloads, call `sandbox_browser_download` with the locator that triggers th
 
 ## Authentication
 
-On Vercel, `VercelSandboxProvider` prefers the short-lived `VERCEL_OIDC_TOKEN` supplied by the platform. Local development can use `INTERNET_HANDS_VERCEL_TOKEN` or `VERCEL_TOKEN`.
+Vercel functions receive the platform's short-lived OIDC token in the
+`x-vercel-oidc-token` request header. The production ASGI middleware makes it
+available only within that request, removes it from downstream headers, and resets
+it on completion or failure. Enable OIDC in the project's security settings.
+Cached Sandbox managers resolve the current credential for every API request;
+they never retain a prior request's token or write it to process environment
+variables. This provider credential does not authenticate an OpenCrawl customer.
+Vercel's Sandbox API validates it against the configured project/team.
+
+Local development can use `VERCEL_OIDC_TOKEN`, `INTERNET_HANDS_VERCEL_TOKEN`, or
+`VERCEL_TOKEN`. Incoming OIDC headers are ignored off Vercel. An explicitly injected
+provider token takes precedence. Readiness remains unavailable without a token and
+project ID; a readiness result does not verify Sandbox API access or plan limits.
 
 The provider also needs the target project id. Resolution order:
 

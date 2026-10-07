@@ -25,6 +25,10 @@ Dry runs can inspect a discoverable schema without configured execution credenti
 Side-effecting calls still require explicit permission and never retry another
 backend after execution starts.
 
+Apify-only capabilities start paid Actor runs even when collecting public data.
+They require explicit side-effect permission; they are unavailable in the read-only
+web workbench. The provider retains its no-retry policy for run creation.
+
 The web workbench and gaming operation chooser display setup reasons before a user
 reviews cost. Discovery and gaming execution carry the caller's identity so owned
 connections are checked under that caller rather than the project context. Unavailable gaming tools cannot be submitted to the runner.
@@ -38,12 +42,12 @@ or share private connected accounts.
 
 | Capabilities | Required setup |
 | --- | --- |
-| `ads.meta.library` | Configure the existing Apify route with `APIFY_TOKEN` and confirm access to its registered actor. |
+| `ads.meta.library` | Configure the existing Apify route with `APIFY_TOKEN` and confirm access to its registered actor. This starts a paid run, requires `allow_side_effects=true`, and never retries implicitly. |
 | `automation.workflow`, `automation.workflow.status` | Register and sync the custom N8N toolkit in the Composio project used by OpenCrawl. Confirm the exact execution/status slugs and an active connection belonging to the OpenCrawl caller. The configured REST bridge returned 404 for the current slugs. |
 | `brawlstars.brawlers.reference`, `brawlstars.matches.recent`, `brawlstars.player.profile` | Save `BRAWL_STARS_API_KEY` in Supabase Vault (preferred) or configure `BRAWL_STARS_AUTHORIZATION`. For a community-proxy-IP key, enable `BRAWL_STARS_USE_COMMUNITY_PROXY=true`. |
 | `clashofclans.player.profile`, `clashofclans.rank.history` | Save `CLASH_OF_CLANS_API_KEY` in Supabase Vault (preferred) or configure `CLASH_OF_CLANS_AUTHORIZATION`. For a community-proxy-IP key, enable `CLASH_OF_CLANS_USE_COMMUNITY_PROXY=true`; see `GAMING_INTELLIGENCE.md`. |
 | `clashroyale.matches.recent`, `clashroyale.player.profile`, `clashroyale.progression.chests` | Save `CLASH_ROYALE_API_KEY` in Supabase Vault (preferred) or configure `CLASH_ROYALE_AUTHORIZATION`. For a community-proxy-IP key, enable `CLASH_ROYALE_USE_COMMUNITY_PROXY=true`. |
-| `code.execute` | Connect the registered Higgsfield execution tool for the caller, or configure the existing isolated Vercel Sandbox route with its supported token and project ID. Do not fall back to executing on the application host. |
+| `code.execute` | Connect the registered Higgsfield execution tool for the caller, or enable Vercel OIDC and configure the isolated Sandbox project/team IDs. Production functions use the request OIDC header; off Vercel, supply a supported environment token. Confirm a bounded execution and cleanup after readiness passes. Do not fall back to executing on the application host. |
 
 Presence of a key does not prove its validity or upstream access. After setup, use
 owned availability inspection, then a bounded authorized operation, and inspect

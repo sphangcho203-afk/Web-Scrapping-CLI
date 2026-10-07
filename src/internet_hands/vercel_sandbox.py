@@ -12,6 +12,7 @@ import httpx
 
 from .sandbox_models import CommandResult, SandboxRef, SandboxSpec
 from .sandbox_policy import public_network_policy
+from .vercel_runtime_auth import sandbox_auth_token
 
 
 class VercelSandboxError(RuntimeError):
@@ -30,12 +31,7 @@ class VercelSandboxProvider:
         base_url: str = "https://api.vercel.com",
         client: httpx.AsyncClient | None = None,
     ) -> None:
-        self.token = (
-            token
-            or os.getenv("VERCEL_OIDC_TOKEN")
-            or os.getenv("INTERNET_HANDS_VERCEL_TOKEN")
-            or os.getenv("VERCEL_TOKEN")
-        )
+        self._explicit_token = token
         self.project_id = (
             project_id
             or os.getenv("INTERNET_HANDS_SANDBOX_PROJECT_ID")
@@ -48,7 +44,7 @@ class VercelSandboxProvider:
         )
         self.base_url = base_url.rstrip("/")
         self._client = client
-        if not self.token:
+        if not sandbox_auth_token(self._explicit_token):
             raise VercelSandboxError(
                 "Vercel sandbox auth is unavailable; deploy on Vercel or set "
                 "INTERNET_HANDS_VERCEL_TOKEN for local development"
@@ -57,6 +53,13 @@ class VercelSandboxProvider:
             raise VercelSandboxError(
                 "sandbox project id is unavailable; set INTERNET_HANDS_SANDBOX_PROJECT_ID"
             )
+
+    @property
+    def token(self) -> str:
+        token = sandbox_auth_token(self._explicit_token)
+        if not token:
+            raise VercelSandboxError("Vercel sandbox auth is unavailable for this request")
+        return token
 
     def _params(self, extra: dict[str, Any] | None = None) -> dict[str, Any]:
         params = dict(extra or {})
