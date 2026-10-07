@@ -51,6 +51,7 @@ def _browser_runtime() -> Response:
     sources = [legal, docs, runtime, usage, monitors, datasets, crawl_runs]
     sources.append(WEB_ROOT / "runs.js")
     sources.append(WEB_ROOT / "product-tracker.js")
+    sources.append(WEB_ROOT / "sandbox-workbench.js")
     if any(not source.is_file() for source in sources):
         raise HTTPException(status_code=404, detail="asset not found")
     content = "\n\n".join(source.read_text(encoding="utf-8") for source in sources)

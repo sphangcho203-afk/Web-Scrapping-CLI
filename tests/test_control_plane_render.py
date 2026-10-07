@@ -11,6 +11,65 @@ from internet_hands.site import WEB_ROOT, _browser_runtime
 playwright = pytest.importorskip("playwright.sync_api")
 
 
+def test_sandbox_quote_invalidation_execution_and_escaped_output(frontend_url):
+    calls = []
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if path == "/api/auth/me":
+                data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            elif path == "/api/api-keys":
+                data = {"keys": [{"id": "key_fixture", "name": "Execution", "prefix": "ih_live_example", "scopes": ["mcp:execute"]}]}
+            elif path == "/api/sandbox/quote":
+                calls.append((path, route.request.post_data_json))
+                data = {"quote": {"credits": 36, "maximum_charge_credits": 36,
+                    "quote_revision": "a" * 64, "available_credits": 100, "affordable": True, "allowed": True}}
+            elif path == "/api/sandbox/run":
+                calls.append((path, route.request.post_data_json))
+                data = {"ok": True, "request_id": "req_sandbox_fixture", "result": {
+                    "status": "completed", "data": {"stdout": "<img src=x onerror=alert(1)>\n", "stderr": "warning\n", "exit_code": 0},
+                    "cleanup": {"status": "deleted"}}, "usage": {"credits_charged": 36, "settled": True}}
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard/sandbox")
+        run = page.get_by_role("button", name="Run command", exact=True)
+        run.wait_for()
+        assert run.is_disabled()
+        page.get_by_role("button", name="Review credits", exact=True).click()
+        page.get_by_text("Maximum charge: 36 credits", exact=False).wait_for()
+        assert run.is_enabled()
+        page.get_by_label("Command", exact=True).fill("printf changed")
+        assert run.is_disabled()
+        page.get_by_role("button", name="Review credits", exact=True).click()
+        page.get_by_text("Maximum charge: 36 credits", exact=False).wait_for()
+        run.click()
+        page.get_by_role("heading", name="Command completed", exact=True).wait_for()
+        body = next(body for path, body in calls if path == "/api/sandbox/run")
+        assert body["allow_execution"] is True
+        assert body["max_charge_credits"] == 36
+        assert body["quote_revision"] == "a" * 64
+        assert body["command"] == "printf changed"
+        assert body["api_key_id"] == "key_fixture"
+        assert page.locator("#sandbox-output img").count() == 0
+        assert "<img src=x onerror=alert(1)>" in page.locator("#sandbox-output").inner_text()
+        assert "Cleanup: deleted" in page.locator("#sandbox-output").inner_text()
+        assert "36 credits charged" in page.locator("#sandbox-output").inner_text()
+        assert run.is_disabled()
+        for width in (320, 390, 1366):
+            page.set_viewport_size({"width": width, "height": 844})
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        assert not errors, errors
+        browser.close()
+
+
 def test_usage_vector_chart_interactions_ranges_and_export(frontend_url):
     queries = []
     failure = {"enabled": False}

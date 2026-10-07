@@ -221,6 +221,17 @@ class VercelSandboxProvider:
         timeout_s = max(120, timeout_ms / 1000 + 15)
         client = self._client or httpx.AsyncClient(timeout=timeout_s)
         events: list[dict[str, Any]] = []
+
+        def append_event(line: bytes) -> None:
+            if not line.strip():
+                return
+            try:
+                item = json.loads(line)
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                raise VercelSandboxError("Vercel Sandbox command stream is malformed") from exc
+            if isinstance(item, dict):
+                events.append(item)
+
         try:
             async with client.stream(
                 "POST",
@@ -234,15 +245,17 @@ class VercelSandboxProvider:
                     raise VercelSandboxError(
                         f"Vercel Sandbox command failed with {response.status_code}: {body}"
                     )
-                async for line in response.aiter_lines():
-                    if not line:
-                        continue
-                    try:
-                        item = json.loads(line)
-                    except json.JSONDecodeError as exc:
-                        raise VercelSandboxError("Vercel Sandbox command stream is malformed") from exc
-                    if isinstance(item, dict):
-                        events.append(item)
+                pending = b""
+                used = 0
+                async for chunk in response.aiter_bytes():
+                    used += len(chunk)
+                    if used > 4_000_000:
+                        raise VercelSandboxError("Vercel Sandbox command stream exceeded 4 MB")
+                    lines = (pending + chunk).split(b"\n")
+                    pending = lines.pop()
+                    for line in lines:
+                        append_event(line)
+                append_event(pending)
         finally:
             if owns_client:
                 await client.aclose()
