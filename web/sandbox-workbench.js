@@ -6,9 +6,9 @@ async function dashSandbox() {
   dashboardShell('sandbox', pageHead('ISOLATED EXECUTION', 'Sandbox',
     'Run a short shell command in an isolated computer. Review credits first; files are temporary.') +
     (keys.length ? `<section class="sandbox-workbench"><form id="sandbox-form">
-      <label>Execution key<select id="sandbox-key">${keys.map(k => `<option value="${esc(k.id)}">${esc(k.name)} · ${esc(k.prefix || '')}…</option>`).join('')}</select></label>
-      <label>Command<textarea id="sandbox-command" rows="6" maxlength="50000" required spellcheck="false">printf 'opencrawl-sandbox-ok\\n'; printf 'stderr-ok\\n' &gt;&amp;2</textarea></label>
-      <label>Timeout (seconds)<input id="sandbox-timeout" type="number" min="1" max="15" value="10" required></label>
+      <label for="sandbox-key">Execution key</label><select id="sandbox-key">${keys.map(k => `<option value="${esc(k.id)}">${esc(k.name)} · ${esc(k.prefix || '')}…</option>`).join('')}</select>
+      <label for="sandbox-command">Command</label><textarea id="sandbox-command" rows="6" maxlength="50000" required spellcheck="false">printf 'opencrawl-sandbox-ok\\n'; printf 'stderr-ok\\n' &gt;&amp;2</textarea>
+      <label for="sandbox-timeout">Timeout (seconds)</label><input id="sandbox-timeout" type="number" min="1" max="15" value="10" required>
       <button type="submit" class="btn primary" id="sandbox-quote">Review credits</button>
       <div id="sandbox-review" role="status" aria-live="polite"></div>
       <button type="button" class="btn primary" id="sandbox-run" disabled>Run command</button>
