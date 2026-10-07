@@ -21,7 +21,7 @@ from .control_migration import run_requested_control_plane_migration
 from .fleet_api import app as fleet_app
 from .game_api import router as game_router
 from .intelligence_api import router as intelligence_router
-from .mcp_customer import customer_streamable_http_app
+from .mcp_customer import MCPPathMiddleware, customer_streamable_http_app
 from .mcp_server import sandbox_mcp
 from .monitor_executor import router as monitor_executor_router
 from .monitor_lifecycle import router as monitor_lifecycle_router
@@ -69,6 +69,7 @@ app = FastAPI(
 )
 
 # Security and hardened compatibility overrides are registered first so they take precedence.
+app.add_middleware(MCPPathMiddleware)
 app.include_router(oauth_compat_router)
 app.include_router(security_hardening_router)
 app.include_router(security_router)

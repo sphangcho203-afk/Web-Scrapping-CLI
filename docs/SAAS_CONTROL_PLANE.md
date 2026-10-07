@@ -38,6 +38,12 @@ authentication, clients use `POST` for initialization, notifications and tool
 requests; a standalone SSE `GET` returns `405` with `Allow: POST` rather than
 holding a serverless function open. This is not the legacy SSE transport.
 
+Both `/mcp` and `/mcp/` reach the authenticated transport directly without an
+HTTP redirect. OAuth protected-resource discovery is available at both
+`/.well-known/oauth-protected-resource` and
+`/.well-known/oauth-protected-resource/mcp`. Keep using the advertised
+`https://opencrawl.top/mcp` URL in clients including Grok custom connectors.
+
 For ChatGPT, select OAuth authentication and use dynamic client registration
 without entering a static client secret. The authorization request may include
 `offline_access` for refresh-token renewal. Resource scopes such as `mcp:read`
