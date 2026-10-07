@@ -811,7 +811,7 @@ async function dashGames(){
       const response=await api('/api/games/'+encodeURIComponent(game.game_id)+'/tools/'+encodeURIComponent(capability));
       if(currentPanel!==panelRun||!panel.isConnected)return;
       const tools=response.tools||[],box=$('#game-tool-options',panel);
-      if(!tools.length){box.innerHTML='<div class="notice warning"><b>Operation unavailable</b>'+(response.reasons||['No read-only operation is available right now.']).slice(0,3).map(reason=>'<p>'+esc(reason)+'</p>').join('')+'<p>No credits were reserved. Check availability again after setup is complete.</p></div>';return;}
+      if(!tools.length){box.innerHTML='<div class="notice warning"><b>Operation unavailable</b>'+(response.reasons||['No read-only operation is available right now.']).slice(0,3).map(reason=>'<p>'+esc(reason)+'</p>').join('')+'<p>No credits were reserved. Check availability again after setup is complete.</p></div>';panel.scrollIntoView({behavior:'smooth',block:'nearest'});return;}
       box.innerHTML=`<label>Choose an operation<select id="game-operation">${tools.map((tool,index)=>`<option value="${index}">${esc(tool.name)}</option>`).join('')}</select></label><div id="game-operation-form"></div>`;
       const selector=$('#game-operation',box);
       function renderOperation(){
