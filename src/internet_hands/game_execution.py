@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
+import time
 from typing import Any
+
+from .capability_availability import REASONS, availability_exception
 
 _BLOCKED_INPUTS = {"authorization", "cookie", "proxy-authorization", "x-api-key"}
 
@@ -29,28 +33,39 @@ async def discover_game_tools(capability: Any, mesh: Any, *, limit: int = 12) ->
     """Bound discovery to registered candidate refs; never accept a user supplied URL."""
     if not capability.read_only:
         return {"tools": [], "reasons": ["This capability is not read-only."]}
-    statuses = await mesh.provider_status()
+    deadline = time.monotonic() + 8.0
+    try:
+        statuses = await asyncio.wait_for(mesh.provider_status(), timeout=8.0)
+    except Exception as exc:  # noqa: BLE001 - provider discovery boundary
+        return {"tools": [], "reasons": [availability_exception(exc)["reason"]]}
     rows: list[dict[str, Any]] = []
     reasons: list[str] = []
     for candidate in sorted(capability.candidates, key=lambda item: item.priority):
         status = statuses.get(candidate.provider, {})
+        if status.get("error"):
+            reasons.append(REASONS["temporarily_unavailable"])
+            continue
         if not status.get("executable"):
-            reasons.append(f"{candidate.provider}: provider is not connected")
+            reasons.append(REASONS["not_configured"])
             continue
         if candidate.ref:
             if status.get("tool_availability", {}).get(candidate.ref, True) is False:
-                reasons.append(f"{candidate.provider}: provider key required")
+                reasons.append(REASONS["not_configured"])
                 continue
             try:
-                found = [await mesh.describe(candidate.ref)]
-            except (ValueError, LookupError, PermissionError) as exc:
-                reasons.append(f"{candidate.provider}: {exc}")
+                found = [await asyncio.wait_for(mesh.describe(candidate.ref), timeout=max(0.001, deadline - time.monotonic()))]
+            except Exception as exc:  # noqa: BLE001 - third-party schema inspection
+                reasons.append(availability_exception(exc)["reason"])
                 continue
         elif candidate.search:
-            result = await mesh.search(candidate.search, providers=[candidate.provider], limit=30)
+            try:
+                result = await asyncio.wait_for(mesh.search(candidate.search, providers=[candidate.provider], limit=30), timeout=max(0.001, deadline - time.monotonic()))
+            except Exception as exc:  # noqa: BLE001 - third-party discovery
+                reasons.append(availability_exception(exc)["reason"])
+                continue
             found = result.get("tools") or []
             if not found:
-                reasons.append(f"{candidate.provider}: {(result.get('errors') or {}).get(candidate.provider) or 'no matching operations found'}")
+                reasons.append(REASONS["temporarily_unavailable"] if result.get("errors") else REASONS["tool_not_found"])
             # Catalog scoring includes generic source names. Require a capability-specific
             # word in the operation name/path so unrelated operations cannot run here.
             anchor = re.findall(r"[a-z]+", capability.id.casefold())[-1]
@@ -61,6 +76,8 @@ async def discover_game_tools(capability: Any, mesh: Any, *, limit: int = 12) ->
         else:
             continue
         for tool in found:
+            if (tool.get("metadata") or {}).get("configured", True) is False:
+                reasons.append(REASONS["not_configured"])
             if _safe_tool(tool, status, provider=candidate.provider) and not any(row["ref"] == tool["ref"] for row in rows):
                 rows.append(tool)
                 if len(rows) >= limit:
@@ -69,7 +86,7 @@ async def discover_game_tools(capability: Any, mesh: Any, *, limit: int = 12) ->
             break
     if not rows and not reasons:
         reasons.append("No public read-only operation is available for this capability.")
-    return {"tools": rows, "reasons": reasons}
+    return {"tools": rows, "reasons": list(dict.fromkeys(reasons))}
 
 
 def validate_game_arguments(tool: dict[str, Any], arguments: dict[str, Any]) -> dict[str, Any]:

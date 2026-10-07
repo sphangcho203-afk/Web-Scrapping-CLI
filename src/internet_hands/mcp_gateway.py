@@ -27,6 +27,50 @@ from .execution_meter import (
 logger = logging.getLogger(__name__)
 
 
+async def preflight_semantic_call(tool_name: str, arguments: dict[str, Any] | None) -> None:
+    """Check semantic setup under the caller's identity before reserving any credits."""
+    if tool_name not in {"mesh_capability_execute", "gaming_intel"}:
+        return
+    from .tool_mcp import get_capability_registry
+
+    args = arguments or {}
+    registry = get_capability_registry()
+    requests = args.get("requests") if tool_name == "gaming_intel" else [args]
+    if not isinstance(requests, list) or len(requests) > 20:
+        raise ControlError("invalid_arguments", "Supply at most 20 capability requests.", 422)
+    semaphore = asyncio.Semaphore(5)
+
+    async def inspect(item: Any) -> None:
+        if not isinstance(item, dict) or not isinstance(item.get("arguments", {}), dict):
+            raise ControlError("invalid_arguments", "Each capability request needs an arguments object.", 422)
+        capability_id = item.get("capability")
+        if not isinstance(capability_id, str) or capability_id not in registry.capabilities:
+            raise ControlError("capability_not_found", "This capability is not registered.", 404)
+        capability = registry.capabilities[capability_id]
+        if tool_name == "gaming_intel" and (
+            not capability.read_only or ("gaming" not in capability.tags and capability.pack != "mlbb")
+        ):
+            raise ControlError("invalid_arguments", "Gaming requests must use read-only gaming capabilities.", 422)
+        async with semaphore:
+            await registry.preflight(
+                capability_id, item.get("arguments", {}),
+                provider_preference=item.get("provider_preference"),
+                allow_side_effects=item.get("allow_side_effects") is True,
+                dry_run=args.get("dry_run") is True,
+            )
+
+    tasks = [asyncio.create_task(inspect(item)) for item in requests]
+    try:
+        await asyncio.wait_for(asyncio.gather(*tasks), timeout=10.0)
+    except TimeoutError as exc:
+        raise ControlError("capability_unavailable", "The availability check timed out. Try again before running this operation.", 409) from exc
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
 class MCPGatewayASGI:
     """Authenticate, rate-limit, and meter Streamable HTTP MCP calls."""
 
@@ -135,6 +179,7 @@ class MCPGatewayASGI:
             token = current_auth.set(identity)
             if tool_name:
                 try:
+                    await preflight_semantic_call(tool_name, arguments)
                     credits_reserved = self.store.reserve_tool_call(
                         identity=identity,
                         request_id=request_id,
@@ -152,6 +197,9 @@ class MCPGatewayASGI:
                     )
                     await response(scope, replay_receive, send)
                     return
+                except BaseException:
+                    current_auth.reset(token)
+                    raise
 
         status_code = 200
         output_bytes = 0

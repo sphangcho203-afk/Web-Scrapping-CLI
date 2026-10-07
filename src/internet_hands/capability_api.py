@@ -18,9 +18,11 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response
 from psycopg import DatabaseError
 
 from .auth import current_auth
+from .capability_availability import REASONS
 from .capability_economics import settle_measured_cost
 from .control_api import _require_user, _require_verified
 from .control_store import (
+    AuthIdentity,
     ControlError,
     raw_credits_from_wallet_reservation,
     wallet_credits_for_raw,
@@ -105,7 +107,8 @@ async def _workbench_spec(capability_id: str) -> dict[str, Any]:
     }
     output_schema = capability.output_schema or schema_source.get("output_schema") or {}
     if not available:
-        reason = "No configured execution route is currently available."
+        reasons = list(dict.fromkeys(item.get("reason") for item in resolved.get("resolved") or [] if item.get("reason")))
+        reason = " ".join(reasons[:3]) or REASONS["not_configured"]
     elif not interactive_ready:
         reason = (
             "This capability currently resolves through an asynchronous provider job. "
@@ -128,8 +131,22 @@ async def _workbench_spec(capability_id: str) -> dict[str, Any]:
             "interactive_ready": interactive_ready,
             "available_routes": len(available),
             "reason": reason,
+            "reason_codes": list(dict.fromkeys(item.get("reason_code") for item in resolved.get("resolved") or [] if item.get("reason_code"))),
         },
     }
+
+
+def _discovery_identity(request: Request) -> AuthIdentity:
+    user = _require_verified(_require_user(request))
+    return AuthIdentity(user["id"], None, ["mcp:read"], user.get("plan_slug") or "free", 0, "session")
+
+
+async def _owned_workbench_spec(capability_id: str, identity: AuthIdentity) -> dict[str, Any]:
+    token = current_auth.set(identity)
+    try:
+        return await _workbench_spec(capability_id)
+    finally:
+        current_auth.reset(token)
 
 
 def _dataset_records(data: Any) -> list[dict[str, Any]]:
@@ -219,23 +236,49 @@ def list_capabilities(
     }
 
 
+@router.get("/api/capabilities/{capability_id}/availability")
+async def capability_availability(request: Request, capability_id: str, response: Response):
+    """Owned, unmetered setup inspection for every registered semantic pack."""
+    identity = _discovery_identity(request)
+    registry = get_capability_registry()
+    if capability_id not in registry.capabilities:
+        raise HTTPException(404, detail={"code": "capability_not_found", "message": "This capability is not registered."})
+    token = current_auth.set(identity)
+    try:
+        resolved = await registry.resolve(capability_id)
+    finally:
+        current_auth.reset(token)
+    rows = resolved.get("resolved") or []
+    response.headers["Cache-Control"] = "no-store"
+    return {
+        "capability": capability_id,
+        "available": any(row.get("available") for row in rows),
+        "available_routes": sum(bool(row.get("available")) for row in rows),
+        "setup": list({row.get("reason_code") or "not_configured": {
+            "code": row.get("reason_code") or "not_configured",
+            "message": row.get("reason") or REASONS["not_configured"],
+        } for row in rows if not row.get("available")}.values()),
+        "credits_reserved": 0,
+    }
+
+
 @router.get("/api/capabilities/{capability_id:path}")
-async def capability_detail(request: Request, capability_id: str):
-    _require_verified(_require_user(request))
-    return await _workbench_spec(capability_id)
+async def capability_detail(request: Request, capability_id: str, response: Response):
+    response.headers["Cache-Control"] = "no-store"
+    return await _owned_workbench_spec(capability_id, _discovery_identity(request))
 
 
 @router.post("/api/capabilities/{capability_id:path}/quote")
 async def capability_quote(request: Request, capability_id: str, response: Response):
     body = await _json_body(request)
     arguments = _arguments(body)
-    spec = await _workbench_spec(capability_id)
+    identity = _playground_identity(request, body)
+    spec = await _owned_workbench_spec(capability_id, identity)
     if not spec["availability"]["interactive_ready"]:
         raise HTTPException(
             status_code=409,
             detail={"code": "interactive_not_ready", "message": spec["availability"]["reason"]},
         )
-    identity = _playground_identity(request, body)
     metered = {"capability": capability_id, "arguments": arguments}
     response.headers["Cache-Control"] = "no-store"
     return execution_quote(store, identity, "mesh_capability_execute", metered)
@@ -245,13 +288,13 @@ async def capability_quote(request: Request, capability_id: str, response: Respo
 async def capability_run(request: Request, capability_id: str):
     body = await _json_body(request)
     arguments = _arguments(body)
-    spec = await _workbench_spec(capability_id)
+    identity = _playground_identity(request, body)
+    spec = await _owned_workbench_spec(capability_id, identity)
     if not spec["availability"]["interactive_ready"]:
         raise HTTPException(
             status_code=409,
             detail={"code": "interactive_not_ready", "message": spec["availability"]["reason"]},
         )
-    identity = _playground_identity(request, body)
     request_id = "req_" + uuid.uuid4().hex
     metered: dict[str, Any] = {"capability": capability_id, "arguments": arguments}
     for field in ("max_charge_credits", "quote_revision"):

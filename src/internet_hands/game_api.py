@@ -6,9 +6,11 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, Request
 
+from .auth import current_auth
 from .capability_economics import settle_measured_cost
 from .control_api import _require_user, _require_verified
 from .control_store import (
+    AuthIdentity,
     ControlError,
     raw_credits_from_wallet_reservation,
     wallet_credits_for_raw,
@@ -64,11 +66,20 @@ def _game_capability(game_id: str, capability_id: str):
 
 @router.get("/api/games/{game_id}/tools/{capability_id}")
 async def game_tool_options(request: Request, game_id: str, capability_id: str):
-    _require_verified(_require_user(request))
+    user = _require_verified(_require_user(request))
     capability = _game_capability(game_id, capability_id)
     if capability_id in _LOCAL_TOOLS:
         return {"tools": [], "local": True, "reasons": []}
-    return await discover_game_tools(capability, get_tool_mesh())
+    identity = AuthIdentity(user["id"], None, ["mcp:read"], user.get("plan_slug") or "free", 0, "session")
+    return await _owned_game_options(capability, identity)
+
+
+async def _owned_game_options(capability, identity):
+    token = current_auth.set(identity)
+    try:
+        return await discover_game_tools(capability, get_tool_mesh())
+    finally:
+        current_auth.reset(token)
 
 
 @router.post("/api/games/{game_id}/tools/{capability_id}")
@@ -140,7 +151,8 @@ async def _run_mesh_game_tool(request: Request, body: dict, capability):
     supplied_ref = body.get("ref")
     if not isinstance(supplied_ref, str) or len(supplied_ref) > 240:
         raise HTTPException(status_code=400, detail={"message": "Choose a discovered operation first."})
-    available = await discover_game_tools(capability, get_tool_mesh())
+    identity = _playground_identity(request, body)
+    available = await _owned_game_options(capability, identity)
     tool = next((item for item in available["tools"] if item["ref"] == supplied_ref), None)
     if tool is None:
         raise HTTPException(status_code=409, detail={"message": "This operation is not available for this game capability. Refresh its options."})
@@ -148,7 +160,6 @@ async def _run_mesh_game_tool(request: Request, body: dict, capability):
         arguments = validate_game_arguments(tool, body["arguments"])
     except ValueError as exc:
         raise HTTPException(status_code=400, detail={"message": str(exc)}) from exc
-    identity = _playground_identity(request, body)
     request_id = "req_" + uuid.uuid4().hex
     metered_arguments = {"ref": supplied_ref, "arguments": arguments}
     try:
@@ -163,6 +174,7 @@ async def _run_mesh_game_tool(request: Request, body: dict, capability):
     completed = False
     response_bytes = 0
     meter = start_execution_meter()
+    auth_token = current_auth.set(identity)
     try:
         execution = await get_tool_mesh().execute(supplied_ref, arguments, timeout_seconds=18)
         raw_charge = settle_measured_cost(
@@ -194,4 +206,5 @@ async def _run_mesh_game_tool(request: Request, body: dict, capability):
                 execution_usage=usage,
             )
         finally:
+            current_auth.reset(auth_token)
             reset_execution_meter(meter)
