@@ -84,6 +84,8 @@ class MCPGatewayASGI:
         more = True
         while more:
             message = await receive()
+            if message.get("type") == "http.disconnect":
+                raise ControlError("request_disconnected", "MCP request disconnected before its body completed", 400)
             if message.get("type") != "http.request":
                 continue
             chunk = message.get("body", b"")
@@ -118,7 +120,7 @@ class MCPGatewayASGI:
         master = bool(supplied and master_key and secrets_equal(supplied, master_key))
         if supplied and not master:
             try:
-                identity = authenticate_secret(self.store, supplied)
+                identity = await asyncio.to_thread(authenticate_secret, self.store, supplied)
             except ControlError as exc:
                 response = JSONResponse(
                     {"error": exc.code, "detail": exc.detail}, status_code=exc.status_code
@@ -138,6 +140,18 @@ class MCPGatewayASGI:
             await response(scope, receive, send)
             return
 
+        # The hosted transport is stateless and responds to POSTs with JSON.
+        # A standalone SSE stream has no useful backchannel and exceeds the
+        # serverless request lifetime. MCP clients must accept 405 here.
+        if scope.get("method", "GET").upper() == "GET":
+            response = JSONResponse(
+                {"detail": "Use POST for this stateless Streamable HTTP MCP endpoint"},
+                status_code=405,
+                headers={"Allow": "POST", "Cache-Control": "no-store"},
+            )
+            await response(scope, receive, send)
+            return
+
         body = b""
         try:
             if scope.get("method", "GET").upper() in {"POST", "PUT", "PATCH"}:
@@ -149,11 +163,14 @@ class MCPGatewayASGI:
             await response(scope, receive, send)
             return
 
+        replayed = False
+
         async def replay_receive() -> dict[str, Any]:
-            nonlocal body
-            payload = body
-            body = b""
-            return {"type": "http.request", "body": payload, "more_body": False}
+            nonlocal replayed
+            if not replayed:
+                replayed = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            return await receive()
 
         request_id = f"req_{uuid.uuid4().hex}"
         tool_name: str | None = None
