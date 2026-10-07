@@ -13,7 +13,13 @@ from .capability_economics import settle_measured_cost
 from .control_api import _require_user, _require_verified
 from .control_store import ControlError, raw_credits_from_wallet_reservation, wallet_credits_for_raw
 from .execution_meter import execution_usage_snapshot, reset_execution_meter, start_execution_meter
-from .playground_api import _playground_identity, _request_credential, execution_quote, playground_body, store
+from .playground_api import (
+    _playground_identity,
+    _request_credential,
+    execution_quote,
+    playground_body,
+    store,
+)
 from .tool_mcp import get_tool_mesh
 
 router = APIRouter()
@@ -96,7 +102,7 @@ async def sandbox_run(request: Request, response: Response):
     try:
         result = await get_tool_mesh().execute(_REF, metered["arguments"], timeout_seconds=45)
         completed = result.get("status") == "completed" and not result.get("error")
-    except Exception:
+    except Exception:  # noqa: BLE001 - return a bounded failure and settle before responding
         result = {"status": "failed", "error": "Sandbox execution failed. Check this run before retrying."}
     finally:
         try:

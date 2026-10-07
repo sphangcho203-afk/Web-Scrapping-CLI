@@ -180,7 +180,7 @@ class NativeSandboxToolProvider:
                 try:
                     await manager.stop(session_id)
                     cleanup["status"] = "stopped"
-                except Exception:  # noqa: BLE001 - lifetime remains bounded
+                except Exception:  # lifetime remains bounded
                     logger.exception("native sandbox stop failed for %s", sandbox_name)
 
     async def job_status(self, job_id: str, *, wait_seconds: int = 0) -> dict[str, Any]:
