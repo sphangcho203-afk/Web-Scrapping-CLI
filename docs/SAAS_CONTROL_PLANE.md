@@ -32,6 +32,18 @@ https://opencrawl.top/mcp
 
 A future custom domain can front the same app without changing the internal route layout.
 
+The hosted endpoint uses stateless Streamable HTTP with JSON responses. An
+unauthenticated request returns `401` with OAuth discovery metadata. After
+authentication, clients use `POST` for initialization, notifications and tool
+requests; a standalone SSE `GET` returns `405` with `Allow: POST` rather than
+holding a serverless function open. This is not the legacy SSE transport.
+
+For ChatGPT, select OAuth authentication and use dynamic client registration
+without entering a static client secret. The authorization request may include
+`offline_access` for refresh-token renewal. Resource scopes such as `mcp:read`
+and `mcp:execute` must be granted by the OpenCrawl key used at consent;
+`offline_access` does not add resource permissions to that key.
+
 ## Required production environment
 
 ### Control plane

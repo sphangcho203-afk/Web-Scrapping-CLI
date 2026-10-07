@@ -241,7 +241,10 @@ async def oauth_authorize_submit(request: Request):
     _require_verified(owner)
     requested = _scope_list(form.get("scope"))
     granted = set(identity.scopes or ["*"])
-    if "*" not in granted and not set(requested).issubset(granted):
+    # offline_access requests refresh-token renewal, not a resource permission.
+    # Every requested resource scope must still be granted by the owning key.
+    resource_scopes = set(requested) - {"offline_access"}
+    if "*" not in granted and not resource_scopes.issubset(granted):
         raise HTTPException(status_code=403, detail="requested scope is not allowed by this API key")
     code = random_token("ih_code_")
     try:
