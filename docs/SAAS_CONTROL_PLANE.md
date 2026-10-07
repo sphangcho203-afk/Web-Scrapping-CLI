@@ -61,6 +61,15 @@ INTERNET_HANDS_API_KEY=
 
 `INTERNET_HANDS_CONTROL_POSTGRES_DSN` may point at the same Postgres cluster as the distributed fleet, but the control tables use their own `ih_*` namespace.
 
+Common control-schema initialization takes the database-wide transaction advisory
+lock `opencrawl-control-schema` before any table changes or seed writes. This
+serializes independent cold server instances; commit or rollback releases the
+lock, including when using the Supabase transaction pooler. Successful stores
+retain their existing in-process ready cache. The isolated PostgreSQL CI suite
+checks concurrent fresh/existing-schema startup and rollback recovery. Separate
+feature-store initialization and ordinary business transactions are outside
+this lock's scope.
+
 ### GitHub login
 
 ```text

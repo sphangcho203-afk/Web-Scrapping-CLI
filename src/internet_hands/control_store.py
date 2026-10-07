@@ -688,6 +688,12 @@ class ControlStore:
                 return
             with self._connect() as conn:
                 with conn.cursor() as cur:
+                    # Separate stores and server instances must acquire this before
+                    # any DDL or seed writes. Transaction scope releases it on
+                    # commit/rollback and is safe with transaction poolers.
+                    cur.execute(
+                        "SELECT pg_advisory_xact_lock(hashtext('opencrawl-control-schema'))"
+                    )
                     cur.execute(SCHEMA_SQL)
                     from .run_envelope import SCHEMA as RUN_SCHEMA
                     cur.execute(RUN_SCHEMA)
