@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import html
 import json
 import re
 from typing import Any
@@ -20,6 +19,7 @@ from .control_api import (
     store,
 )
 from .control_store import ControlError, random_token
+from .email_templates import payment_body, reset_body, transactional_email
 from .mailer import MailError, send_mail
 from .security_store import SecurityStore
 
@@ -100,17 +100,11 @@ async def _send_payment_confirmation(payment: dict[str, Any]) -> None:
         f"Payment confirmed for {item}. Amount: {currency} {amount:.2f}. "
         f"Order: {order_id}. Payment: {payment_id}."
     )
-    html_body = (
-        "<!doctype html><html><body style='font-family:Arial,sans-serif;background:#080b0f;color:#eef5f9;padding:28px'>"
-        "<div style='max-width:620px;margin:auto;background:#0d1218;border:1px solid #26343b;border-radius:18px;padding:28px'>"
-        "<div style='color:#ef39df;font-weight:800;letter-spacing:.12em'>OPENCRAWL</div>"
-        "<h2>Payment confirmed</h2>"
-        f"<p>Your purchase of <strong>{html.escape(item)}</strong> has been confirmed.</p>"
-        f"<p><strong>Amount:</strong> {html.escape(amount_label)}<br><strong>Order:</strong> {html.escape(order_id)}<br>"
-        f"<strong>Payment:</strong> {html.escape(payment_id)}</p>"
-        "<p style='color:#8aa0aa'>Your OpenCrawl usage credits or plan entitlement are already active in the dashboard.</p>"
-        "</div></body></html>"
+    html_body = transactional_email(
+        "payment_confirmation", subject, text,
+        payment_body(item, amount_label, order_id, payment_id),
     )
+
     try:
         result = await send_mail(
             to=user["email"],
@@ -300,10 +294,10 @@ async def _send_reset_email(*, email: str, reset_url: str) -> None:
             subject="Reset your OpenCrawl password",
             text=f"Reset your OpenCrawl password: {reset_url}\nThis link expires in 30 minutes.",
             sender_key="auth",
-            html=(
-                "<p>You requested a password reset for OpenCrawl.</p>"
-                f"<p><a href=\"{html.escape(reset_url, quote=True)}\">Reset password</a></p>"
-                "<p>This link expires in 30 minutes. If you did not request it, ignore this email.</p>"
+            html=transactional_email(
+                "password_reset", "Reset your OpenCrawl password",
+                "Reset your OpenCrawl password. This link expires in 30 minutes.",
+                reset_body(reset_url),
             ),
         )
     except MailError:

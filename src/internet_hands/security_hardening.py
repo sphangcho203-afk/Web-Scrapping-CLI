@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import html
-
 from fastapi import APIRouter, HTTPException, Request
 
 from .auth import sha256_text
 from .control_api import _require_user, _require_verified, store
 from .control_store import random_token
+from .email_templates import reset_body
 from .security_api import (
     _deliver,
     _mail_origin,
@@ -74,16 +73,7 @@ async def password_reset_request_limited(request: Request):
                 f"Reset your OpenCrawl password: {reset_url}\n"
                 "This link expires in 30 minutes."
             ),
-            body_html=(
-                "<p style='color:#a8bbc5'>A password reset was requested for your "
-                "OpenCrawl account.</p>"
-                f"<p><a href='{html.escape(reset_url, quote=True)}' "
-                "style='display:inline-block;padding:13px 18px;border-radius:10px;"
-                "background:#ef39df;color:#100915;text-decoration:none;font-weight:800'>"
-                "Reset password</a></p>"
-                "<p style='color:#8aa0aa'>This link expires in 30 minutes. Ignore this "
-                "message if you did not request it.</p>"
-            ),
+            body_html=reset_body(reset_url),
         )
     return {
         "ok": True,

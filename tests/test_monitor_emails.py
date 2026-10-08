@@ -91,7 +91,8 @@ def test_selected_email_fields_and_safe_before_after_rendering():
     message = monitor_emails.render_change_email({"id": "mon_test", "name": "Test\r\n<script>"}, selected, ["price"], {"p": "<img onerror=alert(1)>"})
     assert "Price: INR 99 → INR 79" in message["text"]
     assert "Availability:" not in message["text"]
-    assert "<script>" not in message["html"] and "<img" not in message["html"]
+    assert "<script>" not in message["html"] and "<img onerror" not in message["html"]
+    assert 'src="https://opencrawl.top/assets/opencrawl-crab.png"' in message["html"]
     assert "\n" not in message["subject"] and "\r" not in message["subject"]
     assert "https://opencrawl.top/dashboard/products?tracker=mon_test" in message["html"]
     added = monitor_emails.selected_changes([{**change, "before": None}], ["price"])
