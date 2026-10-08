@@ -23,7 +23,7 @@ const paths = {
   activity:'<path d="M3 12h4l2.5-7 5 14 2.5-7h4"/>',
   key:'<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9m-3 3 3 3m-6 0 3 3"/>',
   monitor:'<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/>',
-  plug:'<path d="M8 12h8m-4-4v8M5 3l14 18M19 3 5 21"/>',
+  plug:'<path d="M8 3v5m8-5v5M7 8h10v4a5 5 0 0 1-10 0V8Zm5 9v4"/>',
   wallet:'<path d="M4 7V5a2 2 0 0 1 2-2h12v4M4 7h16a2 2 0 0 1 2 2v10H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z"/><path d="M16 13h3"/>',
   gift:'<path d="M20 12v10H4V12M2 7h20v5H2zM12 22V7M12 7H7.5a2.5 2.5 0 1 1 2.2-3.7L12 7Zm0 0h4.5a2.5 2.5 0 1 0-2.2-3.7L12 7Z"/>',
   settings:'<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1A8 8 0 0 0 15 6l-.3-2.6h-4L10.4 6A8 8 0 0 0 9 7.1l-2.4-1-2 3.4 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.4-1A8 8 0 0 0 10.4 18l.3 2.6h4L15 18a8 8 0 0 0 1.5-1.1l2.4 1 2-3.4-2-1.5a7 7 0 0 0 .1-1Z"/>',
@@ -33,6 +33,22 @@ const paths = {
   copy:'<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
   menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',
   shield:'<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/>',
+  search:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
+  globe:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a18 18 0 0 1 0 18 18 18 0 0 1 0-18Z"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  database:'<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 4 16 4 16 0V5M4 12c0 4 16 4 16 0"/>',
+  layers:'<path d="m12 3 10 6-10 6L2 9l10-6ZM2 15l10 6 10-6M2 12l10 6 10-6"/>',
+  scan:'<path d="M8 3H5a2 2 0 0 0-2 2v3m13-5h3a2 2 0 0 1 2 2v3M3 16v3a2 2 0 0 0 2 2h3m8 0h3a2 2 0 0 0 2-2v-3M7 8h10M7 12h10M7 16h6"/>',
+  map:'<path d="m9 4-6 2v15l6-2 6 2 6-2V4l-6 2-6-2Zm0 0v15m6-13v15"/>',
+  code:'<path d="m8 7-5 5 5 5m8-10 5 5-5 5m-3-14-2 18"/>',
+  chart:'<path d="M4 3v17h17M8 16v-4m5 4V8m5 8V5"/>',
+  game:'<path d="M7 7h10a4 4 0 0 1 4 3l1 7a3 3 0 0 1-5 2l-3-3h-4l-3 3a3 3 0 0 1-5-2l1-7a4 4 0 0 1 4-3Z"/><path d="M7 10v5m-2-2.5h4m7-1.5h.01m3 3h.01"/>',
+  bell:'<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  close:'<path d="m6 6 12 12M6 18 18 6"/>',
+  down:'<path d="m6 9 6 6 6-6"/>',
+  logout:'<path d="M9 4H4v16h5m5-13 5 5-5 5m-6-5h11"/>',
+  spark:'<path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5L12 3Z"/>',
 };
 const icon = (name, label = '') => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" ${label ? `aria-label="${esc(label)}" role="img"` : 'aria-hidden="true"'}>${paths[name] || paths.activity}</svg>`;
 const platformPaths = {
@@ -376,9 +392,9 @@ function renderDocs() {
   const next = i >= 0 && i < keys.length-1 ? keys[i+1] : null;
   document.title = `${d[0]} — OpenCrawl Docs`;
   const toc=[...body.matchAll(/<h2 id="([^"]+)">([^<]+)<\/h2>/g)].map(m => `<a href="#${m[1]}">${m[2]}</a>`).join('');
-  app.innerHTML = `<div class="docs-layout"><header class="docs-top">${brand()}<button class="btn small" data-docs-toggle>${icon('menu')} Sections</button><a class="btn primary small" data-link href="${state.me?.user?.email_verified?'/dashboard':'/signup'}">${state.me?.user?.email_verified?'Back to dashboard':'Open console'}</a></header><aside class="docs-sidebar" data-docs-sidebar><label>Search documentation<input id="docs-search" placeholder="MCP, OAuth, 2FA, credits…"></label><div class="docs-search-empty" hidden>No matching documentation pages.</div>${docsNav(actualSlug)}</aside><article class="docs-article"><div class="breadcrumb">Docs / ${d[1]}</div><h1>${d[0]}</h1>${body}<nav class="docs-pager">${prev ? `<a data-link href="/docs/${prev}"><small>Previous</small>${docs[prev][0]}</a>` : '<span></span>'}${next ? `<a data-link href="/docs/${next}"><small>Next</small>${docs[next][0]}</a>` : ''}</nav></article><aside class="docs-toc"><b>On this page</b>${toc||'<span>Overview</span>'}</aside></div>`;
+  app.innerHTML = `<div class="docs-layout"><header class="docs-top">${brand()}<button class="btn small" data-docs-toggle aria-controls="oc-docs-sidebar" aria-expanded="false">${icon('menu')} Sections</button><a class="btn primary small" data-link href="${state.me?.user?.email_verified?'/dashboard':'/signup'}">${state.me?.user?.email_verified?'Dashboard':'Open console'}</a></header><aside class="docs-sidebar" id="oc-docs-sidebar" data-docs-sidebar><label>Search documentation<input id="docs-search" placeholder="MCP, OAuth, 2FA, credits…"></label><div class="docs-search-empty" hidden>No matching documentation pages.</div>${docsNav(actualSlug)}</aside><main class="docs-article"><div class="breadcrumb">Docs / ${d[1]}</div><h1>${d[0]}</h1>${body}<nav class="docs-pager">${prev ? `<a data-link href="/docs/${prev}"><small>Previous</small>${docs[prev][0]}</a>` : '<span></span>'}${next ? `<a data-link href="/docs/${next}"><small>Next</small>${docs[next][0]}</a>` : ''}</nav></main><aside class="docs-toc"><b>On this page</b>${toc||'<span>Overview</span>'}</aside></div>`;
   bindCommon();
-  $('[data-docs-toggle]').onclick = () => $('[data-docs-sidebar]').classList.toggle('open');
+  $('[data-docs-toggle]').onclick = event => { const open=$('[data-docs-sidebar]').classList.toggle('open'); event.currentTarget.setAttribute('aria-expanded',String(open)); };
   $('#docs-search').oninput = e => {
     const q=e.target.value.trim().toLowerCase();let visible=0;
     document.querySelectorAll('.docs-group a').forEach(a=>{a.hidden=Boolean(q)&&!a.dataset.docSearch.includes(q);if(!a.hidden)visible++;});
@@ -1796,7 +1812,8 @@ function openRunInspector(event) {
           ].map((x,i)=>`<div class="ih-demo-step ${i<5?'done':''}"><span>${statusDot()}</span><div><b>${x[0]}</b><small>${x[1]}</small></div><em>${x[2]}</em></div>`).join('')}
         </div>
         <div class="ih-demo-inspector">
-          <div class="ih-demo-tabs"><b>Overview</b><span>Data</span><span>Evidence</span><span>Raw</span></div>
+          <div class="ih-demo-tabs" role="tablist" aria-label="Example result views">${['Overview','Data','Evidence','Raw'].map((label,i)=>`<button type="button" role="tab" id="ih-demo-tab-${i}" aria-selected="${i===0}" aria-controls="ih-demo-panel-${i}" tabindex="${i===0?0:-1}" data-demo-tab="${i}">${label}</button>`).join('')}</div>
+          <div class="ih-demo-view" role="tabpanel" id="ih-demo-panel-0" aria-labelledby="ih-demo-tab-0">
           <div class="ih-demo-result">
             <span>RESULT</span>
             <h3>Pricing model extracted</h3>
@@ -1804,6 +1821,10 @@ function openRunInspector(event) {
           </div>
           <div class="ih-demo-metrics"><span><small>Pages</small><b>after run</b></span><span><small>Latency</small><b>measured</b></span><span><small>Credits</small><b>metered</b></span></div>
           <div class="ih-evidence-row"><i>01</i><span><b>Source page</b><small>Linked when captured</small></span></div>
+          </div>
+          <div class="ih-demo-view" role="tabpanel" id="ih-demo-panel-1" aria-labelledby="ih-demo-tab-1" hidden><div class="ih-demo-result"><span>STRUCTURED OUTPUT</span><h3>Data you can use.</h3><p>A real operation returns extracted fields alongside the source URL and request reference.</p></div><pre class="oc-demo-code">${esc(JSON.stringify({example:true,fields:['plan','price','currency'],output:'Structured JSON'},null,2))}</pre></div>
+          <div class="ih-demo-view" role="tabpanel" id="ih-demo-panel-2" aria-labelledby="ih-demo-tab-2" hidden><div class="ih-demo-result"><span>SOURCE REFERENCES</span><h3>Follow the evidence.</h3><p>Captured pages and source references are attached after a real run. Open the run inspector to trace its output.</p><a class="ih-text-link" data-link href="/docs/capabilities">Explore evidence & outputs ${icon('arrow')}</a></div></div>
+          <div class="ih-demo-view" role="tabpanel" id="ih-demo-panel-3" aria-labelledby="ih-demo-tab-3" hidden><div class="ih-demo-result"><span>EXAMPLE RESPONSE</span><h3>The details stay visible.</h3><p>This preview is illustrative. Actual status, cost, and latency come from execution.</p></div><pre class="oc-demo-code">${esc(JSON.stringify({illustrative:true,request_id:'assigned_at_execution',status:'recorded_after_run',credits:'metered'},null,2))}</pre></div>
         </div>
       </div>
     </div>`;
@@ -1832,7 +1853,7 @@ function openRunInspector(event) {
         <div class="container">
           <div class="ih-band-label"><span>OPENCRAWL / INTERNET OPERATIONS</span><i></i></div>
           <div class="oc-capability-row" aria-label="OpenCrawl operations">
-            ${['Search','Crawl','Extract','Execute','Observe'].map((operation,index)=>`<span><i>${String(index+1).padStart(2,'0')}</i><b>${operation}</b></span>`).join('')}
+            ${['Search','Crawl','Extract','Execute','Observe'].map((operation,index)=>`<a data-link href="${index===4?'/docs/monitoring':'/docs/capabilities'}"><i>${String(index+1).padStart(2,'0')}</i><b>${operation}</b>${icon('arrow')}</a>`).join('')}
           </div>
         </div>
       </section>
@@ -1883,6 +1904,19 @@ function openRunInspector(event) {
         </div>
       </section>
     </main>`);
+    const demoTabs=$$('[data-demo-tab]');
+    const selectDemoTab=index=>{
+      demoTabs.forEach((tab,i)=>{tab.setAttribute('aria-selected',String(i===index));tab.tabIndex=i===index?0:-1;$('#ih-demo-panel-'+i).hidden=i!==index;});
+    };
+    demoTabs.forEach((tab,index)=>{
+      tab.addEventListener('click',()=>selectDemoTab(index));
+      tab.addEventListener('keydown',event=>{
+        if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
+        event.preventDefault();
+        const next=event.key==='Home'?0:event.key==='End'?3:(index+(event.key==='ArrowRight'?1:-1)+4)%4;
+        selectDemoTab(next);demoTabs[next].focus();
+      });
+    });
   };
 
   function bindRunComposer() {
@@ -2637,6 +2671,11 @@ function openRunInspector(event) {
       queryInput.style.height='auto';
       queryInput.style.height=Math.min(queryInput.scrollHeight,140)+'px';
     });
+    if (state.playgroundDraft) {
+      queryInput.value = state.playgroundDraft;
+      state.playgroundDraft = '';
+      queryInput.dispatchEvent(new Event('input', {bubbles:true}));
+    }
     queryInput.focus();
   };
 
@@ -2746,63 +2785,107 @@ function openRunInspector(event) {
   };
 
   const nav = [
-    ['Build', [
+    ['Workspace', [
       ['overview','terminal','Overview'],
-      ['playground','activity','Playground'],
-      ['capabilities','terminal','Web Tools'],
+      ['playground','search','Playground'],
+      ['runs','clock','Runs'],
+      ['datasets','database','Datasets']
+    ]],
+    ['Tools', [
+      ['capabilities','globe','Web Tools'],
       ['sandbox','terminal','Sandbox'],
-      ['scrape','api','Smart Scrape'],
-      ['map','search','Site Map'],
-      ['extract','docs','Structured Extract'],
-      ['products','monitor','Price Tracker'],
-      ['datasets','docs','Datasets'],
-      ['runs','activity','Runs'],
-      ['crawl-runs','activity','Background crawls'],
-      ['data','search','Public data'],
-      ['games','activity','Game Intelligence'],
-      ['repositories','api','Repositories'],
-      ['api-keys','key','API Keys']
+      ['scrape','scan','Smart Scrape'],
+      ['map','map','Site Map'],
+      ['extract','code','Structured Extract'],
+      ['crawl-runs','layers','Background crawls']
+    ]],
+    ['Intelligence', [
+      ['products','chart','Price Tracker'],
+      ['data','globe','Public data'],
+      ['games','game','Game Intelligence'],
+      ['repositories','code','Repositories']
     ]],
     ['Observe', [
-      ['usage','activity','Runs'],
-      ['monitors','monitor','Monitors']
+      ['usage','chart','Usage analytics'],
+      ['monitors','bell','Monitors']
     ]],
-    ['Connect', [
-      ['connections','plug','Connections']
-    ]],
-    ['Manage', [
-      ['wallet','activity','Credits'],
-      ['spending','activity','Spending limits'],
+    ['Commercial', [
+      ['wallet','wallet','Credits'],
+      ['spending','shield','Spending limits'],
       ['rewards','gift','Rewards'],
-      ['billing','billing','Billing & Plans'],
+      ['billing','billing','Billing & Plans']
+    ]],
+    ['Account', [
+      ['connections','plug','Connections'],
+      ['api-keys','key','API Keys'],
       ['settings','settings','Settings & Security']
     ]]
   ];
+
+  const navIcon = (slug, name) => icon(slug === 'overview' ? 'overview' : name);
+  const shortcutLabel = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘ K' : 'Ctrl K';
+  const expandedGroups = new Set(['Workspace']);
+
+  function openWorkspaceSearch() {
+    if ($('#oc-workspace-search')) { $('#oc-workspace-search').focus(); return; }
+    $$('[data-account-menu]').forEach(menu=>{
+      if(menu.hasAttribute('popover')&&menu.matches(':popover-open'))menu.hidePopover();
+    });
+    const pages = nav.flatMap(([group,items]) => items.map(([slug,ico,label]) => ({group,slug,ico,label,href:hrefFor(slug)})));
+    pages.push({group:'Resources',slug:'docs',ico:'docs',label:'Documentation',href:'/docs'},
+      {group:'Resources',slug:'status',ico:'activity',label:'System status',href:'/status'});
+    const wrap = modal(`<div class="oc-command-search">${icon('search')}<input id="oc-workspace-search" type="search" role="combobox" aria-label="Search workspace pages" aria-controls="oc-command-results" aria-expanded="true" aria-autocomplete="list" autocomplete="off" placeholder="Where would you like to go?"><button type="button" class="icon-btn" data-close aria-label="Close workspace search">${icon('close')}</button></div><div id="oc-command-results" role="listbox" aria-label="Workspace pages"></div><footer class="oc-command-footer"><span><kbd>↑</kbd><kbd>↓</kbd> to navigate <kbd>Enter</kbd> to open</span><span><kbd>Esc</kbd> to close</span></footer>`);
+    $('.modal',wrap).classList.add('oc-command-modal');
+    const input = $('#oc-workspace-search',wrap), results = $('#oc-command-results',wrap);
+    let matches = [], selected = 0;
+    const select = index => {
+      selected = index;
+      $$('[role="option"]',results).forEach((row,i) => row.setAttribute('aria-selected',String(i===selected)));
+      const row = matches.length ? results.children[selected] : null;
+      if (row) { input.setAttribute('aria-activedescendant',row.id); row.scrollIntoView({block:'nearest'}); }
+      else input.removeAttribute('aria-activedescendant');
+    };
+    const draw = () => {
+      const query = input.value.trim().toLowerCase();
+      matches = pages.filter(page => `${page.label} ${page.group} ${page.slug}`.toLowerCase().includes(query));
+      results.innerHTML = matches.length ? matches.map((page,i) => `<a id="oc-command-option-${i}" role="option" aria-selected="${i===0}" tabindex="-1" data-link href="${page.href}"><span class="oc-command-icon">${navIcon(page.slug,page.ico)}</span><span><b>${esc(page.label)}</b><small>${esc(page.group)}</small></span>${icon('arrow')}</a>`).join('') : `<div class="oc-command-empty">${icon('search')}<b>No matching pages</b><p>Try “scrape”, “billing”, or “connections”.</p></div>`;
+      select(0);
+    };
+    input.addEventListener('input',draw);
+    input.addEventListener('keydown',event => {
+      if (['ArrowDown','ArrowUp'].includes(event.key)) { event.preventDefault(); if(matches.length)select((selected+(event.key==='ArrowDown'?1:-1)+matches.length)%matches.length); }
+      if (event.key==='Enter' && matches[selected]) { event.preventDefault(); go(matches[selected].href); }
+    });
+    draw();
+    requestAnimationFrame(()=>input.focus());
+  }
 
   dashboardShell = function commandOsShell(active, content) {
     const u = state.me?.user || {};
     const current = nav.flatMap(x => x[1]).find(x => x[0] === active);
     const title = current?.[2] || 'Overview';
     const initials = esc((u.display_name || u.email || 'I')[0].toUpperCase());
+    document.title = `${title} — OpenCrawl`;
 
-    app.innerHTML = `<div class="cos-app">
+    app.innerHTML = `<div class="cos-app"><a class="oc-skip-link" href="#oc-main">Skip to content</a>
       <aside class="cos-sidebar ih-sidebar sidebar" id="ih-sidebar">
         <div class="cos-sidebar-head">
           <div class="cos-sidebar-brand">${brand()}</div>
-          <button class="cos-sidebar-close" type="button" data-sidebar-close aria-label="Close navigation"><span aria-hidden="true">×</span></button>
+          <button class="cos-sidebar-close" type="button" data-sidebar-close aria-label="Close navigation">${icon('close')}</button>
         </div>
 
+        <button class="oc-workspace-search" type="button" data-workspace-search>${icon('search')}<span>Search workspace</span><kbd>${shortcutLabel}</kbd></button>
         <a class="cos-launch ${active === 'playground' ? 'active' : ''}" data-link href="/dashboard/playground">
-          <span>${icon('terminal')}</span><b>New run</b><kbd>⌘ K</kbd>
+          <span>${icon('plus')}</span><b>New run</b>${icon('arrow')}
         </a>
 
-        <nav class="cos-nav">
-          ${nav.map(([group, items]) => `<div class="cos-nav-group">
-            <span>${group}</span>
+        <nav class="cos-nav" aria-label="Workspace navigation">
+          ${nav.map(([group, items]) => `<details class="cos-nav-group" data-nav-group="${group}" ${expandedGroups.has(group)||items.some(x=>x[0]===active)?'open':''}>
+            <summary><span>${group}</span>${icon('down')}</summary>
             ${items.map(([slug, ico, label]) => `<a class="${slug === active ? 'active' : ''}" ${slug === active ? 'aria-current="page"' : ''} data-link href="${hrefFor(slug)}">
-              <span class="cos-nav-icon">${icon(ico)}</span><b>${label}</b>${slug === active ? '<i></i>' : ''}
+              <span class="cos-nav-icon">${navIcon(slug,ico)}</span><b>${label}</b>${slug === active ? '<i></i>' : ''}
             </a>`).join('')}
-          </div>`).join('')}
+          </details>`).join('')}
         </nav>
 
         <div class="cos-sidebar-bottom">
@@ -2815,12 +2898,12 @@ function openRunInspector(event) {
         <header class="cos-topbar topbar ih-topbar">
           <div class="cos-topbar-left">
             <button class="cos-mobile-menu icon-btn" data-sidebar-toggle aria-controls="ih-sidebar" aria-expanded="false" aria-label="Open navigation">${icon('menu')}</button>
-            <div class="cos-breadcrumb"><span>OpenCrawl</span><i>/</i><b>${esc(title)}</b></div>
+            <div class="cos-breadcrumb"><span>Workspace</span><i>/</i><b>${esc(title)}</b></div>
           </div>
           <div class="cos-topbar-right">
-            ${active === 'playground' ? '' : `<a class="cos-command-cta" data-link href="/dashboard/playground">${icon('terminal')}<span>New run</span><kbd>⌘ K</kbd></a>`}
-            <a class="cos-docs-link" data-link href="/docs">Docs</a>
-            <button class="cos-account" type="button" data-account-toggle popovertarget="ih-account-menu" popovertargetaction="toggle" aria-expanded="false"><i>${initials}</i><span><b>${esc(u.display_name || 'Account')}</b><small>${esc(u.email || '')}</small></span>${icon('chevron')}</button>
+            <button class="oc-topbar-search icon-btn" type="button" data-workspace-search aria-label="Search workspace">${icon('search')}</button>
+            <a class="cos-docs-link" data-link href="/docs">${icon('docs')} Docs</a>
+            <button class="cos-account" type="button" data-account-toggle popovertarget="ih-account-menu" popovertargetaction="toggle" aria-label="Open account menu" aria-expanded="false"><i>${initials}</i><span><b>${esc(u.display_name || 'Account')}</b><small>${esc(state.me?.account?.plan_name || 'Workspace account')}</small></span>${icon('down')}</button>
           </div>
         </header>
 
@@ -2828,40 +2911,41 @@ function openRunInspector(event) {
           <div><span class="cos-account-avatar">${initials}</span><span><b>${esc(u.display_name || 'OpenCrawl')}</b><small>${esc(u.email || '')}</small></span></div>
           <a data-link href="/dashboard/settings">${icon('settings')} Settings & Security</a>
           <a data-link href="/dashboard/billing">${icon('billing')} Billing & Plans</a>
-          <a data-link href="/dashboard/wallet">${icon('activity')} Credits</a>
+          <a data-link href="/dashboard/wallet">${icon('wallet')} Credits</a>
           <a data-link href="/dashboard/rewards">${icon('gift')} Rewards</a>
           <a data-link href="/docs">${icon('docs')} Documentation</a>
-          <button id="account-logout">Sign out</button>
+          <button id="account-logout">${icon('logout')} Sign out</button>
         </div>
 
-        <main class="cos-content content ih-content"><div class="ih-page-shell ih-route-${esc(active)}" data-dashboard-route="${esc(active)}">${content}</div></main>
+        <main class="cos-content content ih-content" id="oc-main" tabindex="-1"><div class="ih-page-shell ih-route-${esc(active)}" data-dashboard-route="${esc(active)}">${content}</div></main>
       </section>
 
-      <nav class="cos-mobile-bottom ih-mobile-bottom mobile-bottom">
+      <nav class="cos-mobile-bottom ih-mobile-bottom mobile-bottom" aria-label="Quick navigation">
         ${[
-          ['overview','terminal','Overview'],
-          ['playground','activity','Playground'],
-          ['usage','activity','Runs'],
+          ['overview','overview','Overview'],
+          ['playground','search','Playground'],
+          ['runs','clock','Runs'],
           ['connections','plug','Connections'],
           ['more','more','More']
-        ].map(([slug, ico, label]) => `<a ${slug === 'more' ? 'data-more aria-controls="ih-more-sheet" aria-expanded="false"' : `data-link ${slug === active ? 'aria-current="page"' : ''}`} href="${slug === 'more' ? '#' : hrefFor(slug)}" class="${slug === active || slug === 'more' && !['overview','playground','usage','connections'].includes(active) ? 'active' : ''}">${icon(ico)}<span>${label}</span></a>`).join('')}
+        ].map(([slug, ico, label]) => `<a ${slug === 'more' ? 'data-more aria-controls="ih-more-sheet" aria-expanded="false"' : `data-link ${slug === active ? 'aria-current="page"' : ''}`} href="${slug === 'more' ? '#' : hrefFor(slug)}" class="${slug === active || slug === 'more' && !['overview','playground','runs','connections'].includes(active) ? 'active' : ''}">${icon(ico)}<span>${label}</span></a>`).join('')}
       </nav>
 
       <div class="cos-more-sheet more-sheet" id="ih-more-sheet" data-more-sheet role="navigation" aria-label="More navigation" inert>
         <div class="cos-sheet-handle"></div>
         <div class="cos-sheet-title"><b>More</b><small>Workspace navigation</small></div>
-        <span class="cos-sheet-label">Build & observe</span>
-        ${[['api-keys','key','API Keys'],['scrape','api','Smart Scrape'],['map','search','Site Map'],['data','search','Public data'],['games','activity','Game Intelligence'],['repositories','api','Repositories'],['monitors','monitor','Monitors']].map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${icon(ico)} ${label}</a>`).join('')}
-        <span class="cos-sheet-label">Account & product</span>
-        ${[['wallet','activity','Credits'],['rewards','gift','Rewards'],['billing','billing','Billing & Plans'],['settings','settings','Settings & Security']].map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${icon(ico)} ${label}</a>`).join('')}
+        ${nav.map(([group,items])=>`<span class="cos-sheet-label">${group}</span>${items.map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${navIcon(slug,ico)} ${label}</a>`).join('')}`).join('')}
         <a data-link href="/docs">${icon('docs')} Documentation</a>
         <a data-link href="/status">${icon('activity')} System Status</a>
-        <button id="mobile-logout">Sign out</button>
+        <button id="mobile-logout">${icon('logout')} Sign out</button>
       </div>
       <div class="cos-sheet-backdrop sheet-backdrop" data-sheet-backdrop></div>
     </div>`;
 
     bindCommon();
+    $$('[data-workspace-search]').forEach(button=>button.addEventListener('click',openWorkspaceSearch));
+    $$('[data-nav-group]').forEach(group=>group.addEventListener('toggle',()=>{
+      if(group.open)expandedGroups.add(group.dataset.navGroup);else expandedGroups.delete(group.dataset.navGroup);
+    }));
     refreshGatewayStatus();
     clearInterval(state.gatewayTimer);
     state.gatewayTimer=setInterval(()=>refreshGatewayStatus(true),30000);
@@ -2993,11 +3077,12 @@ function openRunInspector(event) {
 
     if (window.__ihShellEscape) document.removeEventListener('keydown', window.__ihShellEscape);
     window.__ihShellEscape = e => {
+      if(e.defaultPrevented||document.querySelector('.modal-backdrop'))return;
       if(e.key==='Escape'){closeOverlays(true);return;}
       if(e.key!=='Tab')return;
       const region=sheet?.classList.contains('open')?sheet:sidebar?.classList.contains('open')?sidebar:null;
       if(!region)return;
-      const items=$$('a[href],button:not([disabled])',region).filter(el=>el.getClientRects().length);
+      const items=$$('a[href],button:not([disabled]),summary',region).filter(el=>el.getClientRects().length);
       if(!items.length)return;
       const first=items[0],last=items.at(-1);
       if(!region.contains(document.activeElement)){e.preventDefault();first.focus();}
@@ -3019,13 +3104,7 @@ function openRunInspector(event) {
     window.__ihCommandShortcut = e => {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'k') return;
       e.preventDefault();
-      if (location.pathname !== '/dashboard/playground') {
-        go('/dashboard/playground').then(()=>{
-          if(location.pathname==='/dashboard/playground')($('#research-query')||$('.search-key-lock a'))?.focus();
-        });
-        return;
-      }
-      ($('#research-query')||$('.search-key-lock a'))?.focus();
+      openWorkspaceSearch();
     };
     document.addEventListener('keydown', window.__ihCommandShortcut);
   };

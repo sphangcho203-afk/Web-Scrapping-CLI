@@ -25,6 +25,9 @@ ASSET_MEDIA_TYPES = {
     "internet-hands-logo.webp": "image/webp",
     "opencrawl-robot.png": "image/png",
     "opencrawl-crab.png": "image/png",
+    "inter-latin-variable.woff2": "font/woff2",
+    "inter-latin-ext-variable.woff2": "font/woff2",
+    "inter-license.txt": "text/plain",
 }
 
 
