@@ -17,3 +17,10 @@ def test_mutable_frontend_assets_are_no_store() -> None:
 def test_static_brand_assets_can_still_use_normal_caching() -> None:
     mark = site.site_asset("mark.svg")
     assert "no-store" not in mark.headers.get("cache-control", "")
+
+
+def test_dimensional_art_is_served_as_a_static_image() -> None:
+    orbit = site.site_asset("glass-orbit.webp")
+    assert orbit.media_type == "image/webp"
+    assert orbit.path.is_file()
+    assert "no-store" not in orbit.headers.get("cache-control", "")

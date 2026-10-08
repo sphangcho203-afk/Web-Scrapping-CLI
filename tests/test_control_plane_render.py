@@ -628,6 +628,62 @@ def test_workspace_search_without_native_popover_support(frontend_url):
         browser.close()
 
 
+def test_dimensional_surfaces_reset_on_exit_focus_and_reduced_motion(frontend_url):
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 1366, "height": 900})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+
+        def respond(route):
+            data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            if urlsplit(route.request.url).path != "/api/auth/me":
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard")
+        metric = page.locator(".ih-command-stats>div").first
+        metric.wait_for()
+        metric.hover(position={"x": 20, "y": 20})
+        page.wait_for_function("document.querySelector('.ih-command-stats>div').style.getPropertyValue('--oc-depth-x') !== ''")
+        page.mouse.move(1, 1)
+        page.wait_for_function("document.querySelector('.ih-command-stats>div').style.getPropertyValue('--oc-depth-x') === ''")
+
+        composer = page.locator(".oc-overview-composer")
+        page.wait_for_function("document.querySelector('.oc-depth-orbit img').complete && document.querySelector('.oc-depth-orbit img').naturalWidth > 0")
+        assert page.locator(".oc-depth-orbit").get_attribute("aria-hidden") == "true"
+        composer.hover(position={"x": 20, "y": 20})
+        page.wait_for_function("document.querySelector('.oc-overview-composer').style.getPropertyValue('--oc-depth-x') !== ''")
+        page.get_by_label("Question or public URL", exact=True).focus()
+        assert composer.evaluate("el => getComputedStyle(el).transform") == "none"
+        assert composer.evaluate("el => el.style.getPropertyValue('--oc-depth-x')") == ""
+        page.get_by_label("Question or public URL", exact=True).fill("Keep this question while typing")
+        composer.hover(position={"x": 20, "y": 20})
+        assert composer.evaluate("el => getComputedStyle(el).transform") == "none"
+
+        page.get_by_role("heading", level=1).click()
+        metric.hover(position={"x": 20, "y": 20})
+        page.wait_for_function("document.querySelector('.ih-command-stats>div').style.getPropertyValue('--oc-depth-x') !== ''")
+        page.emulate_media(reduced_motion="reduce")
+        page.wait_for_function("document.querySelector('.ih-command-stats>div').style.getPropertyValue('--oc-depth-x') === ''")
+        assert metric.evaluate("el => getComputedStyle(el).transform") == "none"
+        assert page.locator(".oc-depth-orbit").evaluate("el => el.getAnimations({subtree:true}).filter(a => a.playState === 'running').length") == 0
+
+        touch = browser.new_context(viewport={"width": 1366, "height": 900}, has_touch=True)
+        touch.route("**/api/**", respond)
+        coarse_page = touch.new_page()
+        coarse_page.on("pageerror", lambda error: errors.append(str(error)))
+        coarse_page.goto(frontend_url + "/dashboard")
+        coarse_metric = coarse_page.locator(".ih-command-stats>div").first
+        coarse_metric.hover(position={"x": 20, "y": 20})
+        assert coarse_metric.evaluate("el => getComputedStyle(el).transform") == "none"
+        assert coarse_metric.evaluate("el => el.style.getPropertyValue('--oc-depth-x')") == ""
+        assert coarse_page.locator(".oc-depth-orbit").evaluate("el => el.getAnimations({subtree:true}).filter(a => a.playState === 'running').length") == 0
+        assert not errors, errors
+        browser.close()
+
+
 def test_opencrawl_mark_and_wordmark_at_phone_and_desktop_widths(frontend_url):
     with playwright.sync_playwright() as p:
         browser = p.chromium.launch()

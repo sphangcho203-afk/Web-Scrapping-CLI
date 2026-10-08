@@ -25,6 +25,7 @@ ASSET_MEDIA_TYPES = {
     "internet-hands-logo.webp": "image/webp",
     "opencrawl-robot.png": "image/png",
     "opencrawl-crab.png": "image/png",
+    "glass-orbit.webp": "image/webp",
     "inter-latin-variable.woff2": "font/woff2",
     "inter-latin-ext-variable.woff2": "font/woff2",
     "inter-license.txt": "text/plain",
@@ -55,6 +56,7 @@ def _browser_runtime() -> Response:
     sources.append(WEB_ROOT / "runs.js")
     sources.append(WEB_ROOT / "product-tracker.js")
     sources.append(WEB_ROOT / "sandbox-workbench.js")
+    sources.append(WEB_ROOT / "depth-effects.js")
     if any(not source.is_file() for source in sources):
         raise HTTPException(status_code=404, detail="asset not found")
     content = "\n\n".join(source.read_text(encoding="utf-8") for source in sources)
