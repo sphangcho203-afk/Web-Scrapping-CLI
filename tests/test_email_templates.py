@@ -90,6 +90,22 @@ def test_test_alert_explains_no_change_or_charge_without_a_change_table():
     assert not any(tag == "thead" for tag, _ in ParsedEmail(message["html"]).tags)
 
 
+def test_large_alert_preserves_all_plaintext_changes_and_bounds_html_details():
+    changes = [
+        {"product_id": str(i), "before": {"price": "99", "currency": "INR", "availability": "InStock"},
+         "after": {"price": "79", "currency": "INR", "availability": "OutOfStock"}}
+        for i in range(64)
+    ]
+    names = {str(i): f"Offer {i}: " + "<&>" * 100 for i in range(64)}
+    message = monitor_emails.render_change_email({"id": "mon_large", "name": "Large watch"}, changes, ["price", "availability"], names)
+    assert len(message["html"].encode("utf-8")) < 80_000
+    assert message["text"].count("Price: INR 99 → INR 79") == 64
+    assert message["text"].count("Availability: InStock → OutOfStock") == 64
+    assert "Offer 63:" in message["text"]
+    assert "of 64 changed offers. Open your tracker to review the full change history." in message["html"]
+    assert "https://opencrawl.top/dashboard/products?tracker=mon_large" in ParsedEmail(message["html"]).links
+
+
 @pytest.mark.parametrize("event,sender", [("email_verification", "auth"), ("password_reset", "auth"), ("login_notice", "security")])
 def test_delivery_retains_plaintext_recipient_sender_and_event_tracking(monkeypatch, event, sender):
     from internet_hands import security_api
