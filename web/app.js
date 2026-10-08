@@ -2829,7 +2829,7 @@ function openRunInspector(event) {
   function openWorkspaceSearch() {
     if ($('#oc-workspace-search')) { $('#oc-workspace-search').focus(); return; }
     $$('[data-account-menu]').forEach(menu=>{
-      if(menu.hasAttribute('popover')&&menu.matches(':popover-open'))menu.hidePopover();
+      if(typeof menu.hidePopover==='function'&&menu.hasAttribute('popover')&&menu.matches(':popover-open'))menu.hidePopover();
     });
     const pages = nav.flatMap(([group,items]) => items.map(([slug,ico,label]) => ({group,slug,ico,label,href:hrefFor(slug)})));
     pages.push({group:'Resources',slug:'docs',ico:'docs',label:'Documentation',href:'/docs'},

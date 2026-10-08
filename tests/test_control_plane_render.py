@@ -587,6 +587,47 @@ def frontend_url():
     thread.join()
 
 
+def test_workspace_search_without_native_popover_support(frontend_url):
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 1366, "height": 900})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.add_init_script("""
+            delete HTMLElement.prototype.showPopover;
+            delete HTMLElement.prototype.hidePopover;
+            const nativeMatches = Element.prototype.matches;
+            Element.prototype.matches = function(selector) {
+                if (selector.includes(':popover-open')) {
+                    throw new DOMException('Unsupported selector', 'SyntaxError');
+                }
+                return nativeMatches.call(this, selector);
+            };
+        """)
+
+        def respond(route):
+            data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            if urlsplit(route.request.url).path != "/api/auth/me":
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard")
+        search = page.get_by_role("combobox", name="Search workspace pages")
+        for selector in (".oc-workspace-search", ".oc-topbar-search", None):
+            if selector:
+                page.locator(selector).click()
+            else:
+                page.keyboard.press("Control+k")
+            search.fill("sandbox")
+            assert page.get_by_role("option").count() == 1
+            assert page.get_by_role("option").get_attribute("href") == "/dashboard/sandbox"
+            search.press("Escape")
+            assert page.get_by_role("dialog").count() == 0
+        assert not errors, errors
+        browser.close()
+
+
 def test_opencrawl_mark_and_wordmark_at_phone_and_desktop_widths(frontend_url):
     with playwright.sync_playwright() as p:
         browser = p.chromium.launch()

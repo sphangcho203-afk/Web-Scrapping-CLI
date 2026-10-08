@@ -99,7 +99,7 @@ def test_site_map_routes_and_console_surface_are_registered() -> None:
 
     web = (root / "web" / "app.js").read_text(encoding="utf-8")
     assert "map:dashSiteMap" in web
-    assert "['map','search','Site Map']" in web
+    assert "['map','map','Site Map']" in web
     assert "/api/site-map/quote" in web
     assert "/api/site-map/run" in web
     assert "Confirm and map site" in web
