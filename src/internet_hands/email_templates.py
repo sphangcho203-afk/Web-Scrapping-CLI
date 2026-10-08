@@ -9,6 +9,7 @@ FONT = "Arial,Helvetica,sans-serif"
 TEXT = "#f4f1fa"
 MUTED = "#b6accb"
 ACCENT = "#ed38d0"
+BUTTON = "#cb23b4"
 LINE = "#39364e"
 
 
@@ -36,7 +37,7 @@ def note(text: str) -> str:
 def action(label: str, url: str, *, fallback: bool = False) -> str:
     href = _href(url)
     button = f"""<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 24px;table-layout:fixed">
-<tr><td align="center" bgcolor="{ACCENT}" style="border:1px solid #f469e2;border-radius:9px;background-color:{ACCENT};background-image:linear-gradient(110deg,#ed38d0,#d825c7);mso-padding-alt:15px 22px">
+<tr><td align="center" bgcolor="{BUTTON}" style="border:1px solid #f469e2;border-radius:9px;background-color:{BUTTON};background-image:linear-gradient(110deg,{BUTTON},#b717ab);mso-padding-alt:15px 22px">
 <a href="{href}" style="display:block;padding:15px 22px;color:#ffffff;font:700 15px/20px {FONT};text-align:center;text-decoration:none;border-radius:9px">{escape(label)}</a>
 </td></tr></table>"""
     if fallback:
