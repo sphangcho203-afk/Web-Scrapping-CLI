@@ -322,6 +322,11 @@ def test_playground_cost_review_requires_confirmation_and_requotes_changed_input
         assert len(quotes) == 1 and not executions
         assert page.get_by_role("button", name="Review cost", exact=True).is_visible()
         assert quotes[-1]["paid_recovery"] is False
+        page.get_by_role("button", name="Compare services", exact=False).click()
+        assert page.locator("#research-query").input_value() == "Compare public pricing for hosted databases"
+        assert page.locator("#research-query").evaluate("el => el === document.activeElement")
+        assert not page.get_by_role("button", name="Confirm run", exact=True).is_visible()
+        assert len(quotes) == 1 and not executions
         page.locator("#research-query").fill("changed company")
         page.get_by_role("button", name="Review cost", exact=True).click()
         page.get_by_role("button", name="Confirm run", exact=True).wait_for()
@@ -587,6 +592,103 @@ def frontend_url():
     thread.join()
 
 
+def test_workspace_search_without_native_popover_support(frontend_url):
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 1366, "height": 900})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.add_init_script("""
+            delete HTMLElement.prototype.showPopover;
+            delete HTMLElement.prototype.hidePopover;
+            const nativeMatches = Element.prototype.matches;
+            Element.prototype.matches = function(selector) {
+                if (selector.includes(':popover-open')) {
+                    throw new DOMException('Unsupported selector', 'SyntaxError');
+                }
+                return nativeMatches.call(this, selector);
+            };
+        """)
+
+        def respond(route):
+            data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            if urlsplit(route.request.url).path != "/api/auth/me":
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard")
+        search = page.get_by_role("combobox", name="Search workspace pages")
+        for selector in (".oc-workspace-search", ".oc-topbar-search", None):
+            if selector:
+                page.locator(selector).click()
+            else:
+                page.keyboard.press("Control+k")
+            search.fill("sandbox")
+            assert page.get_by_role("option").count() == 1
+            assert page.get_by_role("option").get_attribute("href") == "/dashboard/sandbox"
+            search.press("Escape")
+            assert page.get_by_role("dialog").count() == 0
+        assert not errors, errors
+        browser.close()
+
+
+def test_dimensional_surfaces_reset_on_exit_focus_and_reduced_motion(frontend_url):
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 1366, "height": 900})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+
+        def respond(route):
+            data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            if urlsplit(route.request.url).path != "/api/auth/me":
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/dashboard")
+        metric = page.locator(".ih-command-stats>div").first
+        metric.wait_for()
+        metric.hover(position={"x": 20, "y": 20})
+        page.wait_for_function("document.querySelector('.ih-command-stats>div').style.getPropertyValue('--oc-depth-x') !== ''")
+        page.mouse.move(1, 1)
+        page.wait_for_function("document.querySelector('.ih-command-stats>div').style.getPropertyValue('--oc-depth-x') === ''")
+
+        composer = page.locator(".oc-overview-composer")
+        page.wait_for_function("document.querySelector('.oc-depth-orbit img').complete && document.querySelector('.oc-depth-orbit img').naturalWidth > 0")
+        assert page.locator(".oc-depth-orbit").get_attribute("aria-hidden") == "true"
+        composer.hover(position={"x": 20, "y": 20})
+        page.wait_for_function("document.querySelector('.oc-overview-composer').style.getPropertyValue('--oc-depth-x') !== ''")
+        page.get_by_label("Question or public URL", exact=True).focus()
+        assert composer.evaluate("el => getComputedStyle(el).transform") == "none"
+        assert composer.evaluate("el => el.style.getPropertyValue('--oc-depth-x')") == ""
+        page.get_by_label("Question or public URL", exact=True).fill("Keep this question while typing")
+        composer.hover(position={"x": 20, "y": 20})
+        assert composer.evaluate("el => getComputedStyle(el).transform") == "none"
+
+        page.get_by_role("heading", level=1).click()
+        metric.hover(position={"x": 20, "y": 20})
+        page.wait_for_function("document.querySelector('.ih-command-stats>div').style.getPropertyValue('--oc-depth-x') !== ''")
+        page.emulate_media(reduced_motion="reduce")
+        page.wait_for_function("document.querySelector('.ih-command-stats>div').style.getPropertyValue('--oc-depth-x') === ''")
+        assert metric.evaluate("el => getComputedStyle(el).transform") == "none"
+        assert page.locator(".oc-depth-orbit").evaluate("el => el.getAnimations({subtree:true}).filter(a => a.playState === 'running').length") == 0
+
+        touch = browser.new_context(viewport={"width": 1366, "height": 900}, has_touch=True)
+        touch.route("**/api/**", respond)
+        coarse_page = touch.new_page()
+        coarse_page.on("pageerror", lambda error: errors.append(str(error)))
+        coarse_page.goto(frontend_url + "/dashboard")
+        coarse_metric = coarse_page.locator(".ih-command-stats>div").first
+        coarse_metric.hover(position={"x": 20, "y": 20})
+        assert coarse_metric.evaluate("el => getComputedStyle(el).transform") == "none"
+        assert coarse_metric.evaluate("el => el.style.getPropertyValue('--oc-depth-x')") == ""
+        assert coarse_page.locator(".oc-depth-orbit").evaluate("el => el.getAnimations({subtree:true}).filter(a => a.playState === 'running').length") == 0
+        assert not errors, errors
+        browser.close()
+
+
 def test_opencrawl_mark_and_wordmark_at_phone_and_desktop_widths(frontend_url):
     with playwright.sync_playwright() as p:
         browser = p.chromium.launch()
@@ -606,8 +708,59 @@ def test_opencrawl_mark_and_wordmark_at_phone_and_desktop_widths(frontend_url):
                 assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), (path, width)
                 if path == "/" and width == 390:
                     header = page.locator(".ih-site-header").bounding_box()
-                    kicker = page.locator(".oc-hero-kicker").bounding_box()
-                    assert header and kicker and kicker["y"] - (header["y"] + header["height"]) < 100
+                    title = page.get_by_role("heading", name="The internet. Ready for your agent.").bounding_box()
+                    assert header and title and title["y"] - (header["y"] + header["height"]) < 100
+        browser.close()
+
+
+def test_home_workflow_preview_keyboard_launch_and_connection_copy(frontend_url):
+    writes = []
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 1366, "height": 900})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.add_init_script("Object.defineProperty(navigator, 'clipboard', {value: {writeText: async text => { window.copied = text; }}})")
+
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if route.request.method != "GET":
+                writes.append(path)
+            if path == "/api/auth/me":
+                data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            elif path == "/api/api-keys":
+                data = {"keys": [{"id": "key_fixture", "name": "Collection", "prefix": "oc"}]}
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/")
+        research = page.get_by_role("tab", name="Research", exact=True)
+        research.wait_for()
+        research.focus()
+        page.keyboard.press("End")
+        assert page.get_by_role("tab", name="Connect", exact=True).get_attribute("aria-selected") == "true"
+        assert page.get_by_role("tabpanel").count() == 1
+        preview = page.get_by_role("region", name="OpenCrawl interactive product preview", exact=True)
+        assert preview.get_by_role("link", name="Explore connections", exact=True).get_attribute("href") == "/dashboard/connections"
+        page.keyboard.press("Home")
+        page.keyboard.press("ArrowRight")
+        assert page.get_by_role("tab", name="Crawl", exact=True).get_attribute("aria-selected") == "true"
+        page.get_by_role("button", name="Copy", exact=True).click()
+        copied = page.evaluate("window.copied")
+        assert json.loads(copied)["mcpServers"]["OpenCrawl"]["url"] == "https://opencrawl.top/mcp"
+        assert "<API_KEY>" in copied
+        page.get_by_role("button", name="Open selected workflow", exact=True).click()
+        page.wait_for_url("**/dashboard/playground")
+        page.locator("#research-query").wait_for()
+        assert page.locator("#research-query").input_value() == "https://example.com"
+        assert not writes
+        page.goto(frontend_url + "/dashboard/connections")
+        page.get_by_role("button", name="Copy endpoint", exact=True).click()
+        assert page.evaluate("window.copied") == "https://opencrawl.top/mcp"
+        assert not writes
+        assert not errors, errors
         browser.close()
 
 

@@ -23,7 +23,7 @@ const paths = {
   activity:'<path d="M3 12h4l2.5-7 5 14 2.5-7h4"/>',
   key:'<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9m-3 3 3 3m-6 0 3 3"/>',
   monitor:'<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/>',
-  plug:'<path d="M8 12h8m-4-4v8M5 3l14 18M19 3 5 21"/>',
+  plug:'<path d="M8 3v5m8-5v5M7 8h10v4a5 5 0 0 1-10 0V8Zm5 9v4"/>',
   wallet:'<path d="M4 7V5a2 2 0 0 1 2-2h12v4M4 7h16a2 2 0 0 1 2 2v10H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z"/><path d="M16 13h3"/>',
   gift:'<path d="M20 12v10H4V12M2 7h20v5H2zM12 22V7M12 7H7.5a2.5 2.5 0 1 1 2.2-3.7L12 7Zm0 0h4.5a2.5 2.5 0 1 0-2.2-3.7L12 7Z"/>',
   settings:'<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1A8 8 0 0 0 15 6l-.3-2.6h-4L10.4 6A8 8 0 0 0 9 7.1l-2.4-1-2 3.4 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.4-1A8 8 0 0 0 10.4 18l.3 2.6h4L15 18a8 8 0 0 0 1.5-1.1l2.4 1 2-3.4-2-1.5a7 7 0 0 0 .1-1Z"/>',
@@ -33,6 +33,22 @@ const paths = {
   copy:'<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
   menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',
   shield:'<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/>',
+  search:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
+  globe:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a18 18 0 0 1 0 18 18 18 0 0 1 0-18Z"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  database:'<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 4 16 4 16 0V5M4 12c0 4 16 4 16 0"/>',
+  layers:'<path d="m12 3 10 6-10 6L2 9l10-6ZM2 15l10 6 10-6M2 12l10 6 10-6"/>',
+  scan:'<path d="M8 3H5a2 2 0 0 0-2 2v3m13-5h3a2 2 0 0 1 2 2v3M3 16v3a2 2 0 0 0 2 2h3m8 0h3a2 2 0 0 0 2-2v-3M7 8h10M7 12h10M7 16h6"/>',
+  map:'<path d="m9 4-6 2v15l6-2 6 2 6-2V4l-6 2-6-2Zm0 0v15m6-13v15"/>',
+  code:'<path d="m8 7-5 5 5 5m8-10 5 5-5 5m-3-14-2 18"/>',
+  chart:'<path d="M4 3v17h17M8 16v-4m5 4V8m5 8V5"/>',
+  game:'<path d="M7 7h10a4 4 0 0 1 4 3l1 7a3 3 0 0 1-5 2l-3-3h-4l-3 3a3 3 0 0 1-5-2l1-7a4 4 0 0 1 4-3Z"/><path d="M7 10v5m-2-2.5h4m7-1.5h.01m3 3h.01"/>',
+  bell:'<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  close:'<path d="m6 6 12 12M6 18 18 6"/>',
+  down:'<path d="m6 9 6 6 6-6"/>',
+  logout:'<path d="M9 4H4v16h5m5-13 5 5-5 5m-6-5h11"/>',
+  spark:'<path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5L12 3Z"/>',
 };
 const icon = (name, label = '') => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" ${label ? `aria-label="${esc(label)}" role="img"` : 'aria-hidden="true"'}>${paths[name] || paths.activity}</svg>`;
 const platformPaths = {
@@ -376,9 +392,9 @@ function renderDocs() {
   const next = i >= 0 && i < keys.length-1 ? keys[i+1] : null;
   document.title = `${d[0]} — OpenCrawl Docs`;
   const toc=[...body.matchAll(/<h2 id="([^"]+)">([^<]+)<\/h2>/g)].map(m => `<a href="#${m[1]}">${m[2]}</a>`).join('');
-  app.innerHTML = `<div class="docs-layout"><header class="docs-top">${brand()}<button class="btn small" data-docs-toggle>${icon('menu')} Sections</button><a class="btn primary small" data-link href="${state.me?.user?.email_verified?'/dashboard':'/signup'}">${state.me?.user?.email_verified?'Back to dashboard':'Open console'}</a></header><aside class="docs-sidebar" data-docs-sidebar><label>Search documentation<input id="docs-search" placeholder="MCP, OAuth, 2FA, credits…"></label><div class="docs-search-empty" hidden>No matching documentation pages.</div>${docsNav(actualSlug)}</aside><article class="docs-article"><div class="breadcrumb">Docs / ${d[1]}</div><h1>${d[0]}</h1>${body}<nav class="docs-pager">${prev ? `<a data-link href="/docs/${prev}"><small>Previous</small>${docs[prev][0]}</a>` : '<span></span>'}${next ? `<a data-link href="/docs/${next}"><small>Next</small>${docs[next][0]}</a>` : ''}</nav></article><aside class="docs-toc"><b>On this page</b>${toc||'<span>Overview</span>'}</aside></div>`;
+  app.innerHTML = `<div class="docs-layout"><header class="docs-top">${brand()}<button class="btn small" data-docs-toggle aria-controls="oc-docs-sidebar" aria-expanded="false">${icon('menu')} Sections</button><a class="btn primary small" data-link href="${state.me?.user?.email_verified?'/dashboard':'/signup'}">${state.me?.user?.email_verified?'Dashboard':'Open console'}</a></header><aside class="docs-sidebar" id="oc-docs-sidebar" data-docs-sidebar><label>Search documentation<input id="docs-search" placeholder="MCP, OAuth, 2FA, credits…"></label><div class="docs-search-empty" hidden>No matching documentation pages.</div>${docsNav(actualSlug)}</aside><main class="docs-article"><div class="breadcrumb">Docs / ${d[1]}</div><h1>${d[0]}</h1>${body}<nav class="docs-pager">${prev ? `<a data-link href="/docs/${prev}"><small>Previous</small>${docs[prev][0]}</a>` : '<span></span>'}${next ? `<a data-link href="/docs/${next}"><small>Next</small>${docs[next][0]}</a>` : ''}</nav></main><aside class="docs-toc"><b>On this page</b>${toc||'<span>Overview</span>'}</aside></div>`;
   bindCommon();
-  $('[data-docs-toggle]').onclick = () => $('[data-docs-sidebar]').classList.toggle('open');
+  $('[data-docs-toggle]').onclick = event => { const open=$('[data-docs-sidebar]').classList.toggle('open'); event.currentTarget.setAttribute('aria-expanded',String(open)); };
   $('#docs-search').oninput = e => {
     const q=e.target.value.trim().toLowerCase();let visible=0;
     document.querySelectorAll('.docs-group a').forEach(a=>{a.hidden=Boolean(q)&&!a.dataset.docSearch.includes(q);if(!a.hidden)visible++;});
@@ -1773,118 +1789,6 @@ function openRunInspector(event) {
     bindCommon();
   };
 
-  const demoRun = () => `
-    <div class="ih-run-demo" aria-label="OpenCrawl execution preview">
-      <div class="ih-run-demo-head">
-        <div><span class="ih-window-dot"></span><span class="ih-window-dot"></span><span class="ih-window-dot"></span></div>
-        <span>EXAMPLE EXECUTION</span>
-        <em>Illustrative flow</em>
-      </div>
-      <div class="ih-demo-command">
-        <span>${icon('activity')}</span>
-        <p>Research <b>acme.dev</b>, map the product, extract pricing and return evidence.</p>
-        <kbd>↵</kbd>
-      </div>
-      <div class="ih-demo-body">
-        <div class="ih-demo-timeline">
-          ${[
-            ['Route','Find a suitable capability',''],
-            ['Discover','Find public sources',''],
-            ['Browse','Read permitted pages',''],
-            ['Extract','Structure the response',''],
-            ['Evidence','Keep source references','']
-          ].map((x,i)=>`<div class="ih-demo-step ${i<5?'done':''}"><span>${statusDot()}</span><div><b>${x[0]}</b><small>${x[1]}</small></div><em>${x[2]}</em></div>`).join('')}
-        </div>
-        <div class="ih-demo-inspector">
-          <div class="ih-demo-tabs"><b>Overview</b><span>Data</span><span>Evidence</span><span>Raw</span></div>
-          <div class="ih-demo-result">
-            <span>RESULT</span>
-            <h3>Pricing model extracted</h3>
-            <p>Public plans · product links · cited evidence</p>
-          </div>
-          <div class="ih-demo-metrics"><span><small>Pages</small><b>after run</b></span><span><small>Latency</small><b>measured</b></span><span><small>Credits</small><b>metered</b></span></div>
-          <div class="ih-evidence-row"><i>01</i><span><b>Source page</b><small>Linked when captured</small></span></div>
-        </div>
-      </div>
-    </div>`;
-
-  renderHome = async function renderHomeV2() {
-    publicShell(`<main class="ih-home">
-      <section class="ih-hero">
-        <div class="container ih-hero-grid">
-          <div class="ih-hero-copy">
-            <div class="oc-hero-kicker"><img src="/assets/opencrawl-crab.png" width="24" height="24" alt="" aria-hidden="true"> OPENCRAWL / PUBLIC WEB OPERATIONS</div>
-            <h1>The internet,<br><span>as an executable workspace.</span></h1>
-            <p>Search it. Browse it. Extract from it. Monitor it. Route into APIs and remote tools. OpenCrawl gives agents one controlled surface for real internet work.</p>
-            <div class="ih-hero-actions">
-              <a class="btn primary large" data-link href="${state.me?.user?.email_verified ? '/dashboard' : '/signup'}">Open command center ${icon('arrow')}</a>
-              <a class="ih-text-link" data-link href="/docs/quickstart">See how it works ${icon('arrow')}</a>
-            </div>
-            <div class="ih-hero-proof">
-              <span>Gateway status in console</span><span>Evidence retained</span><span>Scoped execution</span>
-            </div>
-          </div>
-          ${demoRun()}
-        </div>
-      </section>
-
-      <section class="ih-client-band">
-        <div class="container">
-          <div class="ih-band-label"><span>OPENCRAWL / INTERNET OPERATIONS</span><i></i></div>
-          <div class="oc-capability-row" aria-label="OpenCrawl operations">
-            ${['Search','Crawl','Extract','Execute','Observe'].map((operation,index)=>`<span><i>${String(index+1).padStart(2,'0')}</i><b>${operation}</b></span>`).join('')}
-          </div>
-        </div>
-      </section>
-
-      <section class="ih-section ih-operation-section">
-        <div class="container">
-          <div class="ih-section-lead">
-            <h2>One instruction becomes a traceable operation.</h2>
-            <p>Instead of exposing a wall of tools, OpenCrawl discovers the capability, chooses an execution path, and keeps the run inspectable.</p>
-          </div>
-          <div class="ih-operation-grid">
-            <article class="ih-operation-primary">
-              <div class="ih-panel-head"><span>EXAMPLE ROUTE</span><em>Illustrative sequence</em></div>
-              <h3>Map every public pricing signal for a target company.</h3>
-              <div class="ih-operation-flow">
-                ${['Intent','Route','Browser','Extract','Validate','Evidence'].map((x,i)=>`<span><i>${String(i+1).padStart(2,'0')}</i><b>${x}</b></span>`).join('')}
-              </div>
-              <div class="ih-operation-footer"><span>Discover</span><span>Route</span><span>Execute</span><b>Inspect</b></div>
-            </article>
-            <div class="ih-operation-stack">
-              <article><span>SEARCH + FETCH</span><h3>Public web intelligence</h3><p>Discover, fetch, crawl and preserve provenance instead of returning a dead blob of text.</p><a class="ih-text-link" data-link href="/docs/capabilities#web">How web intelligence works ${icon('arrow')}</a></article>
-              <article><span>BROWSER</span><h3>Dynamic web execution</h3><p>Use controlled Chromium sessions for pages that need a real browser, state, clicks or extraction.</p><a class="ih-text-link" data-link href="/docs/capabilities#browser">When browser execution is appropriate ${icon('arrow')}</a></article>
-              <article><span>TOOL MESH</span><h3>APIs and remote MCPs</h3><p>Route to external capabilities without loading every provider schema into the model at once.</p><a class="ih-text-link" data-link href="/docs/tool-mesh">How routing and execution work ${icon('arrow')}</a></article>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="ih-section ih-evidence-section">
-        <div class="container ih-evidence-grid">
-          <div class="ih-section-lead">
-            <h2>Power means nothing if the result is impossible to inspect.</h2>
-            <p>Every useful run should leave behind enough context to understand what happened: route, latency, cost, status and evidence.</p>
-            <a class="ih-text-link" data-link href="/docs/capabilities">Explore the capability fabric ${icon('arrow')}</a>
-          </div>
-          <div class="ih-ledger">
-            <div class="ih-ledger-head"><span>RUN LEDGER FIELDS</span><span>ROUTE</span><span>STATE</span><span>LATENCY</span></div>
-            <div class="ih-ledger-row"><code>Request ID</code><span>Selected route</span><em>Measured status</em><b>Elapsed time</b></div>
-            <div class="ih-ledger-row"><code>Capability</code><span>Path used</span><em>Credit charge</em><b>Timestamp</b></div>
-          </div>
-        </div>
-      </section>
-
-      <section class="ih-final">
-        <div class="container ih-final-inner">
-          <div><h2>Give the agent reach.<br>Keep the operation under control.</h2><p>One endpoint. Real internet capability. Runs you can actually inspect.</p></div>
-          <a class="btn primary large" data-link href="${state.me?.user?.email_verified ? '/dashboard' : '/signup'}">Launch OpenCrawl ${icon('arrow')}</a>
-        </div>
-      </section>
-    </main>`);
-  };
-
   function bindRunComposer() {
     const form = $('#ih-run-form');
     if (!form) return;
@@ -2082,7 +1986,7 @@ function openRunInspector(event) {
       return '<article class="mcp-row mcp-row-live"><div class="mcp-row-main"><span class="ihx-state '+(state==='ok'?'on':state==='error'?'off':'idle')+'">'+dot(state==='ok'?'ok':state==='error'?'warn':'idle')+' '+esc(statusLabel)+'</span><b>'+esc(c.name)+'</b><code>'+esc(c.endpoint_url)+'</code><small>'+esc(c.transport)+' · '+esc(c.auth_type)+' · '+esc((c.header_names||[]).join(', ')||'no credential headers')+'</small><em>'+esc(detail)+' · last check '+esc(checked)+'</em></div><div class="mcp-row-actions"><button class="btn small" data-test-mcp="'+esc(c.id)+'">Test & discover</button><button class="btn quiet small" data-toggle-mcp="'+esc(c.id)+'" data-enabled="'+String(Boolean(c.enabled))+'">'+(c.enabled?'Pause':'Enable')+'</button><button class="btn danger small" data-del-mcp="'+esc(c.id)+'">Delete</button></div></article>';
     }).join(''):'<div class="mcp-empty"><b>No remote MCP connections</b><p>Add one manually or import a cURL command. Saving is only step one; OpenCrawl will then perform a live MCP handshake and discover the remote tool catalog.</p></div>';
     dashboardShell('connections', headline('CONNECTIONS','MCP connections','One page, two directions: connect AI clients into OpenCrawl, and connect trusted remote MCP servers outward from OpenCrawl. Keep those permission boundaries separate.','<button class="btn primary" id="mcp-add">+ Add remote MCP</button>')+
-      '<section class="ihx-endpoint-hero"><div><span>YOUR OPENCRAWL MCP</span><h2>'+esc(endpoint)+'</h2><p>This is the inbound endpoint for supported MCP hosts such as Codex, Claude Code, VS Code, Cursor and compatible remote MCP clients. Authentication is handled separately through OAuth or a dedicated scoped key.</p><a class="mcp-link" data-link href="/docs/clients">Read exact client setup guides →</a></div><div class="ihx-endpoint-meta"><span><small>Transport</small><b>Streamable HTTP</b></span><span><small>Identity</small><b>OAuth / key</b></span><span><small>State</small><b>Server-side policy</b></span></div></section>'+
+      '<section class="ihx-endpoint-hero"><div><span>YOUR OPENCRAWL MCP</span><div class="oc-endpoint-line"><h2>'+esc(endpoint)+'</h2><button class="btn small" type="button" data-copy="'+esc(endpoint)+'">'+icon('copy')+' Copy endpoint</button></div><p>This is the inbound endpoint for supported MCP hosts such as Codex, Claude Code, VS Code, Cursor and compatible remote MCP clients. Authentication is handled separately through OAuth or a dedicated scoped key.</p><a class="mcp-link" data-link href="/docs/clients">Read exact client setup guides →</a></div><div class="ihx-endpoint-meta"><span><small>Transport</small><b>Streamable HTTP</b></span><span><small>Identity</small><b>OAuth / key</b></span><span><small>State</small><b>Server-side policy</b></span></div></section>'+
       '<section class="ihx-connection-direction"><article><span>INBOUND</span><h3>Client → OpenCrawl</h3><p>Your AI host connects to <code>'+esc(endpoint)+'</code>. Give each host its own OAuth grant or scoped key so it can be revoked independently.</p><a data-link href="/docs/clients">Client guides →</a></article><article><span>OUTBOUND</span><h3>OpenCrawl → provider / remote MCP</h3><p>These saved connections let the Tool Mesh reach another trusted MCP server. Provider credentials stay server-side and are not rendered back into the browser.</p><a data-link href="/docs/sync#remote-mcp">How federation works →</a></article></section><section class="agent-connect"><header><span>CONNECT A CLIENT</span><h2>Use OpenCrawl from the tools you already work in</h2><p>These are starter configurations. The full guide explains authentication, scope, secret storage, what happens after connection, and host-specific limitations.</p><a class="mcp-link" data-link href="/docs/clients">Open detailed client documentation →</a></header><div class="agent-tabs" role="group" aria-label="Client setup"><button class="active" aria-pressed="true" data-agent-tab="codex"><span class="agent-tab-mark">'+platformMark('openai','OpenAI')+'</span>Codex</button><button aria-pressed="false" data-agent-tab="claude"><span class="agent-tab-mark">'+platformMark('anthropic','Anthropic')+'</span>Claude Code</button><button aria-pressed="false" data-agent-tab="vscode"><span class="agent-tab-mark">'+platformBrandMark('vscode')+'</span>VS Code</button><button aria-pressed="false" data-agent-tab="cursor"><span class="agent-tab-mark">'+platformBrandMark('cursor')+'</span>Cursor</button><button aria-pressed="false" data-agent-tab="http"><span class="agent-tab-mark">'+platformMark('mcp','MCP')+'</span>HTTP probe</button></div><div id="agent-setup"></div></section><section class="mcp-secondary"><button id="mcp-add2"><b>Connect remote MCP</b><small>OpenCrawl → another MCP server</small></button><button id="mcp-curl"><b>Import provider cURL</b><small>Parse endpoint + supported auth headers; never execute shell text</small></button></section><div class="mcp-doc-strip"><span>Need the model, not just the button?</span><a data-link href="/docs/sync">Connections & synchronization →</a><a data-link href="/docs/tool-mesh">Tool Mesh execution →</a><a data-link href="/docs/security#mcp-trust">MCP trust & security →</a></div>'+
       '<section class="connected-apps"><header><div><span>CONNECTED APPS</span><h2>Provider accounts</h2><p>Authorize GitHub, Gmail, Slack, Notion and other supported toolkits through hosted provider authentication. Active accounts become available to your Tool Mesh; expired accounts are never executed silently.</p></div><div class="connected-app-head-actions"><span>'+fmt(appAccounts.filter(x=>String(x.status||'').toUpperCase()==='ACTIVE').length)+' active accounts</span><button class="btn primary small" id="connect-app-catalog">+ Connect app</button></div></header><div class="connected-app-grid">'+connectedAppCards+'</div></section>'+
       '<section class="mcp-saved"><header><span>REMOTE MCP</span><h2>Saved MCP servers</h2><p>These are outbound MCP servers. Credential values are never rendered back. MCP servers you add yourself do not consume OpenCrawl usage credits for their external execution.</p></header>'+rows+'</section>'+
@@ -2355,13 +2259,14 @@ function openRunInspector(event) {
 
     const keyOptions=keys.map((k,i)=>'<option value="'+esc(k.id)+'" '+(i===0?'selected':'')+'>'+esc(k.name)+' · '+esc(k.prefix)+'…</option>').join('');
     const html=
-      headline('PLAYGROUND','Search the web','Type what you want to know. OpenCrawl will search public sources; paste a URL and it will crawl the site instead.','<a class="btn" data-link href="/dashboard/usage">'+icon('activity')+' Runs</a>')+
-      '<section class="web-search-console">'+
+      headline('PLAYGROUND','Search the web','Ask a question, research a topic, or explore a public URL.','<a class="btn" data-link href="/dashboard/usage">'+icon('activity')+' Runs</a>')+
+      '<div class="oc-playground-grid"><section class="web-search-console">'+
+        '<header class="oc-playground-heading"><span class="oc-glass-icon">'+icon('search')+'</span><h2>Start with a question or URL.</h2></header>'+
         '<form id="ihp-form" class="web-search-form">'+
           '<div class="web-search-box">'+
             '<span class="web-search-icon">'+icon('activity')+'</span>'+
-            '<textarea id="research-query" rows="1" autocomplete="off" spellcheck="false" maxlength="1000" aria-label="Search query or public URL" placeholder="Search the web — e.g. latest AI news"></textarea>'+
-            '<button id="ihp-submit" type="submit" class="web-search-submit" aria-label="Review cost">'+icon('arrow')+'</button>'+
+            '<textarea id="research-query" rows="3" autocomplete="off" spellcheck="false" maxlength="1000" aria-label="Search query or public URL" placeholder="Ask a question or paste a public URL…"></textarea>'+
+            '<button id="ihp-submit" type="submit" class="web-search-submit" aria-label="Review cost">'+icon('arrow')+'<span>Review cost</span></button>'+
           '</div>'+
           '<div class="web-search-actions">'+
             '<label class="deep-toggle"><input id="ihp-deep" type="checkbox"><span></span><b>Deep research</b></label>'+
@@ -2369,13 +2274,13 @@ function openRunInspector(event) {
             '<span class="search-hint">Paste a URL to crawl it automatically</span>'+
           '</div>'+
           '<div class="search-examples" aria-label="Examples">'+
-            '<button type="button" data-example="latest AI news">latest AI news</button>'+
-            '<button type="button" data-example="OpenAI latest models and pricing">OpenAI models & pricing</button>'+
-            '<button type="button" data-example="best AI coding agents right now">best AI coding agents</button>'+
-            '<button type="button" data-example="https://recharza.in">crawl recharza.in</button>'+
+            '<button type="button" data-example="latest AI news">'+icon('docs')+'<span><b>Research a topic</b><small>Find public sources on a topic.</small></span>'+icon('arrow')+'</button>'+
+            '<button type="button" data-example="Compare public pricing for hosted databases">'+icon('layers')+'<span><b>Compare services</b><small>Compare options across the web.</small></span>'+icon('arrow')+'</button>'+
+            '<button type="button" data-example="https://example.com">'+icon('globe')+'<span><b>Crawl a website</b><small>Collect pages from a public site.</small></span>'+icon('arrow')+'</button>'+
+            '<button type="button" data-example="Find the public API documentation for this site">'+icon('code')+'<span><b>Find documentation</b><small>Find guides, APIs, and references.</small></span>'+icon('arrow')+'</button>'+
           '</div>'+
           '<details class="search-advanced">'+
-            '<summary>Advanced options</summary>'+
+            '<summary>Advanced options'+icon('down')+'</summary>'+
             '<div class="search-advanced-grid">'+
               '<label>API key<select id="ihp-key-id">'+keyOptions+'</select></label>'+
               '<label>Max results / pages<input id="ihp-pages" type="number" min="1" max="50" value="10"></label>'+
@@ -2396,7 +2301,8 @@ function openRunInspector(event) {
           '<div class="execution-budget-controls"><label>Maximum usage (credits)<input id="ihp-spend-limit" type="number" min="0" step="1" placeholder="Use reviewed maximum"></label><p>Review the cost, then confirm. Unused reserved credits return to your available wallet.</p></div>'+
           '<section id="ihp-cost-review" class="card execution-cost-review" aria-live="polite" hidden></section>'+
         '</form>'+
-      '</section>'+
+      '</section><aside class="oc-playground-guide"><img src="/assets/glass-globe.webp?v=20261008" width="220" height="160" alt=""><h2>Before you run</h2><ol><li><span>01</span><div><b>Choose a question or URL</b><p>Use a starter or write your own.</p></div></li><li><span>02</span><div><b>Review the cost</b><p>See the maximum before you confirm.</p></div></li><li><span>03</span><div><b>Keep the evidence</b><p>Inspect results and sources after the run.</p></div></li></ol><a data-link href="/docs/quickstart">'+icon('docs')+' Quickstart guide '+icon('arrow')+'</a><a data-link href="/dashboard/runs">'+icon('clock')+' View run history '+icon('arrow')+'</a></aside></div>'+
+      '<nav class="oc-playground-tools" aria-label="Other workflows"><header><h2>Need a different workflow?</h2><p>Explore other tools for more focused tasks.</p></header><div>'+[['scan','Smart Scrape','Extract clean content from pages.','scrape'],['map','Site Map','Discover a public site’s structure.','map'],['code','Structured Extract','Extract structured data from pages.','extract']].map(([symbol,title,note,path])=>'<a data-link href="/dashboard/'+path+'">'+icon(symbol)+'<span><b>'+title+' '+icon('arrow')+'</b><small>'+note+'</small></span></a>').join('')+'</div></nav>'+
       '<section id="ihp-results" class="web-search-results" aria-live="polite" aria-atomic="false" hidden></section>';
 
     dashboardShell('playground',html);
@@ -2591,7 +2497,7 @@ function openRunInspector(event) {
       state.activePlayground=controller;
       submit.disabled=true;
       submit.setAttribute('aria-label','Request running');
-      submit.innerHTML=icon('activity');
+      submit.innerHTML=icon('activity')+'<span>Running…</span>';
       results.hidden=false;
       results.innerHTML='<div class="ih-execution-progress" role="status"><div class="ih-execution-head"><span class="ih-execution-symbol" aria-hidden="true">⚙️</span><div><b>Request prepared</b><p>'+esc(operation.toUpperCase())+' · '+esc(inputValue)+'</p></div><button class="btn small" type="button" id="ihp-cancel">Stop waiting</button></div><ol class="ih-execution-stages"><li class="done">Queued in this browser</li><li class="done">Request sent to gateway</li><li class="current">Awaiting routing and execution</li><li>Reading response</li><li>Complete</li></ol><p class="ih-execution-note">OpenCrawl returns the work and measured credits when this request completes.</p></div>';
       $('#ihp-cancel').onclick=()=>controller.abort();
@@ -2621,13 +2527,14 @@ function openRunInspector(event) {
         if(state.activePlayground===controller)state.activePlayground=null;
         submit.disabled=false;
         submit.setAttribute('aria-label','Review cost');
-        submit.innerHTML=icon('arrow');
+        submit.innerHTML=icon('arrow')+'<span>Review cost</span>';
       }
     });
 
     $$('[data-example]').forEach(btn=>btn.addEventListener('click',()=>{
       queryInput.value=btn.dataset.example||'';
-      form.requestSubmit();
+      queryInput.dispatchEvent(new Event('input',{bubbles:true}));
+      queryInput.focus();
     }));
 
     queryInput.addEventListener('keydown',e=>{
@@ -2637,6 +2544,11 @@ function openRunInspector(event) {
       queryInput.style.height='auto';
       queryInput.style.height=Math.min(queryInput.scrollHeight,140)+'px';
     });
+    if (state.playgroundDraft) {
+      queryInput.value = state.playgroundDraft;
+      state.playgroundDraft = '';
+      queryInput.dispatchEvent(new Event('input', {bubbles:true}));
+    }
     queryInput.focus();
   };
 
@@ -2699,12 +2611,12 @@ function openRunInspector(event) {
   dashSettings = async function dashSettingsV3() {
     const [s,sessions]=await Promise.all([api('/api/security/status'),api('/api/account/sessions')]), u=state.me.user, list=sessions.sessions||[];
     dashboardShell('settings',`
-      ${headline('ACCOUNT','Settings & security','Identity, login protection and active sessions presented as one security surface.')}
+      ${headline('ACCOUNT','Settings & security','Manage your profile, sign-in protection, and active sessions.')}
       <section class="ihx-settings-grid">
-        <article class="ihx-profile-panel"><header><div><span>PROFILE</span><h2>Workspace identity</h2></div><span class="ihx-state on">${dot()} Verified</span></header><form id="profile-form" class="form-stack"><label>Email<input value="${esc(u.email)}" disabled></label><label>Display name<input name="display_name" value="${esc(u.display_name||'')}" maxlength="80" required></label><div class="ihx-linked-account">${clientMark('github','GitHub')}<span><b>GitHub</b><small>${u.github_connected?'Connected to this identity':'Not connected'}</small></span><em>${u.github_connected?'Linked':'Optional'}</em></div><button class="btn">Save profile</button></form></article>
+        <article class="ihx-profile-panel"><header><div><span>PROFILE</span><h2>Your profile</h2></div><span class="ihx-state on">${dot()} Verified</span></header><form id="profile-form" class="form-stack"><label>Email<input value="${esc(u.email)}" disabled></label><label>Display name<input name="display_name" value="${esc(u.display_name||'')}" maxlength="80" required></label><div class="ihx-linked-account">${clientMark('github','GitHub')}<span><b>GitHub</b><small>${u.github_connected?'Connected to this identity':'Not connected'}</small></span><em>${u.github_connected?'Linked':'Optional'}</em></div><button class="btn">Save profile</button></form></article>
         <article class="ihx-security-panel"><header><div><span>SECURITY POSTURE</span><h2>Protection status</h2></div><span class="ihx-state ${s.two_factor_enabled?'on':'idle'}">${dot(s.two_factor_enabled?'ok':'warn')} ${s.two_factor_enabled?'2FA enabled':s.two_factor_available?'2FA available':'Server configuration required'}</span></header><div class="ihx-security-rail"><div>${icon('check')}<span><b>Email verification</b><small>Privileged actions unlocked</small></span><em>On</em></div><div>${icon('shield')}<span><b>Authenticator 2FA</b><small>${s.two_factor_enabled?'Required after primary sign-in':'Add a second factor to reach full protection'}</small></span><button class="btn ${s.two_factor_enabled?'danger':'primary'} small" id="toggle-2fa">${s.two_factor_enabled?'Disable':'Set up'}</button></div>${s.two_factor_enabled?`<div>${icon('activity')}<span><b>Recovery codes</b><small>One-use emergency access</small></span><button class="btn small" id="regen">Regenerate</button></div>`:''}</div><footer class="ihx-context-help"><span>Before changing login protection, understand the challenge, recovery-code and lockout behavior.</span><a data-link href="/docs/two-factor">How OpenCrawl 2FA works →</a></footer></article>
         <article class="ihx-sessions-panel"><header><div><span>SESSIONS</span><h2>Active web sessions</h2></div><button class="btn danger small" id="revoke-all">Sign out everywhere</button></header><div>${list.map(x=>`<div class="ihx-session-row">${icon('activity')}<span><b>${x.current?'This session':'Web session'}</b><small>Created ${esc(when(x.created_at))} · expires ${esc(when(x.expires_at))}</small></span><em class="ihx-state ${x.current?'on':'idle'}">${dot(x.current?'ok':'warn')} ${x.current?'Current':'Active'}</em><button class="btn small" data-session="${x.id}">Revoke</button></div>`).join('')||'<div class="notice">No active sessions found.</div>'}</div></article>
-        <article class="ihx-password-panel"><header><div><span>PASSWORD</span><h2>Change primary credential</h2></div><p>Changing your password revokes existing sessions.</p></header><form id="password-form" class="ihx-password-form"><label>Current password<input type="password" name="current_password" autocomplete="current-password" required></label><label>New password<input type="password" name="new_password" autocomplete="new-password" minlength="8" required></label><button class="btn">Change and sign out</button></form></article>
+        <article class="ihx-password-panel"><header><div><span>PASSWORD</span><h2>Change password</h2></div><p>Changing your password revokes existing sessions.</p></header><form id="password-form" class="ihx-password-form"><label>Current password<input type="password" name="current_password" autocomplete="current-password" required></label><label>New password<input type="password" name="new_password" autocomplete="new-password" minlength="8" required></label><button class="btn">Change and sign out</button></form></article>
       </section>`);
     $('#profile-form').onsubmit=async e=>{e.preventDefault();const button=e.submitter||e.currentTarget.querySelector('button');busy(button,true,'Saving…');try{const r=await api('/api/account/profile',{method:'PATCH',body:Object.fromEntries(new FormData(e.currentTarget))});state.me.user=r.user;toast('Profile updated','success');}catch(error){toast(error.message,'error');}finally{busy(button,false);}};
     $('#toggle-2fa').onclick=()=>s.two_factor_enabled?showDisable2fa():showSetup2fa($('#toggle-2fa')); $('#regen')?.addEventListener('click',showRegenerate);
@@ -2746,63 +2658,107 @@ function openRunInspector(event) {
   };
 
   const nav = [
-    ['Build', [
+    ['Workspace', [
       ['overview','terminal','Overview'],
-      ['playground','activity','Playground'],
-      ['capabilities','terminal','Web Tools'],
+      ['playground','search','Playground'],
+      ['runs','clock','Runs'],
+      ['datasets','database','Datasets']
+    ]],
+    ['Tools', [
+      ['capabilities','globe','Web Tools'],
       ['sandbox','terminal','Sandbox'],
-      ['scrape','api','Smart Scrape'],
-      ['map','search','Site Map'],
-      ['extract','docs','Structured Extract'],
-      ['products','monitor','Price Tracker'],
-      ['datasets','docs','Datasets'],
-      ['runs','activity','Runs'],
-      ['crawl-runs','activity','Background crawls'],
-      ['data','search','Public data'],
-      ['games','activity','Game Intelligence'],
-      ['repositories','api','Repositories'],
-      ['api-keys','key','API Keys']
+      ['scrape','scan','Smart Scrape'],
+      ['map','map','Site Map'],
+      ['extract','code','Structured Extract'],
+      ['crawl-runs','layers','Background crawls']
+    ]],
+    ['Intelligence', [
+      ['products','chart','Price Tracker'],
+      ['data','globe','Public data'],
+      ['games','game','Game Intelligence'],
+      ['repositories','code','Repositories']
     ]],
     ['Observe', [
-      ['usage','activity','Runs'],
-      ['monitors','monitor','Monitors']
+      ['usage','chart','Usage analytics'],
+      ['monitors','bell','Monitors']
     ]],
-    ['Connect', [
-      ['connections','plug','Connections']
-    ]],
-    ['Manage', [
-      ['wallet','activity','Credits'],
-      ['spending','activity','Spending limits'],
+    ['Commercial', [
+      ['wallet','wallet','Credits'],
+      ['spending','shield','Spending limits'],
       ['rewards','gift','Rewards'],
-      ['billing','billing','Billing & Plans'],
+      ['billing','billing','Billing & Plans']
+    ]],
+    ['Account', [
+      ['connections','plug','Connections'],
+      ['api-keys','key','API Keys'],
       ['settings','settings','Settings & Security']
     ]]
   ];
+
+  const navIcon = (slug, name) => icon(slug === 'overview' ? 'overview' : name);
+  const shortcutLabel = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘ K' : 'Ctrl K';
+  const expandedGroups = new Set(['Workspace']);
+
+  function openWorkspaceSearch() {
+    if ($('#oc-workspace-search')) { $('#oc-workspace-search').focus(); return; }
+    $$('[data-account-menu]').forEach(menu=>{
+      if(typeof menu.hidePopover==='function'&&menu.hasAttribute('popover')&&menu.matches(':popover-open'))menu.hidePopover();
+    });
+    const pages = nav.flatMap(([group,items]) => items.map(([slug,ico,label]) => ({group,slug,ico,label,href:hrefFor(slug)})));
+    pages.push({group:'Resources',slug:'docs',ico:'docs',label:'Documentation',href:'/docs'},
+      {group:'Resources',slug:'status',ico:'activity',label:'System status',href:'/status'});
+    const wrap = modal(`<div class="oc-command-search">${icon('search')}<input id="oc-workspace-search" type="search" role="combobox" aria-label="Search workspace pages" aria-controls="oc-command-results" aria-expanded="true" aria-autocomplete="list" autocomplete="off" placeholder="Where would you like to go?"><button type="button" class="icon-btn" data-close aria-label="Close workspace search">${icon('close')}</button></div><div id="oc-command-results" role="listbox" aria-label="Workspace pages"></div><footer class="oc-command-footer"><span><kbd>↑</kbd><kbd>↓</kbd> to navigate <kbd>Enter</kbd> to open</span><span><kbd>Esc</kbd> to close</span></footer>`);
+    $('.modal',wrap).classList.add('oc-command-modal');
+    const input = $('#oc-workspace-search',wrap), results = $('#oc-command-results',wrap);
+    let matches = [], selected = 0;
+    const select = index => {
+      selected = index;
+      $$('[role="option"]',results).forEach((row,i) => row.setAttribute('aria-selected',String(i===selected)));
+      const row = matches.length ? results.children[selected] : null;
+      if (row) { input.setAttribute('aria-activedescendant',row.id); row.scrollIntoView({block:'nearest'}); }
+      else input.removeAttribute('aria-activedescendant');
+    };
+    const draw = () => {
+      const query = input.value.trim().toLowerCase();
+      matches = pages.filter(page => `${page.label} ${page.group} ${page.slug}`.toLowerCase().includes(query));
+      results.innerHTML = matches.length ? matches.map((page,i) => `<a id="oc-command-option-${i}" role="option" aria-selected="${i===0}" tabindex="-1" data-link href="${page.href}"><span class="oc-command-icon">${navIcon(page.slug,page.ico)}</span><span><b>${esc(page.label)}</b><small>${esc(page.group)}</small></span>${icon('arrow')}</a>`).join('') : `<div class="oc-command-empty">${icon('search')}<b>No matching pages</b><p>Try “scrape”, “billing”, or “connections”.</p></div>`;
+      select(0);
+    };
+    input.addEventListener('input',draw);
+    input.addEventListener('keydown',event => {
+      if (['ArrowDown','ArrowUp'].includes(event.key)) { event.preventDefault(); if(matches.length)select((selected+(event.key==='ArrowDown'?1:-1)+matches.length)%matches.length); }
+      if (event.key==='Enter' && matches[selected]) { event.preventDefault(); go(matches[selected].href); }
+    });
+    draw();
+    requestAnimationFrame(()=>input.focus());
+  }
 
   dashboardShell = function commandOsShell(active, content) {
     const u = state.me?.user || {};
     const current = nav.flatMap(x => x[1]).find(x => x[0] === active);
     const title = current?.[2] || 'Overview';
     const initials = esc((u.display_name || u.email || 'I')[0].toUpperCase());
+    document.title = `${title} — OpenCrawl`;
 
-    app.innerHTML = `<div class="cos-app">
+    app.innerHTML = `<div class="cos-app"><a class="oc-skip-link" href="#oc-main">Skip to content</a>
       <aside class="cos-sidebar ih-sidebar sidebar" id="ih-sidebar">
         <div class="cos-sidebar-head">
           <div class="cos-sidebar-brand">${brand()}</div>
-          <button class="cos-sidebar-close" type="button" data-sidebar-close aria-label="Close navigation"><span aria-hidden="true">×</span></button>
+          <button class="cos-sidebar-close" type="button" data-sidebar-close aria-label="Close navigation">${icon('close')}</button>
         </div>
 
+        <button class="oc-workspace-search" type="button" data-workspace-search>${icon('search')}<span>Search workspace</span><kbd>${shortcutLabel}</kbd></button>
         <a class="cos-launch ${active === 'playground' ? 'active' : ''}" data-link href="/dashboard/playground">
-          <span>${icon('terminal')}</span><b>New run</b><kbd>⌘ K</kbd>
+          <span>${icon('plus')}</span><b>New run</b>${icon('arrow')}
         </a>
 
-        <nav class="cos-nav">
-          ${nav.map(([group, items]) => `<div class="cos-nav-group">
-            <span>${group}</span>
+        <nav class="cos-nav" aria-label="Workspace navigation">
+          ${nav.map(([group, items]) => `<details class="cos-nav-group" data-nav-group="${group}" ${expandedGroups.has(group)||items.some(x=>x[0]===active)?'open':''}>
+            <summary><span>${group}</span>${icon('down')}</summary>
             ${items.map(([slug, ico, label]) => `<a class="${slug === active ? 'active' : ''}" ${slug === active ? 'aria-current="page"' : ''} data-link href="${hrefFor(slug)}">
-              <span class="cos-nav-icon">${icon(ico)}</span><b>${label}</b>${slug === active ? '<i></i>' : ''}
+              <span class="cos-nav-icon">${navIcon(slug,ico)}</span><b>${label}</b>${slug === active ? '<i></i>' : ''}
             </a>`).join('')}
-          </div>`).join('')}
+          </details>`).join('')}
         </nav>
 
         <div class="cos-sidebar-bottom">
@@ -2815,12 +2771,12 @@ function openRunInspector(event) {
         <header class="cos-topbar topbar ih-topbar">
           <div class="cos-topbar-left">
             <button class="cos-mobile-menu icon-btn" data-sidebar-toggle aria-controls="ih-sidebar" aria-expanded="false" aria-label="Open navigation">${icon('menu')}</button>
-            <div class="cos-breadcrumb"><span>OpenCrawl</span><i>/</i><b>${esc(title)}</b></div>
+            <div class="cos-breadcrumb"><span>Workspace</span><i>/</i><b>${esc(title)}</b></div>
           </div>
           <div class="cos-topbar-right">
-            ${active === 'playground' ? '' : `<a class="cos-command-cta" data-link href="/dashboard/playground">${icon('terminal')}<span>New run</span><kbd>⌘ K</kbd></a>`}
-            <a class="cos-docs-link" data-link href="/docs">Docs</a>
-            <button class="cos-account" type="button" data-account-toggle popovertarget="ih-account-menu" popovertargetaction="toggle" aria-expanded="false"><i>${initials}</i><span><b>${esc(u.display_name || 'Account')}</b><small>${esc(u.email || '')}</small></span>${icon('chevron')}</button>
+            <button class="oc-topbar-search icon-btn" type="button" data-workspace-search aria-label="Search workspace">${icon('search')}</button>
+            <a class="cos-docs-link" data-link href="/docs">${icon('docs')} Docs</a>
+            <button class="cos-account" type="button" data-account-toggle popovertarget="ih-account-menu" popovertargetaction="toggle" aria-label="Open account menu" aria-expanded="false"><i>${initials}</i><span><b>${esc(u.display_name || 'Account')}</b><small>${esc(state.me?.account?.plan_name || 'Workspace account')}</small></span>${icon('down')}</button>
           </div>
         </header>
 
@@ -2828,40 +2784,41 @@ function openRunInspector(event) {
           <div><span class="cos-account-avatar">${initials}</span><span><b>${esc(u.display_name || 'OpenCrawl')}</b><small>${esc(u.email || '')}</small></span></div>
           <a data-link href="/dashboard/settings">${icon('settings')} Settings & Security</a>
           <a data-link href="/dashboard/billing">${icon('billing')} Billing & Plans</a>
-          <a data-link href="/dashboard/wallet">${icon('activity')} Credits</a>
+          <a data-link href="/dashboard/wallet">${icon('wallet')} Credits</a>
           <a data-link href="/dashboard/rewards">${icon('gift')} Rewards</a>
           <a data-link href="/docs">${icon('docs')} Documentation</a>
-          <button id="account-logout">Sign out</button>
+          <button id="account-logout">${icon('logout')} Sign out</button>
         </div>
 
-        <main class="cos-content content ih-content"><div class="ih-page-shell ih-route-${esc(active)}" data-dashboard-route="${esc(active)}">${content}</div></main>
+        <main class="cos-content content ih-content" id="oc-main" tabindex="-1"><div class="ih-page-shell ih-route-${esc(active)}" data-dashboard-route="${esc(active)}">${content}</div></main>
       </section>
 
-      <nav class="cos-mobile-bottom ih-mobile-bottom mobile-bottom">
+      <nav class="cos-mobile-bottom ih-mobile-bottom mobile-bottom" aria-label="Quick navigation">
         ${[
-          ['overview','terminal','Overview'],
-          ['playground','activity','Playground'],
-          ['usage','activity','Runs'],
+          ['overview','overview','Overview'],
+          ['playground','search','Playground'],
+          ['runs','clock','Runs'],
           ['connections','plug','Connections'],
           ['more','more','More']
-        ].map(([slug, ico, label]) => `<a ${slug === 'more' ? 'data-more aria-controls="ih-more-sheet" aria-expanded="false"' : `data-link ${slug === active ? 'aria-current="page"' : ''}`} href="${slug === 'more' ? '#' : hrefFor(slug)}" class="${slug === active || slug === 'more' && !['overview','playground','usage','connections'].includes(active) ? 'active' : ''}">${icon(ico)}<span>${label}</span></a>`).join('')}
+        ].map(([slug, ico, label]) => `<a ${slug === 'more' ? 'data-more aria-controls="ih-more-sheet" aria-expanded="false"' : `data-link ${slug === active ? 'aria-current="page"' : ''}`} href="${slug === 'more' ? '#' : hrefFor(slug)}" class="${slug === active || slug === 'more' && !['overview','playground','runs','connections'].includes(active) ? 'active' : ''}">${icon(ico)}<span>${label}</span></a>`).join('')}
       </nav>
 
       <div class="cos-more-sheet more-sheet" id="ih-more-sheet" data-more-sheet role="navigation" aria-label="More navigation" inert>
         <div class="cos-sheet-handle"></div>
         <div class="cos-sheet-title"><b>More</b><small>Workspace navigation</small></div>
-        <span class="cos-sheet-label">Build & observe</span>
-        ${[['api-keys','key','API Keys'],['scrape','api','Smart Scrape'],['map','search','Site Map'],['data','search','Public data'],['games','activity','Game Intelligence'],['repositories','api','Repositories'],['monitors','monitor','Monitors']].map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${icon(ico)} ${label}</a>`).join('')}
-        <span class="cos-sheet-label">Account & product</span>
-        ${[['wallet','activity','Credits'],['rewards','gift','Rewards'],['billing','billing','Billing & Plans'],['settings','settings','Settings & Security']].map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${icon(ico)} ${label}</a>`).join('')}
+        ${nav.map(([group,items])=>`<span class="cos-sheet-label">${group}</span>${items.map(([slug,ico,label])=>`<a class="${slug===active?'active':''}" ${slug===active?'aria-current="page"':''} data-link href="${hrefFor(slug)}">${navIcon(slug,ico)} ${label}</a>`).join('')}`).join('')}
         <a data-link href="/docs">${icon('docs')} Documentation</a>
         <a data-link href="/status">${icon('activity')} System Status</a>
-        <button id="mobile-logout">Sign out</button>
+        <button id="mobile-logout">${icon('logout')} Sign out</button>
       </div>
       <div class="cos-sheet-backdrop sheet-backdrop" data-sheet-backdrop></div>
     </div>`;
 
     bindCommon();
+    $$('[data-workspace-search]').forEach(button=>button.addEventListener('click',openWorkspaceSearch));
+    $$('[data-nav-group]').forEach(group=>group.addEventListener('toggle',()=>{
+      if(group.open)expandedGroups.add(group.dataset.navGroup);else expandedGroups.delete(group.dataset.navGroup);
+    }));
     refreshGatewayStatus();
     clearInterval(state.gatewayTimer);
     state.gatewayTimer=setInterval(()=>refreshGatewayStatus(true),30000);
@@ -2993,11 +2950,12 @@ function openRunInspector(event) {
 
     if (window.__ihShellEscape) document.removeEventListener('keydown', window.__ihShellEscape);
     window.__ihShellEscape = e => {
+      if(e.defaultPrevented||document.querySelector('.modal-backdrop'))return;
       if(e.key==='Escape'){closeOverlays(true);return;}
       if(e.key!=='Tab')return;
       const region=sheet?.classList.contains('open')?sheet:sidebar?.classList.contains('open')?sidebar:null;
       if(!region)return;
-      const items=$$('a[href],button:not([disabled])',region).filter(el=>el.getClientRects().length);
+      const items=$$('a[href],button:not([disabled]),summary',region).filter(el=>el.getClientRects().length);
       if(!items.length)return;
       const first=items[0],last=items.at(-1);
       if(!region.contains(document.activeElement)){e.preventDefault();first.focus();}
@@ -3019,13 +2977,7 @@ function openRunInspector(event) {
     window.__ihCommandShortcut = e => {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'k') return;
       e.preventDefault();
-      if (location.pathname !== '/dashboard/playground') {
-        go('/dashboard/playground').then(()=>{
-          if(location.pathname==='/dashboard/playground')($('#research-query')||$('.search-key-lock a'))?.focus();
-        });
-        return;
-      }
-      ($('#research-query')||$('.search-key-lock a'))?.focus();
+      openWorkspaceSearch();
     };
     document.addEventListener('keydown', window.__ihCommandShortcut);
   };

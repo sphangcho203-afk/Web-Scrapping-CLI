@@ -329,7 +329,7 @@ def test_extract_ui_and_docs_are_productized() -> None:
     root = Path(__file__).resolve().parents[1]
     web = (root / "web" / "app.js").read_text(encoding="utf-8")
     assert "extract:dashStructuredExtract" in web
-    assert "['extract','docs','Structured Extract']" in web
+    assert "['extract','code','Structured Extract']" in web
     assert "/api/extract/quote" in web
     assert "/api/extract/runs" in web
     assert "Confirm and start extraction" in web

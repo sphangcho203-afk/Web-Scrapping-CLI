@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 import hmac
-import html
 import logging
 import os
 import secrets
@@ -37,6 +36,14 @@ from .control_api import (
     store,
 )
 from .control_store import ControlError, random_token
+from .email_templates import (
+    login_body,
+    reset_body,
+    security_body,
+    transactional_email,
+    verification_body,
+    verified_body,
+)
 from .mailer import mail_provider, send_mail
 from .security_store import SecurityStore
 from .supabase_auth import SupabaseAuthError
@@ -90,14 +97,6 @@ def _qr_data_uri(value: str) -> str:
     return f"data:image/svg+xml;base64,{encoded}"
 
 
-def _mail_shell(title: str, body: str) -> str:
-    return f"""<!doctype html><html><body style="margin:0;background:#080b0f;color:#eef5f9;font-family:Inter,Arial,sans-serif">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#080b0f;padding:32px 12px"><tr><td align="center">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;background:#0d1218;border:1px solid #26343b;border-radius:20px;padding:32px">
-<tr><td><div style="font-size:13px;letter-spacing:.16em;color:#ef39df;font-weight:800">OPENCRAWL</div><h1 style="font-size:26px;margin:22px 0 12px">{html.escape(title)}</h1>{body}<p style="color:#8d8096;font-size:12px;margin-top:28px">Security messages are sent automatically by OpenCrawl. Never share API keys, passwords, TOTP secrets, or recovery codes by email.</p></td></tr></table>
-</td></tr></table></body></html>"""
-
-
 async def _deliver(
     *,
     user_id: str | None,
@@ -131,7 +130,7 @@ async def _deliver(
             to=email,
             subject=subject,
             text=text,
-            html=_mail_shell(subject, body_html),
+            html=transactional_email(event_type, subject, text, body_html),
             sender_key=sender_key,
         )
     except Exception as exc:  # noqa: BLE001
@@ -186,13 +185,7 @@ async def _send_verification(request: Request, user: dict[str, Any]) -> bool:
         )
         return False
     verify_url = f"{_mail_origin(request)}/api/auth/verify-email?token={token}"
-    safe_url = html.escape(verify_url, quote=True)
-    body = (
-        "<p style='color:#a8bbc5'>Confirm this email address for your OpenCrawl account.</p>"
-        f"<div style='font-size:34px;letter-spacing:.18em;font-weight:800;margin:24px 0;color:#ef39df'>{code}</div>"
-        f"<p><a href='{safe_url}' style='display:inline-block;padding:13px 18px;border-radius:10px;background:#ef39df;color:#100915;text-decoration:none;font-weight:800'>Verify email</a></p>"
-        "<p style='color:#8aa0aa'>The code and link expire in 15 minutes.</p>"
-    )
+    body = verification_body(code, verify_url)
     return await _deliver(
         user_id=user["id"],
         email=user["email"],
@@ -210,7 +203,7 @@ async def _send_verified(user: dict[str, Any]) -> None:
         event_type="account_verified",
         subject="Your OpenCrawl account is verified",
         text="Your OpenCrawl email has been verified successfully.",
-        body_html="<p style='color:#a8bbc5'>Your email is verified. Your account can now create production API keys and use protected account features.</p>",
+        body_html=verified_body(),
         dedupe_key=f"account-verified:{user['id']}:{user['email'].lower()}",
     )
 
@@ -220,12 +213,7 @@ async def _send_login_notice(request: Request, user: dict[str, Any], method: str
     ip = forwarded.split(",", 1)[0].strip() or "unknown"
     agent = (request.headers.get("user-agent") or "unknown")[:240]
     when = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
-    body = (
-        f"<p style='color:#a8bbc5'>A successful sign-in to your account just occurred.</p>"
-        f"<p><strong>Method:</strong> {html.escape(method)}<br><strong>Time:</strong> {when}<br>"
-        f"<strong>IP:</strong> {html.escape(ip)}<br><strong>Device:</strong> {html.escape(agent)}</p>"
-        "<p style='color:#8aa0aa'>If this was not you, change your password, revoke API keys, and enable 2FA.</p>"
-    )
+    body = login_body(method, when, ip, agent)
     await _deliver(
         user_id=user["id"],
         email=user["email"],
@@ -243,7 +231,7 @@ async def _send_security_notice(user: dict[str, Any], title: str, message: str, 
         event_type=key,
         subject=title,
         text=message,
-        body_html=f"<p style='color:#a8bbc5'>{html.escape(message)}</p>",
+        body_html=security_body(message),
     )
 
 
@@ -1051,11 +1039,7 @@ async def password_reset_request_smtp(request: Request):
             event_type="password_reset",
             subject="Reset your OpenCrawl password",
             text=f"Reset your OpenCrawl password: {reset_url}\nThis link expires in 30 minutes.",
-            body_html=(
-                "<p style='color:#a8bbc5'>A password reset was requested for your OpenCrawl account.</p>"
-                f"<p><a href='{html.escape(reset_url, quote=True)}' style='display:inline-block;padding:13px 18px;border-radius:10px;background:#ef39df;color:#100915;text-decoration:none;font-weight:800'>Reset password</a></p>"
-                "<p style='color:#8aa0aa'>This link expires in 30 minutes. Ignore this message if you did not request it.</p>"
-            ),
+            body_html=reset_body(reset_url),
         )
     return {
         "ok": True,

@@ -12,7 +12,7 @@ async function dashSandbox() {
       <button type="submit" class="btn primary" id="sandbox-quote">Review credits</button>
       <div id="sandbox-review" role="status" aria-live="polite"></div>
       <button type="button" class="btn primary" id="sandbox-run" disabled>Run command</button>
-      </form><section id="sandbox-output" aria-live="polite"><p>stdout, stderr, exit code, cleanup and settled credits appear here.</p></section></section>` :
+      </form><section id="sandbox-output" aria-live="polite"><div class="sandbox-output-empty">${icon('terminal')}<h2>Your output appears here</h2><p>stdout, stderr, exit code, cleanup and settled credits appear here.</p></div></section></section>` :
       `<section class="search-key-lock"><h2>An execution key is required</h2><p>Select an active key with execution access before using Sandbox.</p><a data-link class="btn" href="/dashboard/api-keys">API Keys</a></section>`));
   if (!keys.length) return;
   const form = $('#sandbox-form'), review = $('#sandbox-review'), output = $('#sandbox-output');

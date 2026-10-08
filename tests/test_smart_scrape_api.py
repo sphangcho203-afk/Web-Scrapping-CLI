@@ -166,7 +166,7 @@ def test_smart_scrape_routes_console_and_mount_are_registered() -> None:
 
     web = (root / "web" / "app.js").read_text(encoding="utf-8")
     assert "scrape:dashSmartScrape" in web
-    assert "['scrape','api','Smart Scrape']" in web
+    assert "['scrape','scan','Smart Scrape']" in web
     assert "/api/scrape/quote" in web
     assert "/api/scrape/run" in web
     assert "Confirm and scrape page" in web

@@ -2,15 +2,16 @@
 from __future__ import annotations
 
 import asyncio
-import html
 import os
 import uuid
 
 import httpx
 
+from .email_templates import action, change_table, note, paragraph, transactional_email
 from .mailer import _from_header, _http_header_secret, _mail_settings, mail_provider
 
 MAX_BATCH = 3
+MAX_HTML_CHANGE_BYTES = 70_000
 MAX_ATTEMPTS = 5
 SEND_WINDOW_HOURS = 23  # The provider retains idempotency keys for 24 hours.
 TIMEOUT = 5.0
@@ -56,12 +57,32 @@ def _value(row, field):
 def render_change_email(monitor: dict, changes: list[dict], fields: list[str], names: dict) -> dict:
     name = " ".join(str(monitor["name"]).split())[:120]
     lines = ["Selected product fields changed in " + name + "."]
+    content = paragraph(lines[0])
+    content_bytes = len(content.encode("utf-8"))
+    shown, total = 0, 0
     for change in changes:
-        lines.append("\n" + str(names.get(change["product_id"]) or "Product offer")[:300])
+        product = str(names.get(change["product_id"]) or "Product offer")[:300]
+        lines.append("\n" + product)
+        rows = []
         for field in fields:
             if _value(change["before"], field) != _value(change["after"], field):
                 lines.append(field.title() + ": " + _value(change["before"], field) + " → " + _value(change["after"], field))
-    return _message(name, monitor["id"], lines, test=False)
+                rows.append((field.title(), _value(change["before"], field), _value(change["after"], field)))
+        if rows:
+            total += 1
+            table = change_table(product, rows)
+            table_bytes = len(table.encode("utf-8"))
+            # Keep the full change list in plain text, but bound the detailed
+            # HTML so large batches leave room for the action and footer.
+            if shown == total - 1 and content_bytes + table_bytes <= MAX_HTML_CHANGE_BYTES:
+                content += table
+                content_bytes += table_bytes
+                shown += 1
+    if shown < total:
+        content += paragraph(
+            f"Showing {shown} of {total} changed offers. Open your tracker to review the full change history."
+        )
+    return _message(name, monitor["id"], lines, test=False, content=content)
 
 
 def render_test_email(monitor: dict) -> dict:
@@ -71,16 +92,20 @@ def render_test_email(monitor: dict) -> dict:
         "Future change emails show the before and after values of your selected fields."], test=True)
 
 
-def _message(name, monitor_id, lines, *, test):
+def _message(name, monitor_id, lines, *, test, content=None):
     from urllib.parse import quote
     link = MANAGE_ORIGIN + "/dashboard/products?tracker=" + quote(monitor_id, safe="")
     footer = ["", "Inspect the tracker, change email preferences, or pause tracking: " + link,
               "Emails follow your check schedule. Unchanged checks do not send change emails."]
     text = "\n".join([*lines, *footer])
-    return {"subject": ("OpenCrawl test alert: " if test else "OpenCrawl product change: ") + name,
-            "text": text, "html": "<div>" + "".join("<p>" + html.escape(line) + "</p>" for line in lines) +
-            '<p><a href="' + html.escape(link, quote=True) + '">Manage tracker and email preferences</a></p>' +
-            "<p>Emails follow your check schedule. Unchanged checks do not send change emails.</p></div>"}
+    subject = ("OpenCrawl test alert: " if test else "OpenCrawl product change: ") + name
+    body = (content if content is not None else "".join(paragraph(line) for line in lines))
+    body += action("Manage tracker", link) + note(
+        "Inspect the tracker, change email preferences, or pause tracking. "
+        "Emails follow your check schedule. Unchanged checks do not send change emails."
+    )
+    return {"subject": subject,
+            "text": text, "html": transactional_email("product_test" if test else "product_change", subject, text, body)}
 
 
 def prepare_payload(event: dict, settings) -> dict:
