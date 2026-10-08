@@ -1789,136 +1789,6 @@ function openRunInspector(event) {
     bindCommon();
   };
 
-  const demoRun = () => `
-    <div class="ih-run-demo" aria-label="OpenCrawl execution preview">
-      <div class="ih-run-demo-head">
-        <div><span class="ih-window-dot"></span><span class="ih-window-dot"></span><span class="ih-window-dot"></span></div>
-        <span>EXAMPLE EXECUTION</span>
-        <em>Illustrative flow</em>
-      </div>
-      <div class="ih-demo-command">
-        <span>${icon('activity')}</span>
-        <p>Research <b>acme.dev</b>, map the product, extract pricing and return evidence.</p>
-        <kbd>↵</kbd>
-      </div>
-      <div class="ih-demo-body">
-        <div class="ih-demo-timeline">
-          ${[
-            ['Route','Find a suitable capability',''],
-            ['Discover','Find public sources',''],
-            ['Browse','Read permitted pages',''],
-            ['Extract','Structure the response',''],
-            ['Evidence','Keep source references','']
-          ].map((x,i)=>`<div class="ih-demo-step ${i<5?'done':''}"><span>${statusDot()}</span><div><b>${x[0]}</b><small>${x[1]}</small></div><em>${x[2]}</em></div>`).join('')}
-        </div>
-        <div class="ih-demo-inspector">
-          <div class="ih-demo-tabs" role="tablist" aria-label="Example result views">${['Overview','Data','Evidence','Raw'].map((label,i)=>`<button type="button" role="tab" id="ih-demo-tab-${i}" aria-selected="${i===0}" aria-controls="ih-demo-panel-${i}" tabindex="${i===0?0:-1}" data-demo-tab="${i}">${label}</button>`).join('')}</div>
-          <div class="ih-demo-view" role="tabpanel" id="ih-demo-panel-0" aria-labelledby="ih-demo-tab-0">
-          <div class="ih-demo-result">
-            <span>RESULT</span>
-            <h3>Pricing model extracted</h3>
-            <p>Public plans · product links · cited evidence</p>
-          </div>
-          <div class="ih-demo-metrics"><span><small>Pages</small><b>after run</b></span><span><small>Latency</small><b>measured</b></span><span><small>Credits</small><b>metered</b></span></div>
-          <div class="ih-evidence-row"><i>01</i><span><b>Source page</b><small>Linked when captured</small></span></div>
-          </div>
-          <div class="ih-demo-view" role="tabpanel" id="ih-demo-panel-1" aria-labelledby="ih-demo-tab-1" hidden><div class="ih-demo-result"><span>STRUCTURED OUTPUT</span><h3>Data you can use.</h3><p>A real operation returns extracted fields alongside the source URL and request reference.</p></div><pre class="oc-demo-code">${esc(JSON.stringify({example:true,fields:['plan','price','currency'],output:'Structured JSON'},null,2))}</pre></div>
-          <div class="ih-demo-view" role="tabpanel" id="ih-demo-panel-2" aria-labelledby="ih-demo-tab-2" hidden><div class="ih-demo-result"><span>SOURCE REFERENCES</span><h3>Follow the evidence.</h3><p>Captured pages and source references are attached after a real run. Open the run inspector to trace its output.</p><a class="ih-text-link" data-link href="/docs/capabilities">Explore evidence & outputs ${icon('arrow')}</a></div></div>
-          <div class="ih-demo-view" role="tabpanel" id="ih-demo-panel-3" aria-labelledby="ih-demo-tab-3" hidden><div class="ih-demo-result"><span>EXAMPLE RESPONSE</span><h3>The details stay visible.</h3><p>This preview is illustrative. Actual status, cost, and latency come from execution.</p></div><pre class="oc-demo-code">${esc(JSON.stringify({illustrative:true,request_id:'assigned_at_execution',status:'recorded_after_run',credits:'metered'},null,2))}</pre></div>
-        </div>
-      </div>
-    </div>`;
-
-  renderHome = async function renderHomeV2() {
-    publicShell(`<main class="ih-home">
-      <section class="ih-hero">
-        <div class="container ih-hero-grid">
-          <div class="ih-hero-copy">
-            <div class="oc-hero-kicker"><img src="/assets/opencrawl-crab.png" width="24" height="24" alt="" aria-hidden="true"> OPENCRAWL / PUBLIC WEB OPERATIONS</div>
-            <h1>The internet,<br><span>as an executable workspace.</span></h1>
-            <p>Search it. Browse it. Extract from it. Monitor it. Route into APIs and remote tools. OpenCrawl gives agents one controlled surface for real internet work.</p>
-            <div class="ih-hero-actions">
-              <a class="btn primary large" data-link href="${state.me?.user?.email_verified ? '/dashboard' : '/signup'}">Open command center ${icon('arrow')}</a>
-              <a class="ih-text-link" data-link href="/docs/quickstart">See how it works ${icon('arrow')}</a>
-            </div>
-            <div class="ih-hero-proof">
-              <span>Gateway status in console</span><span>Evidence retained</span><span>Scoped execution</span>
-            </div>
-          </div>
-          ${demoRun()}
-        </div>
-      </section>
-
-      <section class="ih-client-band">
-        <div class="container">
-          <div class="ih-band-label"><span>OPENCRAWL / INTERNET OPERATIONS</span><i></i></div>
-          <div class="oc-capability-row" aria-label="OpenCrawl operations">
-            ${['Search','Crawl','Extract','Execute','Observe'].map((operation,index)=>`<a data-link href="${index===4?'/docs/monitoring':'/docs/capabilities'}"><i>${String(index+1).padStart(2,'0')}</i><b>${operation}</b>${icon('arrow')}</a>`).join('')}
-          </div>
-        </div>
-      </section>
-
-      <section class="ih-section ih-operation-section">
-        <div class="container">
-          <div class="ih-section-lead">
-            <h2>One instruction becomes a traceable operation.</h2>
-            <p>Instead of exposing a wall of tools, OpenCrawl discovers the capability, chooses an execution path, and keeps the run inspectable.</p>
-          </div>
-          <div class="ih-operation-grid">
-            <article class="ih-operation-primary">
-              <div class="ih-panel-head"><span>EXAMPLE ROUTE</span><em>Illustrative sequence</em></div>
-              <h3>Map every public pricing signal for a target company.</h3>
-              <div class="ih-operation-flow">
-                ${['Intent','Route','Browser','Extract','Validate','Evidence'].map((x,i)=>`<span><i>${String(i+1).padStart(2,'0')}</i><b>${x}</b></span>`).join('')}
-              </div>
-              <div class="ih-operation-footer"><span>Discover</span><span>Route</span><span>Execute</span><b>Inspect</b></div>
-            </article>
-            <div class="ih-operation-stack">
-              <article><span>SEARCH + FETCH</span><h3>Public web intelligence</h3><p>Discover, fetch, crawl and preserve provenance instead of returning a dead blob of text.</p><a class="ih-text-link" data-link href="/docs/capabilities#web">How web intelligence works ${icon('arrow')}</a></article>
-              <article><span>BROWSER</span><h3>Dynamic web execution</h3><p>Use controlled Chromium sessions for pages that need a real browser, state, clicks or extraction.</p><a class="ih-text-link" data-link href="/docs/capabilities#browser">When browser execution is appropriate ${icon('arrow')}</a></article>
-              <article><span>TOOL MESH</span><h3>APIs and remote MCPs</h3><p>Route to external capabilities without loading every provider schema into the model at once.</p><a class="ih-text-link" data-link href="/docs/tool-mesh">How routing and execution work ${icon('arrow')}</a></article>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="ih-section ih-evidence-section">
-        <div class="container ih-evidence-grid">
-          <div class="ih-section-lead">
-            <h2>Power means nothing if the result is impossible to inspect.</h2>
-            <p>Every useful run should leave behind enough context to understand what happened: route, latency, cost, status and evidence.</p>
-            <a class="ih-text-link" data-link href="/docs/capabilities">Explore the capability fabric ${icon('arrow')}</a>
-          </div>
-          <div class="ih-ledger">
-            <div class="ih-ledger-head"><span>RUN LEDGER FIELDS</span><span>ROUTE</span><span>STATE</span><span>LATENCY</span></div>
-            <div class="ih-ledger-row"><code>Request ID</code><span>Selected route</span><em>Measured status</em><b>Elapsed time</b></div>
-            <div class="ih-ledger-row"><code>Capability</code><span>Path used</span><em>Credit charge</em><b>Timestamp</b></div>
-          </div>
-        </div>
-      </section>
-
-      <section class="ih-final">
-        <div class="container ih-final-inner">
-          <div><h2>Give the agent reach.<br>Keep the operation under control.</h2><p>One endpoint. Real internet capability. Runs you can actually inspect.</p></div>
-          <a class="btn primary large" data-link href="${state.me?.user?.email_verified ? '/dashboard' : '/signup'}">Launch OpenCrawl ${icon('arrow')}</a>
-        </div>
-      </section>
-    </main>`);
-    const demoTabs=$$('[data-demo-tab]');
-    const selectDemoTab=index=>{
-      demoTabs.forEach((tab,i)=>{tab.setAttribute('aria-selected',String(i===index));tab.tabIndex=i===index?0:-1;$('#ih-demo-panel-'+i).hidden=i!==index;});
-    };
-    demoTabs.forEach((tab,index)=>{
-      tab.addEventListener('click',()=>selectDemoTab(index));
-      tab.addEventListener('keydown',event=>{
-        if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
-        event.preventDefault();
-        const next=event.key==='Home'?0:event.key==='End'?3:(index+(event.key==='ArrowRight'?1:-1)+4)%4;
-        selectDemoTab(next);demoTabs[next].focus();
-      });
-    });
-  };
-
   function bindRunComposer() {
     const form = $('#ih-run-form');
     if (!form) return;
@@ -2116,7 +1986,7 @@ function openRunInspector(event) {
       return '<article class="mcp-row mcp-row-live"><div class="mcp-row-main"><span class="ihx-state '+(state==='ok'?'on':state==='error'?'off':'idle')+'">'+dot(state==='ok'?'ok':state==='error'?'warn':'idle')+' '+esc(statusLabel)+'</span><b>'+esc(c.name)+'</b><code>'+esc(c.endpoint_url)+'</code><small>'+esc(c.transport)+' · '+esc(c.auth_type)+' · '+esc((c.header_names||[]).join(', ')||'no credential headers')+'</small><em>'+esc(detail)+' · last check '+esc(checked)+'</em></div><div class="mcp-row-actions"><button class="btn small" data-test-mcp="'+esc(c.id)+'">Test & discover</button><button class="btn quiet small" data-toggle-mcp="'+esc(c.id)+'" data-enabled="'+String(Boolean(c.enabled))+'">'+(c.enabled?'Pause':'Enable')+'</button><button class="btn danger small" data-del-mcp="'+esc(c.id)+'">Delete</button></div></article>';
     }).join(''):'<div class="mcp-empty"><b>No remote MCP connections</b><p>Add one manually or import a cURL command. Saving is only step one; OpenCrawl will then perform a live MCP handshake and discover the remote tool catalog.</p></div>';
     dashboardShell('connections', headline('CONNECTIONS','MCP connections','One page, two directions: connect AI clients into OpenCrawl, and connect trusted remote MCP servers outward from OpenCrawl. Keep those permission boundaries separate.','<button class="btn primary" id="mcp-add">+ Add remote MCP</button>')+
-      '<section class="ihx-endpoint-hero"><div><span>YOUR OPENCRAWL MCP</span><h2>'+esc(endpoint)+'</h2><p>This is the inbound endpoint for supported MCP hosts such as Codex, Claude Code, VS Code, Cursor and compatible remote MCP clients. Authentication is handled separately through OAuth or a dedicated scoped key.</p><a class="mcp-link" data-link href="/docs/clients">Read exact client setup guides →</a></div><div class="ihx-endpoint-meta"><span><small>Transport</small><b>Streamable HTTP</b></span><span><small>Identity</small><b>OAuth / key</b></span><span><small>State</small><b>Server-side policy</b></span></div></section>'+
+      '<section class="ihx-endpoint-hero"><div><span>YOUR OPENCRAWL MCP</span><div class="oc-endpoint-line"><h2>'+esc(endpoint)+'</h2><button class="btn small" type="button" data-copy="'+esc(endpoint)+'">'+icon('copy')+' Copy endpoint</button></div><p>This is the inbound endpoint for supported MCP hosts such as Codex, Claude Code, VS Code, Cursor and compatible remote MCP clients. Authentication is handled separately through OAuth or a dedicated scoped key.</p><a class="mcp-link" data-link href="/docs/clients">Read exact client setup guides →</a></div><div class="ihx-endpoint-meta"><span><small>Transport</small><b>Streamable HTTP</b></span><span><small>Identity</small><b>OAuth / key</b></span><span><small>State</small><b>Server-side policy</b></span></div></section>'+
       '<section class="ihx-connection-direction"><article><span>INBOUND</span><h3>Client → OpenCrawl</h3><p>Your AI host connects to <code>'+esc(endpoint)+'</code>. Give each host its own OAuth grant or scoped key so it can be revoked independently.</p><a data-link href="/docs/clients">Client guides →</a></article><article><span>OUTBOUND</span><h3>OpenCrawl → provider / remote MCP</h3><p>These saved connections let the Tool Mesh reach another trusted MCP server. Provider credentials stay server-side and are not rendered back into the browser.</p><a data-link href="/docs/sync#remote-mcp">How federation works →</a></article></section><section class="agent-connect"><header><span>CONNECT A CLIENT</span><h2>Use OpenCrawl from the tools you already work in</h2><p>These are starter configurations. The full guide explains authentication, scope, secret storage, what happens after connection, and host-specific limitations.</p><a class="mcp-link" data-link href="/docs/clients">Open detailed client documentation →</a></header><div class="agent-tabs" role="group" aria-label="Client setup"><button class="active" aria-pressed="true" data-agent-tab="codex"><span class="agent-tab-mark">'+platformMark('openai','OpenAI')+'</span>Codex</button><button aria-pressed="false" data-agent-tab="claude"><span class="agent-tab-mark">'+platformMark('anthropic','Anthropic')+'</span>Claude Code</button><button aria-pressed="false" data-agent-tab="vscode"><span class="agent-tab-mark">'+platformBrandMark('vscode')+'</span>VS Code</button><button aria-pressed="false" data-agent-tab="cursor"><span class="agent-tab-mark">'+platformBrandMark('cursor')+'</span>Cursor</button><button aria-pressed="false" data-agent-tab="http"><span class="agent-tab-mark">'+platformMark('mcp','MCP')+'</span>HTTP probe</button></div><div id="agent-setup"></div></section><section class="mcp-secondary"><button id="mcp-add2"><b>Connect remote MCP</b><small>OpenCrawl → another MCP server</small></button><button id="mcp-curl"><b>Import provider cURL</b><small>Parse endpoint + supported auth headers; never execute shell text</small></button></section><div class="mcp-doc-strip"><span>Need the model, not just the button?</span><a data-link href="/docs/sync">Connections & synchronization →</a><a data-link href="/docs/tool-mesh">Tool Mesh execution →</a><a data-link href="/docs/security#mcp-trust">MCP trust & security →</a></div>'+
       '<section class="connected-apps"><header><div><span>CONNECTED APPS</span><h2>Provider accounts</h2><p>Authorize GitHub, Gmail, Slack, Notion and other supported toolkits through hosted provider authentication. Active accounts become available to your Tool Mesh; expired accounts are never executed silently.</p></div><div class="connected-app-head-actions"><span>'+fmt(appAccounts.filter(x=>String(x.status||'').toUpperCase()==='ACTIVE').length)+' active accounts</span><button class="btn primary small" id="connect-app-catalog">+ Connect app</button></div></header><div class="connected-app-grid">'+connectedAppCards+'</div></section>'+
       '<section class="mcp-saved"><header><span>REMOTE MCP</span><h2>Saved MCP servers</h2><p>These are outbound MCP servers. Credential values are never rendered back. MCP servers you add yourself do not consume OpenCrawl usage credits for their external execution.</p></header>'+rows+'</section>'+
@@ -2389,13 +2259,14 @@ function openRunInspector(event) {
 
     const keyOptions=keys.map((k,i)=>'<option value="'+esc(k.id)+'" '+(i===0?'selected':'')+'>'+esc(k.name)+' · '+esc(k.prefix)+'…</option>').join('');
     const html=
-      headline('PLAYGROUND','Search the web','Type what you want to know. OpenCrawl will search public sources; paste a URL and it will crawl the site instead.','<a class="btn" data-link href="/dashboard/usage">'+icon('activity')+' Runs</a>')+
-      '<section class="web-search-console">'+
+      headline('PLAYGROUND','Search the web','Ask a question, research a topic, or explore a public URL.','<a class="btn" data-link href="/dashboard/usage">'+icon('activity')+' Runs</a>')+
+      '<div class="oc-playground-grid"><section class="web-search-console">'+
+        '<header class="oc-playground-heading"><span class="oc-glass-icon">'+icon('search')+'</span><h2>Start with a question or URL.</h2></header>'+
         '<form id="ihp-form" class="web-search-form">'+
           '<div class="web-search-box">'+
             '<span class="web-search-icon">'+icon('activity')+'</span>'+
-            '<textarea id="research-query" rows="1" autocomplete="off" spellcheck="false" maxlength="1000" aria-label="Search query or public URL" placeholder="Search the web — e.g. latest AI news"></textarea>'+
-            '<button id="ihp-submit" type="submit" class="web-search-submit" aria-label="Review cost">'+icon('arrow')+'</button>'+
+            '<textarea id="research-query" rows="3" autocomplete="off" spellcheck="false" maxlength="1000" aria-label="Search query or public URL" placeholder="Ask a question or paste a public URL…"></textarea>'+
+            '<button id="ihp-submit" type="submit" class="web-search-submit" aria-label="Review cost">'+icon('arrow')+'<span>Review cost</span></button>'+
           '</div>'+
           '<div class="web-search-actions">'+
             '<label class="deep-toggle"><input id="ihp-deep" type="checkbox"><span></span><b>Deep research</b></label>'+
@@ -2403,13 +2274,13 @@ function openRunInspector(event) {
             '<span class="search-hint">Paste a URL to crawl it automatically</span>'+
           '</div>'+
           '<div class="search-examples" aria-label="Examples">'+
-            '<button type="button" data-example="latest AI news">latest AI news</button>'+
-            '<button type="button" data-example="OpenAI latest models and pricing">OpenAI models & pricing</button>'+
-            '<button type="button" data-example="best AI coding agents right now">best AI coding agents</button>'+
-            '<button type="button" data-example="https://recharza.in">crawl recharza.in</button>'+
+            '<button type="button" data-example="latest AI news">'+icon('docs')+'<span><b>Research a topic</b><small>Find public sources on a topic.</small></span>'+icon('arrow')+'</button>'+
+            '<button type="button" data-example="Compare public pricing for hosted databases">'+icon('layers')+'<span><b>Compare services</b><small>Compare options across the web.</small></span>'+icon('arrow')+'</button>'+
+            '<button type="button" data-example="https://example.com">'+icon('globe')+'<span><b>Crawl a website</b><small>Collect pages from a public site.</small></span>'+icon('arrow')+'</button>'+
+            '<button type="button" data-example="Find the public API documentation for this site">'+icon('code')+'<span><b>Find documentation</b><small>Find guides, APIs, and references.</small></span>'+icon('arrow')+'</button>'+
           '</div>'+
           '<details class="search-advanced">'+
-            '<summary>Advanced options</summary>'+
+            '<summary>Advanced options'+icon('down')+'</summary>'+
             '<div class="search-advanced-grid">'+
               '<label>API key<select id="ihp-key-id">'+keyOptions+'</select></label>'+
               '<label>Max results / pages<input id="ihp-pages" type="number" min="1" max="50" value="10"></label>'+
@@ -2430,7 +2301,8 @@ function openRunInspector(event) {
           '<div class="execution-budget-controls"><label>Maximum usage (credits)<input id="ihp-spend-limit" type="number" min="0" step="1" placeholder="Use reviewed maximum"></label><p>Review the cost, then confirm. Unused reserved credits return to your available wallet.</p></div>'+
           '<section id="ihp-cost-review" class="card execution-cost-review" aria-live="polite" hidden></section>'+
         '</form>'+
-      '</section>'+
+      '</section><aside class="oc-playground-guide"><img src="/assets/glass-globe.webp?v=20261008" width="220" height="160" alt=""><h2>Before you run</h2><ol><li><span>01</span><div><b>Choose a question or URL</b><p>Use a starter or write your own.</p></div></li><li><span>02</span><div><b>Review the cost</b><p>See the maximum before you confirm.</p></div></li><li><span>03</span><div><b>Keep the evidence</b><p>Inspect results and sources after the run.</p></div></li></ol><a data-link href="/docs/quickstart">'+icon('docs')+' Quickstart guide '+icon('arrow')+'</a><a data-link href="/dashboard/runs">'+icon('clock')+' View run history '+icon('arrow')+'</a></aside></div>'+
+      '<nav class="oc-playground-tools" aria-label="Other workflows"><header><h2>Need a different workflow?</h2><p>Explore other tools for more focused tasks.</p></header><div>'+[['scan','Smart Scrape','Extract clean content from pages.','scrape'],['map','Site Map','Discover a public site’s structure.','map'],['code','Structured Extract','Extract structured data from pages.','extract']].map(([symbol,title,note,path])=>'<a data-link href="/dashboard/'+path+'">'+icon(symbol)+'<span><b>'+title+' '+icon('arrow')+'</b><small>'+note+'</small></span></a>').join('')+'</div></nav>'+
       '<section id="ihp-results" class="web-search-results" aria-live="polite" aria-atomic="false" hidden></section>';
 
     dashboardShell('playground',html);
@@ -2625,7 +2497,7 @@ function openRunInspector(event) {
       state.activePlayground=controller;
       submit.disabled=true;
       submit.setAttribute('aria-label','Request running');
-      submit.innerHTML=icon('activity');
+      submit.innerHTML=icon('activity')+'<span>Running…</span>';
       results.hidden=false;
       results.innerHTML='<div class="ih-execution-progress" role="status"><div class="ih-execution-head"><span class="ih-execution-symbol" aria-hidden="true">⚙️</span><div><b>Request prepared</b><p>'+esc(operation.toUpperCase())+' · '+esc(inputValue)+'</p></div><button class="btn small" type="button" id="ihp-cancel">Stop waiting</button></div><ol class="ih-execution-stages"><li class="done">Queued in this browser</li><li class="done">Request sent to gateway</li><li class="current">Awaiting routing and execution</li><li>Reading response</li><li>Complete</li></ol><p class="ih-execution-note">OpenCrawl returns the work and measured credits when this request completes.</p></div>';
       $('#ihp-cancel').onclick=()=>controller.abort();
@@ -2655,13 +2527,14 @@ function openRunInspector(event) {
         if(state.activePlayground===controller)state.activePlayground=null;
         submit.disabled=false;
         submit.setAttribute('aria-label','Review cost');
-        submit.innerHTML=icon('arrow');
+        submit.innerHTML=icon('arrow')+'<span>Review cost</span>';
       }
     });
 
     $$('[data-example]').forEach(btn=>btn.addEventListener('click',()=>{
       queryInput.value=btn.dataset.example||'';
-      form.requestSubmit();
+      queryInput.dispatchEvent(new Event('input',{bubbles:true}));
+      queryInput.focus();
     }));
 
     queryInput.addEventListener('keydown',e=>{
@@ -2738,12 +2611,12 @@ function openRunInspector(event) {
   dashSettings = async function dashSettingsV3() {
     const [s,sessions]=await Promise.all([api('/api/security/status'),api('/api/account/sessions')]), u=state.me.user, list=sessions.sessions||[];
     dashboardShell('settings',`
-      ${headline('ACCOUNT','Settings & security','Identity, login protection and active sessions presented as one security surface.')}
+      ${headline('ACCOUNT','Settings & security','Manage your profile, sign-in protection, and active sessions.')}
       <section class="ihx-settings-grid">
-        <article class="ihx-profile-panel"><header><div><span>PROFILE</span><h2>Workspace identity</h2></div><span class="ihx-state on">${dot()} Verified</span></header><form id="profile-form" class="form-stack"><label>Email<input value="${esc(u.email)}" disabled></label><label>Display name<input name="display_name" value="${esc(u.display_name||'')}" maxlength="80" required></label><div class="ihx-linked-account">${clientMark('github','GitHub')}<span><b>GitHub</b><small>${u.github_connected?'Connected to this identity':'Not connected'}</small></span><em>${u.github_connected?'Linked':'Optional'}</em></div><button class="btn">Save profile</button></form></article>
+        <article class="ihx-profile-panel"><header><div><span>PROFILE</span><h2>Your profile</h2></div><span class="ihx-state on">${dot()} Verified</span></header><form id="profile-form" class="form-stack"><label>Email<input value="${esc(u.email)}" disabled></label><label>Display name<input name="display_name" value="${esc(u.display_name||'')}" maxlength="80" required></label><div class="ihx-linked-account">${clientMark('github','GitHub')}<span><b>GitHub</b><small>${u.github_connected?'Connected to this identity':'Not connected'}</small></span><em>${u.github_connected?'Linked':'Optional'}</em></div><button class="btn">Save profile</button></form></article>
         <article class="ihx-security-panel"><header><div><span>SECURITY POSTURE</span><h2>Protection status</h2></div><span class="ihx-state ${s.two_factor_enabled?'on':'idle'}">${dot(s.two_factor_enabled?'ok':'warn')} ${s.two_factor_enabled?'2FA enabled':s.two_factor_available?'2FA available':'Server configuration required'}</span></header><div class="ihx-security-rail"><div>${icon('check')}<span><b>Email verification</b><small>Privileged actions unlocked</small></span><em>On</em></div><div>${icon('shield')}<span><b>Authenticator 2FA</b><small>${s.two_factor_enabled?'Required after primary sign-in':'Add a second factor to reach full protection'}</small></span><button class="btn ${s.two_factor_enabled?'danger':'primary'} small" id="toggle-2fa">${s.two_factor_enabled?'Disable':'Set up'}</button></div>${s.two_factor_enabled?`<div>${icon('activity')}<span><b>Recovery codes</b><small>One-use emergency access</small></span><button class="btn small" id="regen">Regenerate</button></div>`:''}</div><footer class="ihx-context-help"><span>Before changing login protection, understand the challenge, recovery-code and lockout behavior.</span><a data-link href="/docs/two-factor">How OpenCrawl 2FA works →</a></footer></article>
         <article class="ihx-sessions-panel"><header><div><span>SESSIONS</span><h2>Active web sessions</h2></div><button class="btn danger small" id="revoke-all">Sign out everywhere</button></header><div>${list.map(x=>`<div class="ihx-session-row">${icon('activity')}<span><b>${x.current?'This session':'Web session'}</b><small>Created ${esc(when(x.created_at))} · expires ${esc(when(x.expires_at))}</small></span><em class="ihx-state ${x.current?'on':'idle'}">${dot(x.current?'ok':'warn')} ${x.current?'Current':'Active'}</em><button class="btn small" data-session="${x.id}">Revoke</button></div>`).join('')||'<div class="notice">No active sessions found.</div>'}</div></article>
-        <article class="ihx-password-panel"><header><div><span>PASSWORD</span><h2>Change primary credential</h2></div><p>Changing your password revokes existing sessions.</p></header><form id="password-form" class="ihx-password-form"><label>Current password<input type="password" name="current_password" autocomplete="current-password" required></label><label>New password<input type="password" name="new_password" autocomplete="new-password" minlength="8" required></label><button class="btn">Change and sign out</button></form></article>
+        <article class="ihx-password-panel"><header><div><span>PASSWORD</span><h2>Change password</h2></div><p>Changing your password revokes existing sessions.</p></header><form id="password-form" class="ihx-password-form"><label>Current password<input type="password" name="current_password" autocomplete="current-password" required></label><label>New password<input type="password" name="new_password" autocomplete="new-password" minlength="8" required></label><button class="btn">Change and sign out</button></form></article>
       </section>`);
     $('#profile-form').onsubmit=async e=>{e.preventDefault();const button=e.submitter||e.currentTarget.querySelector('button');busy(button,true,'Saving…');try{const r=await api('/api/account/profile',{method:'PATCH',body:Object.fromEntries(new FormData(e.currentTarget))});state.me.user=r.user;toast('Profile updated','success');}catch(error){toast(error.message,'error');}finally{busy(button,false);}};
     $('#toggle-2fa').onclick=()=>s.two_factor_enabled?showDisable2fa():showSetup2fa($('#toggle-2fa')); $('#regen')?.addEventListener('click',showRegenerate);

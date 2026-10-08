@@ -1,3 +1,5 @@
+import pytest
+
 from internet_hands import site
 
 
@@ -19,8 +21,9 @@ def test_static_brand_assets_can_still_use_normal_caching() -> None:
     assert "no-store" not in mark.headers.get("cache-control", "")
 
 
-def test_dimensional_art_is_served_as_a_static_image() -> None:
-    orbit = site.site_asset("glass-orbit.webp")
-    assert orbit.media_type == "image/webp"
-    assert orbit.path.is_file()
-    assert "no-store" not in orbit.headers.get("cache-control", "")
+@pytest.mark.parametrize("name", ["glass-orbit.webp", "glass-portal.webp", "glass-globe.webp"])
+def test_dimensional_art_is_served_as_a_static_image(name: str) -> None:
+    artwork = site.site_asset(name)
+    assert artwork.media_type == "image/webp"
+    assert artwork.path.is_file()
+    assert "no-store" not in artwork.headers.get("cache-control", "")

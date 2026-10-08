@@ -322,6 +322,11 @@ def test_playground_cost_review_requires_confirmation_and_requotes_changed_input
         assert len(quotes) == 1 and not executions
         assert page.get_by_role("button", name="Review cost", exact=True).is_visible()
         assert quotes[-1]["paid_recovery"] is False
+        page.get_by_role("button", name="Compare services", exact=False).click()
+        assert page.locator("#research-query").input_value() == "Compare public pricing for hosted databases"
+        assert page.locator("#research-query").evaluate("el => el === document.activeElement")
+        assert not page.get_by_role("button", name="Confirm run", exact=True).is_visible()
+        assert len(quotes) == 1 and not executions
         page.locator("#research-query").fill("changed company")
         page.get_by_role("button", name="Review cost", exact=True).click()
         page.get_by_role("button", name="Confirm run", exact=True).wait_for()
@@ -703,8 +708,59 @@ def test_opencrawl_mark_and_wordmark_at_phone_and_desktop_widths(frontend_url):
                 assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), (path, width)
                 if path == "/" and width == 390:
                     header = page.locator(".ih-site-header").bounding_box()
-                    kicker = page.locator(".oc-hero-kicker").bounding_box()
-                    assert header and kicker and kicker["y"] - (header["y"] + header["height"]) < 100
+                    title = page.get_by_role("heading", name="The internet. Ready for your agent.").bounding_box()
+                    assert header and title and title["y"] - (header["y"] + header["height"]) < 100
+        browser.close()
+
+
+def test_home_workflow_preview_keyboard_launch_and_connection_copy(frontend_url):
+    writes = []
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 1366, "height": 900})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.add_init_script("Object.defineProperty(navigator, 'clipboard', {value: {writeText: async text => { window.copied = text; }}})")
+
+        def respond(route):
+            path = urlsplit(route.request.url).path
+            if route.request.method != "GET":
+                writes.append(path)
+            if path == "/api/auth/me":
+                data = {"user": {"email": "owner@test.invalid", "email_verified": True}, "account": {}}
+            elif path == "/api/api-keys":
+                data = {"keys": [{"id": "key_fixture", "name": "Collection", "prefix": "oc"}]}
+            else:
+                data = {}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+        page.route("**/api/**", respond)
+        page.goto(frontend_url + "/")
+        research = page.get_by_role("tab", name="Research", exact=True)
+        research.wait_for()
+        research.focus()
+        page.keyboard.press("End")
+        assert page.get_by_role("tab", name="Connect", exact=True).get_attribute("aria-selected") == "true"
+        assert page.get_by_role("tabpanel").count() == 1
+        preview = page.get_by_role("region", name="OpenCrawl interactive product preview", exact=True)
+        assert preview.get_by_role("link", name="Explore connections", exact=True).get_attribute("href") == "/dashboard/connections"
+        page.keyboard.press("Home")
+        page.keyboard.press("ArrowRight")
+        assert page.get_by_role("tab", name="Crawl", exact=True).get_attribute("aria-selected") == "true"
+        page.get_by_role("button", name="Copy", exact=True).click()
+        copied = page.evaluate("window.copied")
+        assert json.loads(copied)["mcpServers"]["OpenCrawl"]["url"] == "https://opencrawl.top/mcp"
+        assert "<API_KEY>" in copied
+        page.get_by_role("button", name="Open selected workflow", exact=True).click()
+        page.wait_for_url("**/dashboard/playground")
+        page.locator("#research-query").wait_for()
+        assert page.locator("#research-query").input_value() == "https://example.com"
+        assert not writes
+        page.goto(frontend_url + "/dashboard/connections")
+        page.get_by_role("button", name="Copy endpoint", exact=True).click()
+        assert page.evaluate("window.copied") == "https://opencrawl.top/mcp"
+        assert not writes
+        assert not errors, errors
         browser.close()
 
 
