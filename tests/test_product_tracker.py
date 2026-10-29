@@ -173,3 +173,16 @@ async def test_product_cap_and_paused_job_prevent_work(product_monitor):
     control.toggle_monitor(owner, monitor["id"], False)
     await dispatch_run(RunStore(control))
     assert control.get_monitor(owner, monitor["id"])["runs"][0]["credits_charged"] == 0
+
+@pytest.mark.parametrize("http_status", [404, 500])
+async def test_http_error_cannot_seed_product_monitor_baseline(product_monitor, http_status):
+    control, owner, monitor, _key, capture = product_monitor
+    capture["status"] = http_status
+    await scheduled_check(control, monitor)
+    failed = control.get_monitor(owner, monitor["id"])
+    assert failed["last_status"] == "failed"
+    assert failed["baseline_hash"] is None
+    assert failed["baseline_dataset_id"] is None
+    assert failed["runs"][0]["dataset_id"] is None
+    assert failed["runs"][0]["credits_charged"] == 0
+
