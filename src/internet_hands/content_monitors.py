@@ -98,7 +98,16 @@ def finish_content_check(runs, cur, conn, job, status, result, usage, error_code
                 and not page.get("error") and not page.get("content_error") and bool(page.get("text"))
                 and not page.get("content_truncated"))
     if product_check:
-        readable = status == "completed" and bool(page.get("products")) and not page.get("product_error")
+        # Product JSON-LD can be present on an error page; never seed a baseline from it.
+        readable = (
+            status == "completed"
+            and 200 <= (page.get("status_code") or 0) < 300
+            and not page.get("error")
+            and not page.get("content_error")
+            and not page.get("content_truncated")
+            and bool(page.get("products"))
+            and not page.get("product_error")
+        )
     dataset_id, diff = None, None
     outcome = "failed"
     if stale or status == "cancelled":
